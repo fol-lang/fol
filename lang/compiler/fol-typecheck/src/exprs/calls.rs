@@ -1449,10 +1449,19 @@ pub(crate) fn type_for_reference(
     reference_id: ReferenceId,
     origin: Option<SyntaxOrigin>,
 ) -> Result<TypedExpr, TypecheckError> {
-    let symbol_id = resolved
-        .reference(reference_id)
-        .and_then(|reference| reference.resolved)
-        .ok_or_else(|| {
+    let reference = resolved.reference(reference_id).ok_or_else(|| {
+        TypecheckError::with_origin(
+            TypecheckErrorKind::InvalidInput,
+            "resolved reference disappeared before typechecking",
+            origin.clone().unwrap_or(SyntaxOrigin {
+                file: None,
+                line: 1,
+                column: 1,
+                length: 1,
+            }),
+        )
+    })?;
+    let symbol_id = reference.resolved.ok_or_else(|| {
             TypecheckError::with_origin(
                 TypecheckErrorKind::InvalidInput,
                 "resolved reference lost its target symbol",
@@ -1465,6 +1474,26 @@ pub(crate) fn type_for_reference(
             )
         })?;
     let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
+    if let Some(CheckedType::Routine(signature)) = typed.type_table().get(type_id) {
+        if !signature.generic_params.is_empty() {
+            let symbol_name = resolved
+                .symbol(symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("<generic-routine>");
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "generic routine '{symbol_name}' cannot be used as a plain routine value in V2 Milestone 1; call it directly instead"
+                ),
+                origin.clone().unwrap_or(SyntaxOrigin {
+                    file: None,
+                    line: 1,
+                    column: 1,
+                    length: 1,
+                }),
+            ));
+        }
+    }
     let typed_reference = typed.typed_reference_mut(reference_id).ok_or_else(|| {
         TypecheckError::with_origin(
             TypecheckErrorKind::Internal,

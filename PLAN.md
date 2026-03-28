@@ -254,14 +254,14 @@ Completion criteria:
 
 - generic call mismatches fail explicitly and locally
 
-### Slice 23
+### Slice 23 (complete)
 Reject underconstrained generic routines that the milestone does not support.
 
 Completion criteria:
 
 - typecheck does not pretend unsupported inference exists
 
-### Slice 24
+### Slice 24 (complete)
 Reject unsupported mixed generic/plain routine interactions cleanly.
 
 Completion criteria:
@@ -271,7 +271,7 @@ Completion criteria:
 
 ## Epoch 6: Call Surface And Inference Boundary
 
-### Slice 25
+### Slice 25 (complete)
 Freeze whether Milestone 1 requires explicit generic call arguments or only
 supports inference-free same-type cases.
 
@@ -279,7 +279,7 @@ Completion criteria:
 
 - one exact call contract is chosen and documented in tests
 
-### Slice 26
+### Slice 26 (complete)
 If explicit generic call syntax is already parsed, connect the minimal chosen
 form through resolver/typecheck.
 
@@ -288,7 +288,7 @@ Completion criteria:
 - one explicit generic call path works end to end, or remains explicitly
   rejected
 
-### Slice 27
+### Slice 27 (complete)
 Pin no-inference or narrow-inference behavior with regression tests.
 
 Completion criteria:
@@ -296,7 +296,7 @@ Completion criteria:
 - supported inference behavior is explicit
 - unsupported inference behavior fails clearly
 
-### Slice 28
+### Slice 28 (complete)
 Reject ambiguous generic calls with exact diagnostics.
 
 Completion criteria:
@@ -305,14 +305,14 @@ Completion criteria:
 
 ## Epoch 7: Negative Boundary Hardening
 
-### Slice 29
+### Slice 29 (complete)
 Add compile-fail fixtures for generic type declarations remaining out of scope.
 
 Completion criteria:
 
 - generic type surfaces still fail explicitly
 
-### Slice 30
+### Slice 30 (complete)
 Add compile-fail fixtures for standards/protocol-style generic constraints
 remaining out of scope.
 
@@ -320,7 +320,7 @@ Completion criteria:
 
 - standards-related generic surfaces still fail explicitly
 
-### Slice 31
+### Slice 31 (complete)
 Add compile-fail fixtures for generic routine shapes the milestone does not
 accept.
 
@@ -328,7 +328,7 @@ Completion criteria:
 
 - unsupported headers or parameter forms fail explicitly
 
-### Slice 32
+### Slice 32 (complete)
 Add compile-fail fixtures for editor-facing generic misuse diagnostics.
 
 Completion criteria:

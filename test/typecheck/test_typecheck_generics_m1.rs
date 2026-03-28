@@ -106,3 +106,100 @@ fn generic_routine_calls_reject_underconstrained_return_only_generics() {
         "Expected underconstrained generic returns to fail explicitly, got: {errors:?}"
     );
 }
+
+#[test]
+fn generic_routine_calls_reject_context_only_inference() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun make(T)(): T = {\n\
+             panic(\"boom\");\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var value: int = make();\n\
+             return value;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("leaves generic parameter 'T' underconstrained")
+        }),
+        "Expected contextual return typing to stay outside M1 inference, got: {errors:?}"
+    );
+}
+
+#[test]
+fn generic_routine_values_reject_plain_callable_bindings() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+         "fun pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var chosen: {fun (value: int): int} = pick;\n\
+             return chosen(1);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("cannot be used as a plain routine value in V2 Milestone 1")
+        }),
+        "Expected generic routine value binding to stay unsupported in M1, got: {errors:?}"
+    );
+}
+
+#[test]
+fn generic_routine_values_reject_plain_callable_arguments() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+         "fun pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun call_once(action: {fun (value: int): int}): int = {\n\
+             return action(1);\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return call_once(pick);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("cannot be used as a plain routine value in V2 Milestone 1")
+        }),
+        "Expected generic routine arguments to stay unsupported in M1, got: {errors:?}"
+    );
+}
+
+#[test]
+fn template_style_generic_calls_remain_explicitly_rejected() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return pick$(1);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("template instantiation is not yet supported")
+        }),
+        "Expected template-call syntax to remain outside generic-call M1 support, got: {errors:?}"
+    );
+}

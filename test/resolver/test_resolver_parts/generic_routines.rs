@@ -62,3 +62,33 @@ fn test_resolver_binds_generic_parameters_into_nested_routine_scope() {
     fs::remove_dir_all(&temp_root)
         .expect("Temporary resolver fixture directory should be removable after the test");
 }
+
+#[test]
+fn test_resolver_reports_ambiguous_generic_calls_explicitly() {
+    let temp_root = unique_temp_root("ambiguous_generic_calls");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun pick(T)(value: T): T = {\n    return value;\n};\n\
+         fun pick(U)(value: U): U = {\n    return value;\n};\n\
+         fun[] main(): int = {\n    return pick(1);\n};\n",
+    )
+    .expect("Should write the ambiguous generic call fixture");
+
+    let errors = try_resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    )
+    .expect_err("Resolver should reject ambiguous generic calls");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == ResolverErrorKind::AmbiguousReference
+            && error
+                .message()
+                .contains("callable routine 'pick' is ambiguous")
+    }));
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}

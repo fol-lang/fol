@@ -272,6 +272,52 @@ fn lsp_server_surfaces_future_version_boundary_diagnostics() {
 }
 
 #[test]
+fn lsp_server_surfaces_generic_m1_boundary_diagnostics() {
+    let (root, uri) = sample_package_root("generic_m1_boundaries");
+    let source = concat!(
+        "fun pick(T)(value: T): T = {\n",
+        "    return value;\n",
+        "};\n",
+        "typ Box(T): rec = {\n",
+        "    value: int\n",
+        "};\n",
+        "fun[] main(): int = {\n",
+        "    var chosen: fun(int): int = pick;\n",
+        "    return pick$(1);\n",
+        "};\n",
+    );
+    fs::write(root.join("src/main.fol"), source).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, source);
+    let messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("generic types are not yet supported")),
+        "editor path should surface the generic-type M1 boundary, got: {messages:?}"
+    );
+    assert!(
+        messages.iter().any(|message| message.contains(
+            "generic routine 'pick' cannot be used as a plain routine value in V2 Milestone 1"
+        )),
+        "editor path should surface the generic-routine value boundary, got: {messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("template instantiation is not yet supported")),
+        "editor path should surface the template-instantiation boundary, got: {messages:?}"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn lsp_server_maps_current_v1_diagnostic_classes_stably() {
     let cases = [
         (

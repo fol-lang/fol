@@ -260,6 +260,93 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_typecheck_rejects_generic_types_for_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_type_m1_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic-type fixture root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "typ Box(T): rec = {\n    value: int\n};\n",
+        )
+        .expect("Should write generic type fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI generic-type fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject generic types in M1");
+        assert!(
+            stdout.contains("generic types are not yet supported")
+                || stdout.contains("type contract conformance is planned for a future release"),
+            "CLI should preserve the generic-type boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_generic_routine_constraints_for_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_constraint_m1_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic-constraint fixture root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "typ Bound: rec = {\n};\n\
+             fun pick(T: Bound)(value: T): T = {\n    return value;\n};\n",
+        )
+        .expect("Should write generic routine constraint fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI generic-constraint fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject generic routine constraints in M1"
+        );
+        assert!(
+            stdout.contains("generic routine constraints are not yet supported in V2 Milestone 1"),
+            "CLI should preserve the generic routine constraint boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_template_style_generic_calls_for_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_template_call_m1_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic-call fixture root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "fun pick(T)(value: T): T = {\n    return value;\n};\n\
+             fun[] main(): int = {\n    return pick$(1);\n};\n",
+        )
+        .expect("Should write template-style generic call fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI generic-call fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject template-style generic calls in M1"
+        );
+        assert!(
+            stdout.contains("template instantiation is not yet supported"),
+            "CLI should preserve the explicit template-instantiation boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_typecheck_rejects_invalid_check_calls_full_chain() {
         use std::fs;
 
