@@ -17,6 +17,7 @@ pub enum ScopeKind {
     /// It holds synthetic handle symbols for the build stdlib (ArtifactHandle, …)
     /// and has no parent, providing file-bound isolation for `build.fol`.
     BuildStdlib,
+    StandardDeclaration,
     Routine,
     TypeDeclaration,
     Block,

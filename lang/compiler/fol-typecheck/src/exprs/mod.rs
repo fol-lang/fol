@@ -628,6 +628,7 @@ pub(crate) fn type_node_with_expectation(
             node,
             "availability access is not yet supported",
         )),
+        AstNode::StdDecl { .. } => Ok(TypedExpr::none()),
         // Declaration-level constructs: type their children but produce no value.
         AstNode::UseDecl { .. }
         | AstNode::TypeDecl { .. }
@@ -635,7 +636,6 @@ pub(crate) fn type_node_with_expectation(
         | AstNode::DefDecl { .. }
         | AstNode::SegDecl { .. }
         | AstNode::ImpDecl { .. }
-        | AstNode::StdDecl { .. }
         | AstNode::DestructureDecl { .. }
         | AstNode::NamedArgument { .. }
         | AstNode::Unpack { .. }

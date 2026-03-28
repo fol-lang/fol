@@ -198,20 +198,14 @@ fn v1_boundary_keeps_generic_types_and_standards_as_out_of_scope_for_m1() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
-                && (error.message().contains("generic types are not yet supported")
-                    || error
-                        .message()
-                        .contains("type contract conformance is planned for a future release"))
-        }) || errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error.message().contains("protocol standards are planned for a future release")
+                && error.message().contains("generic types are not yet supported")
         }),
-        "Expected generic types and standards to stay outside V2 Milestone 1, got: {errors:?}"
+        "Expected generic types to stay outside V2 Milestone 1 while protocol standards remain supported, got: {errors:?}"
     );
 }
 
 #[test]
-fn v1_boundary_rejects_contract_and_conformance_surfaces() {
+fn v1_boundary_keeps_protocol_conformance_while_rejecting_later_surfaces() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "std geo: pro = {\n\
@@ -219,6 +213,9 @@ fn v1_boundary_rejects_contract_and_conformance_surfaces() {
          };\n\
          typ Shape()(geo): rec = {\n\
              var value: int;\n\
+         };\n\
+         fun (Shape)area(): int = {\n\
+             return 1;\n\
          };\n\
          typ[ext] StrExt: str;\n\
          typ Box: rec = {\n\
@@ -233,15 +230,6 @@ fn v1_boundary_rejects_contract_and_conformance_surfaces() {
          };\n",
     )]);
 
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("type contract conformance is planned for a future release")
-        }),
-        "Expected a type-contract boundary diagnostic, got: {errors:?}"
-    );
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported

@@ -1,10 +1,11 @@
 use crate::{
     CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType, TypeTable, TypecheckError,
-    TypecheckErrorKind, TypecheckResult, TypedProgram,
+    TypecheckErrorKind, TypecheckResult, TypedConformance, TypedProgram, TypedStandard,
+    TypedStandardRoutine,
 };
 use fol_parser::ast::{
     AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
-    SyntaxNodeId, SyntaxOrigin, TypeDefinition, TypeOption, VarOption,
+    StandardKind, SyntaxNodeId, SyntaxOrigin, TypeDefinition, TypeOption, VarOption,
 };
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::BTreeMap;
@@ -24,6 +25,12 @@ pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult
             {
                 errors.push(error);
             }
+        }
+    }
+
+    if errors.is_empty() {
+        if let Err(mut conformance_errors) = check_standard_conformance(typed, &resolved, &syntax) {
+            errors.append(&mut conformance_errors);
         }
     }
 
@@ -161,7 +168,12 @@ fn lower_top_level_declaration(
                 inquiries,
             )?;
         }
-        AstNode::TypeDecl { name, type_def, .. } => {
+        AstNode::TypeDecl {
+            name,
+            explicit_contracts,
+            type_def,
+            ..
+        } => {
             let symbol_id = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Type], name)?;
             let symbol_scope = resolved
                 .symbol(symbol_id)
@@ -200,6 +212,72 @@ fn lower_top_level_declaration(
                 }
             };
             record_symbol_type(typed, symbol_id, type_id)?;
+            if !explicit_contracts.is_empty() {
+                let standard_symbol_ids = explicit_contracts
+                    .iter()
+                    .map(|contract| lower_standard_symbol_for_contract(resolved, contract))
+                    .collect::<Result<Vec<_>, _>>()?;
+                typed.record_typed_conformance(TypedConformance {
+                    type_symbol_id: symbol_id,
+                    standard_symbol_ids,
+                });
+            }
+        }
+        AstNode::StdDecl {
+            syntax_id,
+            name,
+            kind,
+            body,
+            ..
+        } => {
+            if *kind != StandardKind::Protocol {
+                let message = match kind {
+                    StandardKind::Protocol => unreachable!(),
+                    StandardKind::Blueprint => {
+                        "blueprint standards are planned for a future release"
+                    }
+                    StandardKind::Extended => {
+                        "extended standards are planned for a future release"
+                    }
+                };
+                return Err(match node_origin(resolved, &item.node) {
+                    Some(origin) => {
+                        TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+                    }
+                    None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+                });
+            }
+
+            let standard_symbol_id =
+                find_symbol_id(resolved, source_unit_id, &[SymbolKind::Standard], name)?;
+            let standard_scope = syntax_id
+                .and_then(|id| resolved.scope_for_syntax(id))
+                .ok_or_else(|| {
+                    internal_error(
+                        format!(
+                            "resolved standard scope disappeared for protocol standard '{}'",
+                            name
+                        ),
+                        node_origin(resolved, &item.node),
+                    )
+                })?;
+            let mut required_routines = Vec::new();
+            for member in body {
+                let required = lower_protocol_standard_member(
+                    typed,
+                    resolved,
+                    source_unit_id,
+                    standard_scope,
+                    member,
+                )?;
+                required_routines.push(required);
+            }
+            typed.record_typed_standard(TypedStandard {
+                symbol_id: standard_symbol_id,
+                scope_id: standard_scope,
+                kind: *kind,
+                required_routines,
+            });
         }
         AstNode::AliasDecl { name, target } => {
             let symbol_id = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Alias], name)?;
@@ -503,6 +581,311 @@ fn lower_named_routine_signature(
     record_symbol_type(typed, symbol_id, routine_type)?;
     record_symbol_receiver_type(typed, symbol_id, lowered_receiver)?;
     Ok(signature_scope)
+}
+
+fn lower_protocol_standard_member(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    standard_scope: ScopeId,
+    member: &AstNode,
+) -> Result<TypedStandardRoutine, TypecheckError> {
+    let origin = node_origin(resolved, member);
+    let unsupported = |message: &'static str| match origin.clone() {
+        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+        None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+    };
+
+    match member {
+        AstNode::FunDecl {
+            name,
+            syntax_id,
+            generics,
+            receiver_type,
+            captures,
+            params,
+            return_type,
+            error_type,
+            body,
+            inquiries,
+            ..
+        }
+        | AstNode::ProDecl {
+            name,
+            syntax_id,
+            generics,
+            receiver_type,
+            captures,
+            params,
+            return_type,
+            error_type,
+            body,
+            inquiries,
+            ..
+        }
+        | AstNode::LogDecl {
+            name,
+            syntax_id,
+            generics,
+            receiver_type,
+            captures,
+            params,
+            return_type,
+            error_type,
+            body,
+            inquiries,
+            ..
+        } => {
+            if !generics.is_empty() {
+                return Err(unsupported(
+                    "generic standard routine requirements are not yet supported in V2 Milestone 2",
+                ));
+            }
+            if receiver_type.is_some() {
+                return Err(unsupported(
+                    "receiver-qualified standard requirements are not yet supported in V2 Milestone 2",
+                ));
+            }
+            if !captures.is_empty() {
+                return Err(unsupported(
+                    "capturing standard routine requirements are not yet supported in V2 Milestone 2",
+                ));
+            }
+            if !body.is_empty() || !inquiries.is_empty() {
+                return Err(unsupported(
+                    "default standard routine implementations are not yet supported in V2 Milestone 2",
+                ));
+            }
+
+            let symbol_id = find_routine_symbol_id_in_scope(
+                resolved,
+                source_unit_id,
+                standard_scope,
+                name,
+                params,
+            )?;
+            let _ = lower_named_routine_signature(
+                typed,
+                resolved,
+                source_unit_id,
+                name,
+                *syntax_id,
+                generics,
+                None,
+                params,
+                return_type.as_ref(),
+                error_type.as_ref(),
+            )?;
+            let signature = typed
+                .typed_symbol(symbol_id)
+                .and_then(|symbol| symbol.declared_type)
+                .and_then(|type_id| typed.type_table().get(type_id))
+                .and_then(|checked| match checked {
+                    CheckedType::Routine(signature) => Some(signature.clone()),
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    internal_error(
+                        format!(
+                            "typed standard routine '{}' is missing its lowered routine signature",
+                            name
+                        ),
+                        origin.clone(),
+                    )
+                })?;
+
+            Ok(TypedStandardRoutine {
+                symbol_id,
+                name: name.clone(),
+                params: signature.params,
+                return_type: signature.return_type,
+                error_type: signature.error_type,
+            })
+        }
+        _ => Err(unsupported(
+            "protocol standards currently support only required routine signatures in V2 Milestone 2",
+        )),
+    }
+}
+
+fn lower_standard_symbol_for_contract(
+    resolved: &ResolvedProgram,
+    contract: &FolType,
+) -> Result<SymbolId, TypecheckError> {
+    let syntax_id = match contract {
+        FolType::Named { syntax_id, .. } => *syntax_id,
+        FolType::QualifiedNamed { path } => path.syntax_id(),
+        _ => None,
+    };
+    let display_name = contract
+        .named_text()
+        .unwrap_or_else(|| format!("{contract:?}"));
+    let symbol_id = resolved_symbol_for_syntax(
+        resolved,
+        syntax_id,
+        &display_name,
+        match contract {
+            FolType::QualifiedNamed { .. } => SymbolReferenceShape::Qualified,
+            _ => SymbolReferenceShape::Named,
+        },
+    )?;
+    let symbol = resolved.symbol(symbol_id).ok_or_else(|| {
+        internal_error(
+            format!("resolved contract symbol '{}' disappeared", display_name),
+            type_origin(resolved, contract),
+        )
+    })?;
+    if symbol.kind != SymbolKind::Standard {
+        return Err(match type_origin(resolved, contract) {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "type contract '{}' must resolve to a standard declaration",
+                    display_name
+                ),
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "type contract '{}' must resolve to a standard declaration",
+                    display_name
+                ),
+            ),
+        });
+    }
+    Ok(symbol_id)
+}
+
+fn check_standard_conformance(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    syntax: &fol_parser::ast::ParsedPackage,
+) -> TypecheckResult<()> {
+    let mut errors = Vec::new();
+    for (source_unit_index, source_unit) in syntax.source_units.iter().enumerate() {
+        if source_unit.kind == ParsedSourceUnitKind::Build {
+            continue;
+        }
+        let source_unit_id = SourceUnitId(source_unit_index);
+        for item in &source_unit.items {
+            let AstNode::TypeDecl {
+                name,
+                explicit_contracts,
+                ..
+            } = &item.node
+            else {
+                continue;
+            };
+            if explicit_contracts.is_empty() {
+                continue;
+            }
+
+            let type_symbol_id =
+                match find_symbol_id(resolved, source_unit_id, &[SymbolKind::Type], name) {
+                    Ok(symbol_id) => symbol_id,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                };
+            let receiver_type =
+                match lower_declared_symbol(typed.type_table_mut(), resolved, type_symbol_id) {
+                    Ok(type_id) => type_id,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                };
+            let Some(conformance) = typed.typed_conformance(type_symbol_id).cloned() else {
+                errors.push(internal_error(
+                    format!(
+                        "typed conformance metadata disappeared for type '{}'",
+                        name
+                    ),
+                    node_origin(resolved, &item.node),
+                ));
+                continue;
+            };
+            for standard_symbol_id in conformance.standard_symbol_ids {
+                let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
+                    errors.push(internal_error(
+                        format!(
+                            "typed standard metadata disappeared for symbol {}",
+                            standard_symbol_id.0
+                        ),
+                        node_origin(resolved, &item.node),
+                    ));
+                    continue;
+                };
+                for requirement in &standard.required_routines {
+                    let matching = typed
+                        .all_typed_symbols()
+                        .filter(|symbol| {
+                            symbol.kind == SymbolKind::Routine
+                                && symbol.receiver_type == Some(receiver_type)
+                                && resolved
+                                    .symbol(symbol.symbol_id)
+                                    .is_some_and(|resolved_symbol| {
+                                        resolved_symbol.name == requirement.name
+                                    })
+                        })
+                        .find(|symbol| {
+                            symbol
+                                .declared_type
+                                .and_then(|type_id| typed.type_table().get(type_id))
+                                .is_some_and(|checked| match checked {
+                                    CheckedType::Routine(signature) => {
+                                        signature.params == requirement.params
+                                            && signature.return_type == requirement.return_type
+                                            && signature.error_type == requirement.error_type
+                                    }
+                                    _ => false,
+                                })
+                        });
+                    if matching.is_none() {
+                        let standard_name = resolved
+                            .symbol(standard.symbol_id)
+                            .map(|symbol| symbol.name.clone())
+                            .unwrap_or_else(|| format!("#{}", standard.symbol_id.0));
+                        let mut error = match node_origin(resolved, &item.node) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy standard '{}': missing required routine '{}'",
+                                    name, standard_name, requirement.name
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy standard '{}': missing required routine '{}'",
+                                    name, standard_name, requirement.name
+                                ),
+                            ),
+                        };
+                        if let Some(origin) = resolved
+                            .symbol(requirement.symbol_id)
+                            .and_then(|symbol| symbol.origin.clone())
+                        {
+                            error = error.with_related_origin(
+                                origin,
+                                "required by this standard routine",
+                            );
+                        }
+                        errors.push(error);
+                    }
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn lower_routine_generic_params(
@@ -945,6 +1328,41 @@ fn find_routine_symbol_id(
         })
 }
 
+fn find_routine_symbol_id_in_scope(
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    name: &str,
+    params: &[Parameter],
+) -> Result<SymbolId, TypecheckError> {
+    let canonical_name = canonical_identifier_key(name);
+    let params = params
+        .iter()
+        .map(|param| routine_type_key(&param.param_type))
+        .collect::<Vec<_>>()
+        .join(",");
+    let duplicate_key = format!("routine#{canonical_name}#_#{params}");
+
+    resolved
+        .symbols
+        .iter_with_ids()
+        .find(|(_, symbol)| {
+            symbol.source_unit == source_unit_id
+                && symbol.scope == scope_id
+                && symbol.kind == SymbolKind::Routine
+                && symbol.duplicate_key == duplicate_key
+        })
+        .map(|(symbol_id, _)| symbol_id)
+        .ok_or_else(|| {
+            internal_error(
+                format!(
+                    "resolved standard routine symbol '{name}' with duplicate key '{duplicate_key}' is missing from typed lowering"
+                ),
+                None,
+            )
+        })
+}
+
 pub(crate) fn find_symbol_id_in_scope(
     resolved: &ResolvedProgram,
     source_unit_id: SourceUnitId,
@@ -1112,11 +1530,6 @@ fn unsupported_v1_decl_with_origin(
         AstNode::FunDecl { params, .. }
         | AstNode::ProDecl { params, .. }
         | AstNode::LogDecl { params, .. } => unsupported_routine_param_surface_message(params),
-        AstNode::TypeDecl {
-            explicit_contracts, ..
-        } if !explicit_contracts.is_empty() => {
-            Some("type contract conformance is planned for a future release")
-        }
         AstNode::TypeDecl { options, .. }
             if options
                 .iter()
@@ -1137,9 +1550,7 @@ fn unsupported_v1_decl_with_origin(
             Some("implementation declarations are planned for a future release")
         }
         AstNode::StdDecl { kind, .. } => Some(match kind {
-            fol_parser::ast::StandardKind::Protocol => {
-                "protocol standards are planned for a future release"
-            }
+            fol_parser::ast::StandardKind::Protocol => return None,
             fol_parser::ast::StandardKind::Blueprint => {
                 "blueprint standards are planned for a future release"
             }

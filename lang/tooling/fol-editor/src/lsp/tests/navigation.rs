@@ -13,7 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
-fn lsp_server_reports_future_release_diagnostics_for_standard_surfaces() {
+fn lsp_server_handles_standard_conformance_sources_without_future_boundary_noise() {
     let (root, uri) = sample_package_root("standards_m2_editor_baseline");
     let text = "std geo: pro = {\n    fun area(): int;\n};\n\
                 typ Rect()(geo): rec = {\n    var width: int;\n};\n";
@@ -27,16 +27,10 @@ fn lsp_server_reports_future_release_diagnostics_for_standard_surfaces() {
         .collect::<Vec<_>>();
 
     assert!(
-        messages
-            .iter()
-            .any(|message| message.contains("protocol standards are planned for a future release")),
-        "editor diagnostics should keep the protocol-standard baseline visible: {messages:?}"
-    );
-    assert!(
-        messages
-            .iter()
-            .any(|message| message.contains("type contract conformance is planned for a future release")),
-        "editor diagnostics should keep the type-contract baseline visible: {messages:?}"
+        !messages.iter().any(|message| {
+            message.contains("type contract conformance is planned for a future release")
+        }),
+        "editor path should no longer describe protocol conformance as future-only: {messages:?}"
     );
 
     fs::remove_dir_all(root).ok();

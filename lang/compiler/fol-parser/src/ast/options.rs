@@ -27,7 +27,7 @@ pub enum CallSurface {
     KeywordIntrinsic,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardKind {
     Protocol,
     Blueprint,

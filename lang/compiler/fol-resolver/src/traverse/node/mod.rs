@@ -832,6 +832,24 @@ pub fn traverse_node(
             }
             types::resolve_type_definition(session, program, source_unit_id, type_scope, type_def)?;
         }
+        AstNode::StdDecl {
+            syntax_id, body, ..
+        } => {
+            let standard_scope =
+                program.add_scope(ScopeKind::StandardDeclaration, scope_id, source_unit_id);
+            program.record_scope_for_syntax(*syntax_id, standard_scope);
+            for member in body {
+                traverse_node(
+                    session,
+                    program,
+                    source_unit_id,
+                    standard_scope,
+                    member,
+                    false,
+                    None,
+                )?;
+            }
+        }
         AstNode::AliasDecl { target, .. } => {
             types::resolve_type_reference(session, program, source_unit_id, scope_id, target)?;
         }
@@ -885,7 +903,7 @@ pub fn traverse_node(
                 )?;
             }
         }
-        AstNode::StdDecl { .. } | AstNode::Literal(_) | AstNode::PatternWildcard => {}
+        AstNode::Literal(_) | AstNode::PatternWildcard => {}
         AstNode::UseDecl {
             name,
             path_type,

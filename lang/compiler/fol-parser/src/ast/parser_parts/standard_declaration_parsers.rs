@@ -136,6 +136,7 @@ impl AstParser {
         };
 
         Ok(AstNode::StdDecl {
+            syntax_id: self.record_syntax_origin(&std_token),
             options,
             name,
             kind,

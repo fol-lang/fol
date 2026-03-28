@@ -148,21 +148,21 @@ Completion criteria:
 
 - later phases can inspect standards without re-parsing syntax
 
-### Slice 11
+### Slice 11 (complete)
 Bind required standard members into standard-local semantic scope.
 
 Completion criteria:
 
 - required member declarations resolve within their standard body
 
-### Slice 12
+### Slice 12 (complete)
 Reject duplicate standard names and duplicate required member names cleanly.
 
 Completion criteria:
 
 - exact diagnostics exist for repeated standard/member declarations
 
-### Slice 13
+### Slice 13 (complete)
 Reject conformance references to unknown or out-of-scope standards explicitly.
 
 Completion criteria:
@@ -171,35 +171,35 @@ Completion criteria:
 
 ## Epoch 4: Typecheck Representation
 
-### Slice 14
+### Slice 14 (complete)
 Introduce typecheck-owned representation for standards.
 
 Completion criteria:
 
 - typed metadata can represent the chosen contract subset directly
 
-### Slice 15
+### Slice 15 (complete)
 Preserve required routine signatures in typed standard metadata.
 
 Completion criteria:
 
 - required routines survive into typecheck-owned structures
 
-### Slice 16
+### Slice 16 (complete)
 If included, preserve required data members in typed standard metadata.
 
 Completion criteria:
 
 - required data survives into typed contract structures
 
-### Slice 17
+### Slice 17 (complete)
 Represent type-side conformance declarations in typed type metadata.
 
 Completion criteria:
 
 - typed type declarations can carry claimed standards explicitly
 
-### Slice 18
+### Slice 18 (complete)
 Reject unsupported standard-member shapes with exact diagnostics.
 
 Completion criteria:
@@ -208,7 +208,7 @@ Completion criteria:
 
 ## Epoch 5: Conformance Checking Core
 
-### Slice 19
+### Slice 19 (complete)
 Implement required-routine conformance checking for the simplest valid cases.
 
 Completion criteria:
@@ -216,7 +216,7 @@ Completion criteria:
 - positive tests prove one type can satisfy one standard through receiver
   routines
 
-### Slice 20
+### Slice 20 (complete)
 Implement missing-required-routine diagnostics.
 
 Completion criteria:

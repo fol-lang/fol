@@ -247,8 +247,7 @@ fn test_fail_generic_type_m1_example_rejects_cleanly() {
         String::from_utf8_lossy(&check.stderr)
     );
     assert!(
-        combined.contains("generic types are not yet supported")
-            || combined.contains("type contract conformance is planned for a future release"),
+        combined.contains("generic types are not yet supported"),
         "generic type M1 boundary example should keep the explicit generic-type message: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)

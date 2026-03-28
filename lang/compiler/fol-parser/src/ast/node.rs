@@ -133,6 +133,7 @@ pub enum AstNode {
 
     /// Standard declaration: std name: pro|blu|ext = { body }
     StdDecl {
+        syntax_id: Option<SyntaxNodeId>,
         options: Vec<DeclOption>,
         name: String,
         kind: StandardKind,

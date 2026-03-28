@@ -278,8 +278,7 @@ use super::*;
 
         assert!(!output.status.success(), "CLI should reject generic types in M1");
         assert!(
-            stdout.contains("generic types are not yet supported")
-                || stdout.contains("type contract conformance is planned for a future release"),
+            stdout.contains("generic types are not yet supported"),
             "CLI should preserve the generic-type boundary wording"
         );
 

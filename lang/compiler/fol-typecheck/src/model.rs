@@ -1,6 +1,6 @@
 use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
-use fol_parser::ast::{ParsedSourceUnitKind, SyntaxNodeId};
+use fol_parser::ast::{ParsedSourceUnitKind, StandardKind, SyntaxNodeId};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::BTreeMap;
 
@@ -54,6 +54,29 @@ pub struct TypedReference {
     pub recoverable_effect: Option<RecoverableCallEffect>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandardRoutine {
+    pub symbol_id: SymbolId,
+    pub name: String,
+    pub params: Vec<CheckedTypeId>,
+    pub return_type: Option<CheckedTypeId>,
+    pub error_type: Option<CheckedTypeId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandard {
+    pub symbol_id: SymbolId,
+    pub scope_id: ScopeId,
+    pub kind: StandardKind,
+    pub required_routines: Vec<TypedStandardRoutine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedConformance {
+    pub type_symbol_id: SymbolId,
+    pub standard_symbol_ids: Vec<SymbolId>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
     capability_model: TypecheckCapabilityModel,
@@ -64,6 +87,8 @@ pub struct TypedProgram {
     symbols: BTreeMap<SymbolId, TypedSymbol>,
     nodes: BTreeMap<SyntaxNodeId, TypedNode>,
     references: BTreeMap<fol_resolver::ReferenceId, TypedReference>,
+    standards: BTreeMap<SymbolId, TypedStandard>,
+    conformances: BTreeMap<SymbolId, TypedConformance>,
     apparent_type_overrides: BTreeMap<CheckedTypeId, CheckedTypeId>,
 }
 
@@ -236,6 +261,8 @@ impl TypedProgram {
             symbols,
             nodes,
             references,
+            standards: BTreeMap::new(),
+            conformances: BTreeMap::new(),
             apparent_type_overrides: BTreeMap::new(),
         }
     }
@@ -307,11 +334,32 @@ impl TypedProgram {
         self.references.values()
     }
 
+    pub fn typed_standard(&self, symbol_id: SymbolId) -> Option<&TypedStandard> {
+        self.standards.get(&symbol_id)
+    }
+
+    pub fn all_typed_standards(&self) -> impl Iterator<Item = &TypedStandard> {
+        self.standards.values()
+    }
+
+    pub fn typed_conformance(&self, symbol_id: SymbolId) -> Option<&TypedConformance> {
+        self.conformances.get(&symbol_id)
+    }
+
     pub(crate) fn typed_reference_mut(
         &mut self,
         reference_id: fol_resolver::ReferenceId,
     ) -> Option<&mut TypedReference> {
         self.references.get_mut(&reference_id)
+    }
+
+    pub(crate) fn record_typed_standard(&mut self, standard: TypedStandard) {
+        self.standards.insert(standard.symbol_id, standard);
+    }
+
+    pub(crate) fn record_typed_conformance(&mut self, conformance: TypedConformance) {
+        self.conformances
+            .insert(conformance.type_symbol_id, conformance);
     }
 
     pub(crate) fn record_node_type(
