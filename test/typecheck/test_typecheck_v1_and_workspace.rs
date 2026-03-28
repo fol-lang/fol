@@ -214,10 +214,11 @@ fn v1_boundary_keeps_generic_types_and_standards_as_out_of_scope_for_m1() {
 fn v1_boundary_rejects_contract_and_conformance_surfaces() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "typ geo: rec = {\n\
+        "std geo: pro = {\n\
+             fun area(): int;\n\
          };\n\
-         typ Shape(geo): rec[] = {\n\
-             value: int\n\
+         typ Shape()(geo): rec = {\n\
+             var value: int;\n\
          };\n\
          typ[ext] StrExt: str;\n\
          typ Box: rec = {\n\

@@ -1112,7 +1112,9 @@ fn unsupported_v1_decl_with_origin(
         AstNode::FunDecl { params, .. }
         | AstNode::ProDecl { params, .. }
         | AstNode::LogDecl { params, .. } => unsupported_routine_param_surface_message(params),
-        AstNode::TypeDecl { contracts, .. } if !contracts.is_empty() => {
+        AstNode::TypeDecl {
+            explicit_contracts, ..
+        } if !explicit_contracts.is_empty() => {
             Some("type contract conformance is planned for a future release")
         }
         AstNode::TypeDecl { options, .. }

@@ -5,6 +5,7 @@ use fol_parser::ast::{FolType, TypeDefinition};
 
 use super::super::references::record_named_type_reference;
 use super::super::references::record_qualified_type_reference;
+use super::super::references::record_contract_reference;
 
 pub fn resolve_type_reference(
     session: &mut ResolverSession,
@@ -109,6 +110,35 @@ pub fn resolve_type_reference(
         | FolType::Block { .. }
         | FolType::Test { .. }
         | FolType::Location { .. } => {}
+    }
+
+    Ok(())
+}
+
+pub fn resolve_contract_reference(
+    session: &mut ResolverSession,
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    typ: &FolType,
+) -> Result<(), ResolverError> {
+    match typ {
+        FolType::Named { name, syntax_id } => {
+            record_contract_reference(
+                program,
+                source_unit_id,
+                scope_id,
+                name,
+                *syntax_id,
+                syntax_id
+                    .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+                    .cloned(),
+            )?;
+        }
+        FolType::QualifiedNamed { path } => {
+            record_qualified_type_reference(program, source_unit_id, scope_id, path)?;
+        }
+        _ => resolve_type_reference(session, program, source_unit_id, scope_id, typ)?,
     }
 
     Ok(())

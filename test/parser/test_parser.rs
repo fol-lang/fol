@@ -555,6 +555,9 @@ mod type_member_bodies;
 #[path = "test_parser_parts/type_contracts.rs"]
 mod type_contracts;
 #[cfg(test)]
+#[path = "test_parser_parts/v2_standards_m2.rs"]
+mod v2_standards_m2;
+#[cfg(test)]
 #[path = "test_parser_parts/type_group_declarations.rs"]
 mod type_group_declarations;
 #[cfg(test)]

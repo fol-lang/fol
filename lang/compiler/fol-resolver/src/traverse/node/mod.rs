@@ -803,7 +803,7 @@ pub fn traverse_node(
         }
         AstNode::TypeDecl {
             generics,
-            contracts,
+            explicit_contracts,
             type_def,
             ..
         } => {
@@ -821,8 +821,14 @@ pub fn traverse_node(
                     )?;
                 }
             }
-            for contract in contracts {
-                types::resolve_type_reference(session, program, source_unit_id, type_scope, contract)?;
+            for contract in explicit_contracts {
+                types::resolve_contract_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    type_scope,
+                    contract,
+                )?;
             }
             types::resolve_type_definition(session, program, source_unit_id, type_scope, type_def)?;
         }

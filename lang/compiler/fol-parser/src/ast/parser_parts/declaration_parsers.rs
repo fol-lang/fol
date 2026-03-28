@@ -304,6 +304,7 @@ impl AstParser {
                 options: options.clone(),
                 generics: generics.clone(),
                 contracts,
+                explicit_contracts: explicit_contracts.clone(),
                 name,
                 type_def,
             });

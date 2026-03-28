@@ -162,6 +162,9 @@ mod provider_boundary;
 #[path = "test_resolver_parts/std_resolution.rs"]
 mod std_resolution;
 #[cfg(test)]
+#[path = "test_resolver_parts/standards_m2.rs"]
+mod standards_m2;
+#[cfg(test)]
 #[path = "test_resolver_parts/unsupported_imports.rs"]
 mod unsupported_imports;
 #[cfg(test)]

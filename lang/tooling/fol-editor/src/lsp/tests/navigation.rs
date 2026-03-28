@@ -13,6 +13,36 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
+fn lsp_server_reports_future_release_diagnostics_for_standard_surfaces() {
+    let (root, uri) = sample_package_root("standards_m2_editor_baseline");
+    let text = "std geo: pro = {\n    fun area(): int;\n};\n\
+                typ Rect()(geo): rec = {\n    var width: int;\n};\n";
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, text);
+    let messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("protocol standards are planned for a future release")),
+        "editor diagnostics should keep the protocol-standard baseline visible: {messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("type contract conformance is planned for a future release")),
+        "editor diagnostics should keep the type-contract baseline visible: {messages:?}"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn lsp_server_keeps_nested_document_symbols_stable() {
     let (root, uri) = sample_package_root("nested_symbols");
     fs::write(

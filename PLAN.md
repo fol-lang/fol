@@ -1,387 +1,362 @@
-# V2 Milestone 1 Plan
+# V2 Milestone 2 Plan
 
 This file is the detailed execution plan for:
 
 - `V2`
-- Group 1
-- Generics Core
+- Group 2
+- Standards And Conformance
 
-It is intentionally narrow.
+It follows the completed generic-routine core milestone.
 
-It is not the whole of `V2`.
-It does not include standards.
-It does not include blueprints or extensions.
-It does not include advanced dispatch beyond what is strictly needed to make
-generic routines real and compiler-backed.
+It is intentionally narrower than the whole remaining `V2` design.
+It is not the full dispatch/inference plan.
+It is not blueprint/extension ergonomics beyond what is required to make
+contracts real and compiler-backed.
 
 The milestone goal is:
 
-- make one honest generic-routine core work end to end
+- make one honest contract/conformance core real end to end
 
 That means:
 
 - syntax is accepted deliberately
-- resolver and typecheck understand it
-- unsupported shapes fail explicitly
+- resolver owns standard declarations as real symbols
+- typecheck can represent standards as contracts
+- conformance is checked explicitly
+- unsupported later `V2` surfaces fail locally
 - editor/tree-sitter are audited
-- docs/examples stop pretending broader generic support exists
+- docs/examples stop pretending broader standards work already exists
 
-The target subset for Milestone 1 is:
+The intended Milestone 2 subset is:
 
-- generic routine declarations
-- generic parameters in routine signatures
-- generic parameter references in parameter and return types
-- explicit generic call sites only if needed by the chosen syntax
-- typecheck support for a narrow generic routine model
+- named `std` declarations
+- one exact supported standard kind first, then the other chosen kinds
+- required receiver-qualified routine signatures
+- required data members if the chosen subset includes them
+- type declarations that claim conformance
+- explicit diagnostics for missing required members
 
-Out of scope for this milestone:
+Out of scope for this milestone unless explicitly chosen later in the plan:
 
-- generic type declarations
-- standards/protocol conformance
-- blueprint/ext surfaces
-- rich constraint solving
-- advanced inference
-- any object-style dispatch interpretation
+- rich generic constraints on standards
+- advanced dispatch through standards
+- object-style method dispatch
+- blanket inference from standards
+- full extension machinery beyond the minimal chosen contract subset
 
 Success criteria:
 
-- generic routines are either supported end to end or rejected explicitly
-- no parser-only generic surfaces are left ambiguously “half working”
+- standards are either enforced end to end or rejected explicitly
+- no parser-only “contract” surfaces are left ambiguously half working
 - `make build` passes
 - `make test` passes
 
-## Epoch 1: Freeze The Milestone Contract
+## Epoch 1: Freeze The Contract Milestone
 
 ### Slice 1 (complete)
-Audit current V2 book/version wording for generics and restate the Milestone 1
-subset in repo-local docs/tests.
+Audit the book/version wording for standards, blueprints, and extensions and
+write one exact repo-local Milestone 2 scope note.
 
 Completion criteria:
 
-- one exact repo-local statement exists for what Milestone 1 includes
-- it explicitly excludes generic types and standards work
+- one exact repo-local statement exists for what this milestone includes
+- it explicitly excludes broader dispatch and generic-constraint work
 
 ### Slice 2 (complete)
-Add regression tests that freeze the current pre-implementation behavior for
-generic surfaces.
+Freeze the current pre-implementation truth for standards/conformance in tests.
 
 Completion criteria:
 
-- the suite proves current generic routine/type surfaces are not silently
-  supported yet
-- tests make future deltas visible
+- tests prove standards/blueprints/extensions are not silently supported yet
+- future semantic deltas become visible
 
 ### Slice 3 (complete)
-Audit parser coverage for generic routine syntax already accepted today.
+Audit parser coverage for the currently accepted `std` declaration surfaces.
 
 Completion criteria:
 
 - there is an explicit parser truth inventory for:
-  - generic routine declarations
-  - generic parameter lists
-  - generic parameter references in type positions
+  - `std name: pro = { ... }`
+  - `std name: blu = { ... }`
+  - `std name: ext = { ... }`
+  - type declarations that claim contracts
 
 ### Slice 4 (complete)
 Audit resolver/typecheck/lower/editor assumptions that currently reject or
-ignore generic surfaces.
+ignore standards surfaces.
 
 Completion criteria:
 
 - known baseline blockers are pinned before semantic work starts
 
-## Epoch 2: Choose The Exact Generic Core Shape
+## Epoch 2: Choose The Exact Contract Core Shape
 
 ### Slice 5 (complete)
-Freeze the supported generic declaration shape for Milestone 1.
+Freeze the first supported standard kind for Milestone 2.
 
 Target behavior:
 
-- generic routines have one exact supported header shape
-- unsupported alternate shapes fail explicitly
+- either `pro` first
+- or one deliberate wider subset
 
 Completion criteria:
 
-- one canonical generic routine form is documented in tests/docs
+- one canonical first contract form is documented in tests/docs
 
 ### Slice 6 (complete)
-Freeze the supported generic parameter kinds for Milestone 1.
-
-Target behavior:
-
-- type parameters only, unless a second kind is explicitly chosen
-- no fake support for richer generic kinds yet
+Freeze whether Milestone 2 includes only required routines or also required
+data members.
 
 Completion criteria:
 
-- supported generic parameter kinds are explicit
+- the required member surface is explicit
 
 ### Slice 7 (complete)
-Freeze the supported generic type-reference positions for Milestone 1.
-
-Target behavior:
-
-- parameters
-- returns
-- maybe error types if chosen
-- no extra positions unless implemented deliberately
+Freeze the exact syntax for type-side conformance claims.
 
 Completion criteria:
 
-- allowed positions are explicit in tests/docs
+- one canonical conformance declaration shape is documented
 
 ### Slice 8 (complete)
-Freeze the unsupported generic surfaces that must still fail in Milestone 1.
+Freeze unsupported standards surfaces that must still fail in Milestone 2.
 
 Target behavior:
 
-- generic types still fail
-- standards-related generic constraints still fail
-- advanced generic dispatch still fails
+- unsupported standard kinds still fail
+- generic-constrained standards still fail
+- extension/disptach-only surfaces still fail
 
 Completion criteria:
 
 - negative tests pin those rejections
 
-## Epoch 3: Resolver Representation
+## Epoch 3: Resolver Representation For Standards
 
 ### Slice 9 (complete)
-Add or tighten resolver-owned representation for generic routine parameters.
+Add resolver-owned representation for top-level standard declarations.
 
 Completion criteria:
 
-- resolved routine metadata can carry generic parameter facts
+- resolved program metadata can carry standards as named symbols
 
 ### Slice 10 (complete)
-Thread generic parameter identities into the relevant resolved routine/program
+Thread standard identities into the relevant resolved package/program
 structures.
 
 Completion criteria:
 
-- generic parameters are available to later phases without ad hoc re-parsing
+- later phases can inspect standards without re-parsing syntax
 
-### Slice 11 (complete)
-Bind generic parameters into routine-local semantic scope.
-
-Target behavior:
-
-- generic names resolve in supported type positions within the routine
+### Slice 11
+Bind required standard members into standard-local semantic scope.
 
 Completion criteria:
 
-- generic names resolve where the milestone says they should
+- required member declarations resolve within their standard body
 
-### Slice 12 (complete)
-Reject duplicate generic parameter declarations cleanly.
-
-Completion criteria:
-
-- exact diagnostics exist for duplicate generic parameter names
-- parser-owned duplicate-name rejection is acceptable if the syntax layer
-  rejects the duplicate before resolver can see it
-
-### Slice 13 (complete)
-Reject generic parameter references outside their supported scope.
+### Slice 12
+Reject duplicate standard names and duplicate required member names cleanly.
 
 Completion criteria:
 
-- out-of-scope generic name use fails explicitly
+- exact diagnostics exist for repeated standard/member declarations
 
-## Epoch 4: Signature Lowering And Type References
-
-### Slice 14 (complete)
-Teach declaration-signature lowering to preserve generic parameter references in
-routine signatures.
+### Slice 13
+Reject conformance references to unknown or out-of-scope standards explicitly.
 
 Completion criteria:
 
-- generic parameter references survive lowering from syntax/resolution into
-  typecheck-facing signature data
+- bad contract references fail locally and clearly
 
-### Slice 15 (complete)
-Support generic parameter references in routine parameter types.
+## Epoch 4: Typecheck Representation
 
-Completion criteria:
-
-- parameter positions accept generic references in the chosen subset
-
-### Slice 16 (complete)
-Support generic parameter references in return types.
+### Slice 14
+Introduce typecheck-owned representation for standards.
 
 Completion criteria:
 
-- return positions accept generic references in the chosen subset
+- typed metadata can represent the chosen contract subset directly
 
-### Slice 17 (complete)
-If included in the subset, support generic parameter references in declared
-error types.
-
-Completion criteria:
-
-- error-type support is either implemented and tested or explicitly rejected
-
-### Slice 18 (complete)
-Reject unsupported generic parameter use sites with exact diagnostics.
+### Slice 15
+Preserve required routine signatures in typed standard metadata.
 
 Completion criteria:
 
-- type lowering/typecheck does not silently degrade unsupported positions
+- required routines survive into typecheck-owned structures
 
-## Epoch 5: Typecheck Core Semantics
-
-### Slice 19 (complete)
-Introduce typecheck-owned representation for generic routine signatures.
+### Slice 16
+If included, preserve required data members in typed standard metadata.
 
 Completion criteria:
 
-- typed routine metadata can represent generic signatures directly
+- required data survives into typed contract structures
 
-### Slice 20 (complete)
-Implement generic parameter substitution shape for a narrow routine call path.
-
-Completion criteria:
-
-- typecheck can instantiate or compare a generic routine in one supported way
-
-### Slice 21 (complete)
-Typecheck direct generic routine use in the simplest valid cases.
+### Slice 17
+Represent type-side conformance declarations in typed type metadata.
 
 Completion criteria:
 
-- positive tests prove generic identity-style or same-type routine cases work
+- typed type declarations can carry claimed standards explicitly
 
-### Slice 22 (complete)
-Reject mismatched concrete argument use for generic routines.
-
-Completion criteria:
-
-- generic call mismatches fail explicitly and locally
-
-### Slice 23 (complete)
-Reject underconstrained generic routines that the milestone does not support.
+### Slice 18
+Reject unsupported standard-member shapes with exact diagnostics.
 
 Completion criteria:
 
-- typecheck does not pretend unsupported inference exists
+- typecheck does not silently degrade unsupported standard bodies
 
-### Slice 24 (complete)
-Reject unsupported mixed generic/plain routine interactions cleanly.
+## Epoch 5: Conformance Checking Core
 
-Completion criteria:
-
-- diagnostics distinguish unsupported generic semantics from ordinary type
-  mismatches
-
-## Epoch 6: Call Surface And Inference Boundary
-
-### Slice 25 (complete)
-Freeze whether Milestone 1 requires explicit generic call arguments or only
-supports inference-free same-type cases.
+### Slice 19
+Implement required-routine conformance checking for the simplest valid cases.
 
 Completion criteria:
 
-- one exact call contract is chosen and documented in tests
+- positive tests prove one type can satisfy one standard through receiver
+  routines
 
-### Slice 26 (complete)
-If explicit generic call syntax is already parsed, connect the minimal chosen
-form through resolver/typecheck.
-
-Completion criteria:
-
-- one explicit generic call path works end to end, or remains explicitly
-  rejected
-
-### Slice 27 (complete)
-Pin no-inference or narrow-inference behavior with regression tests.
+### Slice 20
+Implement missing-required-routine diagnostics.
 
 Completion criteria:
 
-- supported inference behavior is explicit
-- unsupported inference behavior fails clearly
+- missing routine requirements fail explicitly and locally
 
-### Slice 28 (complete)
-Reject ambiguous generic calls with exact diagnostics.
+### Slice 21
+Implement routine-signature mismatch diagnostics for conformance.
 
 Completion criteria:
 
-- ambiguity failures are distinct from unresolved-name/type-mismatch failures
+- wrong parameter or return shapes fail explicitly
+
+### Slice 22
+If included, implement required-data conformance checking.
+
+Completion criteria:
+
+- positive and negative tests cover required data fulfillment
+
+### Slice 23
+Reject under-specified or malformed conformance claims.
+
+Completion criteria:
+
+- contract claims fail clearly when the milestone does not support the shape
+
+## Epoch 6: Boundaries With Existing Routine And Type Semantics
+
+### Slice 24
+Pin that standards do not create object-method semantics in Milestone 2.
+
+Completion criteria:
+
+- tests/docs show conformance remains procedural
+
+### Slice 25
+Reject using a standard as an ordinary concrete type unless the milestone
+explicitly chooses such support.
+
+Completion criteria:
+
+- standards-as-values/types either work deliberately or fail explicitly
+
+### Slice 26
+Reject generic-constrained standard use that belongs to later `V2`.
+
+Completion criteria:
+
+- generic + standards interactions outside the chosen subset fail honestly
+
+### Slice 27
+Reject extension/disptach surfaces that are still later-milestone work.
+
+Completion criteria:
+
+- unsupported contract-based dispatch paths fail explicitly
+
+### Slice 28
+Pin ambiguity behavior where multiple receiver-qualified routines might appear
+to satisfy a contract.
+
+Completion criteria:
+
+- ambiguity failures are distinct from missing-member failures
 
 ## Epoch 7: Negative Boundary Hardening
 
-### Slice 29 (complete)
-Add compile-fail fixtures for generic type declarations remaining out of scope.
+### Slice 29
+Add compile-fail fixtures for unsupported standard kinds that remain outside the
+chosen subset.
 
 Completion criteria:
 
-- generic type surfaces still fail explicitly
+- unsupported `blu`/`ext` or other deferred forms still fail explicitly
 
-### Slice 30 (complete)
-Add compile-fail fixtures for standards/protocol-style generic constraints
-remaining out of scope.
-
-Completion criteria:
-
-- standards-related generic surfaces still fail explicitly
-
-### Slice 31 (complete)
-Add compile-fail fixtures for generic routine shapes the milestone does not
-accept.
+### Slice 30
+Add compile-fail fixtures for malformed standard bodies.
 
 Completion criteria:
 
-- unsupported headers or parameter forms fail explicitly
+- duplicate members, bad member kinds, and malformed signatures fail clearly
 
-### Slice 32 (complete)
-Add compile-fail fixtures for editor-facing generic misuse diagnostics.
+### Slice 31
+Add compile-fail fixtures for malformed conformance declarations.
 
 Completion criteria:
 
-- negative editor paths are pinned for the chosen generic subset
+- bad type-side contract claims fail explicitly
+
+### Slice 32
+Add compile-fail fixtures for editor-facing standard misuse diagnostics.
+
+Completion criteria:
+
+- negative editor paths are pinned for the chosen standards subset
 
 ## Epoch 8: Lowering And Backend Honesty
 
-### Slice 33 (complete)
-Audit whether generic routines in the chosen subset need lowering support or
-must stop before lower/backend with an explicit diagnostic.
+### Slice 33
+Audit whether the chosen standards subset requires lowering support or should
+stop before lower/backend with an explicit diagnostic.
 
 Completion criteria:
 
 - there is no fake “typecheck yes, lower maybe” path
 
-### Slice 34 (complete)
+### Slice 34
 If lowering support is needed for the chosen subset, implement the narrow path.
 
 Completion criteria:
 
-- supported generic routine examples survive lowering cleanly, or the plan
-  records that lowering support was not chosen for Milestone 1 and the explicit
-  pre-lowering stop is the honest boundary
+- supported standard examples survive lowering cleanly
 
-### Slice 35 (complete)
+### Slice 35
 If backend support is not yet viable, fail before backend with exact messaging.
 
 Completion criteria:
 
-- unsupported later-stage generic behavior fails honestly
+- unsupported later-stage contract behavior fails honestly
 
 ## Epoch 9: Editor And Tree-Sitter Audit
 
-### Slice 36 (complete)
-Audit tree-sitter grammar/highlighting for the chosen generic syntax.
+### Slice 36
+Audit tree-sitter grammar/highlighting for the chosen standards syntax.
 
 Completion criteria:
 
-- generic syntax is either highlighted correctly or explicitly unchanged and
-  verified
+- standard/conformance syntax is either highlighted correctly or explicitly
+  unchanged and verified
 
-### Slice 37 (complete)
-Audit `fol-editor` completion/hover/diagnostics for the chosen generic subset.
+### Slice 37
+Audit `fol-editor` completion/hover/diagnostics for the chosen contract subset.
 
 Completion criteria:
 
-- editor coverage exists for the implemented generic routine subset
+- editor coverage exists for the implemented standard/conformance subset
 
-### Slice 38 (complete)
-Add editor regression coverage for negative generic misuse.
+### Slice 38
+Add editor regression coverage for negative contract misuse.
 
 Completion criteria:
 
@@ -389,47 +364,48 @@ Completion criteria:
 
 ## Epoch 10: Examples, Book, And Closure
 
-### Slice 39 (complete)
-Add one canonical positive example package for generic routines in the chosen
-Milestone 1 subset.
+### Slice 39
+Add one canonical positive example package for the chosen standard/conformance
+subset.
 
 Completion criteria:
 
 - one real example exists and is exercised in integration tests
 
-### Slice 40 (complete)
-Add one canonical negative example package for unsupported generic surfaces.
+### Slice 40
+Add one canonical negative example package for unsupported contract surfaces.
 
 Completion criteria:
 
 - one real negative example exists and is exercised in integration tests
 
-### Slice 41 (complete)
-Update the generics chapter so it distinguishes:
+### Slice 41
+Update the standards chapter so it distinguishes:
 
-- implemented Milestone 1 subset
-- still-future V2 generic design
+- implemented Milestone 2 subset
+- still-future `V2` contract design
 
 Completion criteria:
 
 - the book is honest about what now works and what still does not
 
-### Slice 42 (complete)
-Update version-boundary docs and contributor guidance for the new Milestone 1
+### Slice 42
+Update version-boundary docs and contributor guidance for the new Milestone 2
 state.
 
 Completion criteria:
 
 - repo docs no longer describe the implemented subset as entirely future
 
-### Slice 43 (complete)
-Run targeted generic/compiler/editor suites and confirm green Milestone 1 state.
+### Slice 43
+Run targeted contract/compiler/editor suites and confirm green Milestone 2
+state.
 
 Completion criteria:
 
-- targeted tests for generics pass
+- targeted standards/conformance tests pass
 
-### Slice 44 (complete)
+### Slice 44
 Run repo gate.
 
 Completion criteria:
@@ -437,8 +413,8 @@ Completion criteria:
 - `make build` passes
 - `make test` passes
 
-### Slice 45 (complete)
-Commit Milestone 1 and mark this plan complete.
+### Slice 45
+Commit Milestone 2 and mark this plan complete.
 
 Completion criteria:
 

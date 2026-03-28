@@ -350,3 +350,6 @@ mod typecheck_operators;
 #[cfg(test)]
 #[path = "test_typecheck_generics_m1.rs"]
 mod typecheck_generics_m1;
+#[cfg(test)]
+#[path = "test_typecheck_standards_m2.rs"]
+mod typecheck_standards_m2;
