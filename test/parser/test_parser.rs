@@ -513,6 +513,9 @@ mod variadic_parameters;
 #[path = "test_parser_parts/while_loops.rs"]
 mod while_loops;
 #[cfg(test)]
+#[path = "test_parser_parts/v2_generics_m1.rs"]
+mod v2_generics_m1;
+#[cfg(test)]
 #[path = "test_parser_parts/routine_headers_and_when_forms.rs"]
 mod routine_headers_and_when_forms;
 #[cfg(test)]

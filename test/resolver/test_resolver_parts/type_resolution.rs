@@ -124,6 +124,63 @@ fn test_resolver_prefers_generic_parameters_over_outer_type_symbols() {
 }
 
 #[test]
+fn test_resolver_keeps_generic_parameter_symbols_for_param_and_return_type_references() {
+    let temp_root = unique_temp_root("type_resolution_generic_signature_surface");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun pair(T, U)(left: T, right: U): T = {\n    return left;\n};\n",
+    )
+    .expect("Should write the generic signature resolver fixture");
+
+    let resolved = resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+    let routine_scope_id = resolved
+        .scopes
+        .iter_with_ids()
+        .find_map(|(scope_id, scope)| matches!(scope.kind, ScopeKind::Routine).then_some(scope_id))
+        .expect("Resolver should create a routine scope");
+
+    let generic_t = resolved
+        .symbols_in_scope(routine_scope_id)
+        .into_iter()
+        .find(|symbol| symbol.name == "T" && symbol.kind == SymbolKind::GenericParameter)
+        .expect("Routine scope should keep generic parameter T");
+    let generic_u = resolved
+        .symbols_in_scope(routine_scope_id)
+        .into_iter()
+        .find(|symbol| symbol.name == "U" && symbol.kind == SymbolKind::GenericParameter)
+        .expect("Routine scope should keep generic parameter U");
+
+    let type_refs = resolved
+        .references_in_scope(routine_scope_id)
+        .into_iter()
+        .filter(|reference| reference.kind == ReferenceKind::TypeName)
+        .collect::<Vec<_>>();
+
+    assert!(type_refs.iter().any(|reference| {
+        reference.name == "T" && reference.resolved == Some(generic_t.id)
+    }));
+    assert!(type_refs.iter().any(|reference| {
+        reference.name == "U" && reference.resolved == Some(generic_u.id)
+    }));
+    assert!(
+        type_refs
+            .iter()
+            .filter(|reference| reference.name == "T" && reference.resolved == Some(generic_t.id))
+            .count()
+            >= 2,
+        "T should resolve in both a parameter and the return type"
+    );
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
 fn test_resolver_reports_unresolved_named_types() {
     let temp_root = unique_temp_root("type_resolution_missing");
     fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");

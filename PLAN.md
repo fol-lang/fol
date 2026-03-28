@@ -1,234 +1,440 @@
-# fol-editor Baseline Repair Plan
+# V2 Milestone 1 Plan
 
-This plan is only for repairing the current `fol-editor` baseline so the
-remaining V1 slices can be executed safely.
+This file is the detailed execution plan for:
 
-It is not a feature-growth plan.
-It is not V2 work.
-It is not a compatibility plan.
+- `V2`
+- Group 1
+- Generics Core
 
-The goal is simple:
+It is intentionally narrow.
 
-- make the current `fol-editor` navigation/editor baseline green
-- remove stale tests that no longer match compiler-backed truth
-- repair the shared editor seams that block further slice batches
+It is not the whole of `V2`.
+It does not include standards.
+It does not include blueprints or extensions.
+It does not include advanced dispatch beyond what is strictly needed to make
+generic routines real and compiler-backed.
 
-Success criteria for this repair plan:
+The milestone goal is:
 
-- `cargo test -p fol-editor navigation -- --nocapture` passes
+- make one honest generic-routine core work end to end
+
+That means:
+
+- syntax is accepted deliberately
+- resolver and typecheck understand it
+- unsupported shapes fail explicitly
+- editor/tree-sitter are audited
+- docs/examples stop pretending broader generic support exists
+
+The target subset for Milestone 1 is:
+
+- generic routine declarations
+- generic parameters in routine signatures
+- generic parameter references in parameter and return types
+- explicit generic call sites only if needed by the chosen syntax
+- typecheck support for a narrow generic routine model
+
+Out of scope for this milestone:
+
+- generic type declarations
+- standards/protocol conformance
+- blueprint/ext surfaces
+- rich constraint solving
+- advanced inference
+- any object-style dispatch interpretation
+
+Success criteria:
+
+- generic routines are either supported end to end or rejected explicitly
+- no parser-only generic surfaces are left ambiguously “half working”
 - `make build` passes
 - `make test` passes
-- the repo is clean except for unrelated user-owned changes
 
-## Epoch 1: Reconfirm The Baseline
+## Epoch 1: Freeze The Milestone Contract
 
 ### Slice 1 (complete)
-Re-run the targeted failing navigation/editor baseline and pin the exact red set
-in notes/tests.
+Audit current V2 book/version wording for generics and restate the Milestone 1
+subset in repo-local docs/tests.
 
 Completion criteria:
 
-- the failing test inventory is re-confirmed on the committed baseline
-- failures are grouped by root cause, not treated as unrelated noise
+- one exact repo-local statement exists for what Milestone 1 includes
+- it explicitly excludes generic types and standards work
 
 ### Slice 2 (complete)
-Audit the remaining open slices in the previous editor plan and mark which are
-blocked by baseline faults rather than missing feature work.
+Add regression tests that freeze the current pre-implementation behavior for
+generic surfaces.
 
 Completion criteria:
 
-- a short mapping exists from failing tests to blocking root causes
-
-## Epoch 2: Workspace And Overlay Repair
+- the suite proves current generic routine/type surfaces are not silently
+  supported yet
+- tests make future deltas visible
 
 ### Slice 3 (complete)
-Repair editor overlay/materialization behavior for multi-package and workspace
-roots.
-
-Target behavior:
-
-- local/workspace imports resolve against the copied analysis tree correctly
-- sibling packages are available during overlay analysis
-- the analyzed document remains traceable back to the real source path
+Audit parser coverage for generic routine syntax already accepted today.
 
 Completion criteria:
 
-- workspace-symbol and local-workspace navigation tests stop failing due to
-  missing copied roots
+- there is an explicit parser truth inventory for:
+  - generic routine declarations
+  - generic parameter lists
+  - generic parameter references in type positions
 
 ### Slice 4 (complete)
-Repair path normalization between overlay paths and source paths.
-
-Target behavior:
-
-- definition/references/rename/symbol results point back to real source files
-- editor does not leak temp overlay paths to LSP consumers
+Audit resolver/typecheck/lower/editor assumptions that currently reject or
+ignore generic surfaces.
 
 Completion criteria:
 
-- workspace/member navigation results use source paths consistently
+- known baseline blockers are pinned before semantic work starts
 
-## Epoch 3: Navigation Lookup Repair
+## Epoch 2: Choose The Exact Generic Core Shape
 
 ### Slice 5 (complete)
-Relax editor-side navigation lookup so it is not limited to exact resolver
-reference node hits when a symbol can still be identified safely.
+Freeze the supported generic declaration shape for Milestone 1.
 
 Target behavior:
 
-- definition/references/rename work when the cursor lands on a declaration
-- same-package namespaced use sites resolve more reliably
-- imported namespace navigation becomes less brittle
+- generic routines have one exact supported header shape
+- unsupported alternate shapes fail explicitly
 
 Completion criteria:
 
-- failing same-file and same-package navigation tests turn green
+- one canonical generic routine form is documented in tests/docs
 
 ### Slice 6 (complete)
-Repair same-file local reference inclusion/exclusion behavior.
+Freeze the supported generic parameter kinds for Milestone 1.
 
 Target behavior:
 
-- include-declaration and exclude-declaration paths both behave correctly
-- local references do not lose the declaration location
+- type parameters only, unless a second kind is explicitly chosen
+- no fake support for richer generic kinds yet
 
 Completion criteria:
 
-- local reference tests are green
+- supported generic parameter kinds are explicit
 
 ### Slice 7 (complete)
-Repair current-package multi-file rename lookup.
+Freeze the supported generic type-reference positions for Milestone 1.
 
 Target behavior:
 
-- same-package top-level rename finds the declaration and usage files
-- build-entry rename still rejects cleanly at the current safe boundary
+- parameters
+- returns
+- maybe error types if chosen
+- no extra positions unless implemented deliberately
 
 Completion criteria:
 
-- top-level rename tests and same-package rename tests are green
-
-## Epoch 4: Local Origin Repair
+- allowed positions are explicit in tests/docs
 
 ### Slice 8 (complete)
-Repair missing declaration-origin data for local bindings and parameters.
+Freeze the unsupported generic surfaces that must still fail in Milestone 1.
 
 Target behavior:
 
-- rename/reference flows can find declaration locations for locals/parameters
-- solution may be compiler-backed origin propagation or a narrow editor fallback,
-  but it must stay honest and deterministic
+- generic types still fail
+- standards-related generic constraints still fail
+- advanced generic dispatch still fails
 
 Completion criteria:
 
-- local binding rename test is green
-- parameter rename test is green
+- negative tests pin those rejections
+
+## Epoch 3: Resolver Representation
 
 ### Slice 9 (complete)
-Audit local-origin repair across other supported local classes.
-
-Target behavior:
-
-- label/destructure/capture/loop-binder classes do not regress silently
+Add or tighten resolver-owned representation for generic routine parameters.
 
 Completion criteria:
 
-- tests or explicit audit notes cover the currently supported local classes
-
-## Epoch 5: Signature Help Repair
+- resolved routine metadata can carry generic parameter facts
 
 ### Slice 10 (complete)
-Repair plain-call signature help.
+Thread generic parameter identities into the relevant resolved routine/program
+structures.
 
 Completion criteria:
 
-- plain routine-call signature help test is green
+- generic parameters are available to later phases without ad hoc re-parsing
 
-### Slice 11 (complete)
-Repair qualified-call signature help.
-
-Completion criteria:
-
-- qualified namespaced call signature help test is green
-
-### Slice 12 (complete)
-Repair build-file signature help.
-
-Completion criteria:
-
-- build-file helper-call signature help test is green
-
-## Epoch 6: Quick Fix Truth Alignment
-
-### Slice 13 (complete)
-Re-audit unresolved-name quick-fix expectations against the actual diagnostic
-suggestion path.
+### Slice 11
+Bind generic parameters into routine-local semantic scope.
 
 Target behavior:
 
-- if compiler-backed suggestions exist, editor surfaces them
-- if they do not exist, tests stop pretending they do
+- generic names resolve in supported type positions within the routine
 
 Completion criteria:
 
-- unresolved-name quick-fix tests match real compiler-backed truth
+- generic names resolve where the milestone says they should
 
-### Slice 14 (complete)
-Repair requested-diagnostic-context filtering for code actions.
-
-Completion criteria:
-
-- code actions only appear when the requested diagnostic matches
-
-### Slice 15 (complete)
-Re-audit typecheck-only no-action expectations.
+### Slice 12
+Reject duplicate generic parameter declarations cleanly.
 
 Completion criteria:
 
-- tests prove action-free behavior for typecheck diagnostics without exact
-  replacements
-- stale assumptions are deleted
+- exact resolver diagnostics exist for duplicate generic parameter names
 
-## Epoch 7: Diagnostics And Wording Repair
-
-### Slice 16 (complete)
-Repair future-version boundary diagnostic expectations.
-
-Target behavior:
-
-- tests match the actual current compiler/editor wording and related-info shape
-- no stale requirement for a `V2` literal if the real diagnostic changed
+### Slice 13
+Reject generic parameter references outside their supported scope.
 
 Completion criteria:
 
-- future-boundary editor test is green and honest
+- out-of-scope generic name use fails explicitly
 
-### Slice 17 (complete)
-Sweep the remaining navigation tests for stale current-contract wording.
+## Epoch 4: Signature Lowering And Type References
 
-Completion criteria:
-
-- tests refer to the real current V1 contract only
-
-## Epoch 8: Close The Baseline
-
-### Slice 18 (complete)
-Run the full targeted editor navigation suite and ensure it is green.
+### Slice 14
+Teach declaration-signature lowering to preserve generic parameter references in
+routine signatures.
 
 Completion criteria:
 
-- `cargo test -p fol-editor navigation -- --nocapture` passes
+- generic parameter references survive lowering from syntax/resolution into
+  typecheck-facing signature data
 
-### Slice 19 (complete)
-Run the repo gate.
+### Slice 15
+Support generic parameter references in routine parameter types.
+
+Completion criteria:
+
+- parameter positions accept generic references in the chosen subset
+
+### Slice 16
+Support generic parameter references in return types.
+
+Completion criteria:
+
+- return positions accept generic references in the chosen subset
+
+### Slice 17
+If included in the subset, support generic parameter references in declared
+error types.
+
+Completion criteria:
+
+- error-type support is either implemented and tested or explicitly rejected
+
+### Slice 18
+Reject unsupported generic parameter use sites with exact diagnostics.
+
+Completion criteria:
+
+- type lowering/typecheck does not silently degrade unsupported positions
+
+## Epoch 5: Typecheck Core Semantics
+
+### Slice 19
+Introduce typecheck-owned representation for generic routine signatures.
+
+Completion criteria:
+
+- typed routine metadata can represent generic signatures directly
+
+### Slice 20
+Implement generic parameter substitution shape for a narrow routine call path.
+
+Completion criteria:
+
+- typecheck can instantiate or compare a generic routine in one supported way
+
+### Slice 21
+Typecheck direct generic routine use in the simplest valid cases.
+
+Completion criteria:
+
+- positive tests prove generic identity-style or same-type routine cases work
+
+### Slice 22
+Reject mismatched concrete argument use for generic routines.
+
+Completion criteria:
+
+- generic call mismatches fail explicitly and locally
+
+### Slice 23
+Reject underconstrained generic routines that the milestone does not support.
+
+Completion criteria:
+
+- typecheck does not pretend unsupported inference exists
+
+### Slice 24
+Reject unsupported mixed generic/plain routine interactions cleanly.
+
+Completion criteria:
+
+- diagnostics distinguish unsupported generic semantics from ordinary type
+  mismatches
+
+## Epoch 6: Call Surface And Inference Boundary
+
+### Slice 25
+Freeze whether Milestone 1 requires explicit generic call arguments or only
+supports inference-free same-type cases.
+
+Completion criteria:
+
+- one exact call contract is chosen and documented in tests
+
+### Slice 26
+If explicit generic call syntax is already parsed, connect the minimal chosen
+form through resolver/typecheck.
+
+Completion criteria:
+
+- one explicit generic call path works end to end, or remains explicitly
+  rejected
+
+### Slice 27
+Pin no-inference or narrow-inference behavior with regression tests.
+
+Completion criteria:
+
+- supported inference behavior is explicit
+- unsupported inference behavior fails clearly
+
+### Slice 28
+Reject ambiguous generic calls with exact diagnostics.
+
+Completion criteria:
+
+- ambiguity failures are distinct from unresolved-name/type-mismatch failures
+
+## Epoch 7: Negative Boundary Hardening
+
+### Slice 29
+Add compile-fail fixtures for generic type declarations remaining out of scope.
+
+Completion criteria:
+
+- generic type surfaces still fail explicitly
+
+### Slice 30
+Add compile-fail fixtures for standards/protocol-style generic constraints
+remaining out of scope.
+
+Completion criteria:
+
+- standards-related generic surfaces still fail explicitly
+
+### Slice 31
+Add compile-fail fixtures for generic routine shapes the milestone does not
+accept.
+
+Completion criteria:
+
+- unsupported headers or parameter forms fail explicitly
+
+### Slice 32
+Add compile-fail fixtures for editor-facing generic misuse diagnostics.
+
+Completion criteria:
+
+- negative editor paths are pinned for the chosen generic subset
+
+## Epoch 8: Lowering And Backend Honesty
+
+### Slice 33
+Audit whether generic routines in the chosen subset need lowering support or
+must stop before lower/backend with an explicit diagnostic.
+
+Completion criteria:
+
+- there is no fake “typecheck yes, lower maybe” path
+
+### Slice 34
+If lowering support is needed for the chosen subset, implement the narrow path.
+
+Completion criteria:
+
+- supported generic routine examples survive lowering cleanly
+
+### Slice 35
+If backend support is not yet viable, fail before backend with exact messaging.
+
+Completion criteria:
+
+- unsupported later-stage generic behavior fails honestly
+
+## Epoch 9: Editor And Tree-Sitter Audit
+
+### Slice 36
+Audit tree-sitter grammar/highlighting for the chosen generic syntax.
+
+Completion criteria:
+
+- generic syntax is either highlighted correctly or explicitly unchanged and
+  verified
+
+### Slice 37
+Audit `fol-editor` completion/hover/diagnostics for the chosen generic subset.
+
+Completion criteria:
+
+- editor coverage exists for the implemented generic routine subset
+
+### Slice 38
+Add editor regression coverage for negative generic misuse.
+
+Completion criteria:
+
+- editor diagnostics stay aligned with compiler-backed truth
+
+## Epoch 10: Examples, Book, And Closure
+
+### Slice 39
+Add one canonical positive example package for generic routines in the chosen
+Milestone 1 subset.
+
+Completion criteria:
+
+- one real example exists and is exercised in integration tests
+
+### Slice 40
+Add one canonical negative example package for unsupported generic surfaces.
+
+Completion criteria:
+
+- one real negative example exists and is exercised in integration tests
+
+### Slice 41
+Update the generics chapter so it distinguishes:
+
+- implemented Milestone 1 subset
+- still-future V2 generic design
+
+Completion criteria:
+
+- the book is honest about what now works and what still does not
+
+### Slice 42
+Update version-boundary docs and contributor guidance for the new Milestone 1
+state.
+
+Completion criteria:
+
+- repo docs no longer describe the implemented subset as entirely future
+
+### Slice 43
+Run targeted generic/compiler/editor suites and confirm green Milestone 1 state.
+
+Completion criteria:
+
+- targeted tests for generics pass
+
+### Slice 44
+Run repo gate.
 
 Completion criteria:
 
 - `make build` passes
 - `make test` passes
 
-### Slice 20 (complete)
-Commit the repair batch and mark this repair plan complete.
+### Slice 45
+Commit Milestone 1 and mark this plan complete.
 
 Completion criteria:
 

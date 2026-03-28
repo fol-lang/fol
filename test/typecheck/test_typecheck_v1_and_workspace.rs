@@ -142,6 +142,87 @@ fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
 }
 
 #[test]
+fn v1_boundary_rejects_generic_routine_surfaces_in_all_supported_header_kinds() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         pro apply(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         log check(T)(value: T): bol = {\n\
+             return true;\n\
+         };\n",
+    )]);
+
+    let generic_routine_errors = errors
+        .iter()
+        .filter(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("generic routines are not yet supported")
+        })
+        .count();
+
+    assert!(
+        generic_routine_errors >= 3,
+        "Expected the V1 boundary to reject generic fun/pro/log headers explicitly, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_generic_calls_while_generic_routines_stay_blocked() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun pick(T)(value: int): int = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return pick(1);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("generic routines are not yet supported")
+        }),
+        "Expected generic routines to stay blocked even when called, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_keeps_generic_types_and_standards_as_out_of_scope_for_m1() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std shape: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Box(T): rec = {\n\
+             value: int\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && (error.message().contains("generic types are not yet supported")
+                    || error
+                        .message()
+                        .contains("type contract conformance is planned for a future release"))
+        }) || errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error.message().contains("protocol standards are planned for a future release")
+        }),
+        "Expected generic types and standards to stay outside V2 Milestone 1, got: {errors:?}"
+    );
+}
+
+#[test]
 fn v1_boundary_rejects_contract_and_conformance_surfaces() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
