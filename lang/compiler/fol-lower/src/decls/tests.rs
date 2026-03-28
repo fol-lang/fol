@@ -83,6 +83,45 @@ mod tests {
     }
 
     #[test]
+    fn declaration_lowering_rejects_generic_routines_with_explicit_m1_boundary() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_routine_m1_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "fun pick(T)(value: T): T = { return value }\nfun[] main(): int = { return pick(7) }",
+        )
+        .expect("should write generic routine lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+
+        let errors = crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect_err("generic routine lowering should stay explicitly unsupported in M1");
+
+        assert!(errors.iter().any(|error| {
+            error.kind() == crate::LoweringErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("generic parameter type 'T' lowering is not yet supported in V2 Milestone 1")
+        }));
+    }
+
+    #[test]
     fn declaration_lowering_records_aliases_as_erased_runtime_shapes() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_alias_decl_{}.fol",

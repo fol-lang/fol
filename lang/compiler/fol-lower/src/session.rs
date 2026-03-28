@@ -7,7 +7,7 @@ use crate::{
     LoweredSymbolOwnership, LoweredWorkspace, LoweringError, LoweringErrorKind, LoweringResult,
 };
 use fol_resolver::PackageIdentity;
-use fol_typecheck::{BuiltinType, CheckedType, CheckedTypeId};
+use fol_typecheck::{BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -197,7 +197,15 @@ fn translate_checked_type(
 
     let lowered_type_id = match checked_type {
         CheckedType::Builtin(builtin) => lowered_types.intern_builtin(lower_builtin(builtin)),
-        CheckedType::Declared { symbol, .. } => {
+        CheckedType::Declared { symbol, name, kind } => {
+            if kind == DeclaredTypeKind::GenericParameter {
+                return Err(vec![LoweringError::with_kind(
+                    LoweringErrorKind::Unsupported,
+                    format!(
+                        "generic parameter type '{name}' lowering is not yet supported in V2 Milestone 1"
+                    ),
+                )]);
+            }
             let typed_symbol = program.typed_symbol(symbol);
             let runtime_type = typed_symbol
                 .and_then(|typed_symbol| typed_symbol.declared_type)

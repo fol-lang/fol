@@ -1273,7 +1273,10 @@ fn fail_defer_break_nested_fixture_fails_cleanly() {
 fn fail_generic_routine_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_generic_routine");
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "generic");
+    assert_output_contains(
+        &output,
+        "generic parameter type 'T' lowering is not yet supported in V2 Milestone 1",
+    );
 }
 
 #[test]

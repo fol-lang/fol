@@ -782,7 +782,10 @@ mod tests {
     #[test]
     fn generated_bundle_highlights_keep_real_bundled_std_import_examples_queryable() {
         let root = build_bundle_root("std_import_examples");
-        for relative in ["examples/std_bundled_fmt/src/main.fol", "examples/std_alias_pkg/src/main.fol"] {
+        for relative in [
+            "examples/std_bundled_fmt/src/main.fol",
+            "examples/std_alias_pkg/src/main.fol",
+        ] {
             let output = run_tree_sitter_query(
                 &root,
                 &root.join("queries/fol/highlights.scm"),
@@ -1195,6 +1198,10 @@ mod tests {
             ),
             (
                 repo_root().join("examples/core_run_min/src/main.fol"),
+                ["function", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_routine_m1/src/main.fol"),
                 ["function", "type.builtin"].as_slice(),
             ),
             (

@@ -337,7 +337,7 @@ Completion criteria:
 
 ## Epoch 8: Lowering And Backend Honesty
 
-### Slice 33
+### Slice 33 (complete)
 Audit whether generic routines in the chosen subset need lowering support or
 must stop before lower/backend with an explicit diagnostic.
 
@@ -352,7 +352,7 @@ Completion criteria:
 
 - supported generic routine examples survive lowering cleanly
 
-### Slice 35
+### Slice 35 (complete)
 If backend support is not yet viable, fail before backend with exact messaging.
 
 Completion criteria:
@@ -361,7 +361,7 @@ Completion criteria:
 
 ## Epoch 9: Editor And Tree-Sitter Audit
 
-### Slice 36
+### Slice 36 (complete)
 Audit tree-sitter grammar/highlighting for the chosen generic syntax.
 
 Completion criteria:
@@ -369,14 +369,14 @@ Completion criteria:
 - generic syntax is either highlighted correctly or explicitly unchanged and
   verified
 
-### Slice 37
+### Slice 37 (complete)
 Audit `fol-editor` completion/hover/diagnostics for the chosen generic subset.
 
 Completion criteria:
 
 - editor coverage exists for the implemented generic routine subset
 
-### Slice 38
+### Slice 38 (complete)
 Add editor regression coverage for negative generic misuse.
 
 Completion criteria:
@@ -385,7 +385,7 @@ Completion criteria:
 
 ## Epoch 10: Examples, Book, And Closure
 
-### Slice 39
+### Slice 39 (complete)
 Add one canonical positive example package for generic routines in the chosen
 Milestone 1 subset.
 
@@ -393,14 +393,14 @@ Completion criteria:
 
 - one real example exists and is exercised in integration tests
 
-### Slice 40
+### Slice 40 (complete)
 Add one canonical negative example package for unsupported generic surfaces.
 
 Completion criteria:
 
 - one real negative example exists and is exercised in integration tests
 
-### Slice 41
+### Slice 41 (complete)
 Update the generics chapter so it distinguishes:
 
 - implemented Milestone 1 subset
@@ -410,7 +410,7 @@ Completion criteria:
 
 - the book is honest about what now works and what still does not
 
-### Slice 42
+### Slice 42 (complete)
 Update version-boundary docs and contributor guidance for the new Milestone 1
 state.
 
@@ -418,7 +418,7 @@ Completion criteria:
 
 - repo docs no longer describe the implemented subset as entirely future
 
-### Slice 43
+### Slice 43 (complete)
 Run targeted generic/compiler/editor suites and confirm green Milestone 1 state.
 
 Completion criteria:

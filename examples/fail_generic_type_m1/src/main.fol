@@ -1,0 +1,7 @@
+typ Box(T): rec = {
+    value: T
+};
+
+fun[] main(): int = {
+    return 0;
+};

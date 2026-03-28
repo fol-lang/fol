@@ -29,6 +29,7 @@ fn decode_semantic_tokens(data: &[u32]) -> Vec<(u32, u32, u32, u32, u32)> {
 fn lsp_server_opens_real_model_example_packages_cleanly() {
     for example in [
         "examples/core_defer",
+        "examples/generic_routine_m1",
         "examples/memo_defaults",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
@@ -51,6 +52,7 @@ fn lsp_server_opens_real_model_example_packages_cleanly() {
 #[test]
 fn lsp_server_returns_document_symbols_for_real_example_roots() {
     for example in [
+        "examples/generic_routine_m1",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
         "examples/core_run_min",
@@ -91,7 +93,11 @@ fn lsp_server_returns_document_symbols_for_real_example_roots() {
 fn lsp_server_returns_workspace_symbols_for_open_real_examples() {
     let mut server = EditorLspServer::new(EditorConfig::default());
     let mut roots = Vec::new();
-    for example in ["examples/std_bundled_fmt", "examples/std_bundled_io"] {
+    for example in [
+        "examples/generic_routine_m1",
+        "examples/std_bundled_fmt",
+        "examples/std_bundled_io",
+    ] {
         let (root, uri) = copied_example_package_root(example);
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
         open_document(&mut server, uri, &text);
@@ -143,6 +149,11 @@ fn lsp_server_returns_workspace_symbols_for_open_real_examples() {
 #[test]
 fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
     let cases = [
+        (
+            "examples/generic_routine_m1",
+            "fun pick(T)(value: T): T = {\n    return value;\n};\nfun[] main(): int = {\n    return pick(7);\n};\n",
+            None,
+        ),
         (
             "examples/core_defer",
             "fun[] main(): str = {\n    return \"bad\";\n};\n",
@@ -200,6 +211,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
 fn lsp_server_returns_semantic_tokens_for_real_model_examples() {
     for example in [
         "examples/core_defer",
+        "examples/generic_routine_m1",
         "examples/memo_defaults",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",

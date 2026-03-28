@@ -291,6 +291,15 @@ References:
 - `book/src/500_items/400_standards.md`
 - `book/src/500_items/500_generics.md`
 
+Current landed subset note:
+
+- the active `V2` Milestone 1 work currently covers only a narrow
+  generic-routine core
+- parser, resolver, typecheck, and editor coverage can be real for that subset
+  before lowering/backend are real
+- if lowering/backend still stop generic routines explicitly, docs/examples/tests
+  must say so honestly
+
 ### `V3`
 
 This is later systems/runtime work.

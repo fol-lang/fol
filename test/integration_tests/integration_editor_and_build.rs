@@ -181,6 +181,80 @@ fn positive_runtime_model_examples() -> &'static [(&'static str, &'static str)] 
     ]
 }
 
+#[test]
+fn test_generic_routine_m1_example_opens_cleanly_but_stops_before_lowering() {
+    let root = temp_example_root("examples/generic_routine_m1");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text = std::fs::read_to_string(&main).expect("generic routine example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "generic routine M1 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_fol_in_dir(&root, &["code", "build"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        !build.status.success(),
+        "generic routine M1 example should stop before lowering/backend: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(
+        combined.contains("generic routine 'pick' lowering is not yet supported in V2 Milestone 1")
+            || combined.contains("generic parameter type 'T' lowering is not yet supported in V2 Milestone 1"),
+        "generic routine M1 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+#[test]
+fn test_fail_generic_type_m1_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_generic_type_m1");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        !check.status.success(),
+        "generic type M1 boundary example should fail semantic checking: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        combined.contains("generic types are not yet supported")
+            || combined.contains("type contract conformance is planned for a future release"),
+        "generic type M1 boundary example should keep the explicit generic-type message: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
 fn init_git_repo(root: &std::path::Path) {
     for args in [
         vec!["init"],

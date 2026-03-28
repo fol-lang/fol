@@ -1,13 +1,26 @@
 # Generics
 
-This chapter describes later generic-language design rather than current `V1`
+This chapter describes `V2` generic-language work rather than current `V1`
 compiler behavior.
 
 Current milestone note:
 
-- generic routines are not part of the implemented `V1` typechecker
+- Milestone 1 now includes a narrow generic-routine subset through:
+  - parser
+  - resolver
+  - typecheck
+  - editor audit
+- that current subset supports:
+  - generic routine declarations
+  - type parameters
+  - generic parameter references in parameter and return types
+  - direct calls with narrow argument-driven inference
+- generic routine lowering/backend support is still explicitly out of scope for
+  the current Milestone 1 state
 - generic types are not part of the implemented `V1` typechecker
-- examples here should be read as future `V2` design
+- examples here should be read as:
+  - current narrow `V2` Milestone 1 generic-routine work where noted
+  - otherwise later `V2` design
 
 ## Types
 

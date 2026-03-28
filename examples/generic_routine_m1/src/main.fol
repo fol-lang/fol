@@ -1,0 +1,7 @@
+fun pick(T)(value: T): T = {
+    return value;
+};
+
+fun[] main(): int = {
+    return pick(7);
+};
