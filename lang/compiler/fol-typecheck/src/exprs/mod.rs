@@ -420,6 +420,7 @@ pub(crate) fn type_node_with_expectation(
                 }
             }
             let routine_type_id = typed.type_table_mut().intern(CheckedType::Routine(RoutineType {
+                generic_params: Vec::new(),
                 param_names: vec![String::new(); lowered_params.len()],
                 param_defaults: vec![None; lowered_params.len()],
                 variadic_index: params.iter().enumerate().find_map(|(index, param)| {
@@ -593,7 +594,7 @@ pub(crate) fn type_node_with_expectation(
                     ));
                 }
             };
-            let arg_effect = calls::check_call_arguments(
+            let (signature, arg_effect) = calls::check_call_arguments(
                 typed,
                 resolved,
                 context,

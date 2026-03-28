@@ -89,10 +89,7 @@ fn literal_family_policy_accepts_matching_integer_and_float_sites() {
 fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-         "fun demo(T)(value: int): int = {\n\
-             return value;\n\
-         };\n\
-         typ Bound: rec = {\n\
+         "typ Bound: rec = {\n\
          };\n\
          typ Box(T: Bound): rec = {\n\
              value: int\n\
@@ -103,15 +100,6 @@ fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
          };\n",
     )]);
 
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routines are not yet supported")
-        }),
-        "Expected a generic-routine boundary diagnostic, got: {errors:?}"
-    );
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
@@ -142,16 +130,18 @@ fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
 }
 
 #[test]
-fn v1_boundary_rejects_generic_routine_surfaces_in_all_supported_header_kinds() {
+fn v1_boundary_rejects_generic_routine_constraints_in_all_supported_header_kinds() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "fun pick(T)(value: T): T = {\n\
+        "typ Bound: rec = {\n\
+         };\n\
+         fun pick(T: Bound)(value: T): T = {\n\
              return value;\n\
          };\n\
-         pro apply(T)(value: T): T = {\n\
+         pro apply(T: Bound)(value: T): T = {\n\
              return value;\n\
          };\n\
-         log check(T)(value: T): bol = {\n\
+         log check(T: Bound)(value: T): bol = {\n\
              return true;\n\
          };\n",
     )]);
@@ -162,25 +152,23 @@ fn v1_boundary_rejects_generic_routine_surfaces_in_all_supported_header_kinds() 
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("generic routines are not yet supported")
+                    .contains("generic routine constraints are not yet supported")
         })
         .count();
 
     assert!(
         generic_routine_errors >= 3,
-        "Expected the V1 boundary to reject generic fun/pro/log headers explicitly, got: {errors:?}"
+        "Expected generic routine constraints to stay outside V2 Milestone 1, got: {errors:?}"
     );
 }
 
 #[test]
-fn v1_boundary_rejects_generic_calls_while_generic_routines_stay_blocked() {
+fn v1_boundary_rejects_generic_error_types_for_m1() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "fun pick(T)(value: int): int = {\n\
-             return value;\n\
-         };\n\
-         fun[] main(): int = {\n\
-             return pick(1);\n\
+        "fun pick(T)(value: T): int / T = {\n\
+             report(value);\n\
+             return 1;\n\
          };\n",
     )]);
 
@@ -189,9 +177,9 @@ fn v1_boundary_rejects_generic_calls_while_generic_routines_stay_blocked() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("generic routines are not yet supported")
+                    .contains("generic error types are not yet supported in V2 Milestone 1")
         }),
-        "Expected generic routines to stay blocked even when called, got: {errors:?}"
+        "Expected generic error types to stay outside V2 Milestone 1, got: {errors:?}"
     );
 }
 
@@ -555,6 +543,7 @@ fn workspace_typechecking_imports_mounted_value_and_routine_types_from_foreign_p
         .type_table()
         .get(bump.declared_type.expect("mounted imported routines should keep translated signatures")),
         Some(&CheckedType::Routine(RoutineType {
+            generic_params: Vec::new(),
             param_names: vec!["value".to_string()],
             param_defaults: vec![None],
             variadic_index: None,

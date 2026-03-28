@@ -1,5 +1,6 @@
 use crate::{
-    RecoverableCallEffect, RoutineType, TypecheckError, TypecheckErrorKind, TypedProgram,
+    CheckedType, CheckedTypeId, DeclaredTypeKind, RecoverableCallEffect, RoutineType,
+    TypecheckError, TypecheckErrorKind, TypedProgram,
 };
 use fol_intrinsics::{
     boolean_operand_contract, comparison_operand_contract, query_operand_contract, select_intrinsic,
@@ -8,6 +9,7 @@ use fol_intrinsics::{
 };
 use fol_parser::ast::{AstNode, QualifiedPath, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{ReferenceId, ReferenceKind, ResolvedProgram, SymbolId, SymbolKind};
+use std::collections::BTreeMap;
 
 use super::helpers::{
     apparent_type_id, describe_type, ensure_assignable, internal_error, is_error_shell_type,
@@ -40,7 +42,7 @@ pub(crate) fn type_function_call(
         reference_id,
         origin_for(resolved, syntax_id),
     )?;
-    let arg_effect = check_call_arguments(
+    let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
         context,
@@ -644,7 +646,7 @@ pub(crate) fn type_qualified_function_call(
         reference_id,
         origin_for(resolved, syntax_id),
     )?;
-    let arg_effect = check_call_arguments(
+    let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
         context,
@@ -703,7 +705,7 @@ pub(crate) fn type_method_call(
     ))?;
     let origin = node_origin(resolved, node).or_else(|| node_origin(resolved, object));
     let signature = routine_signature_for_method(typed, method, object_type, origin.clone())?;
-    let arg_effect = check_call_arguments(
+    let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
         context,
@@ -878,7 +880,7 @@ pub(crate) fn check_call_arguments(
     origin: Option<SyntaxOrigin>,
     allow_named: bool,
     allow_defaults: bool,
-) -> Result<Option<RecoverableCallEffect>, TypecheckError> {
+) -> Result<(RoutineType, Option<RecoverableCallEffect>), TypecheckError> {
     let ordered_args = bind_call_arguments(
         signature,
         args,
@@ -888,30 +890,33 @@ pub(crate) fn check_call_arguments(
         allow_defaults,
     )?;
 
+    let mut generic_bindings = BTreeMap::new();
     let mut arg_effects = Vec::new();
     for (expected, arg) in signature.params.iter().zip(ordered_args.iter()) {
         match arg {
             BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
-                let actual_expr = type_node_with_expectation(
-                    typed,
-                    resolved,
-                    context,
-                    arg,
-                    Some(*expected),
-                )
+                let contains_generics =
+                    crate::decls::checked_type_contains_generic_param(typed, *expected);
+                let actual_expr = if contains_generics {
+                    type_node(typed, resolved, context, arg)
+                } else {
+                    type_node_with_expectation(typed, resolved, context, arg, Some(*expected))
+                }
                 .map_err(|error| {
                     origin
                         .clone()
                         .or_else(|| node_origin(resolved, arg))
                         .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
                 })?;
-                reject_recoverable_error_shell_conversion(
-                    typed,
-                    *expected,
-                    &actual_expr,
-                    origin.clone().or_else(|| node_origin(resolved, arg)),
-                    format!("call to '{callee}'"),
-                )?;
+                if !contains_generics {
+                    reject_recoverable_error_shell_conversion(
+                        typed,
+                        *expected,
+                        &actual_expr,
+                        origin.clone().or_else(|| node_origin(resolved, arg)),
+                        format!("call to '{callee}'"),
+                    )?;
+                }
                 let actual_expr = plain_value_expr(
                     typed,
                     context,
@@ -922,13 +927,26 @@ pub(crate) fn check_call_arguments(
                 let actual = actual_expr
                     .required_value(format!("argument for '{callee}' does not have a type"))?;
                 arg_effects.push(actual_expr.recoverable_effect);
-                ensure_assignable(
-                    typed,
-                    *expected,
-                    actual,
-                    format!("call to '{callee}'"),
-                    origin.clone(),
-                )?;
+                let actual = apparent_type_id(typed, actual)?;
+
+                if contains_generics {
+                    infer_generic_bindings_from_argument(
+                        typed,
+                        *expected,
+                        actual,
+                        &mut generic_bindings,
+                        format!("call to '{callee}'"),
+                        origin.clone().or_else(|| node_origin(resolved, arg)),
+                    )?;
+                } else {
+                    ensure_assignable(
+                        typed,
+                        *expected,
+                        actual,
+                        format!("call to '{callee}'"),
+                        origin.clone(),
+                    )?;
+                }
             }
             BoundCallArg::VariadicPack(args) => {
                 let element_type = match typed.type_table().get(*expected) {
@@ -943,19 +961,28 @@ pub(crate) fn check_call_arguments(
                     }
                 };
                 for arg in args {
-                    let actual_expr = type_node_with_expectation(
-                        typed,
-                        resolved,
-                        context,
-                        arg,
-                        Some(element_type),
-                    )
+                    let contains_generics =
+                        crate::decls::checked_type_contains_generic_param(typed, element_type);
+                    let actual_expr = if contains_generics {
+                        type_node(typed, resolved, context, arg)
+                    } else {
+                        type_node_with_expectation(typed, resolved, context, arg, Some(element_type))
+                    }
                     .map_err(|error| {
                         origin
                             .clone()
                             .or_else(|| node_origin(resolved, arg))
                             .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
                     })?;
+                    if !contains_generics {
+                        reject_recoverable_error_shell_conversion(
+                            typed,
+                            element_type,
+                            &actual_expr,
+                            origin.clone().or_else(|| node_origin(resolved, arg)),
+                            format!("call to '{callee}'"),
+                        )?;
+                    }
                     let actual_expr = plain_value_expr(
                         typed,
                         context,
@@ -967,20 +994,250 @@ pub(crate) fn check_call_arguments(
                         "variadic argument for '{callee}' does not have a type"
                     ))?;
                     arg_effects.push(actual_expr.recoverable_effect);
-                    ensure_assignable(
-                        typed,
-                        element_type,
-                        actual,
-                        format!("call to '{callee}'"),
-                        origin.clone(),
-                    )?;
+                    let actual = apparent_type_id(typed, actual)?;
+                    if contains_generics {
+                        infer_generic_bindings_from_argument(
+                            typed,
+                            element_type,
+                            actual,
+                            &mut generic_bindings,
+                            format!("call to '{callee}'"),
+                            origin.clone().or_else(|| node_origin(resolved, arg)),
+                        )?;
+                    } else {
+                        ensure_assignable(
+                            typed,
+                            element_type,
+                            actual,
+                            format!("call to '{callee}'"),
+                            origin.clone(),
+                        )?;
+                    }
                 }
             }
             BoundCallArg::Default => {}
         }
     }
 
-    merge_recoverable_effects(typed, origin, "call arguments", arg_effects)
+    let instantiated =
+        instantiate_generic_signature(typed, signature, &generic_bindings, callee, origin.clone())?;
+    Ok((
+        instantiated,
+        merge_recoverable_effects(typed, origin, "call arguments", arg_effects)?,
+    ))
+}
+
+fn infer_generic_bindings_from_argument(
+    typed: &TypedProgram,
+    expected: CheckedTypeId,
+    actual: CheckedTypeId,
+    bindings: &mut BTreeMap<SymbolId, CheckedTypeId>,
+    surface: String,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let expected = apparent_type_id(typed, expected)?;
+    let actual = apparent_type_id(typed, actual)?;
+
+    match (typed.type_table().get(expected), typed.type_table().get(actual)) {
+        (
+            Some(CheckedType::Declared {
+                symbol,
+                kind: DeclaredTypeKind::GenericParameter,
+                ..
+            }),
+            _,
+        ) => bind_generic_parameter(typed, *symbol, actual, bindings, surface, origin),
+        (
+            Some(CheckedType::Array {
+                element_type: expected_element,
+                size: expected_size,
+            }),
+            Some(CheckedType::Array {
+                element_type: actual_element,
+                size: actual_size,
+            }),
+        ) if expected_size == actual_size => infer_generic_bindings_from_argument(
+            typed,
+            *expected_element,
+            *actual_element,
+            bindings,
+            surface,
+            origin,
+        ),
+        (
+            Some(CheckedType::Vector {
+                element_type: expected_element,
+            }),
+            Some(CheckedType::Vector {
+                element_type: actual_element,
+            }),
+        )
+        | (
+            Some(CheckedType::Sequence {
+                element_type: expected_element,
+            }),
+            Some(CheckedType::Sequence {
+                element_type: actual_element,
+            }),
+        )
+        | (
+            Some(CheckedType::Optional {
+                inner: expected_element,
+            }),
+            Some(CheckedType::Optional {
+                inner: actual_element,
+            }),
+        ) => infer_generic_bindings_from_argument(
+            typed,
+            *expected_element,
+            *actual_element,
+            bindings,
+            surface,
+            origin,
+        ),
+        (
+            Some(CheckedType::Error {
+                inner: expected_inner,
+            }),
+            Some(CheckedType::Error {
+                inner: actual_inner,
+            }),
+        ) => match (expected_inner, actual_inner) {
+            (Some(expected_inner), Some(actual_inner)) => infer_generic_bindings_from_argument(
+                typed,
+                *expected_inner,
+                *actual_inner,
+                bindings,
+                surface,
+                origin,
+            ),
+            (None, None) => Ok(()),
+            _ => ensure_assignable(typed, expected, actual, surface, origin),
+        },
+        _ => ensure_assignable(typed, expected, actual, surface, origin),
+    }
+}
+
+fn bind_generic_parameter(
+    typed: &TypedProgram,
+    symbol: SymbolId,
+    actual: CheckedTypeId,
+    bindings: &mut BTreeMap<SymbolId, CheckedTypeId>,
+    surface: String,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    if let Some(bound) = bindings.get(&symbol).copied() {
+        ensure_assignable(typed, bound, actual, surface, origin)
+    } else {
+        bindings.insert(symbol, actual);
+        Ok(())
+    }
+}
+
+fn instantiate_generic_signature(
+    typed: &mut TypedProgram,
+    signature: &RoutineType,
+    bindings: &BTreeMap<SymbolId, CheckedTypeId>,
+    callee: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<RoutineType, TypecheckError> {
+    if signature.generic_params.is_empty() {
+        return Ok(signature.clone());
+    }
+
+    let params = signature
+        .params
+        .iter()
+        .map(|param| substitute_generic_type(typed, *param, bindings, callee, origin.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let return_type = signature
+        .return_type
+        .map(|ty| substitute_generic_type(typed, ty, bindings, callee, origin.clone()))
+        .transpose()?;
+    let error_type = signature
+        .error_type
+        .map(|ty| substitute_generic_type(typed, ty, bindings, callee, origin.clone()))
+        .transpose()?;
+
+    Ok(RoutineType {
+        generic_params: Vec::new(),
+        param_names: signature.param_names.clone(),
+        param_defaults: signature.param_defaults.clone(),
+        variadic_index: signature.variadic_index,
+        params,
+        return_type,
+        error_type,
+    })
+}
+
+fn substitute_generic_type(
+    typed: &mut TypedProgram,
+    type_id: CheckedTypeId,
+    bindings: &BTreeMap<SymbolId, CheckedTypeId>,
+    callee: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let Some(checked) = typed.type_table().get(type_id).cloned() else {
+        return Err(internal_error("generic substitution lost a checked type", origin));
+    };
+
+    match checked {
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::GenericParameter,
+            ..
+        } => bindings.get(&symbol).copied().ok_or_else(|| {
+            TypecheckError::with_origin(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "call to '{callee}' leaves generic parameter '{}' underconstrained in V2 Milestone 1",
+                    typed
+                        .resolved()
+                        .symbol(symbol)
+                        .map(|symbol| symbol.name.as_str())
+                        .unwrap_or("?")
+                ),
+                origin.unwrap_or(SyntaxOrigin {
+                    file: None,
+                    line: 1,
+                    column: 1,
+                    length: callee.len(),
+                }),
+            )
+        }),
+        CheckedType::Array { element_type, size } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Array { element_type, size }))
+        }
+        CheckedType::Vector { element_type } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Vector { element_type }))
+        }
+        CheckedType::Sequence { element_type } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Sequence { element_type }))
+        }
+        CheckedType::Optional { inner } => {
+            let inner = substitute_generic_type(typed, inner, bindings, callee, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Optional { inner }))
+        }
+        CheckedType::Error { inner } => {
+            let inner = inner
+                .map(|inner| substitute_generic_type(typed, inner, bindings, callee, origin))
+                .transpose()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Error { inner }))
+        }
+        other => Ok(typed.type_table_mut().intern(other)),
+    }
 }
 
 enum BoundCallArg<'a> {

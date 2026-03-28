@@ -584,6 +584,7 @@ impl TypecheckSession {
                 target_program
                     .type_table_mut()
                     .intern(CheckedType::Routine(crate::RoutineType {
+                        generic_params: Vec::new(),
                         param_names: signature.param_names.clone(),
                         param_defaults: signature.param_defaults.clone(),
                         variadic_index: signature.variadic_index,

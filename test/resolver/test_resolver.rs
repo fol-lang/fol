@@ -150,6 +150,9 @@ mod top_level_duplicates;
 #[path = "test_resolver_parts/type_resolution.rs"]
 mod type_resolution;
 #[cfg(test)]
+#[path = "test_resolver_parts/generic_routines.rs"]
+mod generic_routines;
+#[cfg(test)]
 #[path = "test_resolver_parts/pkg_resolution.rs"]
 mod pkg_resolution;
 #[cfg(test)]

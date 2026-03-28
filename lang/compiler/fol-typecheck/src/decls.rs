@@ -3,7 +3,7 @@ use crate::{
     TypecheckErrorKind, TypecheckResult, TypedProgram,
 };
 use fol_parser::ast::{
-    AstNode, BindingPattern, FolType, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
+    AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
     SyntaxNodeId, SyntaxOrigin, TypeDefinition, TypeOption, VarOption,
 };
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
@@ -101,6 +101,7 @@ fn lower_top_level_declaration(
         AstNode::FunDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -112,6 +113,7 @@ fn lower_top_level_declaration(
         | AstNode::ProDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -123,6 +125,7 @@ fn lower_top_level_declaration(
         | AstNode::LogDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -137,6 +140,7 @@ fn lower_top_level_declaration(
                 source_unit_id,
                 name,
                 *syntax_id,
+                generics,
                 receiver_type.as_ref(),
                 params,
                 return_type.as_ref(),
@@ -275,6 +279,7 @@ fn lower_nested_declarations_in_node(
         AstNode::FunDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -286,6 +291,7 @@ fn lower_nested_declarations_in_node(
         | AstNode::ProDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -297,6 +303,7 @@ fn lower_nested_declarations_in_node(
         | AstNode::LogDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -311,6 +318,7 @@ fn lower_nested_declarations_in_node(
                 source_unit_id,
                 name,
                 *syntax_id,
+                generics,
                 receiver_type.as_ref(),
                 params,
                 return_type.as_ref(),
@@ -427,6 +435,7 @@ fn lower_named_routine_signature(
     source_unit_id: SourceUnitId,
     name: &str,
     syntax_id: Option<SyntaxNodeId>,
+    generics: &[Generic],
     receiver_type: Option<&FolType>,
     params: &[fol_parser::ast::Parameter],
     return_type: Option<&FolType>,
@@ -437,6 +446,8 @@ fn lower_named_routine_signature(
         .and_then(|id| resolved.scope_for_syntax(id))
         .or_else(|| resolved.symbol(symbol_id).map(|symbol| symbol.scope))
         .ok_or_else(|| internal_error("resolved routine scope disappeared", None))?;
+    let generic_params =
+        lower_routine_generic_params(typed, resolved, source_unit_id, signature_scope, generics)?;
     let mut lowered_params = Vec::new();
     for param in params {
         let param_type = lower_type(typed, resolved, signature_scope, &param.param_type)?;
@@ -462,9 +473,22 @@ fn lower_named_routine_signature(
         .as_ref()
         .map(|ty| lower_type(typed, resolved, signature_scope, ty))
         .transpose()?;
+    reject_generic_types_in_position(
+        typed,
+        lowered_receiver,
+        receiver_type.and_then(|ty| type_origin(resolved, ty)),
+        "generic receiver types are not yet supported in V2 Milestone 1",
+    )?;
+    reject_generic_types_in_position(
+        typed,
+        lowered_error,
+        error_type.and_then(|ty| type_origin(resolved, ty)),
+        "generic error types are not yet supported in V2 Milestone 1",
+    )?;
     let routine_type = typed
         .type_table_mut()
         .intern(CheckedType::Routine(RoutineType {
+            generic_params,
             param_names: params.iter().map(|param| param.name.clone()).collect(),
             param_defaults: params.iter().map(|param| param.default.clone()).collect(),
             variadic_index: params.iter().enumerate().find_map(|(index, param)| {
@@ -479,6 +503,124 @@ fn lower_named_routine_signature(
     record_symbol_type(typed, symbol_id, routine_type)?;
     record_symbol_receiver_type(typed, symbol_id, lowered_receiver)?;
     Ok(signature_scope)
+}
+
+fn lower_routine_generic_params(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    signature_scope: ScopeId,
+    generics: &[Generic],
+) -> Result<Vec<SymbolId>, TypecheckError> {
+    let mut generic_params = Vec::new();
+    for generic in generics {
+        if !generic.constraints.is_empty() {
+            return Err(match generic
+                .constraints
+                .first()
+                .and_then(|constraint| type_origin(resolved, constraint))
+            {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    "generic routine constraints are not yet supported in V2 Milestone 1",
+                    origin,
+                ),
+                None => TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    "generic routine constraints are not yet supported in V2 Milestone 1",
+                ),
+            });
+        }
+
+        let symbol_id = find_symbol_id_in_scope(
+            resolved,
+            source_unit_id,
+            signature_scope,
+            &[SymbolKind::GenericParameter],
+            &generic.name,
+        )?;
+        let generic_type = typed.type_table_mut().intern(CheckedType::Declared {
+            symbol: symbol_id,
+            name: generic.name.clone(),
+            kind: DeclaredTypeKind::GenericParameter,
+        });
+        record_symbol_type(typed, symbol_id, generic_type)?;
+        generic_params.push(symbol_id);
+    }
+
+    Ok(generic_params)
+}
+
+fn reject_generic_types_in_position(
+    typed: &TypedProgram,
+    type_id: Option<CheckedTypeId>,
+    origin: Option<SyntaxOrigin>,
+    message: &'static str,
+) -> Result<(), TypecheckError> {
+    let Some(type_id) = type_id else {
+        return Ok(());
+    };
+    if checked_type_contains_generic_param(typed, type_id) {
+        return Err(match origin {
+            Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+            None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+        });
+    }
+    Ok(())
+}
+
+pub(crate) fn checked_type_contains_generic_param(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> bool {
+    match typed.type_table().get(type_id) {
+        Some(CheckedType::Declared {
+            kind: DeclaredTypeKind::GenericParameter,
+            ..
+        }) => true,
+        Some(CheckedType::Array { element_type, .. })
+        | Some(CheckedType::Vector {
+            element_type,
+        })
+        | Some(CheckedType::Sequence {
+            element_type,
+        })
+        | Some(CheckedType::Optional { inner: element_type }) => {
+            checked_type_contains_generic_param(typed, *element_type)
+        }
+        Some(CheckedType::Error { inner }) => inner
+            .is_some_and(|inner| checked_type_contains_generic_param(typed, inner)),
+        Some(CheckedType::Set { member_types }) => member_types
+            .iter()
+            .any(|member| checked_type_contains_generic_param(typed, *member)),
+        Some(CheckedType::Map {
+            key_type,
+            value_type,
+        }) => {
+            checked_type_contains_generic_param(typed, *key_type)
+                || checked_type_contains_generic_param(typed, *value_type)
+        }
+        Some(CheckedType::Record { fields }) => fields
+            .values()
+            .any(|field| checked_type_contains_generic_param(typed, *field)),
+        Some(CheckedType::Entry { variants }) => variants
+            .values()
+            .flatten()
+            .any(|variant| checked_type_contains_generic_param(typed, *variant)),
+        Some(CheckedType::Routine(signature)) => {
+            signature
+                .params
+                .iter()
+                .any(|param| checked_type_contains_generic_param(typed, *param))
+                || signature
+                    .return_type
+                    .is_some_and(|ret| checked_type_contains_generic_param(typed, ret))
+                || signature
+                    .error_type
+                    .is_some_and(|err| checked_type_contains_generic_param(typed, err))
+        }
+        _ => false,
+    }
 }
 
 fn nested_scope_for_syntax(
@@ -645,6 +787,7 @@ pub(crate) fn lower_type(
             let lowered_return = lower_type(typed, resolved, scope_id, return_type)?;
             Ok(typed.type_table_mut().intern(CheckedType::Routine(
                 crate::types::RoutineType {
+                    generic_params: Vec::new(),
                     param_names: vec![String::new(); lowered_params.len()],
                     param_defaults: vec![None; lowered_params.len()],
                     variadic_index: None,
@@ -962,9 +1105,9 @@ fn unsupported_v1_decl_with_origin(
         AstNode::FunDecl { generics, .. }
         | AstNode::ProDecl { generics, .. }
         | AstNode::LogDecl { generics, .. }
-            if !generics.is_empty() =>
+            if !generics.is_empty() && generics.iter().any(|generic| !generic.constraints.is_empty()) =>
         {
-            Some("generic routines are not yet supported")
+            Some("generic routine constraints are not yet supported in V2 Milestone 1")
         }
         AstNode::FunDecl { params, .. }
         | AstNode::ProDecl { params, .. }

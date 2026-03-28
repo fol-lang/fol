@@ -159,7 +159,7 @@ Completion criteria:
 
 - generic parameters are available to later phases without ad hoc re-parsing
 
-### Slice 11
+### Slice 11 (complete)
 Bind generic parameters into routine-local semantic scope.
 
 Target behavior:
@@ -177,7 +177,7 @@ Completion criteria:
 
 - exact resolver diagnostics exist for duplicate generic parameter names
 
-### Slice 13
+### Slice 13 (complete)
 Reject generic parameter references outside their supported scope.
 
 Completion criteria:
@@ -186,7 +186,7 @@ Completion criteria:
 
 ## Epoch 4: Signature Lowering And Type References
 
-### Slice 14
+### Slice 14 (complete)
 Teach declaration-signature lowering to preserve generic parameter references in
 routine signatures.
 
@@ -195,21 +195,21 @@ Completion criteria:
 - generic parameter references survive lowering from syntax/resolution into
   typecheck-facing signature data
 
-### Slice 15
+### Slice 15 (complete)
 Support generic parameter references in routine parameter types.
 
 Completion criteria:
 
 - parameter positions accept generic references in the chosen subset
 
-### Slice 16
+### Slice 16 (complete)
 Support generic parameter references in return types.
 
 Completion criteria:
 
 - return positions accept generic references in the chosen subset
 
-### Slice 17
+### Slice 17 (complete)
 If included in the subset, support generic parameter references in declared
 error types.
 
@@ -217,7 +217,7 @@ Completion criteria:
 
 - error-type support is either implemented and tested or explicitly rejected
 
-### Slice 18
+### Slice 18 (complete)
 Reject unsupported generic parameter use sites with exact diagnostics.
 
 Completion criteria:
@@ -226,28 +226,28 @@ Completion criteria:
 
 ## Epoch 5: Typecheck Core Semantics
 
-### Slice 19
+### Slice 19 (complete)
 Introduce typecheck-owned representation for generic routine signatures.
 
 Completion criteria:
 
 - typed routine metadata can represent generic signatures directly
 
-### Slice 20
+### Slice 20 (complete)
 Implement generic parameter substitution shape for a narrow routine call path.
 
 Completion criteria:
 
 - typecheck can instantiate or compare a generic routine in one supported way
 
-### Slice 21
+### Slice 21 (complete)
 Typecheck direct generic routine use in the simplest valid cases.
 
 Completion criteria:
 
 - positive tests prove generic identity-style or same-type routine cases work
 
-### Slice 22
+### Slice 22 (complete)
 Reject mismatched concrete argument use for generic routines.
 
 Completion criteria:

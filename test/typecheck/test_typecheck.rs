@@ -346,3 +346,7 @@ mod typecheck_workspace_imports;
 #[cfg(test)]
 #[path = "test_typecheck_operators.rs"]
 mod typecheck_operators;
+
+#[cfg(test)]
+#[path = "test_typecheck_generics_m1.rs"]
+mod typecheck_generics_m1;

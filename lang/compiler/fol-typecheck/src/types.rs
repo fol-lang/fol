@@ -44,6 +44,7 @@ pub enum DeclaredTypeKind {
 
 #[derive(Debug, Clone)]
 pub struct RoutineType {
+    pub generic_params: Vec<SymbolId>,
     pub param_names: Vec<String>,
     pub param_defaults: Vec<Option<AstNode>>,
     pub variadic_index: Option<usize>,
@@ -54,7 +55,8 @@ pub struct RoutineType {
 
 impl PartialEq for RoutineType {
     fn eq(&self, other: &Self) -> bool {
-        self.params == other.params
+        self.generic_params == other.generic_params
+            && self.params == other.params
             && self.return_type == other.return_type
             && self.error_type == other.error_type
     }
@@ -70,7 +72,14 @@ impl PartialOrd for RoutineType {
 
 impl Ord for RoutineType {
     fn cmp(&self, other: &Self) -> Ordering {
-        (&self.params, self.return_type, self.error_type).cmp(&(
+        (
+            &self.generic_params,
+            &self.params,
+            self.return_type,
+            self.error_type,
+        )
+            .cmp(&(
+                &other.generic_params,
             &other.params,
             other.return_type,
             other.error_type,
@@ -80,6 +89,7 @@ impl Ord for RoutineType {
 
 impl Hash for RoutineType {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.generic_params.hash(state);
         self.params.hash(state);
         self.return_type.hash(state);
         self.error_type.hash(state);
