@@ -58,6 +58,7 @@ The following stay outside Milestone 1:
 At the current repo state after the landed Milestone 1 semantic slices:
 
 - parser accepts generic routine declarations in the chosen narrow shape
+- parser owns duplicate generic-parameter name rejection before resolver
 - resolver binds routine-local generic parameter symbols in supported type positions
 - typecheck supports direct generic routine calls with narrow argument-driven inference
 - generic routine values remain unsupported
@@ -69,6 +70,10 @@ That means the current honest boundary is:
 - parser/resolver/typecheck fixtures and editor-opened examples are the current
   validation path for Milestone 1 generic routine examples
 - full lowering/backend execution still stops with an explicit generic-routine diagnostic
+- no narrowing slice should pretend resolver owns duplicate generic-name
+  diagnostics when parser already rejects them first
+- no narrowing slice should claim generic lowering works in Milestone 1
+  while the chosen boundary is still an explicit lowering stop
 
 ## Immediate implementation rule
 

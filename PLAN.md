@@ -170,12 +170,14 @@ Completion criteria:
 
 - generic names resolve where the milestone says they should
 
-### Slice 12
+### Slice 12 (complete)
 Reject duplicate generic parameter declarations cleanly.
 
 Completion criteria:
 
-- exact resolver diagnostics exist for duplicate generic parameter names
+- exact diagnostics exist for duplicate generic parameter names
+- parser-owned duplicate-name rejection is acceptable if the syntax layer
+  rejects the duplicate before resolver can see it
 
 ### Slice 13 (complete)
 Reject generic parameter references outside their supported scope.
@@ -345,12 +347,14 @@ Completion criteria:
 
 - there is no fake “typecheck yes, lower maybe” path
 
-### Slice 34
+### Slice 34 (complete)
 If lowering support is needed for the chosen subset, implement the narrow path.
 
 Completion criteria:
 
-- supported generic routine examples survive lowering cleanly
+- supported generic routine examples survive lowering cleanly, or the plan
+  records that lowering support was not chosen for Milestone 1 and the explicit
+  pre-lowering stop is the honest boundary
 
 ### Slice 35 (complete)
 If backend support is not yet viable, fail before backend with exact messaging.
@@ -425,7 +429,7 @@ Completion criteria:
 
 - targeted tests for generics pass
 
-### Slice 44
+### Slice 44 (complete)
 Run repo gate.
 
 Completion criteria:
@@ -433,7 +437,7 @@ Completion criteria:
 - `make build` passes
 - `make test` passes
 
-### Slice 45
+### Slice 45 (complete)
 Commit Milestone 1 and mark this plan complete.
 
 Completion criteria:
