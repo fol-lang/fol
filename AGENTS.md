@@ -286,6 +286,28 @@ Examples already marked as V2-oriented in the book:
 - generics
 - broader contract-style language surfaces
 
+Current landed `V2` subset:
+
+- Milestone 1
+  - generic routines only
+  - narrow argument-driven inference only
+  - no generic types
+  - no generic lowering yet
+- Milestone 2
+  - protocol standards only
+  - required receiver-qualified routines only
+  - explicit type-side conformance headers
+  - conformance checking in typecheck
+  - no blueprint or extended semantic support
+  - no standards lowering/backend support yet
+
+When changing `V2` surfaces:
+
+- keep milestone docs honest
+- keep explicit lowering boundaries honest when later stages still do not exist
+- update examples and negative examples in the same change
+- audit `fol-editor` and tree-sitter in the same change set
+
 References:
 
 - `book/src/500_items/400_standards.md`

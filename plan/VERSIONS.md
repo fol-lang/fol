@@ -1,6 +1,6 @@
 # FOL Version Boundaries
 
-Last updated: 2026-03-22
+Last updated: 2026-03-29
 
 This file explains how the language should be grouped into `V1`, `V2`, `V3`,
 and `V4`.
@@ -44,14 +44,14 @@ This matters because FOL should be honest about what each release guarantees.
 
 The language version and the runtime capability model are different axes.
 
-FOL is moving toward a build-selected runtime model:
+FOL uses a build-selected runtime model:
 
 - `core`
   no heap, no OS
-- `mem`
+- `memo`
   adds heap-backed facilities, still no OS
-- `std`
-  adds OS/runtime services
+
+Bundled `std` is a shipped internal dependency, not a third `fol_model`.
 
 This model should be selected per build artifact through `build.fol`, not by a
 source-file pragma.
@@ -71,15 +71,16 @@ For the runtime split:
 
 - arrays, scalars, records, routines, control flow, `defer`, and
   `opt[...]`/`err[...]` belong to `core`
-- heap-backed `str`, `vec`, `seq`, `set`, and `map` belong to `mem`
-- `.echo(...)` and hosted process/runtime behavior belong to `std`
+- heap-backed `str`, `vec`, `seq`, `set`, and `map` belong to `memo`
+- hosted wrappers are reached through explicit bundled `std`
 
 Current contract:
 
 - `core` means no heap and no OS/runtime services
-- `mem` means heap-backed runtime facilities without hosted process/OS
+- `memo` means heap-backed runtime facilities without hosted process/OS
   services
-- `std` means hosted runtime services on top of `mem`
+- bundled `std` remains an explicit shipped library dependency on top of
+  `memo`
 
 Current implementation honesty note:
 
@@ -217,6 +218,28 @@ The important thing about `V2` is that it is still primarily about language
 semantics, not low-level systems interop.
 
 ### V2 is where contracts and advanced abstraction belong
+
+Current implemented `V2` subset at repo head:
+
+- Milestone 1
+  - generic routine core
+  - parser, resolver, and typecheck subset
+  - explicit lowering boundary
+- Milestone 2
+  - protocol standards only
+  - required receiver-qualified routine signatures only
+  - explicit type-side conformance headers
+  - conformance checking in typecheck
+  - explicit lowering boundary
+
+Still future in `V2`:
+
+- generic types
+- generic constraints beyond the landed narrow subset
+- blueprint standards as semantic contracts
+- extended standards as semantic contracts
+- standards-based dispatch/inference
+- broader contract machinery
 
 The book chapters that clearly fit here are:
 

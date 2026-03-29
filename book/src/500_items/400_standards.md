@@ -1,13 +1,26 @@
 # Standards
 
-This chapter describes later `V2` contract and conformance design, not current
-`V1` compiler behavior.
+This chapter now has a split status:
 
-Current milestone note:
+- one narrow `V2` Milestone 2 subset is implemented
+- the broader standards design is still future `V2`
 
-- standards are not part of the implemented `V1` typechecker
-- blueprints and extensions are not part of the implemented `V1` typechecker
-- examples here are future design sketches only
+Current implemented Milestone 2 subset:
+
+- protocol standards declared with `std name: pro = { ... }`
+- required receiver-qualified routine signatures only
+- type-side conformance claims through the existing contract-header shape
+- exact routine-signature matching for conformance
+
+Still future:
+
+- blueprint standards as real semantic contracts
+- extended standards as real semantic contracts
+- required data-member conformance
+- standards as ordinary concrete types
+- generic constraints using standards
+- dispatch/inference driven by standards
+- object-style method semantics
 
 The intent of standards is procedural and data-oriented. They are not class
 hierarchies, inheritance trees, or object systems.
@@ -25,7 +38,7 @@ std geometry: pro = {
 };
 ```
 
-The planned forms are:
+The full planned forms are:
 
 - protocol `pro[]` for required routines
 - blueprint `blu[]` for required data
@@ -52,9 +65,36 @@ std geometry: ext = {
 
 ## Contract
 
-Later milestones may allow a type to declare that it satisfies a standard. The
-compiler would then check that the required data and receiver-qualified
-routines exist.
+Current Milestone 2 support allows a type to declare that it satisfies a
+protocol standard and requires matching receiver-qualified routines.
+
+Current implemented shape:
+
+```fol
+std geo: pro = {
+    fun area(): int;
+};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun (Rect)area(): int = {
+    return 1;
+};
+```
+
+This subset is intentionally narrow:
+
+- only `pro` is semantic today
+- only required routines are semantic today
+- the type claim is checked procedurally
+- lowering/backend support is not yet implemented, so successful typecheck
+  still stops before code generation with an explicit Milestone 2 boundary
+
+The broader design remains future work. Later milestones may allow a type to
+declare that it satisfies richer standards and check required data and
+receiver-qualified routines together.
 
 ```fol
 std geo: pro = {
@@ -76,5 +116,5 @@ fun (rect)area(): flt[64] = { result = self.width + self.heigh }
 fun (rect)perim(): flt[64] = { result = 2 * self.width + 2 * self.heigh }
 ```
 
-The goal is still procedural. A call like `shape.area()` would remain sugar
-for a receiver-qualified routine call, not an object-owned virtual method.
+The goal is still procedural. A call like `shape.area()` remains sugar for a
+receiver-qualified routine call, not an object-owned virtual method.

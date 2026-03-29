@@ -379,7 +379,7 @@ Completion criteria:
 
 - one real negative example exists and is exercised in integration tests
 
-### Slice 41
+### Slice 41 (complete)
 Update the standards chapter so it distinguishes:
 
 - implemented Milestone 2 subset
@@ -389,7 +389,7 @@ Completion criteria:
 
 - the book is honest about what now works and what still does not
 
-### Slice 42
+### Slice 42 (complete)
 Update version-boundary docs and contributor guidance for the new Milestone 2
 state.
 
@@ -397,7 +397,7 @@ Completion criteria:
 
 - repo docs no longer describe the implemented subset as entirely future
 
-### Slice 43
+### Slice 43 (complete)
 Run targeted contract/compiler/editor suites and confirm green Milestone 2
 state.
 
@@ -405,7 +405,7 @@ Completion criteria:
 
 - targeted standards/conformance tests pass
 
-### Slice 44
+### Slice 44 (complete)
 Run repo gate.
 
 Completion criteria:
@@ -413,7 +413,7 @@ Completion criteria:
 - `make build` passes
 - `make test` passes
 
-### Slice 45
+### Slice 45 (complete)
 Commit Milestone 2 and mark this plan complete.
 
 Completion criteria:
