@@ -122,6 +122,7 @@ Hardening examples that should remain in sync:
 - negative
   - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
+  - `examples/fail_generic_cross_file_m1`
 
 Current hardened example matrix:
 
@@ -132,6 +133,7 @@ Current hardened example matrix:
 - negative semantic-boundary examples
   - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
+  - `examples/fail_generic_cross_file_m1`
 
 ## Second-pass hardening targets
 

@@ -29,6 +29,8 @@ Milestone 2 contract note:
 - conformance remains procedural, not object-dispatch based
 - standards are not ordinary concrete value or parameter types
 - exact routine-signature matching is required for conformance
+- extra overloads are allowed when one exact required-routine match exists
+- exact-match ambiguity still stops at the resolver duplicate boundary
 
 ## Explicitly out of scope
 
@@ -97,18 +99,24 @@ Hardening examples that should remain in sync:
 - positive
   - `examples/standards_protocol_m2`
   - `examples/standards_protocol_pair_m2`
+  - `examples/standards_protocol_multi_m2`
 - negative
   - `examples/fail_standard_blueprint_m2`
   - `examples/fail_standard_as_type_m2`
+  - `examples/fail_standard_missing_routine_m2`
+  - `examples/fail_standard_signature_m2`
 
 Current hardened example matrix:
 
 - positive lowering-boundary examples
   - `examples/standards_protocol_m2`
   - `examples/standards_protocol_pair_m2`
+  - `examples/standards_protocol_multi_m2`
 - negative semantic-boundary examples
   - `examples/fail_standard_blueprint_m2`
   - `examples/fail_standard_as_type_m2`
+  - `examples/fail_standard_missing_routine_m2`
+  - `examples/fail_standard_signature_m2`
 
 ## Second-pass hardening targets
 

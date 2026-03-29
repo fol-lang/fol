@@ -182,7 +182,7 @@ Completion criteria:
 - one positive cross-file generic example exists
 - it is wired into integration coverage
 
-### Slice 11
+### Slice 11 (complete)
 Add one checked-in negative cross-file generic example package.
 
 Suggested shape:
@@ -194,7 +194,7 @@ Completion criteria:
 - one negative cross-file generic example exists
 - CLI and editor diagnostics both pin the failure cleanly
 
-### Slice 12
+### Slice 12 (complete)
 Add lowering regression coverage for cross-file generic examples.
 
 Completion criteria:
@@ -204,7 +204,7 @@ Completion criteria:
 
 ## Epoch 4: Standards Conformance Edge Cases
 
-### Slice 13
+### Slice 13 (complete)
 Add typecheck tests for multi-standard conformance on one type.
 
 Target cases:
@@ -217,7 +217,7 @@ Completion criteria:
 
 - multi-standard conformance is no longer only resolver-hard
 
-### Slice 14
+### Slice 14 (complete)
 Add typecheck tests for imported-standard conformance.
 
 Target cases:
@@ -230,7 +230,7 @@ Completion criteria:
 
 - imported-standard conformance is pinned at the typecheck layer
 
-### Slice 15
+### Slice 15 (complete)
 Add standards typecheck tests for unsupported required-routine shapes with one
 test per message family.
 
@@ -245,7 +245,7 @@ Completion criteria:
 
 - each unsupported requirement shape has its own exact diagnostic coverage
 
-### Slice 16
+### Slice 16 (complete)
 Add standards typecheck tests for ambiguous matching routines in broader
 realistic shapes.
 
@@ -253,7 +253,7 @@ Completion criteria:
 
 - ambiguity diagnostics are pinned beyond the current small cases
 
-### Slice 17
+### Slice 17 (complete)
 Add standards typecheck tests for multi-file conformance where the same
 receiver has extra unrelated routines and overloads.
 
@@ -264,7 +264,7 @@ Completion criteria:
 
 ## Epoch 5: Standards Examples And Lowering Hardening
 
-### Slice 18
+### Slice 18 (complete)
 Add one checked-in positive multi-standard example package.
 
 Suggested shape:
@@ -279,14 +279,14 @@ Completion criteria:
 
 - one positive multi-standard example exists and is integrated
 
-### Slice 19
+### Slice 19 (complete)
 Add one checked-in negative standards example for missing required routine.
 
 Completion criteria:
 
 - the example fails with the exact missing-routine conformance diagnostic
 
-### Slice 20
+### Slice 20 (complete)
 Add one checked-in negative standards example for incompatible routine
 signature.
 

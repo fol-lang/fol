@@ -139,6 +139,57 @@ fn standards_m2_accept_multiple_required_routines_cleanly() {
 }
 
 #[test]
+fn standards_m2_accept_multi_standard_conformance_on_one_type() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         std sized: pro = {\n\
+             fun size(): int;\n\
+         };\n\
+         typ Rect()(geo, sized): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 1;\n\
+         };\n\
+         fun (Rect)size(): int = {\n\
+             return 2;\n\
+         };\n",
+    )]);
+
+    let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
+fn standards_m2_reject_multi_standard_conformance_when_one_protocol_is_missing() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         std sized: pro = {\n\
+             fun size(): int;\n\
+         };\n\
+         typ Rect()(geo, sized): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 1;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error
+                .message()
+                .contains("type 'Rect' does not satisfy standard 'sized': missing required routine 'size'")
+    }));
+}
+
+#[test]
 fn standards_m2_reject_partial_multi_routine_conformance_cleanly() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
@@ -189,6 +240,56 @@ fn standards_m2_reject_multi_routine_conformance_with_one_mismatch_cleanly() {
 }
 
 #[test]
+fn standards_m2_accept_cross_file_protocol_conformance() {
+    let typed = typecheck_fixture_folder(&[
+        (
+            "contracts.fol",
+            "std geo: pro = {\n\
+                 fun area(): int;\n\
+             };\n",
+        ),
+        (
+            "rect.fol",
+            "typ Rect()(geo): rec = {\n\
+                 var width: int;\n\
+             };\n\
+             fun (Rect)area(): int = {\n\
+                 return 1;\n\
+             };\n",
+        ),
+    ]);
+
+    let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
+fn standards_m2_reject_cross_file_protocol_signature_mismatches() {
+    let errors = typecheck_fixture_folder_errors(&[
+        (
+            "contracts.fol",
+            "std geo: pro = {\n\
+                 fun area(): int;\n\
+             };\n",
+        ),
+        (
+            "rect.fol",
+            "typ Rect()(geo): rec = {\n\
+                 var width: int;\n\
+             };\n\
+             fun (Rect)area(scale: int): int = {\n\
+                 return scale;\n\
+             };\n",
+        ),
+    ]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error.message().contains("routine 'area' has incompatible signature")
+    }));
+}
+
+#[test]
 fn standards_m2_exact_match_overload_ambiguity_stops_at_resolver_duplicate_boundary() {
     let root = unique_temp_dir("standards_m2_resolver_duplicate_boundary");
     write_fixture_files(
@@ -231,6 +332,28 @@ fn standards_m2_exact_match_overload_ambiguity_stops_at_resolver_duplicate_bound
 }
 
 #[test]
+fn standards_m2_accept_defaulted_overloads_when_one_exact_match_exists() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(scale: int): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(scale: int): int = {\n\
+             return scale;\n\
+         };\n\
+         fun (Rect)area(scale: int, extra: int = 1): int = {\n\
+             return scale + extra;\n\
+         };\n",
+    )]);
+
+    let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
 fn standards_m2_accept_aliases_imported_records_and_memo_types_in_legal_conformance() {
     let root = unique_temp_dir("standards_m2_workspace_mix");
     std::fs::create_dir_all(root.join("shared")).expect("shared fixture directory should exist");
@@ -266,6 +389,36 @@ fn standards_m2_accept_aliases_imported_records_and_memo_types_in_legal_conforma
 }
 
 #[test]
+fn standards_m2_accept_multi_file_conformance_with_extra_unrelated_routines_and_overloads() {
+    let typed = typecheck_fixture_folder(&[
+        (
+            "contracts.fol",
+            "std geo: pro = {\n\
+                 fun area(): int;\n\
+             };\n",
+        ),
+        (
+            "rect.fol",
+            "typ Rect()(geo): rec = {\n\
+                 var width: int;\n\
+             };\n\
+             fun (Rect)area(): int = {\n\
+                 return 1;\n\
+             };\n\
+             fun (Rect)area(scale: int): int = {\n\
+                 return scale;\n\
+             };\n\
+             fun (Rect)perimeter(): int = {\n\
+                 return 4;\n\
+             };\n",
+        ),
+    ]);
+
+    let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
 fn standards_m2_reject_claims_against_unsupported_standard_kinds_cleanly() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
@@ -282,6 +435,58 @@ fn standards_m2_reject_claims_against_unsupported_standard_kinds_cleanly() {
             && error.message().contains(
                 "type 'Rect' claims unsupported standard 'shape'; only protocol standards are supported in V2 Milestone 2",
             )
+    }));
+}
+
+#[test]
+fn standards_m2_reject_generic_required_routine_signatures_cleanly() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(T)(value: T): int;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Unsupported
+            && error
+                .message()
+                .contains("generic standard routine requirements are not yet supported in V2 Milestone 2")
+    }));
+}
+
+#[test]
+fn standards_m2_reject_receiver_qualified_required_routine_signatures_cleanly() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Rect: rec = { var width: int; };\n\
+         std geo: pro = {\n\
+             fun (Rect)area(): int;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Unsupported
+            && error
+                .message()
+                .contains("receiver-qualified standard requirements are not yet supported in V2 Milestone 2")
+    }));
+}
+
+#[test]
+fn standards_m2_reject_capturing_required_routine_signatures_cleanly() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area()[cache]: int;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Unsupported
+            && error
+                .message()
+                .contains("capturing standard routine requirements are not yet supported in V2 Milestone 2")
     }));
 }
 
