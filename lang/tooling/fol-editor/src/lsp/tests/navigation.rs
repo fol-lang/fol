@@ -215,7 +215,7 @@ fn lsp_server_handles_real_checked_in_package_fixture() {
 }
 
 #[test]
-fn lsp_server_returns_workspace_symbols_for_current_workspace_members_only() {
+fn lsp_server_returns_workspace_symbols_for_unopened_workspace_members_too() {
     let (root, uri) = sample_loc_workspace_root("workspace_symbols");
     let text = fs::read_to_string(root.join("app/src/main.fol")).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());

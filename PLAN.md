@@ -378,7 +378,7 @@ modules don't contain their declarations.
 Fix: walk the resolved workspace tree and populate children for container
 declarations (records, entries, modules, namespaces).
 
-### 5.2 Workspace symbols only search open documents
+### 5.2 Workspace symbols only search open documents (complete)
 
 File: `lang/tooling/fol-editor/src/lsp/mod.rs`
 Lines: 478-490
