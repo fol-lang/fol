@@ -585,17 +585,21 @@ mod tests {
         for needle in [
             "(fun_decl declaration: (plain_fun_decl name: (identifier) @local.definition.function))",
             "(fun_decl declaration: (method_decl name: (identifier) @local.definition.method))",
+            "(pro_decl declaration: (plain_pro_decl name: (identifier) @local.definition.function))",
+            "(pro_decl declaration: (method_decl name: (identifier) @local.definition.method))",
             "(log_decl declaration: (plain_log_decl name: (identifier) @local.definition.function))",
             "(log_decl declaration: (method_decl name: (identifier) @local.definition.method))",
             "(typ_decl name: (identifier) @local.definition.type)",
             "(ali_decl name: (identifier) @local.definition.type)",
+            "(con_decl (typed_binding name: (identifier) @local.definition))",
+            "(lab_decl (typed_binding name: (identifier) @local.definition))",
         ] {
             assert!(
                 query.contains(needle),
                 "locals query lost declaration-family capture: {needle}"
             );
         }
-        for keyword in ["fun", "log", "typ", "ali", "var"] {
+        for keyword in ["fun", "pro", "log", "typ", "ali", "var", "con", "lab"] {
             assert!(
                 fol_typecheck::editor_declaration_keywords().contains(&keyword),
                 "compiler declaration keyword surface drifted away from locals expectation for '{keyword}'"
@@ -626,11 +630,17 @@ mod tests {
         for needle in [
             "(fun_decl declaration: (plain_fun_decl name: (identifier) @symbol.function))",
             "(fun_decl declaration: (method_decl name: (identifier) @symbol.method))",
+            "(pro_decl declaration: (plain_pro_decl name: (identifier) @symbol.function))",
+            "(pro_decl declaration: (method_decl name: (identifier) @symbol.method))",
             "(log_decl declaration: (plain_log_decl name: (identifier) @symbol.function))",
             "(log_decl declaration: (method_decl name: (identifier) @symbol.method))",
             "(typ_decl name: (identifier) @symbol.type)",
             "(ali_decl name: (identifier) @symbol.type)",
             "(var_decl (typed_binding name: (identifier) @symbol.variable))",
+            "(con_decl (typed_binding name: (identifier) @symbol.variable))",
+            "(lab_decl (typed_binding name: (identifier) @symbol.variable))",
+            "(seg_decl name: (identifier) @symbol.namespace)",
+            "(std_decl name: (identifier) @symbol.type)",
             "(use_decl name: (identifier) @symbol.namespace)",
         ] {
             assert!(
@@ -638,7 +648,7 @@ mod tests {
                 "symbols query lost declaration-family capture: {needle}"
             );
         }
-        for keyword in ["fun", "log", "typ", "ali", "var", "use"] {
+        for keyword in ["fun", "pro", "log", "typ", "ali", "var", "con", "lab", "seg", "std", "use"] {
             assert!(
                 fol_typecheck::editor_declaration_keywords().contains(&keyword),
                 "compiler declaration keyword surface drifted away from symbols expectation for '{keyword}'"
