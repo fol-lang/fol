@@ -52,6 +52,22 @@ use super::*;
     }
 
     #[test]
+    fn test_release_workflow_uses_the_current_stable_rust_toolchain() {
+        let release_workflow =
+            std::fs::read_to_string(repo_root().join(".github/workflows/release.yml"))
+                .expect("release workflow should exist");
+
+        assert!(
+            release_workflow.contains("TOOLCHAIN_VERSION : stable"),
+            "release workflow should track the current stable Rust toolchain"
+        );
+        assert!(
+            !release_workflow.contains("TOOLCHAIN_VERSION : 1.70.0"),
+            "release workflow should no longer pin the stale Rust 1.70.0 toolchain"
+        );
+    }
+
+    #[test]
     fn test_cli_resolves_std_imports_from_the_bundled_std_root_by_default() {
         use std::fs;
 
