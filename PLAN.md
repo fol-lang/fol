@@ -489,28 +489,28 @@ Completion criteria:
 
 - generic examples and boundaries are centrally inventoried
 
-### Slice 41
+### Slice 41 (complete)
 Add one top-level shipped-surface matrix test for Milestone 2 examples.
 
 Completion criteria:
 
 - standards examples and boundaries are centrally inventoried
 
-### Slice 42
+### Slice 42 (complete)
 Update book and milestone notes so the hardening work is reflected honestly.
 
 Completion criteria:
 
 - docs describe the stronger example/test surface without overstating features
 
-### Slice 43
+### Slice 43 (complete)
 Run targeted generic and standards suites and confirm green hardening state.
 
 Completion criteria:
 
 - targeted M1 and M2 suites pass
 
-### Slice 44
+### Slice 44 (complete)
 Run repo gate.
 
 Completion criteria:
@@ -518,7 +518,7 @@ Completion criteria:
 - `make build` passes
 - `make test` passes
 
-### Slice 45
+### Slice 45 (complete)
 Commit the hardening milestone and mark this plan complete.
 
 Completion criteria:

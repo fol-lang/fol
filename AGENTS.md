@@ -321,6 +321,11 @@ Current landed subset note:
   before lowering/backend are real
 - if lowering/backend still stop generic routines explicitly, docs/examples/tests
   must say so honestly
+- the active `V2` Milestone 2 work currently covers only protocol standards and
+  narrow conformance checking
+- when hardening `V2`, keep the checked-in positive and negative example matrix
+  synchronized with milestone docs, editor coverage, and lowering-boundary
+  expectations
 
 ### `V3`
 

@@ -225,12 +225,14 @@ Current implemented `V2` subset at repo head:
   - generic routine core
   - parser, resolver, and typecheck subset
   - explicit lowering boundary
+  - expanded positive and negative example coverage
 - Milestone 2
   - protocol standards only
   - required receiver-qualified routine signatures only
   - explicit type-side conformance headers
   - conformance checking in typecheck
   - explicit lowering boundary
+  - expanded positive and negative example coverage
 
 Still future in `V2`:
 

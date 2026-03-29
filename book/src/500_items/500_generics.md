@@ -15,6 +15,11 @@ Current milestone note:
   - type parameters
   - generic parameter references in parameter and return types
   - direct calls with narrow argument-driven inference
+- current hardened example set for that subset is:
+  - `examples/generic_routine_m1`
+  - `examples/generic_routine_pair_m1`
+  - `examples/fail_generic_type_m1`
+  - `examples/fail_generic_misuse_m1`
 - generic routine lowering/backend support is still explicitly out of scope for
   the current Milestone 1 state
 - generic types are not part of the implemented `V1` typechecker

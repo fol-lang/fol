@@ -11,6 +11,11 @@ Current implemented Milestone 2 subset:
 - required receiver-qualified routine signatures only
 - type-side conformance claims through the existing contract-header shape
 - exact routine-signature matching for conformance
+- current hardened example set for that subset is:
+  - `examples/standards_protocol_m2`
+  - `examples/standards_protocol_pair_m2`
+  - `examples/fail_standard_blueprint_m2`
+  - `examples/fail_standard_as_type_m2`
 
 Still future:
 
