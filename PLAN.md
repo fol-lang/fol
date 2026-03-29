@@ -154,7 +154,7 @@ complex type annotation in anonymous routine is not yet supported
 
 Same decision needed: V1 or future. If future, reject in typecheck.
 
-### 2.3 When expressions without default branch
+### 2.3 When expressions without default branch (complete)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/flow.rs:544-546`
