@@ -1,6 +1,9 @@
 use super::*;
 use fol_parser::ast::StandardKind;
+use fol_parser::parser::AstParser;
+use fol_resolver::ResolverErrorKind;
 use fol_resolver::SymbolKind;
+use fol_stream::FileStream;
 
 #[test]
 fn standards_m2_protocols_lower_typed_standard_and_conformance_metadata() {
@@ -113,6 +116,156 @@ fn standards_m2_accept_exact_required_routines_with_extra_overloads() {
 }
 
 #[test]
+fn standards_m2_accept_multiple_required_routines_cleanly() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+             fun perimeter(): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 1;\n\
+         };\n\
+         fun (Rect)perimeter(): int = {\n\
+             return 4;\n\
+         };\n",
+    )]);
+
+    let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
+fn standards_m2_reject_partial_multi_routine_conformance_cleanly() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+             fun perimeter(): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 1;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error
+                .message()
+                .contains("type 'Rect' does not satisfy standard 'geo': missing required routine 'perimeter'")
+    }));
+}
+
+#[test]
+fn standards_m2_reject_multi_routine_conformance_with_one_mismatch_cleanly() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+             fun perimeter(): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 1;\n\
+         };\n\
+         fun (Rect)perimeter(scale: int): int = {\n\
+             return scale;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error.message().contains("routine 'perimeter' has incompatible signature")
+            && error.message().contains("expected fun perimeter(): int")
+    }));
+}
+
+#[test]
+fn standards_m2_exact_match_overload_ambiguity_stops_at_resolver_duplicate_boundary() {
+    let root = unique_temp_dir("standards_m2_resolver_duplicate_boundary");
+    write_fixture_files(
+        &root,
+        &[(
+            "main.fol",
+            "std geo: pro = {\n\
+                 fun area(): int;\n\
+             };\n\
+             typ Rect()(geo): rec = {\n\
+                 var width: int;\n\
+             };\n\
+             fun (Rect)area(): int = {\n\
+                 return 1;\n\
+             };\n\
+             pro (Rect)area(): int = {\n\
+                 return 2;\n\
+             };\n",
+        )],
+    );
+
+    let package_root = root;
+    let mut file_stream = FileStream::from_folder(
+        package_root
+            .to_str()
+            .expect("fixture source directory should be valid UTF-8"),
+    )
+    .expect("fixture source directory should be readable");
+    let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut file_stream);
+    let syntax = AstParser::new()
+        .parse_package(&mut lexer)
+        .expect("fixture should parse before resolver duplicate checks");
+    let errors = fol_resolver::resolve_package(syntax)
+        .expect_err("duplicate exact-match receiver routines should stop at resolver boundary");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == ResolverErrorKind::DuplicateSymbol
+            && error.to_string().contains("duplicate symbol 'area'")
+    }));
+}
+
+#[test]
+fn standards_m2_accept_aliases_imported_records_and_memo_types_in_legal_conformance() {
+    let root = unique_temp_dir("standards_m2_workspace_mix");
+    std::fs::create_dir_all(root.join("shared")).expect("shared fixture directory should exist");
+    std::fs::create_dir_all(root.join("app")).expect("app fixture directory should exist");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "typ[exp] RemoteUser: rec = { var name: str; };\n",
+            ),
+            (
+                "app/main.fol",
+                "use shared: loc = {\"../shared\"};\n\
+                 ali Count: int;\n\
+                 std geo: pro = {\n\
+                     fun size(): Count;\n\
+                     fun owner(): RemoteUser;\n\
+                     fun label(): str;\n\
+                 };\n\
+                 typ Rect()(geo): rec = { var width: int; };\n\
+                 fun (Rect)size(): Count = { return 1; };\n\
+                 fun (Rect)owner(): RemoteUser = { return { name = \"remote\" }; };\n\
+                 fun (Rect)label(): str = { return \"rect\"; };\n",
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("workspace standards fixture should typecheck");
+    let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
 fn standards_m2_reject_claims_against_unsupported_standard_kinds_cleanly() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
@@ -150,6 +303,40 @@ fn standards_m2_reject_standards_as_ordinary_types_cleanly() {
                 .message()
                 .contains("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2")
     }));
+}
+
+#[test]
+fn standards_m2_reject_standards_as_ordinary_types_across_more_contexts() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Wrapper: rec = {\n\
+             var item: geo;\n\
+         };\n\
+         fun produce(value: geo): geo = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var local: geo = produce(panic(\"boom\"));\n\
+             return 1;\n\
+         };\n",
+    )]);
+
+    let count = errors
+        .iter()
+        .filter(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2")
+        })
+        .count();
+    assert!(
+        count >= 3,
+        "standards-as-types rejection should cover more than one surface, got: {errors:?}"
+    );
 }
 
 #[test]

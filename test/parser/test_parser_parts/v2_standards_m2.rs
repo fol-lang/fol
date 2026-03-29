@@ -33,6 +33,29 @@ fn parse_script_package_from_inline(label: &str, source: &str) -> fol_parser::as
     parsed
 }
 
+fn parse_script_package_errors_from_inline(
+    label: &str,
+    source: &str,
+) -> Vec<fol_diagnostics::Diagnostic> {
+    let temp_root = unique_temp_root(label);
+    fs::create_dir_all(&temp_root).expect("Should create a temporary parser fixture directory");
+    let source_path = temp_root.join("main.fol");
+    fs::write(&source_path, source).expect("Should write the temporary parser fixture");
+
+    let mut file_stream =
+        FileStream::from_file(source_path.to_str().expect("Temporary parser path should be utf-8"))
+            .expect("Should open temporary parser fixture");
+    let mut lexer = Elements::init(&mut file_stream);
+    let mut parser = AstParser::new();
+    let errors = parser
+        .parse_script_package(&mut lexer)
+        .expect_err("fixture should fail parsing");
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary parser fixture directory should be removable after the test");
+    errors
+}
+
 #[test]
 fn test_v2_standards_m2_parser_inventory_keeps_standard_declaration_kinds() {
     let protocol = parse_package_from_file("test/parser/simple_std_protocol.fol");
@@ -149,4 +172,89 @@ fn test_v2_standards_m2_parser_accepts_protocol_signatures_with_error_shells() {
                 ))
         )
     }));
+}
+
+#[test]
+fn test_v2_standards_m2_parser_rejects_broken_standard_member_separators() {
+    let errors = parse_script_package_errors_from_inline(
+        "broken_standard_separators",
+        "std geo: pro = {\n\
+             fun area(): int,,\n\
+         };\n",
+    );
+
+    let first = errors.first().expect("parser should report a first error");
+    assert!(
+        first.message.contains("Expected standard member")
+            || first.message.contains("Unexpected token")
+            || first.message.contains("Expected ';'"),
+        "broken standard separators should fail explicitly, got: {}",
+        first.message
+    );
+}
+
+#[test]
+fn test_v2_standards_m2_parser_rejects_malformed_standard_headers() {
+    let errors = parse_script_package_errors_from_inline(
+        "malformed_standard_header",
+        "std geo pro = {\n\
+             fun area(): int;\n\
+         };\n",
+    );
+
+    let first = errors.first().expect("parser should report a first error");
+    assert!(
+        first.message.contains("Expected ':'")
+            || first.message.contains("Expected standard kind")
+            || first.message.contains("Expected kind")
+            || first.message.contains("Expected procedure name after 'pro'"),
+        "malformed standard headers should fail explicitly, got: {}",
+        first.message
+    );
+}
+
+#[test]
+fn test_v2_standards_m2_parser_rejects_malformed_mixed_member_bodies() {
+    let errors = parse_script_package_errors_from_inline(
+        "malformed_mixed_member_body",
+        "std geo: pro = {\n\
+             var size: = 1;\n\
+             fun area(): int;\n\
+         };\n",
+    );
+
+    let first = errors.first().expect("parser should report a first error");
+    assert!(
+        first.message.contains("Expected type reference")
+            || first.message.contains("Expected")
+            || first.message.contains("Unexpected token")
+            || first.message.contains(
+                "Protocol standards currently support only routine, alias, type, and constant declarations",
+            ),
+        "malformed mixed standard members should fail explicitly, got: {}",
+        first.message
+    );
+}
+
+#[test]
+fn test_v2_standards_m2_parser_rejects_malformed_standard_routine_punctuation() {
+    let errors = parse_script_package_errors_from_inline(
+        "malformed_standard_routine_punctuation",
+        "std geo: pro = {\n\
+             fun area(width int): int;\n\
+         };\n",
+    );
+
+    let first = errors.first().expect("parser should report a first error");
+    assert!(
+        first.message.contains("Expected ':'")
+            || first.message.contains("Expected parameter name")
+            || first.message.contains("Expected ')' after parameter list")
+            || first.message.contains("Expected type reference")
+            || first
+                .message
+                .contains("Expected ',', ';', or ')' after generic parameter"),
+        "malformed standard routine punctuation should fail explicitly, got: {}",
+        first.message
+    );
 }

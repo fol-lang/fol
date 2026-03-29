@@ -155,7 +155,7 @@ fn unsupported_standard_lowering_error(
     Some(LoweringError::with_kind(
         LoweringErrorKind::Unsupported,
         format!(
-            "protocol standard '{standard_name}' lowering is not yet supported in V2 Milestone 2"
+            "protocol standard lowering is not yet supported in V2 Milestone 2 (encountered standard '{standard_name}')"
         ),
     ))
 }

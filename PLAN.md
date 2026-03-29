@@ -275,7 +275,7 @@ Completion criteria:
 
 - parser truth for protocol standards is materially broader
 
-### Slice 21
+### Slice 21 (complete)
 Add parser negative tests for malformed standard bodies beyond duplicate
 members.
 
@@ -290,7 +290,7 @@ Completion criteria:
 
 - malformed standard-body parsing is pinned more deeply
 
-### Slice 22
+### Slice 22 (complete)
 Add resolver tests for multiple standard declarations and conformance claims in
 one source unit and across files.
 
@@ -298,7 +298,7 @@ Completion criteria:
 
 - standard symbol resolution is hardened beyond one local file case
 
-### Slice 23
+### Slice 23 (complete)
 Add resolver tests for conformance claims against:
 
 - imported standards
@@ -312,14 +312,14 @@ Completion criteria:
 
 ## Epoch 7: Typecheck Hardening For Standards
 
-### Slice 24
+### Slice 24 (complete)
 Add more positive conformance tests with multiple required routines.
 
 Completion criteria:
 
 - positive conformance is not pinned only for the one-routine case
 
-### Slice 25
+### Slice 25 (complete)
 Add negative conformance tests where one of several required routines is
 missing.
 
@@ -327,7 +327,7 @@ Completion criteria:
 
 - partial conformance failure stays explicit
 
-### Slice 26
+### Slice 26 (complete)
 Add negative conformance tests where one required routine matches and another
 has an incompatible signature.
 
@@ -335,14 +335,14 @@ Completion criteria:
 
 - mixed missing-vs-mismatch behavior is pinned clearly
 
-### Slice 27
+### Slice 27 (complete)
 Add negative tests for ambiguous exact matches with overload sets.
 
 Completion criteria:
 
 - ambiguity behavior is pinned across more than one shape
 
-### Slice 28
+### Slice 28 (complete)
 Add tests for standards mixed with:
 
 - aliases
@@ -353,7 +353,7 @@ Completion criteria:
 
 - standards subset is exercised under more realistic type environments
 
-### Slice 29
+### Slice 29 (complete)
 Add negative tests for standards used in ordinary type positions across more
 contexts.
 
@@ -370,7 +370,7 @@ Completion criteria:
 
 ## Epoch 8: Lowering, Backend, And CLI Hardening For Standards
 
-### Slice 30
+### Slice 30 (complete)
 Normalize all standards-lowering boundary diagnostics to one exact Milestone 2
 message family.
 

@@ -454,7 +454,7 @@ use super::*;
             "standards lowering should fail cleanly in M2, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
         );
         assert!(
-            combined.contains("protocol standard 'geo' lowering is not yet supported in V2 Milestone 2"),
+            combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
             "CLI lowering should preserve the explicit M2 standards-lowering boundary wording"
         );
 

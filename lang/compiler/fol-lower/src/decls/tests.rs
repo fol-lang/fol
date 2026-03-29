@@ -286,7 +286,7 @@ mod tests {
             error.kind() == crate::LoweringErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("protocol standard 'geo' lowering is not yet supported in V2 Milestone 2")
+                    .contains("protocol standard lowering is not yet supported in V2 Milestone 2")
         }));
     }
 

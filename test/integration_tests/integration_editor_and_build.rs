@@ -365,7 +365,7 @@ fn test_standards_protocol_m2_example_opens_cleanly_but_stops_before_lowering() 
         String::from_utf8_lossy(&build.stderr)
     );
     assert!(
-        combined.contains("protocol standard 'geo' lowering is not yet supported in V2 Milestone 2"),
+        combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
         "standards M2 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
