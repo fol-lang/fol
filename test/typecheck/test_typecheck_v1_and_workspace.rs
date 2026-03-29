@@ -224,6 +224,28 @@ fn v1_boundary_rejects_pipe_loop_stages_before_lowering() {
 }
 
 #[test]
+fn v1_boundary_rejects_pipe_block_stages_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] block_stage(value: int): int = {\n\
+             return value | {\n\
+                 value\n\
+             };\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("pipe operator '|>' is not yet supported")
+        }),
+        "Expected pipe-block rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
 fn literal_family_policy_accepts_matching_integer_and_float_sites() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",

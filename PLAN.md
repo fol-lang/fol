@@ -203,7 +203,7 @@ Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:885-887`
 loop lowering is not yet implemented
 ```
 
-### 2.7 Block expression lowering
+### 2.7 Block expression lowering (complete)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:889-891`
