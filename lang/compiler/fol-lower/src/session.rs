@@ -223,7 +223,7 @@ fn translate_checked_type(
                 return Err(vec![LoweringError::with_kind(
                     LoweringErrorKind::Unsupported,
                     format!(
-                        "generic parameter type '{name}' lowering is not yet supported in V2 Milestone 1"
+                        "generic routine lowering is not yet supported in V2 Milestone 1 (encountered generic parameter type '{name}')"
                     ),
                 )]);
             }

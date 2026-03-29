@@ -328,10 +328,86 @@ use super::*;
             "generic routine lowering should fail cleanly in M1, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
         );
         assert!(
-            combined.contains("generic routine 'pick' lowering is not yet supported in V2 Milestone 1")
-                || combined
-                    .contains("generic parameter type 'T' lowering is not yet supported in V2 Milestone 1"),
+            combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
             "CLI lowering should preserve the explicit M1 generic-lowering boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_rejects_multi_param_generic_routines_with_explicit_m1_boundary() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_pair_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic pair fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "fun pair(T)(left: T, right: T): T = {\n",
+                "    return right;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return pair(1, 2);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write generic pair lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("generic pair lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(!output.status.success());
+        assert!(
+            combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
+            "CLI lowering should preserve the explicit M1 generic-lowering boundary wording for generic pairs"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_rejects_generic_routines_with_default_params_with_explicit_m1_boundary() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_defaults_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic default fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "fun pick(T)(value: T, fallback: int = 1): T = {\n",
+                "    return value;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return pick(7);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write generic default lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("generic default lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(!output.status.success());
+        assert!(
+            combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
+            "CLI lowering should preserve the explicit M1 generic-lowering boundary wording for generic defaults"
         );
 
         fs::remove_dir_all(&temp_root).ok();

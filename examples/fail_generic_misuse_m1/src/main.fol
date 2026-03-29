@@ -1,0 +1,11 @@
+fun pick(T: int)(value: T): T = {
+    return value;
+};
+
+fun choose(U)(value: U): U = {
+    return value;
+};
+
+fun[] main(): int = {
+    return choose$(1);
+};

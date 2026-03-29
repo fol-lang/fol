@@ -154,7 +154,7 @@ Completion criteria:
 
 ## Epoch 4: Typecheck Hardening For Generics
 
-### Slice 11
+### Slice 11 (complete)
 Add more positive typecheck tests for direct generic routine calls.
 
 Target cases:
@@ -168,7 +168,7 @@ Completion criteria:
 
 - positive Milestone 1 inference coverage is materially broader
 
-### Slice 12
+### Slice 12 (complete)
 Add negative typecheck tests for repeated generic-parameter mismatch shapes.
 
 Target cases:
@@ -182,7 +182,7 @@ Completion criteria:
 
 - mismatch diagnostics are pinned across more type families
 
-### Slice 13
+### Slice 13 (complete)
 Add negative typecheck tests for underconstrained generic returns and generic
 arguments omitted from inference.
 
@@ -190,7 +190,7 @@ Completion criteria:
 
 - underconstrained-call diagnostics are pinned across multiple forms
 
-### Slice 14
+### Slice 14 (complete)
 Add negative tests for first-class generic routine misuse.
 
 Target cases:
@@ -204,7 +204,7 @@ Completion criteria:
 
 - first-class generic-value rejection is hardened comprehensively
 
-### Slice 15
+### Slice 15 (complete)
 Add negative tests for generic routines mixed with still-unsupported generic
 constraints and generic error shells.
 
@@ -214,7 +214,7 @@ Completion criteria:
 
 ## Epoch 5: Lowering And CLI Hardening For Generics
 
-### Slice 16
+### Slice 16 (complete)
 Audit all current generic routine lowering-stop messages and normalize them to
 one exact Milestone 1 boundary story.
 
@@ -222,7 +222,7 @@ Completion criteria:
 
 - generic lowering errors are consistent across direct lower and full CLI paths
 
-### Slice 17
+### Slice 17 (complete)
 Add compile/lowering regression tests for more generic routine shapes that must
 stop before lowering.
 
@@ -236,7 +236,7 @@ Completion criteria:
 
 - explicit lowering boundary is exercised across more realistic generic shapes
 
-### Slice 18
+### Slice 18 (complete)
 Add a second canonical positive example package for generic routines that:
 
 - opens cleanly in editor
@@ -247,7 +247,7 @@ Completion criteria:
 
 - generic examples are not limited to one tiny identity fixture
 
-### Slice 19
+### Slice 19 (complete)
 Add one canonical negative generic example package for misuse.
 
 Target cases:
@@ -262,7 +262,7 @@ Completion criteria:
 
 ## Epoch 6: Parser And Resolver Hardening For Standards
 
-### Slice 20
+### Slice 20 (complete)
 Add parser inventory tests for more protocol-standard routine signature forms.
 
 Target cases:

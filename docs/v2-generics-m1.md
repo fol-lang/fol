@@ -118,5 +118,7 @@ Hardening examples that should remain in sync:
 
 - positive
   - `examples/generic_routine_m1`
+  - `examples/generic_routine_pair_m1`
 - negative
   - `examples/fail_generic_type_m1`
+  - `examples/fail_generic_misuse_m1`
