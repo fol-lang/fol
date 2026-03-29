@@ -68,6 +68,28 @@ use super::*;
     }
 
     #[test]
+    fn test_workspace_crates_keep_authors_metadata() {
+        let crates = [
+            "lang/compiler/fol-intrinsics/Cargo.toml",
+            "lang/compiler/fol-typecheck/Cargo.toml",
+            "lang/compiler/fol-lower/Cargo.toml",
+            "lang/execution/fol-backend/Cargo.toml",
+            "lang/execution/fol-runtime/Cargo.toml",
+            "lang/tooling/fol-editor/Cargo.toml",
+            "lang/tooling/fol-frontend/Cargo.toml",
+        ];
+
+        for path in crates {
+            let manifest = std::fs::read_to_string(repo_root().join(path))
+                .expect("workspace Cargo.toml should exist");
+            assert!(
+                manifest.contains("authors = [\"Trim Bresilla <trim.bresilla@gmail.com>\"]"),
+                "workspace crate manifest should keep authors metadata: {path}"
+            );
+        }
+    }
+
+    #[test]
     fn test_cli_resolves_std_imports_from_the_bundled_std_root_by_default() {
         use std::fs;
 
