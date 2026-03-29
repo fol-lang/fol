@@ -56,9 +56,12 @@ pub(crate) fn type_when(
                 )?;
                 case_types.push(type_body(typed, resolved, context, body)?);
             }
-            WhenCase::Of { type_match, body } => {
-                let _ = decls::lower_type(typed, resolved, context.scope_id, type_match)?;
-                case_types.push(type_body(typed, resolved, context, body)?);
+            WhenCase::Of { .. } => {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    expr,
+                    "type-matching when/of branches are not yet supported in V1",
+                ));
             }
         }
     }

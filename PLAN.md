@@ -166,7 +166,7 @@ when expressions require a default branch
 If this is a language rule, typecheck should enforce it. If lowering needs it
 as a technical requirement, it should still be caught before lowering.
 
-### 2.4 Type-matching when/of branches
+### 2.4 Type-matching when/of branches (complete)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/flow.rs:767-769`

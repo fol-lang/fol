@@ -125,6 +125,32 @@ fn v1_boundary_rejects_complex_anonymous_routine_types_before_lowering() {
 }
 
 #[test]
+fn v1_boundary_rejects_type_matching_when_of_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Box: rec = {\n\
+             value: int\n\
+         };\n\
+         fun[] main(value: Box): int = {\n\
+             when(value) {\n\
+                 of(Box) { return 1; }\n\
+                 { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("type-matching when/of branches are not yet supported in V1")
+        }),
+        "Expected when/of type-matching rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
 fn literal_family_policy_accepts_matching_integer_and_float_sites() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
