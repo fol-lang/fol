@@ -371,6 +371,47 @@ mod tests {
     }
 
     #[test]
+    fn namespace_module_emission_rejects_broken_routines_instead_of_emitting_todo_shells() {
+        let workspace = sample_lowered_workspace();
+        let mut packages = workspace
+            .packages()
+            .cloned()
+            .map(|package| (package.identity.clone(), package))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let entry_identity = workspace.entry_identity().clone();
+        let entry_package = packages
+            .get_mut(&entry_identity)
+            .expect("entry package should exist");
+        let main_routine = entry_package
+            .routine_decls
+            .get_mut(&fol_lower::LoweredRoutineId(0))
+            .expect("main routine should exist");
+        let entry_block = main_routine
+            .blocks
+            .get_mut(main_routine.entry_block)
+            .expect("entry block should exist");
+        entry_block.terminator = None;
+
+        let session = BackendSession::new(fol_lower::LoweredWorkspace::new(
+            entry_identity,
+            packages,
+            workspace.entry_candidates().to_vec(),
+            workspace.type_table().clone(),
+            workspace.source_map().clone(),
+            workspace.recoverable_abi().clone(),
+        ));
+        let error = emit_namespace_module_shells(&session)
+            .expect_err("broken routines should fail emission instead of falling back to stubs");
+
+        assert!(
+            error
+                .message()
+                .contains("lowered block LoweredBlockId(0) is missing a terminator"),
+            "namespace emission should surface the backend definition error: {error:?}"
+        );
+    }
+
+    #[test]
     fn generated_crate_skeleton_keeps_core_artifacts_off_alloc_and_std_imports() {
         let session = BackendSession::new(sample_lowered_workspace());
 

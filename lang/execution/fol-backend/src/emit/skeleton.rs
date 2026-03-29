@@ -2,7 +2,7 @@ use crate::{
     mangle_package_module_name, plan_generated_crate_layout, plan_namespace_layouts,
     plan_package_layouts, render_entry_definition, render_entry_trait_impl,
     render_global_declaration, render_record_definition, render_record_trait_impl,
-    render_routine_definition, render_routine_shell, render_rust_type_in_workspace,
+    render_routine_definition, render_rust_type_in_workspace,
     BackendArtifact, BackendConfig,
     BackendError, BackendErrorKind, BackendResult, BackendRuntimeTier, BackendSession,
     EmittedRustFile,
@@ -521,15 +521,7 @@ fn render_namespace_items(
             &namespace_plan.package_identity,
             routine,
             session.workspace().type_table(),
-        )
-        .or_else(|_| {
-            render_routine_shell(
-                session.workspace(),
-                &namespace_plan.package_identity,
-                routine,
-                session.workspace().type_table(),
-            )
-        })?;
+        )?;
         items.push(rendered);
     }
 
