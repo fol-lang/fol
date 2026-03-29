@@ -156,6 +156,14 @@ Current hardening targets:
   - checked-in generic examples need deeper real-example coverage, not only
     open-cleanly checks
 
+Current deeper hardening boundaries now pinned too:
+
+- generic hover and definition on checked-in examples are covered
+- plain completion still does not pretend generic-smart suggestions where the
+  current editor does not provide them
+- the negative M1/M2 seam example is:
+  - `examples/fail_generic_standard_constraint_m1m2`
+
 Second-pass hardening must not widen Milestone 1 into:
 
 - generic constraints

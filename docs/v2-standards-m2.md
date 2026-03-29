@@ -137,6 +137,15 @@ Current hardening targets:
 - deeper editor and tree-sitter coverage
   - standards examples need more than open-cleanly and highlight-only checks
 
+Current deeper hardening boundaries now pinned too:
+
+- imported-standard ambiguity is represented by:
+  - `examples/fail_standard_import_ambiguity_m2`
+- standards contract-header hover and definition are covered on checked-in
+  examples
+- required standard routine hover is still not claimed as a broader V2 editor
+  feature
+
 Second-pass hardening must keep these surfaces out of scope:
 
 - blueprint standards

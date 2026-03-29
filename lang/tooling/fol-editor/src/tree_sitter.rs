@@ -756,6 +756,136 @@ mod tests {
     }
 
     #[test]
+    fn generated_bundle_locals_query_captures_v2_generic_example_bindings() {
+        let root = build_bundle_root("locals_v2_generic_example");
+        let output = run_tree_sitter_query(
+            &root,
+            &root.join("queries/fol/locals.scm"),
+            &repo_root().join("examples/generic_routine_pair_m1/src/main.fol"),
+        );
+
+        assert!(
+            output.status.success(),
+            "tree-sitter locals query failed for V2 generic example:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for needle in [
+            "local.definition.function",
+            "local.definition",
+            "pair",
+            "left",
+            "right",
+            "value",
+        ] {
+            assert!(
+                stdout.contains(needle),
+                "V2 generic example locals query lost capture '{needle}':\n{stdout}"
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn generated_bundle_symbols_query_captures_v2_standards_example_symbols() {
+        let root = build_bundle_root("symbols_v2_standards_example");
+        let output = run_tree_sitter_query(
+            &root,
+            &root.join("queries/fol/symbols.scm"),
+            &repo_root().join("examples/standards_protocol_pair_m2/src/main.fol"),
+        );
+
+        assert!(
+            output.status.success(),
+            "tree-sitter symbols query failed for V2 standards example:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for needle in [
+            "symbol.type",
+            "symbol.function",
+            "Rect",
+            "area",
+            "perimeter",
+            "main",
+        ] {
+            assert!(
+                stdout.contains(needle),
+                "V2 standards example symbols query lost capture '{needle}':\n{stdout}"
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn generated_bundle_v2_malformed_syntax_keeps_locals_and_symbols_sane() {
+        let root = build_bundle_root("malformed_v2_locals_symbols");
+        let source = root.join("fixtures/malformed_v2.fol");
+        std::fs::create_dir_all(source.parent().expect("fixture parent should exist")).unwrap();
+        std::fs::write(
+            &source,
+            concat!(
+                "std geo: pro = {\n",
+                "    fun area(: int;\n",
+                "};\n",
+                "fun pick(T)(value: T): T = {\n",
+                "    return value;\n",
+                "};\n",
+            ),
+        )
+        .unwrap();
+
+        for query_name in ["locals", "symbols"] {
+            let output = run_tree_sitter_query(
+                &root,
+                &root.join(format!("queries/fol/{query_name}.scm")),
+                &source,
+            );
+            assert!(
+                output.status.success(),
+                "tree-sitter {query_name} query failed on malformed V2 syntax:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                !stdout.contains("Query error") && !stdout.contains("Invalid node type"),
+                "tree-sitter {query_name} query should stay sane on malformed V2 syntax:\n{stdout}"
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn v2_tree_sitter_coverage_keeps_highlights_distinct_from_locals_and_symbols() {
+        let highlights = fol_tree_sitter_highlights_query();
+        let locals = fol_tree_sitter_locals_query();
+        let symbols = fol_tree_sitter_symbols_query();
+
+        assert!(
+            highlights.contains("@keyword") || highlights.contains("@function"),
+            "highlight query should keep visual capture coverage"
+        );
+        assert!(
+            locals.contains("@local.definition"),
+            "locals query should keep explicit local-definition coverage"
+        );
+        assert!(
+            symbols.contains("@symbol.function"),
+            "symbols query should keep explicit symbol coverage"
+        );
+        assert!(
+            !highlights.contains("@local.definition") && !highlights.contains("@symbol.function"),
+            "highlight-only audits must not be mistaken for locals/symbol coverage"
+        );
+    }
+
+    #[test]
     fn generated_bundle_highlights_keep_build_file_model_declarations_queryable() {
         let root = build_bundle_root("model_build_file");
         let output = run_tree_sitter_query(

@@ -14,8 +14,12 @@ Current implemented Milestone 2 subset:
 - current hardened example set for that subset is:
   - `examples/standards_protocol_m2`
   - `examples/standards_protocol_pair_m2`
+  - `examples/standards_protocol_multi_m2`
   - `examples/fail_standard_blueprint_m2`
   - `examples/fail_standard_as_type_m2`
+  - `examples/fail_standard_missing_routine_m2`
+  - `examples/fail_standard_signature_m2`
+  - `examples/fail_standard_import_ambiguity_m2`
 
 Still future:
 
@@ -96,6 +100,9 @@ This subset is intentionally narrow:
 - the type claim is checked procedurally
 - lowering/backend support is not yet implemented, so successful typecheck
   still stops before code generation with an explicit Milestone 2 boundary
+- editor hardening now covers contract-header hover/definition on checked-in
+  standards examples while keeping broader required-routine hover support out
+  of the claimed contract
 
 The broader design remains future work. Later milestones may allow a type to
 declare that it satisfies richer standards and check required data and

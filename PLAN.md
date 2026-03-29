@@ -410,7 +410,7 @@ Completion criteria:
 
 - V2 completion is no longer only indirectly covered through runtime/std cases
 
-### Slice 31
+### Slice 31 (complete)
 Add semantic-token assertions for one generics example and one standards
 example.
 
@@ -427,7 +427,7 @@ Completion criteria:
 
 ## Epoch 8: Tree-Sitter Locals And Symbols Hardening
 
-### Slice 32
+### Slice 32 (complete)
 Add tree-sitter locals coverage for one positive generics example.
 
 Suggested target:
@@ -438,7 +438,7 @@ Completion criteria:
 
 - generic declarations and local names are exercised beyond highlights
 
-### Slice 33
+### Slice 33 (complete)
 Add tree-sitter symbols coverage for one positive standards example.
 
 Suggested target:
@@ -450,7 +450,7 @@ Completion criteria:
 - protocol declarations and type-side conformance syntax are exercised in
   symbols coverage
 
-### Slice 34
+### Slice 34 (complete)
 Add one negative syntax-oriented V2 example to tree-sitter locals/symbols
 coverage.
 
@@ -458,7 +458,7 @@ Completion criteria:
 
 - locals/symbol extraction stays sane on malformed V2-oriented syntax
 
-### Slice 35
+### Slice 35 (complete)
 Add a tree-sitter coverage note or test that keeps highlight-only V2 audits
 from being mistaken for full locals/symbol coverage.
 
@@ -468,7 +468,7 @@ Completion criteria:
 
 ## Epoch 9: Inventory And Docs Sync Hardening
 
-### Slice 36
+### Slice 36 (complete)
 Add one repo-scan regression for the V2 example inventory by naming convention
 or explicit marker.
 
@@ -476,7 +476,7 @@ Completion criteria:
 
 - adding a new V2 example without inventory updates becomes visible
 
-### Slice 37
+### Slice 37 (complete)
 Add one repo-scan regression that checks milestone docs and book chapters for
 the current shipped V2 example matrix.
 
@@ -484,7 +484,7 @@ Completion criteria:
 
 - docs/book drift against real checked-in V2 examples is harder to introduce
 
-### Slice 38
+### Slice 38 (complete)
 Update:
 
 - `docs/v2-generics-m1.md`
@@ -497,7 +497,7 @@ Completion criteria:
 
 - milestone docs reflect the new examples and new exact boundaries
 
-### Slice 39
+### Slice 39 (complete)
 Update:
 
 - `book/src/500_items/500_generics.md`
@@ -512,7 +512,7 @@ Completion criteria:
 
 ## Epoch 10: Final Cross-Layer Closure
 
-### Slice 40
+### Slice 40 (complete)
 Run and harden targeted parser/resolver/typecheck suites for the new generics
 cases.
 

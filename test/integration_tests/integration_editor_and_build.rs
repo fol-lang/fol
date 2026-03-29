@@ -4175,6 +4175,106 @@ fn test_v2_m2_example_matrix_stays_honest() {
 }
 
 #[test]
+fn test_v2_example_inventory_by_naming_convention_stays_visible() {
+    let examples_root = repo_root().join("examples");
+    let actual_generics = std::fs::read_dir(&examples_root)
+        .expect("examples directory should load")
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            ((name.starts_with("generic_") && name.ends_with("_m1"))
+                || (name.starts_with("fail_generic_")
+                    && (name.ends_with("_m1") || name.ends_with("_m1m2"))))
+            .then(|| format!("examples/{name}"))
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual_standards = std::fs::read_dir(&examples_root)
+        .expect("examples directory should load")
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            ((name.starts_with("standards_") || name.starts_with("fail_standard_"))
+                && name.ends_with("_m2"))
+            .then(|| format!("examples/{name}"))
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let documented_generics = [
+        "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
+        "examples/fail_generic_type_m1",
+        "examples/fail_generic_misuse_m1",
+        "examples/fail_generic_cross_file_m1",
+        "examples/fail_generic_standard_constraint_m1m2",
+    ]
+    .into_iter()
+    .map(|path| path.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
+    let documented_standards = [
+        "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
+        "examples/standards_protocol_multi_m2",
+        "examples/fail_standard_blueprint_m2",
+        "examples/fail_standard_as_type_m2",
+        "examples/fail_standard_missing_routine_m2",
+        "examples/fail_standard_signature_m2",
+        "examples/fail_standard_import_ambiguity_m2",
+    ]
+    .into_iter()
+    .map(|path| path.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(actual_generics, documented_generics);
+    assert_eq!(actual_standards, documented_standards);
+}
+
+#[test]
+fn test_v2_docs_and_book_track_the_current_example_matrix() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+
+    for example in [
+        "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
+        "examples/fail_generic_type_m1",
+        "examples/fail_generic_misuse_m1",
+        "examples/fail_generic_cross_file_m1",
+        "examples/fail_generic_standard_constraint_m1m2",
+    ] {
+        assert!(generics_note.contains(example), "generics milestone note should mention {example}");
+        assert!(generics_book.contains(example), "generics book chapter should mention {example}");
+    }
+
+    for example in [
+        "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
+        "examples/standards_protocol_multi_m2",
+        "examples/fail_standard_blueprint_m2",
+        "examples/fail_standard_as_type_m2",
+        "examples/fail_standard_missing_routine_m2",
+        "examples/fail_standard_signature_m2",
+        "examples/fail_standard_import_ambiguity_m2",
+    ] {
+        assert!(standards_note.contains(example), "standards milestone note should mention {example}");
+        assert!(standards_book.contains(example), "standards book chapter should mention {example}");
+    }
+}
+
+#[test]
 fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
     let bundled_std_docs = std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
         .expect("bundled std docs should exist");

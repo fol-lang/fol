@@ -139,3 +139,64 @@ fn lsp_server_keeps_build_file_semantic_tokens_for_all_model_declarations() {
 
     fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn lsp_server_keeps_more_specific_semantic_tokens_for_v2_examples() {
+    let cases = [
+        (
+            "semantic_tokens_v2_generic_example",
+            "fun pick(T)(value: T): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return pick(7);\n};\n",
+            vec![
+                (0, 0, 3, 2, 0),   // fun
+                (0, 19, 1, 3, 0),  // T tokenized in generic signature position
+                (0, 23, 1, 3, 0),  // T tokenized in generic signature position
+                (1, 11, 5, 3, 0),  // value parameter reference
+                (4, 0, 3, 2, 0),   // fun
+                (5, 11, 4, 2, 0),  // pick call
+            ],
+        ),
+        (
+            "semantic_tokens_v2_standards_example",
+            "std geo: pro = {\n    fun area(): int;\n};\n\ntyp Rect()(geo): rec = {\n    var width: int;\n};\n\nfun (Rect)area(): int = {\n    return 1;\n};\n",
+            vec![
+                (4, 0, 3, 1, 0),  // typ
+                (8, 0, 3, 2, 0),  // fun
+                (8, 5, 4, 1, 0),  // Rect receiver type
+            ],
+        ),
+    ];
+
+    for (label, source, expected_tokens) in cases {
+        let (root, uri) = sample_package_root(label);
+        fs::write(root.join("src/main.fol"), source).unwrap();
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let response = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(954),
+                method: "textDocument/semanticTokens/full".to_string(),
+                params: Some(
+                    serde_json::to_value(LspSemanticTokensParams {
+                        text_document: LspTextDocumentIdentifier { uri },
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let tokens: LspSemanticTokens = serde_json::from_value(response.result.unwrap()).unwrap();
+        let decoded = decode_semantic_tokens(&tokens.data);
+
+        for expected in expected_tokens {
+            assert!(
+                decoded.iter().any(|token| *token == expected),
+                "semantic tokens for '{label}' should include {expected:?}, got: {decoded:?}"
+            );
+        }
+
+        fs::remove_dir_all(root).ok();
+    }
+}
