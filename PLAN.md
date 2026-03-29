@@ -221,7 +221,7 @@ Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:773-775`
 template call lowering is not yet implemented
 ```
 
-### 2.9 Procedure-style method calls as expression values
+### 2.9 Procedure-style method calls as expression values (complete)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:340-342`
@@ -232,7 +232,7 @@ procedure-style method call '{method}' cannot be used as an expression value
 
 This should be a typecheck error, not a lowering error.
 
-### 2.10 Procedure-style calls without value result
+### 2.10 Procedure-style calls without value result (complete)
 
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/calls.rs:823-824`
 

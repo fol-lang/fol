@@ -151,6 +151,57 @@ fn v1_boundary_rejects_type_matching_when_of_before_lowering() {
 }
 
 #[test]
+fn v1_boundary_rejects_procedure_style_method_calls_as_values_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Box: rec = {\n\
+             value: int\n\
+         };\n\
+         pro (Box)reset(): non = {\n\
+             return;\n\
+         };\n\
+         fun[] main(box: Box): int = {\n\
+             var kept: int = box.reset();\n\
+             return kept;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("initializer for 'kept' does not have a type")
+        }),
+        "Expected procedure-style method value rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_procedure_style_free_calls_as_values_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "pro greet(): non = {\n\
+             return;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var kept: int = greet();\n\
+             return kept;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("initializer for 'kept' does not have a type")
+        }),
+        "Expected procedure-style free-call value rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
 fn literal_family_policy_accepts_matching_integer_and_float_sites() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
