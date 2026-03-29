@@ -194,7 +194,7 @@ Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs`
 These are V1 operators that typecheck passes. Either implement lowering or
 reject at typecheck.
 
-### 2.6 Loop expression lowering
+### 2.6 Loop expression lowering (complete)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:885-887`

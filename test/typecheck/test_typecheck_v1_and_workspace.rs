@@ -202,6 +202,28 @@ fn v1_boundary_rejects_procedure_style_free_calls_as_values_before_lowering() {
 }
 
 #[test]
+fn v1_boundary_rejects_pipe_loop_stages_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun decide(value: int): int = {\n\
+             return value | while(true) {\n\
+                 break;\n\
+             };\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("binary operator right operand does not have a type")
+        }),
+        "Expected pipe-loop rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
 fn literal_family_policy_accepts_matching_integer_and_float_sites() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
