@@ -705,3 +705,87 @@ fn build_source_evaluator_executes_loop_over_string_list() {
     assert!(artifacts.iter().any(|a| a.name == "io"));
     assert!(artifacts.iter().any(|a| a.name == "utils"));
 }
+
+#[test]
+fn build_source_evaluator_rejects_unknown_expression_nodes_in_build_bodies() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var keep = 1 + 2;\n",
+        "    return;\n",
+        "}\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let error = evaluate_build_source(&request, &build_path, source)
+        .expect_err("unknown build expression nodes should fail");
+
+    assert!(error
+        .message()
+        .contains("build evaluation does not support expression node 'binary_op'"));
+}
+
+#[test]
+fn build_source_evaluator_rejects_while_like_loops_in_build_bodies() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    loop(true) {\n",
+        "        return;\n",
+        "    };\n",
+        "    return;\n",
+        "}\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let error = evaluate_build_source(&request, &build_path, source)
+        .expect_err("condition-based loops should fail");
+
+    assert!(error
+        .message()
+        .contains("condition-based loops are not supported in build evaluation"));
+}
+
+#[test]
+fn build_source_evaluator_rejects_unknown_condition_nodes_in_when_clauses() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    when(\"ready\") {\n",
+        "        {\n",
+        "            return;\n",
+        "        }\n",
+        "    };\n",
+        "    return;\n",
+        "}\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let error = evaluate_build_source(&request, &build_path, source)
+        .expect_err("unknown build condition nodes should fail");
+
+    assert!(error
+        .message()
+        .contains("build evaluation does not support condition node 'literal'"));
+}

@@ -4,7 +4,7 @@ use fol_resolver::{ResolvedProgram, SymbolKind};
 
 use super::helpers::{
     ensure_assignable, loop_binder_scope, merge_recoverable_effects, node_origin, plain_value_expr,
-    record_symbol_type, reject_recoverable_error_shell_conversion,
+    record_symbol_type, reject_recoverable_error_shell_conversion, unsupported_node_surface,
 };
 use super::{TypeContext, TypedExpr};
 use super::{type_body, type_node, type_node_with_expectation};
@@ -64,7 +64,11 @@ pub(crate) fn type_when(
     }
 
     let Some(default) = default else {
-        return Ok(TypedExpr::none().with_optional_effect(selector_expr.recoverable_effect));
+        return Err(unsupported_node_surface(
+            resolved,
+            expr,
+            "when expressions require a default branch",
+        ));
     };
     let default_expr = type_body(typed, resolved, context, default)?;
     let Some(expected) = default_expr.value_type else {

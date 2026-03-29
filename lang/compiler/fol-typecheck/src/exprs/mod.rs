@@ -321,6 +321,7 @@ pub(crate) fn type_node_with_expectation(
         }
         AstNode::AnonymousFun {
             syntax_id,
+            captures,
             params,
             return_type,
             error_type,
@@ -330,6 +331,7 @@ pub(crate) fn type_node_with_expectation(
         }
         | AstNode::AnonymousPro {
             syntax_id,
+            captures,
             params,
             return_type,
             error_type,
@@ -339,6 +341,7 @@ pub(crate) fn type_node_with_expectation(
         }
         | AstNode::AnonymousLog {
             syntax_id,
+            captures,
             params,
             return_type,
             error_type,
@@ -346,8 +349,33 @@ pub(crate) fn type_node_with_expectation(
             inquiries,
             ..
         } => {
+            if !captures.is_empty() {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    node,
+                    "anonymous routines with captures are not yet supported",
+                ));
+            }
             if let Some(message) = decls::unsupported_routine_param_surface_message(params) {
                 return Err(unsupported_node_surface(resolved, node, message));
+            }
+            for param in params {
+                if !anonymous_routine_type_is_lowerable(&param.param_type) {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        "complex type annotation in anonymous routine is not yet supported",
+                    ));
+                }
+            }
+            for typ in return_type.as_ref().into_iter().chain(error_type.as_ref()) {
+                if !anonymous_routine_type_is_lowerable(typ) {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        "complex type annotation in anonymous routine is not yet supported",
+                    ));
+                }
             }
             let routine_scope = syntax_id
                 .and_then(|id| resolved.scope_for_syntax(id))
@@ -653,6 +681,20 @@ pub(crate) fn type_node_with_expectation(
 /// Check whether an AST body contains at least one `return` statement (non-recursive into nested routines).
 fn body_contains_return(nodes: &[AstNode]) -> bool {
     nodes.iter().any(|node| node_contains_return(node))
+}
+
+fn anonymous_routine_type_is_lowerable(typ: &FolType) -> bool {
+    match typ {
+        FolType::Int { .. }
+        | FolType::Float { .. }
+        | FolType::Bool
+        | FolType::Char { .. }
+        | FolType::Never
+        | FolType::Named { .. }
+        | FolType::QualifiedNamed { .. } => true,
+        ty if ty.is_builtin_str() => true,
+        _ => false,
+    }
 }
 
 fn body_contains_break(nodes: &[AstNode]) -> bool {

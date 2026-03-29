@@ -6,6 +6,23 @@ use super::core::{BuildBodyExecutor, MAX_EVAL_DEPTH};
 use super::types::ExecValue;
 
 impl BuildBodyExecutor {
+    fn build_node_label(node: &AstNode) -> &'static str {
+        match node {
+            AstNode::Identifier { .. } => "identifier",
+            AstNode::FunctionCall { .. } => "function_call",
+            AstNode::MethodCall { .. } => "method_call",
+            AstNode::ContainerLiteral { .. } => "container_literal",
+            AstNode::Literal(_) => "literal",
+            AstNode::BinaryOp { .. } => "binary_op",
+            AstNode::UnaryOp { .. } => "unary_op",
+            AstNode::When { .. } => "when",
+            AstNode::Loop { .. } => "loop",
+            AstNode::Assignment { .. } => "assignment",
+            AstNode::Return { .. } => "return",
+            _ => "ast_node",
+        }
+    }
+
     pub(super) fn eval_iterable(&self, node: &AstNode) -> Result<Vec<ExecValue>, BuildEvaluationError> {
         match node {
             AstNode::ContainerLiteral { elements, .. } => {
@@ -76,7 +93,13 @@ impl BuildBodyExecutor {
             AstNode::UnaryOp { op: fol_parser::ast::UnaryOperator::Not, operand } => {
                 Ok(!self.eval_condition(operand)?)
             }
-            _ => Ok(false),
+            other => Err(BuildEvaluationError::new(
+                BuildEvaluationErrorKind::InvalidInput,
+                format!(
+                    "build evaluation does not support condition node '{}'",
+                    Self::build_node_label(other)
+                ),
+            )),
         }
     }
 
@@ -182,7 +205,10 @@ impl BuildBodyExecutor {
                 if self.helpers.contains_key(name.as_str()) {
                     self.eval_helper_call(name, args)
                 } else {
-                    Ok(None)
+                    Err(BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        format!("unknown build helper routine '{name}'"),
+                    ))
                 }
             }
 
@@ -197,7 +223,13 @@ impl BuildBodyExecutor {
             AstNode::Literal(Literal::String(s)) => Ok(Some(ExecValue::Str(s.clone()))),
             AstNode::Literal(Literal::Boolean(b)) => Ok(Some(ExecValue::Bool(*b))),
 
-            _ => Ok(None),
+            other => Err(BuildEvaluationError::new(
+                BuildEvaluationErrorKind::InvalidInput,
+                format!(
+                    "build evaluation does not support expression node '{}'",
+                    Self::build_node_label(other)
+                ),
+            )),
         }
     }
 

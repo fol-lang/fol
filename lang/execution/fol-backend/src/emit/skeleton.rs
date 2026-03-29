@@ -2,10 +2,12 @@ use crate::{
     mangle_package_module_name, plan_generated_crate_layout, plan_namespace_layouts,
     plan_package_layouts, render_entry_definition, render_entry_trait_impl,
     render_global_declaration, render_record_definition, render_record_trait_impl,
-    render_routine_definition, render_routine_shell, BackendArtifact, BackendConfig,
-    BackendResult, BackendRuntimeTier, BackendSession, EmittedRustFile,
+    render_routine_definition, render_routine_shell, render_rust_type_in_workspace,
+    BackendArtifact, BackendConfig,
+    BackendError, BackendErrorKind, BackendResult, BackendRuntimeTier, BackendSession,
+    EmittedRustFile,
 };
-use fol_lower::LoweredType;
+use fol_lower::{LoweredBuiltinType, LoweredType, LoweredTypeId};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -33,18 +35,19 @@ pub fn emit_main_rs_for_config(
     let layout = plan_generated_crate_layout(session);
     let entry_candidate = session.select_buildable_entry_candidate()?;
     let entry_name = &session.entry_identity().display_name;
-    let entry_wrapper = match resolve_entry_callable(session, entry_candidate) {
-        Some(EntryCallable {
+    let entry_wrapper = match resolve_entry_callable(session, entry_candidate, config.runtime_tier())? {
+        EntryCallable {
             rust_path,
+            call_args,
             recoverable: false,
-        }) => format!("    let _ = {rust_path}();"),
-        Some(EntryCallable {
+        } => format!("    let _ = {rust_path}({call_args});"),
+        EntryCallable {
             rust_path,
+            call_args,
             recoverable: true,
-        }) => format!(
-            "    let __fol_outcome = rt::outcome_from_recoverable({rust_path}());\n    if let Some(__fol_message) = rt::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
+        } => format!(
+            "    let __fol_outcome = rt::outcome_from_recoverable({rust_path}({call_args}));\n    if let Some(__fol_message) = rt::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
         ),
-        None => "    let _entry_name = \"placeholder\";".to_string(),
     };
     let runtime_tier = config.runtime_tier();
 
@@ -242,7 +245,7 @@ fn runtime_use_block(runtime_tier: BackendRuntimeTier) -> String {
 
 fn runtime_main_use_block(runtime_tier: BackendRuntimeTier) -> String {
     format!(
-        "use {} as rt;\nuse {} as rt_model;",
+        "use {} as rt;\nuse {} as rt_model;\n\nfn __fol_cli_arg(index: usize) -> Option<String> {{\n    std::env::args().nth(index + 1)\n}}\n\nfn __fol_parse_bool(raw: &str) -> Option<rt::FolBool> {{\n    match raw {{\n        \"true\" | \"1\" | \"yes\" | \"on\" => Some(true),\n        \"false\" | \"0\" | \"no\" | \"off\" => Some(false),\n        _ => None,\n    }}\n}}\n\nfn __fol_parse_char(raw: &str) -> Option<rt::FolChar> {{\n    let mut chars = raw.chars();\n    let first = chars.next()?;\n    if chars.next().is_some() {{\n        None\n    }} else {{\n        Some(first)\n    }}\n}}\n",
         runtime_tier.runtime_module_path(),
         runtime_tier.runtime_module_path()
     )
@@ -251,45 +254,105 @@ fn runtime_main_use_block(runtime_tier: BackendRuntimeTier) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EntryCallable {
     rust_path: String,
+    call_args: String,
     recoverable: bool,
 }
 
 fn resolve_entry_callable(
     session: &BackendSession,
     entry_candidate: &fol_lower::LoweredEntryCandidate,
-) -> Option<EntryCallable> {
+    runtime_tier: BackendRuntimeTier,
+) -> BackendResult<EntryCallable> {
     let package = session
         .workspace()
-        .package(&entry_candidate.package_identity)?;
-    let routine = package.routine_decls.get(&entry_candidate.routine_id)?;
-    if routine.receiver_type.is_some() || !routine.params.is_empty() {
-        return None;
+        .package(&entry_candidate.package_identity)
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "entry candidate '{}' points at missing package '{}'",
+                    entry_candidate.name, entry_candidate.package_identity.display_name
+                ),
+            )
+        })?;
+    let routine = package
+        .routine_decls
+        .get(&entry_candidate.routine_id)
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "entry candidate '{}' points at missing routine {:?}",
+                    entry_candidate.name, entry_candidate.routine_id
+                ),
+            )
+        })?;
+    if routine.receiver_type.is_some() {
+        return Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!(
+                "entry routine '{}' must be a plain free routine",
+                entry_candidate.name
+            ),
+        ));
     }
-    let signature_id = routine.signature?;
+    let signature_id = routine.signature.ok_or_else(|| {
+        BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!("entry routine '{}' is missing a lowered signature", entry_candidate.name),
+        )
+    })?;
     let signature = match session.workspace().type_table().get(signature_id) {
         Some(LoweredType::Routine(signature)) => signature,
-        _ => return None,
+        _ => {
+            return Err(BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "entry routine '{}' signature does not resolve to a lowered routine type",
+                    entry_candidate.name
+                ),
+            ))
+        }
     };
-    let source_unit_id = routine.source_unit_id?;
+    let source_unit_id = routine.source_unit_id.ok_or_else(|| {
+        BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!("entry routine '{}' is missing a source unit", entry_candidate.name),
+        )
+    })?;
     let namespace_plan = plan_namespace_layouts(session).into_iter().find(|plan| {
         plan.package_identity == entry_candidate.package_identity
             && plan.source_unit_ids.contains(&source_unit_id)
+    }).ok_or_else(|| {
+        BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!(
+                "entry routine '{}' does not map to a namespace layout",
+                entry_candidate.name
+            ),
+        )
     })?;
-    if render_routine_definition(
+    render_routine_definition(
         session.workspace(),
         &entry_candidate.package_identity,
         routine,
         session.workspace().type_table(),
     )
-    .is_err()
-    {
-        return None;
-    }
+    .map_err(|error| {
+        BackendError::new(
+            error.kind(),
+            format!(
+                "entry routine '{}' cannot be rendered for backend emission: {}",
+                entry_candidate.name,
+                error.message()
+            ),
+        )
+    })?;
     let namespace_path = namespace_plan
         .relative_file
         .trim_end_matches(".rs")
         .replace('/', "::");
-    Some(EntryCallable {
+    Ok(EntryCallable {
         rust_path: format!(
             "packages::{}::{}::{}",
             mangle_package_module_name(&entry_candidate.package_identity),
@@ -300,8 +363,66 @@ fn resolve_entry_callable(
                 &entry_candidate.name
             )
         ),
+        call_args: render_entry_call_args(session, &signature.params, runtime_tier)?,
         recoverable: signature.error_type.is_some(),
     })
+}
+
+fn render_entry_call_args(
+    session: &BackendSession,
+    params: &[LoweredTypeId],
+    runtime_tier: BackendRuntimeTier,
+) -> BackendResult<String> {
+    let type_table = session.workspace().type_table();
+    let rendered = params
+        .iter()
+        .enumerate()
+        .map(|(index, type_id)| render_entry_arg_expr(session, type_table, *type_id, index, runtime_tier))
+        .collect::<BackendResult<Vec<_>>>()?;
+    Ok(rendered.join(", "))
+}
+
+fn render_entry_arg_expr(
+    session: &BackendSession,
+    type_table: &fol_lower::LoweredTypeTable,
+    type_id: LoweredTypeId,
+    index: usize,
+    runtime_tier: BackendRuntimeTier,
+) -> BackendResult<String> {
+    let Some(ty) = type_table.get(type_id) else {
+        return Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!("entry parameter type {:?} is missing from the lowered type table", type_id),
+        ));
+    };
+    let expr = match ty {
+        LoweredType::Builtin(LoweredBuiltinType::Int) => {
+            format!("__fol_cli_arg({index}).and_then(|raw| raw.parse::<rt::FolInt>().ok()).unwrap_or_default()")
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Float) => {
+            format!("__fol_cli_arg({index}).and_then(|raw| raw.parse::<rt::FolFloat>().ok()).unwrap_or_default()")
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Bool) => {
+            format!("__fol_cli_arg({index}).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()")
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Char) => {
+            format!("__fol_cli_arg({index}).and_then(|raw| __fol_parse_char(&raw)).unwrap_or_default()")
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Str) => {
+            format!("__fol_cli_arg({index}).map(rt_model::FolStr::from).unwrap_or_default()")
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Never) => "rt::impossible()".to_string(),
+        _ => {
+            let rendered_type = render_rust_type_in_workspace(
+                Some(session.workspace()),
+                type_table,
+                type_id,
+            )?;
+            let _ = runtime_tier;
+            format!("<{rendered_type} as Default>::default()")
+        }
+    };
+    Ok(expr)
 }
 
 fn render_namespace_items(

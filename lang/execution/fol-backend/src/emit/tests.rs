@@ -263,6 +263,44 @@ mod tests {
     }
 
     #[test]
+    fn main_rs_emission_parses_bool_entry_params_from_cli_args() {
+        let fixture_root = temp_root("bool_entry_signature");
+        let fixture = write_fixture(
+            &fixture_root,
+            "fun[] main(flag: bol): bol = {\n    return .not(flag);\n};\n",
+        );
+        let lowered = lowered_workspace_from_entry_path(&fixture);
+        let session = BackendSession::new(lowered);
+
+        let emitted = emit_main_rs(&session).expect("bool entry should emit");
+
+        assert!(emitted.contents.contains("__fol_parse_bool"));
+        assert!(emitted
+            .contents
+            .contains("__fol_cli_arg(0).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()"));
+        assert!(emitted.contents.contains("let _ = packages::"));
+        let _ = fs::remove_dir_all(&fixture_root);
+    }
+
+    #[test]
+    fn main_rs_emission_rejects_receiver_entry_routines() {
+        let fixture_root = temp_root("bad_entry_receiver");
+        let fixture = write_fixture(
+            &fixture_root,
+            "typ App: rec = {\n    value: int;\n};\nfun (App)main(): int = {\n    return 0;\n};\n",
+        );
+        let lowered = lowered_workspace_from_entry_path(&fixture);
+        let session = BackendSession::new(lowered);
+
+        let error = emit_main_rs(&session).expect_err("receiver entry should fail");
+
+        assert!(error
+            .message()
+            .contains("entry routine 'main' must be a plain free routine"));
+        let _ = fs::remove_dir_all(&fixture_root);
+    }
+
+    #[test]
     fn package_module_emission_keeps_package_and_namespace_module_tree() {
         let session = BackendSession::new(sample_lowered_workspace());
 

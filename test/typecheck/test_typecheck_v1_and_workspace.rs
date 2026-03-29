@@ -37,6 +37,94 @@ fn cast_policy_rejects_as_and_cast_surfaces_in_v1() {
 }
 
 #[test]
+fn v1_boundary_rejects_additional_lower_only_operator_surfaces_early() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(flag: bol, value: int): bol = {\n\
+             var seen: bol = value is value;\n\
+             return seen;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("type testing operator 'is' is not yet supported")
+        }),
+        "Expected the unsupported 'is' diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_template_calls_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: int = 1;\n\
+             return value$;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("template instantiation is not yet supported")
+        }),
+        "Expected template-call rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_anonymous_routines_with_captures_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): non = {\n\
+             var keep = fun[](value: int)[outer;]: int = {\n\
+                 return value;\n\
+             };\n\
+             return;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("anonymous routines with captures are not yet supported")
+        }),
+        "Expected anonymous capture rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_complex_anonymous_routine_types_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): non = {\n\
+             var keep = fun[](items: vec[int]): int = {\n\
+                 return .len(items);\n\
+             };\n\
+             return;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("complex type annotation in anonymous routine is not yet supported")
+        }),
+        "Expected complex anonymous-type rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
 fn literal_family_policy_accepts_matching_integer_and_float_sites() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",

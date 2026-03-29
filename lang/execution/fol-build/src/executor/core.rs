@@ -312,7 +312,10 @@ impl BuildBodyExecutor {
                 }
             }
             LoopCondition::Condition(_) => {
-                // While-like loops are not supported in build evaluation
+                return Err(BuildEvaluationError::new(
+                    BuildEvaluationErrorKind::InvalidInput,
+                    "condition-based loops are not supported in build evaluation",
+                ));
             }
         }
         Ok(())

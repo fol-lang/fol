@@ -1,576 +1,579 @@
-# V2 Hardening Plan: Second Pass
+# Production Readiness Plan
 
-This file is the next hardening plan for the current landed `V2` subset after
-the first broad hardening pass.
+Last updated: 2026-03-28
 
-It is based on:
+Current position: V2 Milestone 2 landed.
 
-- a fresh local repo sweep
-- one independent generics scan
-- one independent standards scan
-- one independent tooling/cross-layer scan
+This document is the audit-driven work plan for making the FOL compiler,
+runtime, editor, and tooling production-ready. Every item is a concrete finding
+from a full codebase audit, not a speculative wish.
 
-The three scans converged on the same pattern:
+Items are grouped by severity and area. Each item includes the exact file, line,
+and what is wrong.
 
-- parser and primary typecheck support are no longer the biggest gap
-- the remaining risk is mostly in edge-shape semantics
-- cross-file and imported cases are still lighter than local single-file cases
-- editor and tree-sitter coverage is still shallower than compiler coverage
-- the public example and docs matrix is honest, but still too manual
+This plan does NOT flag:
 
-This plan is not for new `V2` features.
-It is for deeper hardening of the already landed subset:
+- features that are explicitly marked as future/unsupported with proper errors
+- V3/V4 work that hasn't started (that's expected)
+- parser nodes for future syntax that are rejected at typecheck (that's the
+  intended design)
 
-- Milestone 1
-  - generic routine core
-- Milestone 2
-  - protocol standards and procedural conformance core
+This plan DOES flag:
 
-Success criteria:
+- silent wrong behavior (compiles but does the wrong thing)
+- inconsistencies between pipeline stages within V1-V2M2 scope
+- editor/tree-sitter drift from the actual compiler
+- infrastructure issues that affect release quality
 
-- generic edge shapes are pinned more deeply
-- standards conformance is hardened across imported and multi-standard cases
-- checked-in example packages cover more positive and negative cases
-- LSP/tree-sitter coverage exercises real V2 examples more deeply
-- V2 inventories and docs become harder to let drift
-- `make build` passes
-- `make test` passes
+---
 
-## Epoch 1: Freeze The Second-Pass Scope
+## Phase 1: Silent Wrong Behavior
 
-### Slice 1 (complete)
-Write one second-pass hardening note for Milestone 1 generics in:
+These are the highest priority. The compiler produces output that is silently
+incorrect or silently incomplete.
 
-- `docs/v2-generics-m1.md`
+### 1.1 Entry point placeholder emits broken binary (complete)
 
-The note must explicitly call out these remaining gaps as current targets:
+File: `lang/execution/fol-backend/src/emit/skeleton.rs`
+Line: 47
 
-- receiver-qualified generic routines
-- richer signature-position use of generic parameters
-- imported/cross-file generic routine calls
-- editor/tree-sitter coverage depth
+When entry resolution fails, the backend emits:
 
-Completion criteria:
+```rust
+None => "    let _entry_name = \"placeholder\";".to_string(),
+```
 
-- the doc names the second-pass hardening targets explicitly
-- it does not pretend these targets are already fully covered
+instead of returning an error. The user gets a binary that compiles, links, and
+runs — but calls nothing. There is no warning, no error, no diagnostic.
 
-### Slice 2 (complete)
-Write one second-pass hardening note for Milestone 2 standards in:
+This happens when:
 
-- `docs/v2-standards-m2.md`
+- the entry routine has a receiver type
+- the entry routine has parameters
+- the entry signature is missing
+- the namespace layout can't be found
 
-The note must explicitly call out these remaining gaps as current targets:
+Fix: return a `BackendError` instead of emitting placeholder code. A binary
+that doesn't call the user's entry point is worse than a failed build.
 
-- multi-standard conformance on one type
-- imported-standard conformance typecheck truth
-- unsupported requirement-shape diagnostics
-- deeper editor/tree-sitter coverage
+### 1.2 Build evaluator silently swallows unknown expressions (complete)
 
-Completion criteria:
+File: `lang/execution/fol-build/src/executor/eval_expr.rs`
+Line: 200
 
-- the doc names the second-pass standards targets explicitly
-- it keeps blueprint and extended standards out of scope
+The catch-all arm in expression evaluation:
 
-### Slice 3 (complete)
-Add one top-level inventory regression that pins this second-pass plan to the
-current known V2 example set and milestone docs.
+```rust
+_ => Ok(None),
+```
 
-Completion criteria:
+Any `AstNode` variant that the evaluator doesn't handle is silently treated as
+"no value." If a user writes a `build.fol` with a construct the evaluator
+doesn't recognize, nothing fails. The build proceeds with missing data.
 
-- there is one regression that fails if the V2 example/doc matrix drifts
-- it covers both M1 and M2 example groups
+Fix: return an `Err(BuildEvaluationError)` with a message naming the
+unrecognized node kind.
 
-## Epoch 2: Generics Signature And Scope Edge Cases
+### 1.3 Build evaluator silently skips while-loops (complete)
 
-### Slice 4 (complete)
-Add parser truth tests for receiver-qualified generic routine declarations.
+File: `lang/execution/fol-build/src/executor/core.rs`
+Lines: 314-318
 
-Target cases:
+```rust
+LoopCondition::Condition(_) => {
+    // While-like loops are not supported in build evaluation
+}
+```
 
-- receiver-qualified generic header with one generic parameter
-- receiver-qualified generic header with two generic parameters
-- mixed receiver plus default/named parameter syntax where parser allows it
+The condition-based loop branch does nothing and returns `Ok(())`. If a
+`build.fol` uses a while-like loop, its body is silently skipped.
 
-Completion criteria:
+Fix: return an `Err(BuildEvaluationError)` with a clear message that
+condition-based loops are not supported in build evaluation.
 
-- parser truth is pinned for receiver-qualified generic headers
+### 1.4 Build condition evaluator returns false for unknown nodes (complete)
 
-### Slice 5 (complete)
-Add typecheck boundary tests for receiver-qualified generic routines.
+File: `lang/execution/fol-build/src/executor/eval_condition.rs`
+Line: 79
 
-The tests must make the current Milestone 1 contract explicit:
+Unknown condition AST nodes evaluate to `Ok(false)`. If a `when` clause in
+`build.fol` uses an unrecognized pattern (Is/Has/In/On), the clause silently
+evaluates to false.
 
-- either accepted at the same M1 semantic tier as plain generic routines
-- or rejected with one exact M1 boundary message
+Fix: return an error instead of a default false.
 
-Completion criteria:
+### 1.5 Mutable global initialization uses Rust Default::default()
 
-- receiver-qualified generic routine semantics are no longer implicit
-- the exact current contract is pinned by tests
+File: `lang/execution/fol-backend/src/instructions/render.rs`
+Lines: 77-79
 
-### Slice 6 (complete)
-Add resolver tests for generic parameter leakage into richer signature
-positions.
+Mutable globals are initialized with:
 
-Target cases:
+```rust
+*{global_path}.get_or_init(|| std::sync::Mutex::new(Default::default()))
+    .lock().unwrap_or_else(|e| e.into_inner()) = {value}.clone();
+```
 
-- nested record field annotations
-- alias-backed signature annotations
-- nested optional or error shells
-- nested container annotations
+The `Default::default()` call uses Rust's `Default` trait, not the FOL type's
+declared default. For most types this is harmless because the value is
+immediately overwritten by the store instruction. But if the global is read
+before being explicitly written (possible in multi-function programs), the
+value is Rust-default, not FOL-default.
 
-Completion criteria:
+Fix: either validate that globals are always written before read at the
+lowering stage, or emit FOL-correct default values in the initializer.
 
-- generic scope leakage is pinned beyond the current simple parameter/return
-  cases
+---
 
-### Slice 7 (complete)
-Add typecheck tests for generic routines using generic parameters in richer
-signature shapes.
+## Phase 2: Typecheck-Lower Pipeline Gaps (V1 Scope)
 
-Target cases:
+These are features within the V1 language scope that pass typechecking but fail
+at lowering. The user sees a confusing late error instead of a clear early
+rejection.
 
-- `opt[T]`
-- `err[T]`
-- `seq[T]`
-- `vec[T]`
-- nested array or record positions if legal
+### 2.1 Anonymous routines with captures (complete)
 
-Completion criteria:
+Typecheck: accepts
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:1122-1126`
 
-- M1 behavior for these signature shapes is explicit
-- accepted cases and rejected cases are both pinned
+```
+anonymous routines with captures are not yet supported
+```
 
-### Slice 8 (complete)
-Add negative tests for generic routines mixed with defaulted and variadic
-parameter interactions where inference becomes unclear.
+If captures are V1 scope, lowering should be implemented. If they're future
+work, typecheck should reject them with a boundary message.
 
-Completion criteria:
+### 2.2 Complex type annotations in anonymous routines (complete)
 
-- default/variadic/generic interactions are no longer only parser-hard
-- the semantic boundary is explicit
+Typecheck: accepts
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:1090-1094`
 
-## Epoch 3: Imported And Cross-File Generics Hardening
+```
+complex type annotation in anonymous routine is not yet supported
+```
 
-### Slice 9 (complete)
-Add resolver and typecheck tests for imported generic routine calls through
-`loc` package boundaries.
+Same decision needed: V1 or future. If future, reject in typecheck.
 
-Target cases:
+### 2.3 When expressions without default branch
 
-- imported direct identity-style generic call
-- imported two-parameter generic call
-- imported underconstrained generic call
+Typecheck: accepts
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/flow.rs:544-546`
 
-Completion criteria:
+```
+when expressions require a default branch
+```
 
-- imported generic routine calls are pinned independently of local-file cases
+If this is a language rule, typecheck should enforce it. If lowering needs it
+as a technical requirement, it should still be caught before lowering.
 
-### Slice 10 (complete)
-Add one checked-in positive cross-file generic example package.
+### 2.4 Type-matching when/of branches
 
-Suggested shape:
+Typecheck: accepts
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/flow.rs:767-769`
 
-- generic routine declared in one file or package
-- imported and called from another file
-- editor can open both files cleanly
-- lower still stops with the exact M1 boundary
+This is the one explicitly defined `UnsupportedLoweringSurface` in
+`lang/compiler/fol-lower/src/boundaries.rs`:
 
-Completion criteria:
+```rust
+pub enum UnsupportedLoweringSurface {
+    TypeMatchingWhenOf,
+}
+```
 
-- one positive cross-file generic example exists
-- it is wired into integration coverage
+Explicitly marked as V1 boundary. This should either be implemented or
+rejected earlier.
 
-### Slice 11 (complete)
-Add one checked-in negative cross-file generic example package.
+### 2.5 Specific unary/binary operator lowering gaps (complete)
 
-Suggested shape:
+Typecheck: accepts various operators
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs`
 
-- imported generic routine used in an underconstrained or first-class misuse way
+- Line 141-145: specific unary operators produce dynamic error messages
+- Line 181-186: specific binary operators produce dynamic error messages
 
-Completion criteria:
+These are V1 operators that typecheck passes. Either implement lowering or
+reject at typecheck.
 
-- one negative cross-file generic example exists
-- CLI and editor diagnostics both pin the failure cleanly
+### 2.6 Loop expression lowering
 
-### Slice 12 (complete)
-Add lowering regression coverage for cross-file generic examples.
+Typecheck: accepts
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:885-887`
 
-Completion criteria:
+```
+loop lowering is not yet implemented
+```
 
-- lowering-stop behavior is pinned for imported/cross-file generic routines
-- the boundary message remains exact and consistent
+### 2.7 Block expression lowering
 
-## Epoch 4: Standards Conformance Edge Cases
+Typecheck: accepts
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:889-891`
 
-### Slice 13 (complete)
-Add typecheck tests for multi-standard conformance on one type.
+```
+block expression lowering is not yet implemented
+```
 
-Target cases:
+### 2.8 Template call lowering (complete)
 
-- one type conforming to two protocol standards
-- one satisfied and one missing
-- both satisfied with separate receiver-qualified routines
+Typecheck: accepts
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:773-775`
 
-Completion criteria:
+```
+template call lowering is not yet implemented
+```
 
-- multi-standard conformance is no longer only resolver-hard
+### 2.9 Procedure-style method calls as expression values
 
-### Slice 14 (complete)
-Add typecheck tests for imported-standard conformance.
+Typecheck: accepts
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:340-342`
 
-Target cases:
+```
+procedure-style method call '{method}' cannot be used as an expression value
+```
 
-- protocol standard declared in one file/package
-- conformance claimed in another file/package
-- positive and negative forms
+This should be a typecheck error, not a lowering error.
 
-Completion criteria:
+### 2.10 Procedure-style calls without value result
 
-- imported-standard conformance is pinned at the typecheck layer
+Lower: rejects at `lang/compiler/fol-lower/src/exprs/calls.rs:823-824`
 
-### Slice 15 (complete)
-Add standards typecheck tests for unsupported required-routine shapes with one
-test per message family.
+```
+procedure-style calls without a value result are not lowered in this slice yet
+```
 
-Target shapes:
+---
 
-- generic required routine
-- receiver-qualified required routine
-- capturing required routine
-- default implementation in protocol standard
+## Phase 3: Typecheck-Lower Pipeline Gaps (V2M1/V2M2 Boundary)
 
-Completion criteria:
+These are correctly rejected at the right stage with explicit boundary
+messages. They are listed here for completeness and to confirm they are
+intentional, not accidental.
 
-- each unsupported requirement shape has its own exact diagnostic coverage
+No action needed unless the boundary is wrong.
 
-### Slice 16 (complete)
-Add standards typecheck tests for ambiguous matching routines in broader
-realistic shapes.
+### V2M1 Boundaries (Generics)
 
-Completion criteria:
+- Generic routine lowering: `fol-lower/src/decls/routine_decls.rs:14-16`
+- Generic receiver types: `fol-typecheck/src/decls.rs:556`
+- Generic error types: `fol-typecheck/src/decls.rs:562`
+- Generic routine constraints: `fol-typecheck/src/decls.rs:1670`
+- Generic parameter type translation: `fol-lower/src/session.rs:223-227`
 
-- ambiguity diagnostics are pinned beyond the current small cases
+### V2M2 Boundaries (Standards)
 
-### Slice 17 (complete)
-Add standards typecheck tests for multi-file conformance where the same
-receiver has extra unrelated routines and overloads.
+- Blueprint standards: `fol-typecheck/src/decls.rs:235`
+- Extended standards: `fol-typecheck/src/decls.rs:238`
+- Generic standard routine requirements: `fol-typecheck/src/decls.rs:639`
+- Receiver-qualified standard requirements: `fol-typecheck/src/decls.rs:644`
+- Capturing standard routine requirements: `fol-typecheck/src/decls.rs:649`
+- Default standard routine implementations: `fol-typecheck/src/decls.rs:654`
+- Non-signature protocol members: `fol-typecheck/src/decls.rs:704`
+- Protocol standard lowering: `fol-lower/src/session.rs:155-159`
 
-Completion criteria:
+---
 
-- exact-match acceptance and mismatch rejection are hardened in multi-file
-  settings
+## Phase 4: Tree-Sitter Grammar Sync
 
-## Epoch 5: Standards Examples And Lowering Hardening
+The tree-sitter grammar is approximately 35-40% complete relative to the
+actual parser. This means editor syntax highlighting, code navigation, and
+scope tracking break on valid FOL code.
 
-### Slice 18 (complete)
-Add one checked-in positive multi-standard example package.
+### 4.1 Missing top-level declarations (9 types)
 
-Suggested shape:
+File: `lang/tooling/fol-editor/tree-sitter/grammar.js`
 
-- one type
-- two protocol standards
-- both conformance claims present
-- editor can open all files
-- lowering stops with the exact M2 boundary
+Grammar has 7 declaration types: `use`, `var`, `fun`, `log`, `typ`, `ali`,
+plus `comment`/`doc_comment`.
 
-Completion criteria:
+Parser handles 16+ (dispatch at
+`lang/compiler/fol-parser/src/ast/parser_parts/program_parsing.rs:167-510`):
 
-- one positive multi-standard example exists and is integrated
+| Missing from Grammar | Parser Line |
+|---|---|
+| `let` (binding) | 213 |
+| `con` (constant) | 236 |
+| `lab` (label) | 259 |
+| `def` (definition) | 374 |
+| `seg` (segment) | 305 |
+| `imp` (implementation) | 328 |
+| `std` (standard) | 351 |
+| `pro` (procedure) | 489 |
+| binding alternatives | 167 |
 
-### Slice 19 (complete)
-Add one checked-in negative standards example for missing required routine.
+### 4.2 Missing control flow statements (8 types)
 
-Completion criteria:
+Grammar has: `return`, `break`, `when`, `loop`, `panic`, `report`,
+`unreachable`, `check`.
 
-- the example fails with the exact missing-routine conformance diagnostic
+Missing:
 
-### Slice 20 (complete)
-Add one checked-in negative standards example for incompatible routine
-signature.
+| Statement | Parser Reference |
+|---|---|
+| `if`/`else` | program_parsing.rs:724 |
+| `select` | program_parsing.rs:733 |
+| `yield` | program_parsing.rs:697 |
+| `defer` | program_parsing.rs:706 |
+| `while` | loop parsing:987 |
+| `for` | loop parsing:989 |
+| `each` | loop parsing:991 |
+| `assert` | program_parsing.rs:603 |
 
-Completion criteria:
+### 4.3 Missing keyword operators (13+ operators)
 
-- the example fails with the exact signature-mismatch conformance diagnostic
+Grammar defines symbol-based operators only (`==`, `!=`, `<`, `>`, `+`, `-`,
+`*`, `/`, `%`, `&&`, `||`).
 
-### Slice 21 (complete)
-Add one checked-in negative standards example for imported-standard ambiguity
-or imported-standard unsupported claim if that is the real current boundary.
+Missing keyword operators from
+`lang/compiler/fol-lexer/src/token/buildin/mod.rs`:
 
-Completion criteria:
+- Logic: `or`, `xor`, `nor`, `and`, `nand`, `not`
+- Comparison: `as`, `cast`, `is`, `has`, `in`, `on`, `of`, `at`
+- Power: `^`
+- Range: `..`, `...`
 
-- imported standards edge behavior is represented by a real example package
+### 4.4 Missing expression forms
 
-### Slice 22 (complete)
-Expand lowering and CLI full-chain coverage to all new standards examples.
+- Range expressions (`start..end`, `..end`, `start..`)
+- If/else as expressions
+- Select expressions
+- Anonymous functions/closures
+- Power expressions (`a ^ b`)
 
-Completion criteria:
+### 4.5 Query file coverage
 
-- lowering-stop behavior is pinned across all new positive and negative
-  standards examples
+The `.scm` files under `lang/tooling/fol-editor/queries/fol/` only reference
+grammar rules that exist. Once the grammar is updated, the following query
+files need updates:
 
-## Epoch 6: Cross-Feature Seam Between M1 And M2
+- `highlights.scm` — add highlighting for all new declaration types, control
+  flow, keyword operators
+- `symbols.scm` — add symbol types for segments, standards, labels, constants
+- `locals.scm` — add scope tracking for `let`, `con`, `lab` bindings
 
-### Slice 23 (complete)
-Add one negative example package that mixes generic routines with standards in
-an explicitly unsupported way.
+### 4.6 Keyword count summary
 
-Suggested shape:
+Lexer defines 43+ keywords. Grammar references 14. Gap: 29 keywords are
+treated as identifiers by tree-sitter.
 
-- generic routine constrained by a protocol standard
+---
 
-Completion criteria:
+## Phase 5: Editor/LSP Gaps
 
-- the seam between M1 generics and M2 standards is represented by a real
-  checked-in example
+These are features the LSP advertises in its capability registration
+(`lang/tooling/fol-editor/src/lsp/mod.rs:64-111`) but only partially
+implements.
 
-### Slice 24 (complete)
-Add resolver and typecheck tests for generic constraints trying to reference
-standards.
+### 5.1 Document symbols have no hierarchy
 
-Completion criteria:
+File: `lang/tooling/fol-editor/src/lsp/semantic.rs`
+Line: 1293
 
-- the existing boundary is pinned beyond the current narrow coverage
+```rust
+children: Vec::new(),
+```
 
-### Slice 25 (complete)
-Add CLI and lowering full-chain tests for the mixed generic-plus-standards
-negative seam.
+Every symbol is flat. The outline view in any editor shows a flat list with no
+nesting by scope, namespace, or type. Records don't contain their fields,
+modules don't contain their declarations.
 
-Completion criteria:
+Fix: walk the resolved workspace tree and populate children for container
+declarations (records, entries, modules, namespaces).
 
-- the mixed seam fails consistently in the full path
+### 5.2 Workspace symbols only search open documents
 
-### Slice 26 (complete)
-Add editor diagnostics coverage for the mixed generic-plus-standards negative
-example.
+File: `lang/tooling/fol-editor/src/lsp/mod.rs`
+Lines: 478-490
 
-Completion criteria:
+The workspace symbol handler iterates `self.session.documents` which is only
+the set of currently open files. If a user searches for a symbol that exists in
+a file they haven't opened, it won't appear.
 
-- editor mirrors the current compiler-owned seam honestly
+Fix: on workspace symbol requests, trigger analysis of all `.fol` files in the
+workspace root, not just open documents.
 
-## Epoch 7: V2 Editor Navigation And Completion Hardening
+### 5.3 Completion degrades to regex fallbacks
 
-### Slice 27 (complete)
-Add real-example hover coverage for V2 generics examples.
+File: `lang/tooling/fol-editor/src/lsp/semantic.rs`
 
-Target examples:
+Multiple `fallback_*` functions (lines 732, 789, 797) use text pattern
+matching when the compiler-backed semantic analysis doesn't produce results.
+These are marked `// FALLBACK:` in the source.
 
-- `examples/generic_routine_m1`
-- `examples/generic_routine_pair_m1`
+Functions:
 
-Target assertions:
+- `fallback_local_named_type_items` (line 732)
+- `fallback_qualified_completion_items` (line 789)
+- `fallback_imported_package_items` (line 797)
 
-- generic routine names resolve
-- hover text does not overclaim lowering/backend support
+These produce plausible but semantically incorrect completions. For production,
+either make the compiler-backed path work for these cases or clearly mark
+fallback items as uncertain.
 
-Completion criteria:
+### 5.4 Code actions limited to structured suggestions only
 
-- hover is pinned on real generics examples
+File: `lang/tooling/fol-editor/src/lsp/semantic.rs`
+Lines: 144-147
 
-### Slice 28 (complete)
-Add real-example definition coverage for V2 generics examples.
+Code actions are only returned for diagnostics that have both
+`suggestion.replacement` and `suggestion.location` present. Most compiler
+diagnostics don't include structured suggestions, so the code action provider
+returns empty for most errors.
 
-Target assertions:
+Fix: add structured suggestions to the most common compiler diagnostics
+(type mismatches, missing imports, name typos).
 
-- call-site to declaration navigation works on checked-in generic examples
+### 5.5 Rename restricted to same-file and current-package
 
-Completion criteria:
+File: `lang/tooling/fol-editor/src/lsp/semantic.rs`
+Lines: 1148-1150, 1183-1186
 
-- definition is pinned on real generics examples
+Cross-package symbols are explicitly rejected:
 
-### Slice 29 (complete)
-Add real-example hover and definition coverage for standards examples.
+```
+rename currently supports same-file local and current-package top-level
+symbols only
+```
 
-Target examples:
+And:
 
-- `examples/standards_protocol_m2`
-- `examples/standards_protocol_pair_m2`
+```
+rename currently refuses multi-package symbols
+```
 
-Target assertions:
+This is documented as a limitation in CLAUDE.md. Not a bug, but worth noting
+for production readiness.
 
-- type contract headers resolve to standard declarations
-- required routine declarations resolve cleanly
+---
 
-Completion criteria:
+## Phase 6: Backend Code Quality
 
-- standards navigation is pinned on real examples
+### 6.1 Routine shells emit todo!()
 
-### Slice 30 (complete)
-Add completion coverage for current V2-safe contexts.
+File: `lang/execution/fol-backend/src/signatures.rs`
+Lines: 105, 107
 
-Target cases:
+```rust
+format!("{header} {{\n    todo!()\n}}\n")
+```
 
-- completion near generic call sites
-- completion in standards bodies
-- completion around type-side contract headers
-- completion on negative V2 examples without fake smartness
+The `render_routine_shell()` function emits Rust `todo!()` in function bodies.
+This is tested (line 528 asserts `contains("todo!()")`). Need to verify this
+path is never reached during normal compilation. If it is, the compiled binary
+panics at runtime with a `todo!()` instead of a meaningful FOL error.
 
-Completion criteria:
+Audit: trace all callers of `render_routine_shell()` and confirm none are on
+the normal compilation path.
 
-- V2 completion is no longer only indirectly covered through runtime/std cases
+### 6.2 StdDecl nodes silently produce no type
 
-### Slice 31 (complete)
-Add semantic-token assertions for one generics example and one standards
-example.
+File: `lang/compiler/fol-typecheck/src/exprs/mod.rs`
+Line: 631
 
-Target token categories:
+```rust
+AstNode::StdDecl { .. } => Ok(TypedExpr::none()),
+```
 
-- `std`
-- `pro`
-- generic parameter positions
-- type contract header positions
+Standard declarations in the type checker produce no typed expression and no
+validation. This is intentional for build.fol files, but should be verified
+that StdDecl nodes never appear in non-build contexts.
 
-Completion criteria:
+---
 
-- semantic-token coverage is more specific for V2 syntax
+## Phase 7: Infrastructure
 
-## Epoch 8: Tree-Sitter Locals And Symbols Hardening
+### 7.1 Release toolchain pinned at Rust 1.70.0
 
-### Slice 32 (complete)
-Add tree-sitter locals coverage for one positive generics example.
+File: `.github/workflows/release.yml`
 
-Suggested target:
+The release CI uses `rust-build.action@v1.4.3` with toolchain `1.70.0` (June
+2023). Development and test CI use current Rust (1.93.0+). This version gap
+means:
 
-- `examples/generic_routine_pair_m1`
+- release binaries may fail to compile if any dependency requires newer Rust
+- language features used in the codebase may not be available in 1.70.0
+- the release binary may behave differently from the tested binary
 
-Completion criteria:
+Fix: update release toolchain to match test CI, or at minimum to the current
+MSRV (minimum supported Rust version) of the workspace.
 
-- generic declarations and local names are exercised beyond highlights
+### 7.2 Orphaned book page
 
-### Slice 33 (complete)
-Add tree-sitter symbols coverage for one positive standards example.
+File: `book/src/055_build/900_direction.md`
 
-Suggested target:
+This file exists but is not referenced in `book/src/SUMMARY.md`. It won't
+appear in the built book. Either add it to SUMMARY.md or delete it.
 
-- `examples/standards_protocol_pair_m2`
+### 7.3 Missing authors field in 7 crate Cargo.tomls
 
-Completion criteria:
+These crates are missing the `authors` field (inconsistent with others):
 
-- protocol declarations and type-side conformance syntax are exercised in
-  symbols coverage
+- `lang/compiler/fol-intrinsics/Cargo.toml`
+- `lang/compiler/fol-typecheck/Cargo.toml`
+- `lang/compiler/fol-lower/Cargo.toml`
+- `lang/execution/fol-backend/Cargo.toml`
+- `lang/execution/fol-runtime/Cargo.toml`
+- `lang/tooling/fol-editor/Cargo.toml`
+- `lang/tooling/fol-frontend/Cargo.toml`
 
-### Slice 34 (complete)
-Add one negative syntax-oriented V2 example to tree-sitter locals/symbols
-coverage.
+Minor, but affects `cargo metadata` consistency and crate publishing.
 
-Completion criteria:
+---
 
-- locals/symbol extraction stays sane on malformed V2-oriented syntax
+## Phase 8: What Is Solid (No Action Needed)
 
-### Slice 35 (complete)
-Add a tree-sitter coverage note or test that keeps highlight-only V2 audits
-from being mistaken for full locals/symbol coverage.
+These areas passed audit with no issues.
 
-Completion criteria:
+### Compiler
 
-- tree-sitter coverage boundaries are explicit in code or docs
+- **fol-stream**: complete, no stubs, proper file/location tracking
+- **fol-lexer**: complete, clean token/error model
+- **fol-parser**: ~95% complete, all unsupported patterns return proper errors
+- **fol-diagnostics**: complete, severity model, cascade suppression, hard cap
+- **fol-resolver**: well-implemented, 12 unsupported features all return proper
+  `ResolverErrorKind::Unsupported` errors
+- **fol-intrinsics**: clean registry with explicit status/availability/lowering
+  fields per entry, 58 deferred intrinsics are by design
 
-## Epoch 9: Inventory And Docs Sync Hardening
+### Runtime
 
-### Slice 36 (complete)
-Add one repo-scan regression for the V2 example inventory by naming convention
-or explicit marker.
+- **fol-runtime**: production-quality, no stubs anywhere
+  - core/memo/std split enforced by source assertions in tests
+  - FolOption, FolError, FolRecover all fully implemented
+  - containers use deterministic ordering (BTreeSet/BTreeMap)
+  - bounds checking with RuntimeError
+  - echo() is a real println!, not a stub
 
-Completion criteria:
+### Test Suite
 
-- adding a new V2 example without inventory updates becomes visible
+- no `#[ignore]`d tests
+- 14 `fail_*` example packages as intentional negative tests
+- boundary tests verify proper rejection messages for V2M1, V2M2, and future
+  features
+- end-to-end integration tests compile and execute working examples
+- tree-sitter sync tests verify highlighting stays consistent
+- language-fact invariant tests verify type/keyword uniqueness
 
-### Slice 37 (complete)
-Add one repo-scan regression that checks milestone docs and book chapters for
-the current shipped V2 example matrix.
+### V2M2 Standards Coverage
 
-Completion criteria:
+- protocol standard declarations tested
+- conformance checking tested (18+ test cases in
+  `test/typecheck/test_typecheck_standards_m2.rs`)
+- blueprint/extended rejection tested
+- generic standard requirement rejection tested
+- 3 working example packages: `standards_protocol_m2`,
+  `standards_protocol_pair_m2`, `standards_protocol_multi_m2`
+- 5 failing example packages testing boundary enforcement
 
-- docs/book drift against real checked-in V2 examples is harder to introduce
+---
 
-### Slice 38 (complete)
-Update:
+## Recommended Execution Order
 
-- `docs/v2-generics-m1.md`
-- `docs/v2-standards-m2.md`
+1. **Phase 1** (silent wrong behavior) — highest priority, fixes correctness
+2. **Phase 2** (typecheck-lower V1 gaps) — reduces confusing late errors
+3. **Phase 4** (tree-sitter sync) — fixes daily editor experience
+4. **Phase 7.1** (release toolchain) — prevents release pipeline breakage
+5. **Phase 5** (LSP gaps) — improves editor quality
+6. **Phase 6** (backend audit) — validates no runtime panics from todo!()
+7. **Phase 7.2-7.3** (minor infrastructure) — cleanup
 
-so they list the expanded current example matrix and the newly hardened
-boundaries.
-
-Completion criteria:
-
-- milestone docs reflect the new examples and new exact boundaries
-
-### Slice 39 (complete)
-Update:
-
-- `book/src/500_items/500_generics.md`
-- `book/src/500_items/400_standards.md`
-
-to reflect the more exact current subset and examples without widening the
-public contract.
-
-Completion criteria:
-
-- book wording is more exact about current V2 hardening state
-
-## Epoch 10: Final Cross-Layer Closure
-
-### Slice 40 (complete)
-Run and harden targeted parser/resolver/typecheck suites for the new generics
-cases.
-
-Completion criteria:
-
-- targeted generics suites are green
-- no new brittle failures remain
-
-### Slice 41 (complete)
-Run and harden targeted parser/resolver/typecheck suites for the new standards
-cases.
-
-Completion criteria:
-
-- targeted standards suites are green
-- no new brittle failures remain
-
-### Slice 42 (complete)
-Run and harden targeted editor/tree-sitter suites for the new V2 example
-coverage.
-
-Completion criteria:
-
-- V2 editor/tree-sitter suites are green
-- example-driven coverage is stable
-
-### Slice 43 (complete)
-Run the required full gate:
-
-- `make build`
-- `make test`
-
-Completion criteria:
-
-- both commands pass
-
-### Slice 44 (complete)
-Update:
-
-- `plan/VERSIONS.md`
-- `AGENTS.md`
-
-if needed so contributor guidance reflects the deeper hardened V2 example and
-tooling obligations.
-
-Completion criteria:
-
-- contributor/version docs stay aligned with the hardened subset
-
-### Slice 45 (complete)
-Do one final repo sweep for stale V2 claims that overstate:
-
-- generic routine support
-- standards support
-- editor V2 support
-- tree-sitter V2 coverage
-
-Completion criteria:
-
-- stale overclaims are removed
-- the second-pass hardening plan can be marked complete
+Phase 3 items are informational only — they are correctly handled V2 boundary
+enforcement, not bugs.
