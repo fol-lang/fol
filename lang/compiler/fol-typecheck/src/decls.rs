@@ -28,10 +28,8 @@ pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult
         }
     }
 
-    if errors.is_empty() {
-        if let Err(mut conformance_errors) = check_standard_conformance(typed, &resolved, &syntax) {
-            errors.append(&mut conformance_errors);
-        }
+    if let Err(mut conformance_errors) = check_standard_conformance(typed, &resolved, &syntax) {
+        errors.append(&mut conformance_errors);
     }
 
     if errors.is_empty() {
@@ -809,17 +807,31 @@ fn check_standard_conformance(
             };
             for standard_symbol_id in conformance.standard_symbol_ids {
                 let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
-                    errors.push(internal_error(
-                        format!(
-                            "typed standard metadata disappeared for symbol {}",
-                            standard_symbol_id.0
+                    let standard_name = resolved
+                        .symbol(standard_symbol_id)
+                        .map(|symbol| symbol.name.clone())
+                        .unwrap_or_else(|| format!("#{}", standard_symbol_id.0));
+                    errors.push(match node_origin(resolved, &item.node) {
+                        Some(origin) => TypecheckError::with_origin(
+                            TypecheckErrorKind::Unsupported,
+                            format!(
+                                "type '{}' claims unsupported standard '{}'; only protocol standards are supported in V2 Milestone 2",
+                                name, standard_name
+                            ),
+                            origin,
                         ),
-                        node_origin(resolved, &item.node),
-                    ));
+                        None => TypecheckError::new(
+                            TypecheckErrorKind::Unsupported,
+                            format!(
+                                "type '{}' claims unsupported standard '{}'; only protocol standards are supported in V2 Milestone 2",
+                                name, standard_name
+                            ),
+                        ),
+                    });
                     continue;
                 };
                 for requirement in &standard.required_routines {
-                    let matching = typed
+                    let candidates = typed
                         .all_typed_symbols()
                         .filter(|symbol| {
                             symbol.kind == SymbolKind::Routine
@@ -830,25 +842,54 @@ fn check_standard_conformance(
                                         resolved_symbol.name == requirement.name
                                     })
                         })
-                        .find(|symbol| {
+                        .filter_map(|symbol| {
                             symbol
                                 .declared_type
                                 .and_then(|type_id| typed.type_table().get(type_id))
-                                .is_some_and(|checked| match checked {
+                                .and_then(|checked| match checked {
                                     CheckedType::Routine(signature) => {
-                                        signature.params == requirement.params
-                                            && signature.return_type == requirement.return_type
-                                            && signature.error_type == requirement.error_type
+                                        Some((symbol.symbol_id, signature.clone()))
                                     }
-                                    _ => false,
+                                    _ => None,
                                 })
-                        });
-                    if matching.is_none() {
-                        let standard_name = resolved
-                            .symbol(standard.symbol_id)
-                            .map(|symbol| symbol.name.clone())
-                            .unwrap_or_else(|| format!("#{}", standard.symbol_id.0));
-                        let mut error = match node_origin(resolved, &item.node) {
+                        })
+                        .collect::<Vec<_>>();
+                    let exact_matches = candidates
+                        .iter()
+                        .filter(|(_, signature)| {
+                            signature.params == requirement.params
+                                && signature.return_type == requirement.return_type
+                                && signature.error_type == requirement.error_type
+                        })
+                        .collect::<Vec<_>>();
+                    if exact_matches.len() == 1 {
+                        continue;
+                    }
+
+                    let standard_name = resolved
+                        .symbol(standard.symbol_id)
+                        .map(|symbol| symbol.name.clone())
+                        .unwrap_or_else(|| format!("#{}", standard.symbol_id.0));
+                    let mut error = if exact_matches.len() > 1 {
+                        match node_origin(resolved, &item.node) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                format!(
+                                    "type '{}' satisfies standard '{}' ambiguously: multiple routines match required routine '{}'",
+                                    name, standard_name, requirement.name
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::InvalidInput,
+                                format!(
+                                    "type '{}' satisfies standard '{}' ambiguously: multiple routines match required routine '{}'",
+                                    name, standard_name, requirement.name
+                                ),
+                            ),
+                        }
+                    } else if candidates.is_empty() {
+                        match node_origin(resolved, &item.node) {
                             Some(origin) => TypecheckError::with_origin(
                                 TypecheckErrorKind::IncompatibleType,
                                 format!(
@@ -864,18 +905,76 @@ fn check_standard_conformance(
                                     name, standard_name, requirement.name
                                 ),
                             ),
-                        };
-                        if let Some(origin) = resolved
-                            .symbol(requirement.symbol_id)
-                            .and_then(|symbol| symbol.origin.clone())
+                        }
+                    } else {
+                        let actual_signatures = candidates
+                            .iter()
+                            .map(|(_, signature)| {
+                                render_standard_signature(
+                                    typed,
+                                    &requirement.name,
+                                    &signature.params,
+                                    signature.return_type,
+                                    signature.error_type,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        match node_origin(resolved, &item.node) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy standard '{}': routine '{}' has incompatible signature; expected {}, found {}",
+                                    name,
+                                    standard_name,
+                                    requirement.name,
+                                    render_standard_signature(
+                                        typed,
+                                        &requirement.name,
+                                        &requirement.params,
+                                        requirement.return_type,
+                                        requirement.error_type,
+                                    ),
+                                    actual_signatures,
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy standard '{}': routine '{}' has incompatible signature; expected {}, found {}",
+                                    name,
+                                    standard_name,
+                                    requirement.name,
+                                    render_standard_signature(
+                                        typed,
+                                        &requirement.name,
+                                        &requirement.params,
+                                        requirement.return_type,
+                                        requirement.error_type,
+                                    ),
+                                    actual_signatures,
+                                ),
+                            ),
+                        }
+                    };
+                    if let Some(origin) = resolved
+                        .symbol(requirement.symbol_id)
+                        .and_then(|symbol| symbol.origin.clone())
+                    {
+                        error = error.with_related_origin(origin, "required by this standard routine");
+                    }
+                    for (symbol_id, _) in exact_matches {
+                        if let Some(origin) =
+                            resolved.symbol(*symbol_id).and_then(|symbol| symbol.origin.clone())
                         {
                             error = error.with_related_origin(
                                 origin,
-                                "required by this standard routine",
+                                "matching routine contributing to ambiguity",
                             );
                         }
-                        errors.push(error);
                     }
+                    errors.push(error);
                 }
             }
         }
@@ -886,6 +985,30 @@ fn check_standard_conformance(
     } else {
         Err(errors)
     }
+}
+
+fn render_standard_signature(
+    typed: &TypedProgram,
+    name: &str,
+    params: &[CheckedTypeId],
+    return_type: Option<CheckedTypeId>,
+    error_type: Option<CheckedTypeId>,
+) -> String {
+    let params = params
+        .iter()
+        .map(|type_id| typed.type_table().render_type(*type_id))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut signature = format!("fun {name}({params})");
+    if let Some(return_type) = return_type {
+        signature.push_str(": ");
+        signature.push_str(&typed.type_table().render_type(return_type));
+    }
+    if let Some(error_type) = error_type {
+        signature.push_str(" / ");
+        signature.push_str(&typed.type_table().render_type(error_type));
+    }
+    signature
 }
 
 fn lower_routine_generic_params(
@@ -1217,6 +1340,25 @@ fn lower_declared_symbol(
         SymbolKind::Type => DeclaredTypeKind::Type,
         SymbolKind::Alias => DeclaredTypeKind::Alias,
         SymbolKind::GenericParameter => DeclaredTypeKind::GenericParameter,
+        SymbolKind::Standard => {
+            return Err(match symbol.origin.clone() {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "standard '{}' cannot be used as an ordinary type in V2 Milestone 2",
+                        symbol.name
+                    ),
+                    origin,
+                ),
+                None => TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "standard '{}' cannot be used as an ordinary type in V2 Milestone 2",
+                        symbol.name
+                    ),
+                ),
+            });
+        }
         _ => {
             return Err(internal_error(
                 "type reference resolved to a non-type symbol",

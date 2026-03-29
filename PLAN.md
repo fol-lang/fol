@@ -223,21 +223,21 @@ Completion criteria:
 
 - missing routine requirements fail explicitly and locally
 
-### Slice 21
+### Slice 21 (complete)
 Implement routine-signature mismatch diagnostics for conformance.
 
 Completion criteria:
 
 - wrong parameter or return shapes fail explicitly
 
-### Slice 22
+### Slice 22 (complete)
 If included, implement required-data conformance checking.
 
 Completion criteria:
 
 - positive and negative tests cover required data fulfillment
 
-### Slice 23
+### Slice 23 (complete)
 Reject under-specified or malformed conformance claims.
 
 Completion criteria:
@@ -246,14 +246,14 @@ Completion criteria:
 
 ## Epoch 6: Boundaries With Existing Routine And Type Semantics
 
-### Slice 24
+### Slice 24 (complete)
 Pin that standards do not create object-method semantics in Milestone 2.
 
 Completion criteria:
 
 - tests/docs show conformance remains procedural
 
-### Slice 25
+### Slice 25 (complete)
 Reject using a standard as an ordinary concrete type unless the milestone
 explicitly chooses such support.
 
@@ -261,21 +261,21 @@ Completion criteria:
 
 - standards-as-values/types either work deliberately or fail explicitly
 
-### Slice 26
+### Slice 26 (complete)
 Reject generic-constrained standard use that belongs to later `V2`.
 
 Completion criteria:
 
 - generic + standards interactions outside the chosen subset fail honestly
 
-### Slice 27
+### Slice 27 (complete)
 Reject extension/disptach surfaces that are still later-milestone work.
 
 Completion criteria:
 
 - unsupported contract-based dispatch paths fail explicitly
 
-### Slice 28
+### Slice 28 (complete)
 Pin ambiguity behavior where multiple receiver-qualified routines might appear
 to satisfy a contract.
 
@@ -285,7 +285,7 @@ Completion criteria:
 
 ## Epoch 7: Negative Boundary Hardening
 
-### Slice 29
+### Slice 29 (complete)
 Add compile-fail fixtures for unsupported standard kinds that remain outside the
 chosen subset.
 
@@ -293,7 +293,7 @@ Completion criteria:
 
 - unsupported `blu`/`ext` or other deferred forms still fail explicitly
 
-### Slice 30
+### Slice 30 (complete)
 Add compile-fail fixtures for malformed standard bodies.
 
 Completion criteria:

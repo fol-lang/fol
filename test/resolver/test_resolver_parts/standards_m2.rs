@@ -168,3 +168,34 @@ fn test_resolver_rejects_unknown_standard_contract_headers_cleanly() {
     fs::remove_dir_all(&temp_root)
         .expect("Temporary resolver fixture directory should be removable after the test");
 }
+
+#[test]
+fn test_resolver_rejects_non_standard_contract_headers_cleanly() {
+    let temp_root = unique_temp_root("resolver_standards_m2_non_standard_contract");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "typ Geo: rec = {\n\
+             var width: int;\n\
+         };\n\
+         typ Rect()(Geo): rec = {\n\
+             var width: int;\n\
+         };\n",
+    )
+    .expect("Should write non-standard contract resolver fixture");
+
+    let errors = super::try_resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    )
+    .expect_err("Resolver should reject non-standard contract headers");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == ResolverErrorKind::UnresolvedName
+            && error.to_string().contains("could not resolve standard 'Geo'")
+    }));
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}

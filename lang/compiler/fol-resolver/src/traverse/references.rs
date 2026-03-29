@@ -142,6 +142,7 @@ pub fn record_named_type_reference(
             SymbolKind::Type,
             SymbolKind::Alias,
             SymbolKind::GenericParameter,
+            SymbolKind::Standard,
         ],
         Some("type"),
         origin,
@@ -224,7 +225,7 @@ pub fn record_qualified_type_reference(
         program,
         scope_id,
         path,
-        &[SymbolKind::Type, SymbolKind::Alias],
+        &[SymbolKind::Type, SymbolKind::Alias, SymbolKind::Standard],
         "qualified type",
         qualified_path_origin(program, path),
     )?;

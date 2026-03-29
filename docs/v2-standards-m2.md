@@ -27,6 +27,8 @@ Milestone 2 contract note:
 - required routines are the first supported contract members
 - required data members remain out of scope for the first semantic batch
 - conformance remains procedural, not object-dispatch based
+- standards are not ordinary concrete value or parameter types
+- exact routine-signature matching is required for conformance
 
 ## Explicitly out of scope
 

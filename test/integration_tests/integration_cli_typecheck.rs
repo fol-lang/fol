@@ -316,6 +316,134 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_typecheck_rejects_standard_signature_mismatches_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standard_signature_mismatch_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards M2 fixture root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(scale: int): int = {\n\
+             return scale;\n\
+         };\n",
+        )
+        .expect("Should write standards M2 signature mismatch fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI standards M2 fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject standard signature mismatches in M2");
+        assert!(
+            stdout.contains("routine 'area' has incompatible signature")
+                && stdout.contains("expected fun area(): int")
+                && stdout.contains("found fun area(int): int"),
+            "CLI should surface the explicit standard signature mismatch wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_standards_as_ordinary_types_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standard_type_boundary_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards type boundary root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         fun use(value: geo): int = {\n\
+             return 1;\n\
+         };\n",
+        )
+        .expect("Should write standards type boundary fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI standards type boundary path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject standards as ordinary types in M2");
+        assert!(
+            stdout.contains("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2"),
+            "CLI should preserve the standards-as-type boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_unsupported_standard_kinds_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_unsupported_standard_kinds_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp unsupported standards root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "std shape: blu = {\n\
+             var size: int;\n\
+         };\n\
+         std display: ext = {\n\
+             fun draw(): int;\n\
+         };\n",
+        )
+        .expect("Should write unsupported standards fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI unsupported standards path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject unsupported standard kinds in M2");
+        assert!(
+            stdout.contains("blueprint standards are planned for a future release")
+                && stdout.contains("extended standards are planned for a future release"),
+            "CLI should preserve the explicit unsupported standard-kind wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_duplicate_protocol_members_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_duplicate_protocol_members_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp duplicate protocol root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "std geo: pro = {\n\
+             fun area(): int;\n\
+             fun area(): int;\n\
+         };\n",
+        )
+        .expect("Should write duplicate protocol member fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI duplicate protocol path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject duplicate protocol members in M2");
+        assert!(
+            stdout.contains("Duplicate standard member 'area#0'"),
+            "CLI should preserve the duplicate protocol member parser wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_typecheck_rejects_template_style_generic_calls_for_m1() {
         use std::fs;
 
