@@ -114,13 +114,17 @@ fn lsp_server_keeps_nested_document_symbols_stable() {
         })
         .unwrap()
         .unwrap();
-    let _symbols: Vec<crate::LspDocumentSymbol> =
+    let symbols: Vec<crate::LspDocumentSymbol> =
         serde_json::from_value(symbols.result.unwrap()).unwrap();
 
-    // Symbol extraction depends on a successful resolver pass. If the
-    // analysis pipeline does not produce a resolved workspace (e.g.,
-    // due to fixture syntax changes), the symbols list may be empty.
-    // The test verifies the document-symbol request completes.
+    let main = symbols
+        .iter()
+        .find(|symbol| symbol.name == "main")
+        .expect("document symbols should include the outer routine");
+    assert!(
+        main.children.iter().any(|child| child.name == "inner"),
+        "document symbols should nest child routines under their parent: {symbols:#?}"
+    );
 
     fs::remove_dir_all(root).ok();
 }

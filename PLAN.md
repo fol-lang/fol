@@ -362,7 +362,7 @@ These are features the LSP advertises in its capability registration
 (`lang/tooling/fol-editor/src/lsp/mod.rs:64-111`) but only partially
 implements.
 
-### 5.1 Document symbols have no hierarchy
+### 5.1 Document symbols have no hierarchy (complete)
 
 File: `lang/tooling/fol-editor/src/lsp/semantic.rs`
 Line: 1293
