@@ -10,6 +10,13 @@ fun demo(flag: bol, items: seq[int]): int = {
     var member: bol = value in items
     var keyed: int = value at value
     var pipe: bol = flag or false xor true nand false nor false
+    var pow: int = value ^ 2
+    var full_range = value..10
+    var open_end = value...
+    var open_start = ..value
+    var chooser: int = if(flag) => 1 else => 0
+    var selected: int = select(items as current) { current }
+    var callback = fun[](item: int)[value]: int = => item + value
     when(flag) {
         return .echo(value)
     }

@@ -12,8 +12,11 @@
 (imp_decl "imp" @keyword.type)
 (std_decl "std" @keyword.type)
 (if_stmt "if" @keyword.conditional)
+(if_expr "if" @keyword.conditional)
+(if_expr "else" @keyword.conditional)
 (else_clause "else" @keyword.conditional)
 (select_stmt "select" @keyword.conditional)
+(select_expr "select" @keyword.conditional)
 (when_expr "when" @keyword.conditional)
 (case_clause "case" @keyword.conditional)
 (default_clause "*" @keyword.conditional)
@@ -47,6 +50,9 @@
 (fun_decl declaration: (method_decl name: (identifier) @function.method))
 (log_decl declaration: (plain_log_decl name: (identifier) @function))
 (log_decl declaration: (method_decl name: (identifier) @function.method))
+(anonymous_fun_expr "fun" @keyword.function)
+(anonymous_pro_expr "pro" @keyword.function)
+(anonymous_log_expr "log" @keyword.function)
 (typed_binding ":" @punctuation.delimiter)
 (param ":" @punctuation.delimiter)
 (return_type ":" @punctuation.delimiter)
@@ -103,6 +109,9 @@
 (dot_intrinsic "." @operator)
 (dot_intrinsic name: (identifier) @function.builtin
   (#match? @function.builtin "^(eq|nq|lt|gt|ge|le|not|len|echo)$"))
+(binary_expr operator: "^" @operator)
+(range_expr ".." @operator)
+(range_expr "..." @operator)
 (binary_expr operator: "or" @operator)
 (binary_expr operator: "xor" @operator)
 (binary_expr operator: "nor" @operator)
@@ -117,6 +126,8 @@
 (binary_expr operator: "of" @operator)
 (binary_expr operator: "at" @operator)
 (unary_expr operator: "not" @operator)
+(routine_capture_list "[" @punctuation.bracket "]" @punctuation.bracket)
+(routine_capture_list "," @punctuation.delimiter)
 (this_expr) @variable.builtin
 (self_expr) @variable.builtin
 (where_expr) @keyword

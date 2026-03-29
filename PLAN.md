@@ -330,7 +330,7 @@ Missing keyword operators from
 - Power: `^`
 - Range: `..`, `...`
 
-### 4.4 Missing expression forms
+### 4.4 Missing expression forms (complete)
 
 - Range expressions (`start..end`, `..end`, `start..`)
 - If/else as expressions
