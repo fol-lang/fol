@@ -293,6 +293,8 @@ Current landed `V2` subset:
   - narrow argument-driven inference only
   - no generic types
   - no generic lowering yet
+  - deeper example-driven hover/definition and tree-sitter audit now exist for
+    the checked-in Milestone 1 examples
 - Milestone 2
   - protocol standards only
   - required receiver-qualified routines only
@@ -300,6 +302,8 @@ Current landed `V2` subset:
   - conformance checking in typecheck
   - no blueprint or extended semantic support
   - no standards lowering/backend support yet
+  - deeper example-driven hover/definition and tree-sitter audit now exist for
+    the checked-in Milestone 2 examples
 
 When changing `V2` surfaces:
 
@@ -326,6 +330,8 @@ Current landed subset note:
 - when hardening `V2`, keep the checked-in positive and negative example matrix
   synchronized with milestone docs, editor coverage, and lowering-boundary
   expectations
+- if V2 editor or tree-sitter coverage is expanded, keep semantic tokens,
+  locals, symbols, and example inventory checks aligned in the same change
 
 ### `V3`
 

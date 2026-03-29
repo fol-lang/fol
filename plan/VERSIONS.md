@@ -226,6 +226,7 @@ Current implemented `V2` subset at repo head:
   - parser, resolver, and typecheck subset
   - explicit lowering boundary
   - expanded positive and negative example coverage
+  - deeper example-driven editor and tree-sitter coverage
 - Milestone 2
   - protocol standards only
   - required receiver-qualified routine signatures only
@@ -233,6 +234,7 @@ Current implemented `V2` subset at repo head:
   - conformance checking in typecheck
   - explicit lowering boundary
   - expanded positive and negative example coverage
+  - deeper example-driven editor and tree-sitter coverage
 
 Still future in `V2`:
 

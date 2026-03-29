@@ -521,7 +521,7 @@ Completion criteria:
 - targeted generics suites are green
 - no new brittle failures remain
 
-### Slice 41
+### Slice 41 (complete)
 Run and harden targeted parser/resolver/typecheck suites for the new standards
 cases.
 
@@ -530,7 +530,7 @@ Completion criteria:
 - targeted standards suites are green
 - no new brittle failures remain
 
-### Slice 42
+### Slice 42 (complete)
 Run and harden targeted editor/tree-sitter suites for the new V2 example
 coverage.
 
@@ -539,7 +539,7 @@ Completion criteria:
 - V2 editor/tree-sitter suites are green
 - example-driven coverage is stable
 
-### Slice 43
+### Slice 43 (complete)
 Run the required full gate:
 
 - `make build`
@@ -549,7 +549,7 @@ Completion criteria:
 
 - both commands pass
 
-### Slice 44
+### Slice 44 (complete)
 Update:
 
 - `plan/VERSIONS.md`
@@ -562,7 +562,7 @@ Completion criteria:
 
 - contributor/version docs stay aligned with the hardened subset
 
-### Slice 45
+### Slice 45 (complete)
 Do one final repo sweep for stale V2 claims that overstate:
 
 - generic routine support
