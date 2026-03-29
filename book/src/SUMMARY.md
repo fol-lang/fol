@@ -21,6 +21,7 @@
   - [Control Flow](./055_build/500_control_flow.md)
   - [Artifacts, Modules, Generated Files](./055_build/600_artifacts.md)
   - [Cross Compilation](./055_build/700_cross_compilation.md)
+  - [Direction](./055_build/900_direction.md)
 - [Lexical Structure](./100_lexical/_index.md)
   - [Keywords](./100_lexical/100_keywords.md)
   - [Identifiers](./100_lexical/200_identifiers.md)

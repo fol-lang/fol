@@ -4087,6 +4087,17 @@ fn test_docs_reference_real_example_packages() {
 }
 
 #[test]
+fn test_book_summary_includes_the_build_direction_page() {
+    let summary = std::fs::read_to_string(repo_root().join("book/src/SUMMARY.md"))
+        .expect("book summary should exist");
+
+    assert!(
+        summary.contains("./055_build/900_direction.md"),
+        "book summary should include the build direction page"
+    );
+}
+
+#[test]
 fn test_v2_current_subset_inventory_stays_honest() {
     let generics_note =
         std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
