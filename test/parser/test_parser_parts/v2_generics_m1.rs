@@ -175,6 +175,91 @@ fn test_v2_m1_parser_accepts_generic_routines_with_defaults_variadics_and_captur
 }
 
 #[test]
+fn test_v2_m1_parser_accepts_receiver_qualified_generic_routines() {
+    let ast = parse_script_package_from_inline(
+        "receiver_generic_surface",
+        "typ Box: rec = {\n\
+             var value: int;\n\
+         };\n\
+         fun (Box)pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n",
+    );
+
+    let generic_fun = ast
+        .source_units
+        .iter()
+        .flat_map(|unit| unit.items.iter())
+        .find_map(|item| match &item.node {
+            AstNode::FunDecl {
+                name,
+                generics,
+                receiver_type,
+                params,
+                return_type,
+                ..
+            } if name == "pick" => Some((generics, receiver_type, params, return_type)),
+            _ => None,
+        })
+        .expect("parser should keep the receiver-qualified generic routine fixture");
+
+    let (generics, receiver_type, params, return_type) = generic_fun;
+    assert_eq!(generics.len(), 1);
+    assert!(matches!(
+        receiver_type,
+        Some(FolType::Named { name, .. }) if name == "Box"
+    ));
+    assert_eq!(params.len(), 1);
+    assert!(matches!(
+        &params[0].param_type,
+        FolType::Named { name, .. } if name == "T"
+    ));
+    assert!(matches!(
+        return_type,
+        Some(FolType::Named { name, .. }) if name == "T"
+    ));
+}
+
+#[test]
+fn test_v2_m1_parser_accepts_receiver_qualified_generic_routines_with_named_and_default_params() {
+    let ast = parse_script_package_from_inline(
+        "receiver_generic_default_named_surface",
+        "typ Box: rec = {\n\
+             var value: int;\n\
+         };\n\
+         fun (Box)choose(T, U)(left: T, right: U, prefer_left: bol = true): T = {\n\
+             return left;\n\
+         };\n",
+    );
+
+    let generic_fun = ast
+        .source_units
+        .iter()
+        .flat_map(|unit| unit.items.iter())
+        .find_map(|item| match &item.node {
+            AstNode::FunDecl {
+                name,
+                generics,
+                receiver_type,
+                params,
+                ..
+            } if name == "choose" => Some((generics, receiver_type, params)),
+            _ => None,
+        })
+        .expect("parser should keep the receiver-qualified generic routine with defaults");
+
+    let (generics, receiver_type, params) = generic_fun;
+    assert_eq!(generics.len(), 2);
+    assert!(matches!(
+        receiver_type,
+        Some(FolType::Named { name, .. }) if name == "Box"
+    ));
+    assert_eq!(params.len(), 3);
+    assert_eq!(params[2].name, "prefer_left");
+    assert!(params[2].default.is_some());
+}
+
+#[test]
 fn test_v2_m1_parser_rejects_missing_generic_parameter_names() {
     let errors = parse_script_package_errors_from_inline(
         "missing_generic_name",

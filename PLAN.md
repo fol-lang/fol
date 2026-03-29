@@ -1,528 +1,576 @@
-# V2 Hardening Plan
+# V2 Hardening Plan: Second Pass
 
-This file is the detailed hardening plan for the already-landed `V2` work:
+This file is the next hardening plan for the current landed `V2` subset after
+the first broad hardening pass.
+
+It is based on:
+
+- a fresh local repo sweep
+- one independent generics scan
+- one independent standards scan
+- one independent tooling/cross-layer scan
+
+The three scans converged on the same pattern:
+
+- parser and primary typecheck support are no longer the biggest gap
+- the remaining risk is mostly in edge-shape semantics
+- cross-file and imported cases are still lighter than local single-file cases
+- editor and tree-sitter coverage is still shallower than compiler coverage
+- the public example and docs matrix is honest, but still too manual
+
+This plan is not for new `V2` features.
+It is for deeper hardening of the already landed subset:
 
 - Milestone 1
   - generic routine core
 - Milestone 2
   - protocol standards and procedural conformance core
 
-This is not a feature-expansion plan.
-It is not the next abstraction milestone.
-It is a stability and honesty plan.
-
-The goal is:
-
-- make the current `V2` subsets much harder to accidentally regress
-- add many more positive and negative tests
-- add many more real example packages
-- pin edge cases across parser, resolver, typecheck, lowering, CLI, editor,
-  and docs
-
 Success criteria:
 
-- the current landed `V2` subset is described more precisely than before
-- edge-case misuse is rejected explicitly and consistently
-- positive examples and negative examples both expand materially
-- editor and tree-sitter coverage reflect the real shipped subset
-- repo docs/book stop hand-waving over current boundaries
+- generic edge shapes are pinned more deeply
+- standards conformance is hardened across imported and multi-standard cases
+- checked-in example packages cover more positive and negative cases
+- LSP/tree-sitter coverage exercises real V2 examples more deeply
+- V2 inventories and docs become harder to let drift
 - `make build` passes
 - `make test` passes
 
-## Epoch 1: Freeze The Hardening Contract
+## Epoch 1: Freeze The Second-Pass Scope
 
 ### Slice 1 (complete)
-Write one hardening note for Milestone 1 generics that states:
+Write one second-pass hardening note for Milestone 1 generics in:
 
-- what is implemented
-- what is intentionally unsupported
-- what must fail in parser
-- what must fail in resolver/typecheck
-- what must fail in lowering
+- `docs/v2-generics-m1.md`
+
+The note must explicitly call out these remaining gaps as current targets:
+
+- receiver-qualified generic routines
+- richer signature-position use of generic parameters
+- imported/cross-file generic routine calls
+- editor/tree-sitter coverage depth
 
 Completion criteria:
 
-- one exact generics hardening note exists in repo docs
-- it names positive and negative obligations explicitly
+- the doc names the second-pass hardening targets explicitly
+- it does not pretend these targets are already fully covered
 
 ### Slice 2 (complete)
-Write one hardening note for Milestone 2 standards that states:
+Write one second-pass hardening note for Milestone 2 standards in:
 
-- what is implemented
-- what is intentionally unsupported
-- what must fail in resolver/typecheck
-- what must fail in lowering
-- what the editor should and should not promise
+- `docs/v2-standards-m2.md`
+
+The note must explicitly call out these remaining gaps as current targets:
+
+- multi-standard conformance on one type
+- imported-standard conformance typecheck truth
+- unsupported requirement-shape diagnostics
+- deeper editor/tree-sitter coverage
 
 Completion criteria:
 
-- one exact standards hardening note exists in repo docs
-- it distinguishes semantic support from parser-only acceptance
+- the doc names the second-pass standards targets explicitly
+- it keeps blueprint and extended standards out of scope
 
 ### Slice 3 (complete)
-Add one top-level regression inventory test that pins the current public `V2`
-subset as:
-
-- generic routines only for Milestone 1
-- protocol standards only for Milestone 2
+Add one top-level inventory regression that pins this second-pass plan to the
+current known V2 example set and milestone docs.
 
 Completion criteria:
 
-- one current-subset inventory test exists
-- future accidental widening becomes visible immediately
+- there is one regression that fails if the V2 example/doc matrix drifts
+- it covers both M1 and M2 example groups
 
-## Epoch 2: Parser Hardening For Generics
+## Epoch 2: Generics Signature And Scope Edge Cases
 
 ### Slice 4 (complete)
-Add parser truth tests for multiple generic routine header forms that are still
-accepted in Milestone 1.
+Add parser truth tests for receiver-qualified generic routine declarations.
+
+Target cases:
+
+- receiver-qualified generic header with one generic parameter
+- receiver-qualified generic header with two generic parameters
+- mixed receiver plus default/named parameter syntax where parser allows it
 
 Completion criteria:
 
-- generic routine parser inventory is materially broader than today
+- parser truth is pinned for receiver-qualified generic headers
 
 ### Slice 5 (complete)
-Add parser negative tests for malformed generic parameter lists.
+Add typecheck boundary tests for receiver-qualified generic routines.
 
-Target cases:
+The tests must make the current Milestone 1 contract explicit:
 
-- empty names
-- repeated separators
-- trailing malformed tokens
-- broken nested header punctuation
+- either accepted at the same M1 semantic tier as plain generic routines
+- or rejected with one exact M1 boundary message
 
 Completion criteria:
 
-- malformed generic headers fail with explicit parser coverage
+- receiver-qualified generic routine semantics are no longer implicit
+- the exact current contract is pinned by tests
 
 ### Slice 6 (complete)
-Add parser tests for generic routines mixed with:
-
-- captures
-- default parameters
-- variadics
-- named parameters
-
-Completion criteria:
-
-- parser truth is pinned for these mixed surfaces even when semantics are
-  narrower
-
-### Slice 7 (complete)
-Add parser negative tests for template-call-like or explicit generic-call
-surfaces that Milestone 1 does not support.
-
-Completion criteria:
-
-- parser or later boundary for unsupported explicit generic-call syntax is
-  pinned clearly
-
-## Epoch 3: Resolver And Scope Hardening For Generics
-
-### Slice 8 (complete)
-Add resolver tests for nested-scope generic parameter visibility.
-
-Target cases:
-
-- nested routine body references
-- shadowing by locals
-- shadowing by parameters
-- sibling routine non-visibility
-
-Completion criteria:
-
-- generic scope rules are pinned beyond the current simple cases
-
-### Slice 9 (complete)
-Add resolver tests for duplicate generic parameter names across:
-
-- direct duplicates
-- duplicates against routine parameters
-- duplicates against captures where relevant
-
-Completion criteria:
-
-- ownership of duplicate-name diagnostics is explicit and tested
-
-### Slice 10 (complete)
-Add resolver tests for generic parameter misuse in out-of-scope type
+Add resolver tests for generic parameter leakage into richer signature
 positions.
 
+Target cases:
+
+- nested record field annotations
+- alias-backed signature annotations
+- nested optional or error shells
+- nested container annotations
+
 Completion criteria:
 
-- generic parameter leakage beyond routine-local scope fails clearly
+- generic scope leakage is pinned beyond the current simple parameter/return
+  cases
 
-## Epoch 4: Typecheck Hardening For Generics
-
-### Slice 11 (complete)
-Add more positive typecheck tests for direct generic routine calls.
+### Slice 7 (complete)
+Add typecheck tests for generic routines using generic parameters in richer
+signature shapes.
 
 Target cases:
 
-- one parameter identity
-- two parameters with same inferred type
-- mixed scalar families
-- nested call use in expressions
+- `opt[T]`
+- `err[T]`
+- `seq[T]`
+- `vec[T]`
+- nested array or record positions if legal
 
 Completion criteria:
 
-- positive Milestone 1 inference coverage is materially broader
+- M1 behavior for these signature shapes is explicit
+- accepted cases and rejected cases are both pinned
 
-### Slice 12 (complete)
-Add negative typecheck tests for repeated generic-parameter mismatch shapes.
+### Slice 8 (complete)
+Add negative tests for generic routines mixed with defaulted and variadic
+parameter interactions where inference becomes unclear.
+
+Completion criteria:
+
+- default/variadic/generic interactions are no longer only parser-hard
+- the semantic boundary is explicit
+
+## Epoch 3: Imported And Cross-File Generics Hardening
+
+### Slice 9 (complete)
+Add resolver and typecheck tests for imported generic routine calls through
+`loc` package boundaries.
 
 Target cases:
 
-- int vs str
-- array vs scalar
-- memo container vs scalar
-- alias-backed mismatch
+- imported direct identity-style generic call
+- imported two-parameter generic call
+- imported underconstrained generic call
 
 Completion criteria:
 
-- mismatch diagnostics are pinned across more type families
+- imported generic routine calls are pinned independently of local-file cases
 
-### Slice 13 (complete)
-Add negative typecheck tests for underconstrained generic returns and generic
-arguments omitted from inference.
+### Slice 10 (complete)
+Add one checked-in positive cross-file generic example package.
+
+Suggested shape:
+
+- generic routine declared in one file or package
+- imported and called from another file
+- editor can open both files cleanly
+- lower still stops with the exact M1 boundary
 
 Completion criteria:
 
-- underconstrained-call diagnostics are pinned across multiple forms
+- one positive cross-file generic example exists
+- it is wired into integration coverage
 
-### Slice 14 (complete)
-Add negative tests for first-class generic routine misuse.
+### Slice 11
+Add one checked-in negative cross-file generic example package.
+
+Suggested shape:
+
+- imported generic routine used in an underconstrained or first-class misuse way
+
+Completion criteria:
+
+- one negative cross-file generic example exists
+- CLI and editor diagnostics both pin the failure cleanly
+
+### Slice 12
+Add lowering regression coverage for cross-file generic examples.
+
+Completion criteria:
+
+- lowering-stop behavior is pinned for imported/cross-file generic routines
+- the boundary message remains exact and consistent
+
+## Epoch 4: Standards Conformance Edge Cases
+
+### Slice 13
+Add typecheck tests for multi-standard conformance on one type.
 
 Target cases:
 
-- binding a generic routine
-- passing a generic routine as an argument
-- returning a generic routine
-- storing a generic routine in aggregates if syntax permits
+- one type conforming to two protocol standards
+- one satisfied and one missing
+- both satisfied with separate receiver-qualified routines
 
 Completion criteria:
 
-- first-class generic-value rejection is hardened comprehensively
+- multi-standard conformance is no longer only resolver-hard
 
-### Slice 15 (complete)
-Add negative tests for generic routines mixed with still-unsupported generic
-constraints and generic error shells.
-
-Completion criteria:
-
-- Milestone 1 unsupported combinations are pinned more exhaustively
-
-## Epoch 5: Lowering And CLI Hardening For Generics
-
-### Slice 16 (complete)
-Audit all current generic routine lowering-stop messages and normalize them to
-one exact Milestone 1 boundary story.
-
-Completion criteria:
-
-- generic lowering errors are consistent across direct lower and full CLI paths
-
-### Slice 17 (complete)
-Add compile/lowering regression tests for more generic routine shapes that must
-stop before lowering.
+### Slice 14
+Add typecheck tests for imported-standard conformance.
 
 Target cases:
 
-- multi-parameter generic routines
-- generic return-only routines
-- generic routines with named/default parameters
+- protocol standard declared in one file/package
+- conformance claimed in another file/package
+- positive and negative forms
 
 Completion criteria:
 
-- explicit lowering boundary is exercised across more realistic generic shapes
+- imported-standard conformance is pinned at the typecheck layer
 
-### Slice 18 (complete)
-Add a second canonical positive example package for generic routines that:
+### Slice 15
+Add standards typecheck tests for unsupported required-routine shapes with one
+test per message family.
 
-- opens cleanly in editor
-- typechecks cleanly
-- still stops at lowering with the exact Milestone 1 boundary
+Target shapes:
+
+- generic required routine
+- receiver-qualified required routine
+- capturing required routine
+- default implementation in protocol standard
 
 Completion criteria:
 
-- generic examples are not limited to one tiny identity fixture
+- each unsupported requirement shape has its own exact diagnostic coverage
 
-### Slice 19 (complete)
-Add one canonical negative generic example package for misuse.
+### Slice 16
+Add standards typecheck tests for ambiguous matching routines in broader
+realistic shapes.
+
+Completion criteria:
+
+- ambiguity diagnostics are pinned beyond the current small cases
+
+### Slice 17
+Add standards typecheck tests for multi-file conformance where the same
+receiver has extra unrelated routines and overloads.
+
+Completion criteria:
+
+- exact-match acceptance and mismatch rejection are hardened in multi-file
+  settings
+
+## Epoch 5: Standards Examples And Lowering Hardening
+
+### Slice 18
+Add one checked-in positive multi-standard example package.
+
+Suggested shape:
+
+- one type
+- two protocol standards
+- both conformance claims present
+- editor can open all files
+- lowering stops with the exact M2 boundary
+
+Completion criteria:
+
+- one positive multi-standard example exists and is integrated
+
+### Slice 19
+Add one checked-in negative standards example for missing required routine.
+
+Completion criteria:
+
+- the example fails with the exact missing-routine conformance diagnostic
+
+### Slice 20
+Add one checked-in negative standards example for incompatible routine
+signature.
+
+Completion criteria:
+
+- the example fails with the exact signature-mismatch conformance diagnostic
+
+### Slice 21
+Add one checked-in negative standards example for imported-standard ambiguity
+or imported-standard unsupported claim if that is the real current boundary.
+
+Completion criteria:
+
+- imported standards edge behavior is represented by a real example package
+
+### Slice 22
+Expand lowering and CLI full-chain coverage to all new standards examples.
+
+Completion criteria:
+
+- lowering-stop behavior is pinned across all new positive and negative
+  standards examples
+
+## Epoch 6: Cross-Feature Seam Between M1 And M2
+
+### Slice 23
+Add one negative example package that mixes generic routines with standards in
+an explicitly unsupported way.
+
+Suggested shape:
+
+- generic routine constrained by a protocol standard
+
+Completion criteria:
+
+- the seam between M1 generics and M2 standards is represented by a real
+  checked-in example
+
+### Slice 24
+Add resolver and typecheck tests for generic constraints trying to reference
+standards.
+
+Completion criteria:
+
+- the existing boundary is pinned beyond the current narrow coverage
+
+### Slice 25
+Add CLI and lowering full-chain tests for the mixed generic-plus-standards
+negative seam.
+
+Completion criteria:
+
+- the mixed seam fails consistently in the full path
+
+### Slice 26
+Add editor diagnostics coverage for the mixed generic-plus-standards negative
+example.
+
+Completion criteria:
+
+- editor mirrors the current compiler-owned seam honestly
+
+## Epoch 7: V2 Editor Navigation And Completion Hardening
+
+### Slice 27
+Add real-example hover coverage for V2 generics examples.
+
+Target examples:
+
+- `examples/generic_routine_m1`
+- `examples/generic_routine_pair_m1`
+
+Target assertions:
+
+- generic routine names resolve
+- hover text does not overclaim lowering/backend support
+
+Completion criteria:
+
+- hover is pinned on real generics examples
+
+### Slice 28
+Add real-example definition coverage for V2 generics examples.
+
+Target assertions:
+
+- call-site to declaration navigation works on checked-in generic examples
+
+Completion criteria:
+
+- definition is pinned on real generics examples
+
+### Slice 29
+Add real-example hover and definition coverage for standards examples.
+
+Target examples:
+
+- `examples/standards_protocol_m2`
+- `examples/standards_protocol_pair_m2`
+
+Target assertions:
+
+- type contract headers resolve to standard declarations
+- required routine declarations resolve cleanly
+
+Completion criteria:
+
+- standards navigation is pinned on real examples
+
+### Slice 30
+Add completion coverage for current V2-safe contexts.
 
 Target cases:
 
-- generic type declaration
-- generic constraint
-- explicit generic-call syntax
+- completion near generic call sites
+- completion in standards bodies
+- completion around type-side contract headers
+- completion on negative V2 examples without fake smartness
 
 Completion criteria:
 
-- one checked-in negative generic package exists and is exercised in integration
+- V2 completion is no longer only indirectly covered through runtime/std cases
 
-## Epoch 6: Parser And Resolver Hardening For Standards
+### Slice 31
+Add semantic-token assertions for one generics example and one standards
+example.
 
-### Slice 20 (complete)
-Add parser inventory tests for more protocol-standard routine signature forms.
+Target token categories:
 
-Target cases:
-
-- multiple required routines
-- multi-parameter signatures
-- explicit return/error forms if accepted
-
-Completion criteria:
-
-- parser truth for protocol standards is materially broader
-
-### Slice 21 (complete)
-Add parser negative tests for malformed standard bodies beyond duplicate
-members.
-
-Target cases:
-
-- broken separators
-- malformed headers
-- mixed unsupported member bodies
-- malformed routine signature punctuation
+- `std`
+- `pro`
+- generic parameter positions
+- type contract header positions
 
 Completion criteria:
 
-- malformed standard-body parsing is pinned more deeply
+- semantic-token coverage is more specific for V2 syntax
 
-### Slice 22 (complete)
-Add resolver tests for multiple standard declarations and conformance claims in
-one source unit and across files.
+## Epoch 8: Tree-Sitter Locals And Symbols Hardening
 
-Completion criteria:
+### Slice 32
+Add tree-sitter locals coverage for one positive generics example.
 
-- standard symbol resolution is hardened beyond one local file case
+Suggested target:
 
-### Slice 23 (complete)
-Add resolver tests for conformance claims against:
-
-- imported standards
-- shadowed names
-- mismatched case
-- ambiguous plain names if reachable
+- `examples/generic_routine_pair_m1`
 
 Completion criteria:
 
-- conformance name-resolution edge cases are pinned
+- generic declarations and local names are exercised beyond highlights
 
-## Epoch 7: Typecheck Hardening For Standards
+### Slice 33
+Add tree-sitter symbols coverage for one positive standards example.
 
-### Slice 24 (complete)
-Add more positive conformance tests with multiple required routines.
+Suggested target:
 
-Completion criteria:
-
-- positive conformance is not pinned only for the one-routine case
-
-### Slice 25 (complete)
-Add negative conformance tests where one of several required routines is
-missing.
+- `examples/standards_protocol_pair_m2`
 
 Completion criteria:
 
-- partial conformance failure stays explicit
+- protocol declarations and type-side conformance syntax are exercised in
+  symbols coverage
 
-### Slice 26 (complete)
-Add negative conformance tests where one required routine matches and another
-has an incompatible signature.
-
-Completion criteria:
-
-- mixed missing-vs-mismatch behavior is pinned clearly
-
-### Slice 27 (complete)
-Add negative tests for ambiguous exact matches with overload sets.
+### Slice 34
+Add one negative syntax-oriented V2 example to tree-sitter locals/symbols
+coverage.
 
 Completion criteria:
 
-- ambiguity behavior is pinned across more than one shape
+- locals/symbol extraction stays sane on malformed V2-oriented syntax
 
-### Slice 28 (complete)
-Add tests for standards mixed with:
-
-- aliases
-- records from imported packages
-- memo-only types inside otherwise legal procedural conformance
+### Slice 35
+Add a tree-sitter coverage note or test that keeps highlight-only V2 audits
+from being mistaken for full locals/symbol coverage.
 
 Completion criteria:
 
-- standards subset is exercised under more realistic type environments
+- tree-sitter coverage boundaries are explicit in code or docs
 
-### Slice 29 (complete)
-Add negative tests for standards used in ordinary type positions across more
-contexts.
+## Epoch 9: Inventory And Docs Sync Hardening
 
-Target cases:
-
-- parameters
-- returns
-- local annotations
-- record fields
+### Slice 36
+Add one repo-scan regression for the V2 example inventory by naming convention
+or explicit marker.
 
 Completion criteria:
 
-- standards-as-types rejection is pinned comprehensively
+- adding a new V2 example without inventory updates becomes visible
 
-## Epoch 8: Lowering, Backend, And CLI Hardening For Standards
-
-### Slice 30 (complete)
-Normalize all standards-lowering boundary diagnostics to one exact Milestone 2
-message family.
+### Slice 37
+Add one repo-scan regression that checks milestone docs and book chapters for
+the current shipped V2 example matrix.
 
 Completion criteria:
 
-- direct lower and CLI full-chain wording is consistent
+- docs/book drift against real checked-in V2 examples is harder to introduce
 
-### Slice 31 (complete)
-Add lowering regression tests for more positive standards examples that must
-stop before backend.
+### Slice 38
+Update:
 
-Target cases:
+- `docs/v2-generics-m1.md`
+- `docs/v2-standards-m2.md`
 
-- one protocol / one conforming type
-- multiple required routines
-- cross-file standard/type definitions
-
-Completion criteria:
-
-- explicit lowering stop is hardened across more real shapes
-
-### Slice 32 (complete)
-Add one additional canonical positive standards example package.
-
-Target cases:
-
-- multi-routine protocol
-- cross-file or helper-routine shape
+so they list the expanded current example matrix and the newly hardened
+boundaries.
 
 Completion criteria:
 
-- standards examples are broader than a single minimal package
+- milestone docs reflect the new examples and new exact boundaries
 
-### Slice 33 (complete)
-Add one additional canonical negative standards example package.
+### Slice 39
+Update:
 
-Target cases:
+- `book/src/500_items/500_generics.md`
+- `book/src/500_items/400_standards.md`
 
-- ambiguous routine satisfaction
-- standards used as ordinary types
-- non-protocol claim
-
-Completion criteria:
-
-- checked-in negative standards coverage is materially broader
-
-## Epoch 9: Editor And Tree-Sitter Hardening
-
-### Slice 34 (complete)
-Add `fol-editor` completion/hover/document-symbol coverage for generic routine
-examples.
+to reflect the more exact current subset and examples without widening the
+public contract.
 
 Completion criteria:
 
-- current editor support for Milestone 1 generics is pinned beyond “opens
-  cleanly”
+- book wording is more exact about current V2 hardening state
 
-### Slice 35 (complete)
-Add `fol-editor` negative diagnostic coverage for generic misuse.
+## Epoch 10: Final Cross-Layer Closure
 
-Target cases:
-
-- generic types
-- generic constraints
-- explicit generic-call misuse
+### Slice 40
+Run and harden targeted parser/resolver/typecheck suites for the new generics
+cases.
 
 Completion criteria:
 
-- editor diagnostics stay aligned with compiler-backed generic boundaries
+- targeted generics suites are green
+- no new brittle failures remain
 
-### Slice 36 (complete)
-Add `fol-editor` completion/hover/document-symbol coverage for standards
-examples.
-
-Completion criteria:
-
-- current editor support for Milestone 2 standards is pinned beyond one smoke
-  case
-
-### Slice 37 (complete)
-Add `fol-editor` negative diagnostic coverage for standards misuse.
-
-Target cases:
-
-- missing required routine
-- unsupported blueprint/extended claims
-- standards as ordinary types
+### Slice 41
+Run and harden targeted parser/resolver/typecheck suites for the new standards
+cases.
 
 Completion criteria:
 
-- editor diagnostics stay aligned with compiler-backed standards boundaries
+- targeted standards suites are green
+- no new brittle failures remain
 
-### Slice 38 (complete)
-Audit tree-sitter highlight/locals/symbol behavior for generic and standards
-examples and add explicit regression coverage.
-
-Completion criteria:
-
-- syntax-oriented editor assets are explicitly verified against current V2
-  examples
-
-## Epoch 10: Docs, Examples Matrix, And Closure
-
-### Slice 39 (complete)
-Expand the checked-in example inventory docs so they mention the real generic
-and standards examples now shipped.
+### Slice 42
+Run and harden targeted editor/tree-sitter suites for the new V2 example
+coverage.
 
 Completion criteria:
 
-- docs reference the actual current V2 example set
+- V2 editor/tree-sitter suites are green
+- example-driven coverage is stable
 
-### Slice 40 (complete)
-Add one top-level shipped-surface matrix test for Milestone 1 examples.
+### Slice 43
+Run the required full gate:
 
-Completion criteria:
-
-- generic examples and boundaries are centrally inventoried
-
-### Slice 41 (complete)
-Add one top-level shipped-surface matrix test for Milestone 2 examples.
+- `make build`
+- `make test`
 
 Completion criteria:
 
-- standards examples and boundaries are centrally inventoried
+- both commands pass
 
-### Slice 42 (complete)
-Update book and milestone notes so the hardening work is reflected honestly.
+### Slice 44
+Update:
 
-Completion criteria:
+- `plan/VERSIONS.md`
+- `AGENTS.md`
 
-- docs describe the stronger example/test surface without overstating features
-
-### Slice 43 (complete)
-Run targeted generic and standards suites and confirm green hardening state.
-
-Completion criteria:
-
-- targeted M1 and M2 suites pass
-
-### Slice 44 (complete)
-Run repo gate.
+if needed so contributor guidance reflects the deeper hardened V2 example and
+tooling obligations.
 
 Completion criteria:
 
-- `make build` passes
-- `make test` passes
+- contributor/version docs stay aligned with the hardened subset
 
-### Slice 45 (complete)
-Commit the hardening milestone and mark this plan complete.
+### Slice 45
+Do one final repo sweep for stale V2 claims that overstate:
+
+- generic routine support
+- standards support
+- editor V2 support
+- tree-sitter V2 coverage
 
 Completion criteria:
 
-- committed with one conventional title only
-- `PLAN.md` fully marked complete
-- worktree left clean except unrelated user-owned changes
+- stale overclaims are removed
+- the second-pass hardening plan can be marked complete

@@ -278,6 +278,52 @@ fn test_generic_routine_pair_m1_example_opens_cleanly_but_stops_before_lowering(
 }
 
 #[test]
+fn test_generic_routine_cross_file_m1_example_opens_cleanly_but_stops_before_lowering() {
+    let root = temp_example_root("examples/generic_routine_cross_file_m1");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text = std::fs::read_to_string(&main)
+        .expect("cross-file generic routine example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "cross-file generic M1 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_example_compile(&root, false);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!build.status.success());
+    assert!(
+        combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
+        "cross-file generic M1 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+#[test]
 fn test_fail_generic_type_m1_example_rejects_cleanly() {
     let root = temp_example_root("examples/fail_generic_type_m1");
 
@@ -3821,15 +3867,20 @@ fn test_v2_current_subset_inventory_stays_honest() {
 
     assert!(generics_note.contains("examples/generic_routine_m1"));
     assert!(generics_note.contains("examples/generic_routine_pair_m1"));
+    assert!(generics_note.contains("examples/generic_routine_cross_file_m1"));
     assert!(generics_note.contains("examples/fail_generic_type_m1"));
     assert!(generics_note.contains("examples/fail_generic_misuse_m1"));
     assert!(generics_note.contains("generic routine lowering is still explicitly unsupported"));
+    assert!(generics_note.contains("receiver-qualified generic routines"));
+    assert!(generics_note.contains("imported and cross-file generic routine calls"));
 
     assert!(standards_note.contains("examples/standards_protocol_m2"));
     assert!(standards_note.contains("examples/standards_protocol_pair_m2"));
     assert!(standards_note.contains("examples/fail_standard_blueprint_m2"));
     assert!(standards_note.contains("examples/fail_standard_as_type_m2"));
     assert!(standards_note.contains("lowering/backend still stop at an explicit Milestone 2 boundary"));
+    assert!(standards_note.contains("multi-standard conformance on one type"));
+    assert!(standards_note.contains("imported-standard conformance truth"));
 
     assert!(versions.contains("Milestone 1"));
     assert!(versions.contains("generic routine core"));
@@ -3842,6 +3893,7 @@ fn test_v2_m1_example_matrix_stays_honest() {
     let actual_examples = [
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
         "examples/fail_generic_type_m1",
         "examples/fail_generic_misuse_m1",
     ]

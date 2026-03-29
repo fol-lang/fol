@@ -128,6 +128,33 @@ Current hardened example matrix:
 - positive lowering-boundary examples
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
+  - `examples/generic_routine_cross_file_m1`
 - negative semantic-boundary examples
   - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
+
+## Second-pass hardening targets
+
+The first hardening pass covered the broad Milestone 1 contract.
+The second pass is narrower and deeper.
+
+Current hardening targets:
+
+- receiver-qualified generic routines
+  - parser and typecheck must pin the exact current truth
+  - no silent support or silent rejection
+- richer signature-position generic usage
+  - nested optional, error-shell, and container positions must keep explicit
+    current behavior
+- imported and cross-file generic routine calls
+  - `loc`/workspace cases must be pinned independently from single-file cases
+- editor and tree-sitter coverage depth
+  - checked-in generic examples need deeper real-example coverage, not only
+    open-cleanly checks
+
+Second-pass hardening must not widen Milestone 1 into:
+
+- generic constraints
+- generic types
+- first-class generic routine values
+- backend/lowering support

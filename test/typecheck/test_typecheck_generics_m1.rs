@@ -137,6 +137,81 @@ fn generic_routine_calls_typecheck_when_nested_inside_expressions() {
 }
 
 #[test]
+fn generic_receiver_routine_calls_typecheck_with_direct_method_sugar() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Box: rec = {\n\
+             value: int\n\
+         };\n\
+         var current: Box = { value = 1 };\n\
+         fun (Box)pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return current.pick(7);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn generic_routine_calls_typecheck_across_optional_and_vec_signature_shapes() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "ali MaybeInt: opt[int];\n\
+         fun keep_opt(T)(value: opt[T]): opt[T] = {\n\
+             return value;\n\
+         };\n\
+         fun keep_vec(T)(items: vec[T]): vec[T] = {\n\
+             return items;\n\
+         };\n\
+         fun[] main(value: MaybeInt): int = {\n\
+             var values: vec[int] = {1, 2, 3};\n\
+             var kept_opt: MaybeInt = keep_opt(value);\n\
+             var kept_values: vec[int] = keep_vec(values);\n\
+             return .len(kept_values);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn generic_routine_calls_keep_seq_signature_shapes_on_the_current_boundary() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun keep_seq(T)(items: seq[T]): seq[T] = {\n\
+             return items;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var numbers: seq[int] = {4, 5};\n\
+             var kept_numbers: seq[int] = keep_seq(numbers);\n\
+             return kept_numbers.len();\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error.message().contains("initializer for 'kept_numbers' expects")
+    }), "Expected seq[T] generic signature use to stay on the current explicit boundary, got: {errors:?}");
+}
+
+#[test]
 fn generic_routine_calls_reject_mismatched_repeated_type_params() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
@@ -212,6 +287,44 @@ fn generic_routine_calls_reject_alias_backed_mismatches() {
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
     }), "Expected alias-backed mismatch to fail with an incompatible-type error, got: {errors:?}");
+}
+
+#[test]
+fn generic_routine_calls_reject_default_arguments_that_conflict_with_inferred_types() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun pair(T)(left: T, right: T = 1): T = {\n\
+             return left;\n\
+         };\n\
+         fun[] main(): chr = {\n\
+             return pair(\"x\");\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error
+                .message()
+                .contains("default value for parameter 'right' expects")
+    }), "Expected defaulted generic parameters to keep an explicit generic/default mismatch error, got: {errors:?}");
+}
+
+#[test]
+fn generic_routine_calls_reject_variadic_arguments_that_break_inferred_types() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun gather(T)(head: T, tail: ... T): T = {\n\
+             return head;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return gather(1, 2, \"x\");\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error.message().contains("call to 'gather' expects")
+    }), "Expected variadic generic mismatches to fail locally, got: {errors:?}");
 }
 
 #[test]
@@ -471,4 +584,80 @@ fn template_style_generic_calls_remain_explicitly_rejected() {
         }),
         "Expected template-call syntax to remain outside generic-call M1 support, got: {errors:?}"
     );
+}
+
+#[test]
+fn imported_generic_routine_calls_keep_the_current_workspace_boundary_explicit() {
+    let root = unique_temp_dir("generic_workspace_imports_ok");
+    create_dir_all(root.join("shared")).expect("shared fixture directory should exist");
+    create_dir_all(root.join("app")).expect("app fixture directory should exist");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] pick(T)(value: T): T = {\n\
+                     return value;\n\
+                 };\n\
+                 fun[exp] choose(T, U)(left: T, right: U): U = {\n\
+                     return right;\n\
+                 };\n",
+            ),
+            (
+                "app/main.fol",
+                "use shared: loc = {\"../shared\"};\n\
+                 fun[] main(): int = {\n\
+                     var ready: bol = choose(1, true);\n\
+                     when(ready) {\n\
+                         case(true) { return pick(1); }\n\
+                         * { return 0; }\n\
+                     }\n\
+                 };\n",
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect_err("imported generic calls should keep the current workspace-aware boundary");
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Unsupported
+            && error
+                .message()
+                .contains("requires workspace-aware typechecking in V1")
+    }));
+}
+
+#[test]
+fn imported_generic_routine_calls_keep_underconstrained_cases_behind_the_same_workspace_boundary() {
+    let root = unique_temp_dir("generic_workspace_imports_underconstrained");
+    create_dir_all(root.join("shared")).expect("shared fixture directory should exist");
+    create_dir_all(root.join("app")).expect("app fixture directory should exist");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] make(T)(): T = {\n\
+                     panic(\"boom\");\n\
+                 };\n",
+            ),
+            (
+                "app/main.fol",
+                "use shared: loc = {\"../shared\"};\n\
+                 fun[] main(): int = {\n\
+                     return make();\n\
+                 };\n",
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect_err("imported underconstrained generic calls should fail at the same workspace boundary");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Unsupported
+            && error
+                .message()
+                .contains("requires workspace-aware typechecking in V1")
+    }));
 }

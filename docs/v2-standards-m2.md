@@ -109,3 +109,27 @@ Current hardened example matrix:
 - negative semantic-boundary examples
   - `examples/fail_standard_blueprint_m2`
   - `examples/fail_standard_as_type_m2`
+
+## Second-pass hardening targets
+
+The first hardening pass covered the broad Milestone 2 protocol subset.
+The second pass is focused on deeper edge-case truth.
+
+Current hardening targets:
+
+- multi-standard conformance on one type
+  - resolver, typecheck, and examples must all agree on the exact subset
+- imported-standard conformance truth
+  - cross-file and imported claims must be pinned at typecheck, not only
+    resolver
+- unsupported requirement-shape diagnostics
+  - each unsupported required-routine shape should keep one exact message path
+- deeper editor and tree-sitter coverage
+  - standards examples need more than open-cleanly and highlight-only checks
+
+Second-pass hardening must keep these surfaces out of scope:
+
+- blueprint standards
+- extended standards
+- standards as ordinary concrete types
+- lowering/backend support beyond the explicit M2 boundary

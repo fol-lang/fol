@@ -1,5 +1,5 @@
 use super::{resolve_package_from_folder, try_resolve_package_from_folder, unique_temp_root};
-use fol_resolver::{ResolverErrorKind, ScopeKind, SymbolKind};
+use fol_resolver::{ReferenceKind, ResolverErrorKind, ScopeKind, SymbolKind};
 use std::fs;
 
 #[test]
@@ -204,6 +204,147 @@ fn test_resolver_rejects_generic_parameter_use_in_top_level_value_annotations() 
         error.kind() == ResolverErrorKind::UnresolvedName
             && error.message().contains("could not resolve type 'T'")
     }));
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
+fn test_resolver_keeps_generic_parameter_references_in_nested_signature_positions() {
+    let temp_root = unique_temp_root("generic_nested_signature_positions");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "typ Holder: rec = {\n\
+             var item: int;\n\
+         };\n\
+         ali Choice: opt[int];\n\
+         fun wrap(T)(value: T, items: seq[T], bucket: vec[T]): opt[T] = {\n\
+             return nil;\n\
+         };\n\
+         fun alias_wrap(U)(value: U): Choice = {\n\
+             panic(\"boom\");\n\
+         };\n",
+    )
+    .expect("Should write the nested signature generic fixture");
+
+    let resolved = resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+    let routine_scope_ids = resolved
+        .scopes
+        .iter_with_ids()
+        .filter_map(|(scope_id, scope)| matches!(scope.kind, ScopeKind::Routine).then_some(scope_id))
+        .collect::<Vec<_>>();
+
+    let generic_refs = routine_scope_ids
+        .iter()
+        .flat_map(|scope_id| resolved.references_in_scope(*scope_id).into_iter())
+        .filter(|reference| reference.kind == ReferenceKind::TypeName)
+        .filter(|reference| reference.name == "T" || reference.name == "U")
+        .collect::<Vec<_>>();
+
+    assert!(
+        generic_refs.len() >= 4,
+        "nested optional/container/alias signatures should keep generic type references visible to the resolver"
+    );
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
+fn test_resolver_rejects_generic_parameter_leakage_into_nested_record_annotations() {
+    let temp_root = unique_temp_root("generic_nested_record_annotation_leak");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun wrap(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         typ Holder: rec = {\n\
+             var item: T;\n\
+         };\n",
+    )
+    .expect("Should write the nested record annotation leak fixture");
+
+    let errors = try_resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    )
+    .expect_err("Resolver should reject generic leakage into nested record annotations");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == ResolverErrorKind::UnresolvedName
+            && error.message().contains("could not resolve type 'T'")
+    }));
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
+fn test_resolver_exposes_imported_generic_routines_across_loc_package_boundaries() {
+    let temp_root = unique_temp_root("generic_imported_loc_calls");
+    fs::create_dir_all(temp_root.join("app"))
+        .expect("Should create the importing package root fixture directory");
+    fs::create_dir_all(temp_root.join("shared"))
+        .expect("Should create the imported package root fixture directory");
+    fs::write(
+        temp_root.join("shared/lib.fol"),
+        "fun[exp] pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun[exp] choose(T, U)(left: T, right: U): U = {\n\
+             return right;\n\
+         };\n",
+    )
+    .expect("Should write the imported generic routine fixture");
+    fs::write(
+        temp_root.join("app/main.fol"),
+        "use shared: loc = {\"../shared\"};\n\
+         fun[] main(): int = {\n\
+             var ready: bol = choose(1, true);\n\
+             when(ready) {\n\
+                 case(true) { return pick(1); }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )
+    .expect("Should write the importing generic call fixture");
+
+    let resolved = resolve_package_from_folder(
+        temp_root
+            .join("app")
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+    let import = resolved
+        .imports_in_scope(resolved.program_scope)
+        .into_iter()
+        .find(|import| import.alias_name == "shared")
+        .expect("Resolver should keep the imported generic package alias");
+    let target_scope = import
+        .target_scope
+        .expect("Imported loc package should resolve to a mounted root scope");
+    let member_names = resolved
+        .symbols_in_scope(target_scope)
+        .into_iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Routine)
+        .map(|symbol| symbol.name.clone())
+        .collect::<Vec<_>>();
+
+    assert!(
+        member_names.contains(&"pick".to_string()),
+        "Imported loc package should expose exported generic routine symbols at the mounted root"
+    );
+    assert!(
+        member_names.contains(&"choose".to_string()),
+        "Imported loc package should expose multi-parameter generic routine symbols at the mounted root"
+    );
 
     fs::remove_dir_all(&temp_root)
         .expect("Temporary resolver fixture directory should be removable after the test");
