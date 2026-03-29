@@ -122,3 +122,12 @@ Hardening examples that should remain in sync:
 - negative
   - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
+
+Current hardened example matrix:
+
+- positive lowering-boundary examples
+  - `examples/generic_routine_m1`
+  - `examples/generic_routine_pair_m1`
+- negative semantic-boundary examples
+  - `examples/fail_generic_type_m1`
+  - `examples/fail_generic_misuse_m1`

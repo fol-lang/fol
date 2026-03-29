@@ -462,6 +462,101 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_dump_lowered_rejects_multi_routine_protocol_standards_with_explicit_m2_boundary() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standards_protocol_pair_lowering_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards lowering fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "std geo: pro = {\n",
+                "    fun area(): int;\n",
+                "    fun perimeter(): int;\n",
+                "};\n",
+                "typ Rect()(geo): rec = {\n",
+                "    var width: int;\n",
+                "};\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 1;\n",
+                "};\n",
+                "fun (Rect)perimeter(): int = {\n",
+                "    return 4;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write multi-routine standards lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("standards lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(!output.status.success());
+        assert!(
+            combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
+            "multi-routine standards lowering should preserve the explicit M2 boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_rejects_cross_file_protocol_standards_with_explicit_m2_boundary() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standards_protocol_cross_file_lowering_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards lowering fixture dir");
+        fs::write(
+            temp_root.join("00_std.fol"),
+            "std geo: pro = { fun area(): int; };\n",
+        )
+        .expect("Should write cross-file standard fixture");
+        fs::write(
+            temp_root.join("10_main.fol"),
+            concat!(
+                "typ Rect()(geo): rec = {\n",
+                "    var width: int;\n",
+                "};\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 1;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write cross-file main fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            temp_root
+                .to_str()
+                .expect("standards lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(!output.status.success());
+        assert!(
+            combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
+            "cross-file standards lowering should preserve the explicit M2 boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_pipe_or_default_lowers_successfully() {
         use std::fs;
 

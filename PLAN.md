@@ -378,7 +378,7 @@ Completion criteria:
 
 - direct lower and CLI full-chain wording is consistent
 
-### Slice 31
+### Slice 31 (complete)
 Add lowering regression tests for more positive standards examples that must
 stop before backend.
 
@@ -392,7 +392,7 @@ Completion criteria:
 
 - explicit lowering stop is hardened across more real shapes
 
-### Slice 32
+### Slice 32 (complete)
 Add one additional canonical positive standards example package.
 
 Target cases:
@@ -404,7 +404,7 @@ Completion criteria:
 
 - standards examples are broader than a single minimal package
 
-### Slice 33
+### Slice 33 (complete)
 Add one additional canonical negative standards example package.
 
 Target cases:
@@ -419,7 +419,7 @@ Completion criteria:
 
 ## Epoch 9: Editor And Tree-Sitter Hardening
 
-### Slice 34
+### Slice 34 (complete)
 Add `fol-editor` completion/hover/document-symbol coverage for generic routine
 examples.
 
@@ -428,7 +428,7 @@ Completion criteria:
 - current editor support for Milestone 1 generics is pinned beyond “opens
   cleanly”
 
-### Slice 35
+### Slice 35 (complete)
 Add `fol-editor` negative diagnostic coverage for generic misuse.
 
 Target cases:
@@ -441,7 +441,7 @@ Completion criteria:
 
 - editor diagnostics stay aligned with compiler-backed generic boundaries
 
-### Slice 36
+### Slice 36 (complete)
 Add `fol-editor` completion/hover/document-symbol coverage for standards
 examples.
 
@@ -450,7 +450,7 @@ Completion criteria:
 - current editor support for Milestone 2 standards is pinned beyond one smoke
   case
 
-### Slice 37
+### Slice 37 (complete)
 Add `fol-editor` negative diagnostic coverage for standards misuse.
 
 Target cases:
@@ -463,7 +463,7 @@ Completion criteria:
 
 - editor diagnostics stay aligned with compiler-backed standards boundaries
 
-### Slice 38
+### Slice 38 (complete)
 Audit tree-sitter highlight/locals/symbol behavior for generic and standards
 examples and add explicit regression coverage.
 
@@ -474,7 +474,7 @@ Completion criteria:
 
 ## Epoch 10: Docs, Examples Matrix, And Closure
 
-### Slice 39
+### Slice 39 (complete)
 Expand the checked-in example inventory docs so they mention the real generic
 and standards examples now shipped.
 
@@ -482,7 +482,7 @@ Completion criteria:
 
 - docs reference the actual current V2 example set
 
-### Slice 40
+### Slice 40 (complete)
 Add one top-level shipped-surface matrix test for Milestone 1 examples.
 
 Completion criteria:

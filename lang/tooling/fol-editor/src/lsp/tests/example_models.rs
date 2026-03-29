@@ -30,8 +30,10 @@ fn lsp_server_opens_real_model_example_packages_cleanly() {
     for example in [
         "examples/core_defer",
         "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
         "examples/memo_defaults",
         "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
         "examples/std_echo_min",
@@ -54,7 +56,9 @@ fn lsp_server_opens_real_model_example_packages_cleanly() {
 fn lsp_server_returns_document_symbols_for_real_example_roots() {
     for example in [
         "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
         "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
         "examples/core_run_min",
@@ -97,7 +101,9 @@ fn lsp_server_returns_workspace_symbols_for_open_real_examples() {
     let mut roots = Vec::new();
     for example in [
         "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
         "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
     ] {
@@ -158,6 +164,11 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             None,
         ),
         (
+            "examples/generic_routine_pair_m1",
+            "fun pair(T)(left: T, right: T): T = {\n    return right;\n};\nfun[] main(): int = {\n    return pair(1, 2);\n};\n",
+            None,
+        ),
+        (
             "examples/core_defer",
             "fun[] main(): str = {\n    return \"bad\";\n};\n",
             Some("str requires heap support and is unavailable in 'fol_model = core'"),
@@ -181,6 +192,25 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             None,
         ),
         (
+            "examples/standards_protocol_pair_m2",
+            "std geo: pro = {\n    fun area(): int;\n    fun perimeter(): int;\n};\n\
+             typ Rect()(geo): rec = {\n    var width: int;\n};\n\
+             fun (Rect)area(): int = {\n    return 1;\n};\n\
+             fun (Rect)perimeter(): int = {\n    return 4;\n};\n\
+             fun[] main(): int = {\n    return 0;\n};\n",
+            None,
+        ),
+        (
+            "examples/fail_generic_type_m1",
+            "typ Box(T): rec = {\n    var item: T;\n};\nfun[] main(): int = {\n    return 0;\n};\n",
+            Some("generic types are not yet supported"),
+        ),
+        (
+            "examples/fail_generic_misuse_m1",
+            "fun pick(T: geo)(value: T): T = {\n    return value;\n};\nfun[] main(): int = {\n    return 0;\n};\n",
+            Some("generic routine constraints are not yet supported in V2 Milestone 1"),
+        ),
+        (
             "examples/std_bundled_io",
             "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    var shown: str = std::io::echo_str(\"ok\");\n    return 7;\n};\n",
             None,
@@ -191,6 +221,11 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
              typ Rect()(shape): rec = {\n    var width: int;\n};\n\
              fun[] main(): int = {\n    return 0;\n};\n",
             Some("only protocol standards are supported in V2 Milestone 2"),
+        ),
+        (
+            "examples/fail_standard_as_type_m2",
+            "std geo: pro = {\n    fun area(): int;\n};\nfun use(value: geo): int = {\n    return 0;\n};\n",
+            Some("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2"),
         ),
         (
             "examples/std_echo_min",
@@ -230,8 +265,14 @@ fn lsp_server_returns_semantic_tokens_for_real_model_examples() {
     for example in [
         "examples/core_defer",
         "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
         "examples/memo_defaults",
         "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
+        "examples/fail_generic_type_m1",
+        "examples/fail_generic_misuse_m1",
+        "examples/fail_standard_blueprint_m2",
+        "examples/fail_standard_as_type_m2",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
         "examples/std_echo_min",

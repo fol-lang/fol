@@ -373,6 +373,52 @@ fn test_standards_protocol_m2_example_opens_cleanly_but_stops_before_lowering() 
 }
 
 #[test]
+fn test_standards_protocol_pair_m2_example_opens_cleanly_but_stops_before_lowering() {
+    let root = temp_example_root("examples/standards_protocol_pair_m2");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text =
+        std::fs::read_to_string(&main).expect("multi-routine standards example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "multi-routine standards M2 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_fol_in_dir(&root, &["code", "build"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!build.status.success());
+    assert!(
+        combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
+        "multi-routine standards M2 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+#[test]
 fn test_fail_standard_blueprint_m2_example_rejects_cleanly() {
     let root = temp_example_root("examples/fail_standard_blueprint_m2");
 
@@ -391,6 +437,23 @@ fn test_fail_standard_blueprint_m2_example_rejects_cleanly() {
             "type 'Rect' claims unsupported standard 'shape'; only protocol standards are supported in V2 Milestone 2",
         ),
         "negative standards M2 example should keep the explicit unsupported-standard message: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_fail_standard_as_type_m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_standard_as_type_m2");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2"),
+        "negative standards-as-type example should keep the explicit unsupported-type message: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
@@ -3763,13 +3826,55 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(generics_note.contains("generic routine lowering is still explicitly unsupported"));
 
     assert!(standards_note.contains("examples/standards_protocol_m2"));
+    assert!(standards_note.contains("examples/standards_protocol_pair_m2"));
     assert!(standards_note.contains("examples/fail_standard_blueprint_m2"));
+    assert!(standards_note.contains("examples/fail_standard_as_type_m2"));
     assert!(standards_note.contains("lowering/backend still stop at an explicit Milestone 2 boundary"));
 
     assert!(versions.contains("Milestone 1"));
     assert!(versions.contains("generic routine core"));
     assert!(versions.contains("Milestone 2"));
     assert!(versions.contains("protocol standards only"));
+}
+
+#[test]
+fn test_v2_m1_example_matrix_stays_honest() {
+    let actual_examples = [
+        "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
+        "examples/fail_generic_type_m1",
+        "examples/fail_generic_misuse_m1",
+    ]
+    .into_iter()
+    .map(|path| path.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
+    let docs = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+        .expect("generic milestone note should load");
+
+    for example in &actual_examples {
+        assert!(repo_root().join(example).is_dir(), "generic example should exist: {example}");
+        assert!(docs.contains(example), "generic docs should mention {example}");
+    }
+}
+
+#[test]
+fn test_v2_m2_example_matrix_stays_honest() {
+    let actual_examples = [
+        "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
+        "examples/fail_standard_blueprint_m2",
+        "examples/fail_standard_as_type_m2",
+    ]
+    .into_iter()
+    .map(|path| path.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
+    let docs = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+        .expect("standards milestone note should load");
+
+    for example in &actual_examples {
+        assert!(repo_root().join(example).is_dir(), "standards example should exist: {example}");
+        assert!(docs.contains(example), "standards docs should mention {example}");
+    }
 }
 
 #[test]

@@ -1205,12 +1205,40 @@ mod tests {
                 ["function", "type.builtin"].as_slice(),
             ),
             (
+                repo_root().join("examples/generic_routine_pair_m1/src/main.fol"),
+                ["function", "type.builtin"].as_slice(),
+            ),
+            (
                 repo_root().join("examples/memo_run_min/src/main.fol"),
                 ["function", "type.builtin"].as_slice(),
             ),
             (
+                repo_root().join("examples/fail_generic_type_m1/src/main.fol"),
+                ["type", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_generic_misuse_m1/src/main.fol"),
+                ["type", "function"].as_slice(),
+            ),
+            (
                 repo_root().join("examples/core_defer/src/main.fol"),
                 ["keyword.exception", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_pair_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_blueprint_m2/src/main.fol"),
+                ["type", "keyword.import"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_as_type_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
             ),
             (
                 repo_root().join("examples/std_bundled_fmt/src/main.fol"),

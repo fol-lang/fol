@@ -96,5 +96,16 @@ Hardening examples that should remain in sync:
 
 - positive
   - `examples/standards_protocol_m2`
+  - `examples/standards_protocol_pair_m2`
 - negative
   - `examples/fail_standard_blueprint_m2`
+  - `examples/fail_standard_as_type_m2`
+
+Current hardened example matrix:
+
+- positive lowering-boundary examples
+  - `examples/standards_protocol_m2`
+  - `examples/standards_protocol_pair_m2`
+- negative semantic-boundary examples
+  - `examples/fail_standard_blueprint_m2`
+  - `examples/fail_standard_as_type_m2`
