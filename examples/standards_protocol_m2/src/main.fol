@@ -1,0 +1,15 @@
+std geo: pro = {
+    fun area(): int;
+};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun (Rect)area(): int = {
+    return 1;
+};
+
+fun[] main(): int = {
+    return 0;
+};

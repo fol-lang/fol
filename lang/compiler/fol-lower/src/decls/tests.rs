@@ -122,6 +122,58 @@ mod tests {
     }
 
     #[test]
+    fn declaration_lowering_rejects_protocol_standards_with_explicit_m2_boundary() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_standard_protocol_m2_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            concat!(
+                "std geo: pro = {\n",
+                "    fun area(): int;\n",
+                "};\n",
+                "typ Rect()(geo): rec = {\n",
+                "    var width: int;\n",
+                "};\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 1;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return 0;\n",
+                "}\n",
+            ),
+        )
+        .expect("should write standard lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+
+        let errors = crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect_err("protocol standard lowering should stay explicitly unsupported in M2");
+
+        assert!(errors.iter().any(|error| {
+            error.kind() == crate::LoweringErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("protocol standard 'geo' lowering is not yet supported in V2 Milestone 2")
+        }));
+    }
+
+    #[test]
     fn declaration_lowering_records_aliases_as_erased_runtime_shapes() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_alias_decl_{}.fol",

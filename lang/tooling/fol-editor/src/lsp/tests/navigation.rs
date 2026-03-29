@@ -37,6 +37,58 @@ fn lsp_server_handles_standard_conformance_sources_without_future_boundary_noise
 }
 
 #[test]
+fn lsp_server_reports_missing_required_standard_routines_with_current_m2_wording() {
+    let (root, uri) = sample_package_root("standards_m2_editor_missing_routine");
+    let text = "std geo: pro = {\n    fun area(): int;\n};\n\
+                typ Rect()(geo): rec = {\n    var width: int;\n};\n";
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, text);
+    let messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        messages.iter().any(|message| {
+            message.contains(
+                "type 'Rect' does not satisfy standard 'geo': missing required routine 'area'",
+            )
+        }),
+        "editor path should surface the concrete M2 conformance failure: {messages:?}"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_reports_unsupported_standard_kinds_with_current_m2_wording() {
+    let (root, uri) = sample_package_root("standards_m2_editor_unsupported_kind");
+    let text = "std shape: blu = {\n    var size: int;\n};\n\
+                typ Rect()(shape): rec = {\n    var width: int;\n};\n";
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, text);
+    let messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        messages.iter().any(|message| {
+            message.contains(
+                "type 'Rect' claims unsupported standard 'shape'; only protocol standards are supported in V2 Milestone 2",
+            )
+        }),
+        "editor path should surface the concrete unsupported-standard wording: {messages:?}"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn lsp_server_keeps_nested_document_symbols_stable() {
     let (root, uri) = sample_package_root("nested_symbols");
     fs::write(

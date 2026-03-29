@@ -338,6 +338,54 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_dump_lowered_rejects_protocol_standards_with_explicit_m2_boundary() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standards_protocol_lowering_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards lowering fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "std geo: pro = {\n",
+                "    fun area(): int;\n",
+                "};\n",
+                "typ Rect()(geo): rec = {\n",
+                "    var width: int;\n",
+                "};\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 1;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write standards lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("standards lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            !output.status.success(),
+            "standards lowering should fail cleanly in M2, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(
+            combined.contains("protocol standard 'geo' lowering is not yet supported in V2 Milestone 2"),
+            "CLI lowering should preserve the explicit M2 standards-lowering boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_pipe_or_default_lowers_successfully() {
         use std::fs;
 

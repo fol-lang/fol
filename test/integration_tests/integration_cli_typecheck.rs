@@ -444,6 +444,68 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_typecheck_rejects_unknown_standard_contract_headers_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_unknown_standard_contract_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp unknown contract root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n",
+        )
+        .expect("Should write unknown-contract fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI unknown contract path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject unknown standard contract headers");
+        assert!(
+            stdout.contains("could not resolve standard 'geo'"),
+            "CLI should preserve the unknown-contract resolver wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_non_standard_contract_headers_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_non_standard_contract_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp non-standard contract root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "typ Geo: rec = {\n\
+             var size: int;\n\
+         };\n\
+         typ Rect()(Geo): rec = {\n\
+             var width: int;\n\
+         };\n",
+        )
+        .expect("Should write non-standard contract fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI non-standard contract path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject non-standard contract headers"
+        );
+        assert!(
+            stdout.contains("could not resolve standard 'Geo'"),
+            "CLI should preserve the non-standard contract resolver wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_typecheck_rejects_template_style_generic_calls_for_m1() {
         use std::fs;
 

@@ -300,14 +300,14 @@ Completion criteria:
 
 - duplicate members, bad member kinds, and malformed signatures fail clearly
 
-### Slice 31
+### Slice 31 (complete)
 Add compile-fail fixtures for malformed conformance declarations.
 
 Completion criteria:
 
 - bad type-side contract claims fail explicitly
 
-### Slice 32
+### Slice 32 (complete)
 Add compile-fail fixtures for editor-facing standard misuse diagnostics.
 
 Completion criteria:
@@ -316,7 +316,7 @@ Completion criteria:
 
 ## Epoch 8: Lowering And Backend Honesty
 
-### Slice 33
+### Slice 33 (complete)
 Audit whether the chosen standards subset requires lowering support or should
 stop before lower/backend with an explicit diagnostic.
 
@@ -324,14 +324,14 @@ Completion criteria:
 
 - there is no fake “typecheck yes, lower maybe” path
 
-### Slice 34
+### Slice 34 (complete)
 If lowering support is needed for the chosen subset, implement the narrow path.
 
 Completion criteria:
 
 - supported standard examples survive lowering cleanly
 
-### Slice 35
+### Slice 35 (complete)
 If backend support is not yet viable, fail before backend with exact messaging.
 
 Completion criteria:
@@ -340,7 +340,7 @@ Completion criteria:
 
 ## Epoch 9: Editor And Tree-Sitter Audit
 
-### Slice 36
+### Slice 36 (complete)
 Audit tree-sitter grammar/highlighting for the chosen standards syntax.
 
 Completion criteria:
@@ -348,14 +348,14 @@ Completion criteria:
 - standard/conformance syntax is either highlighted correctly or explicitly
   unchanged and verified
 
-### Slice 37
+### Slice 37 (complete)
 Audit `fol-editor` completion/hover/diagnostics for the chosen contract subset.
 
 Completion criteria:
 
 - editor coverage exists for the implemented standard/conformance subset
 
-### Slice 38
+### Slice 38 (complete)
 Add editor regression coverage for negative contract misuse.
 
 Completion criteria:
@@ -364,7 +364,7 @@ Completion criteria:
 
 ## Epoch 10: Examples, Book, And Closure
 
-### Slice 39
+### Slice 39 (complete)
 Add one canonical positive example package for the chosen standard/conformance
 subset.
 
@@ -372,7 +372,7 @@ Completion criteria:
 
 - one real example exists and is exercised in integration tests
 
-### Slice 40
+### Slice 40 (complete)
 Add one canonical negative example package for unsupported contract surfaces.
 
 Completion criteria:
