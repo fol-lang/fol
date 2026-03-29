@@ -123,6 +123,7 @@ Hardening examples that should remain in sync:
   - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
+  - `examples/fail_generic_standard_constraint_m1m2`
 
 Current hardened example matrix:
 
@@ -134,6 +135,7 @@ Current hardened example matrix:
   - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
+  - `examples/fail_generic_standard_constraint_m1m2`
 
 ## Second-pass hardening targets
 

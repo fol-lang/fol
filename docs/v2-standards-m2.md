@@ -105,6 +105,7 @@ Hardening examples that should remain in sync:
   - `examples/fail_standard_as_type_m2`
   - `examples/fail_standard_missing_routine_m2`
   - `examples/fail_standard_signature_m2`
+  - `examples/fail_standard_import_ambiguity_m2`
 
 Current hardened example matrix:
 
@@ -117,6 +118,7 @@ Current hardened example matrix:
   - `examples/fail_standard_as_type_m2`
   - `examples/fail_standard_missing_routine_m2`
   - `examples/fail_standard_signature_m2`
+  - `examples/fail_standard_import_ambiguity_m2`
 
 ## Second-pass hardening targets
 

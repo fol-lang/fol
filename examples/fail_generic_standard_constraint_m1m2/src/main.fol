@@ -1,0 +1,11 @@
+std geo: pro = {
+    fun area(): int;
+};
+
+fun pick(T: geo)(value: T): T = {
+    return value;
+};
+
+fun[] main(): int = {
+    return 0;
+};

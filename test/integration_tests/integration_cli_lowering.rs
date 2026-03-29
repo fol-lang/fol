@@ -1,5 +1,17 @@
 use super::*;
 
+    fn copied_example_root(example_path: &str) -> std::path::PathBuf {
+        let source = repo_root().join(example_path);
+        let temp_root = unique_temp_root(&format!(
+            "cli_example_{}",
+            example_path.replace('/', "_")
+        ));
+        let target = temp_root.join("workspace");
+        copy_dir_all(&source, &target);
+        std::fs::remove_dir_all(target.join(".fol")).ok();
+        target
+    }
+
     #[test]
     fn test_cli_single_file_compile_succeeds_with_builtin_str_types() {
         use std::fs;
@@ -554,6 +566,79 @@ use super::*;
         );
 
         fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_full_chain_keeps_new_standards_examples_on_their_current_boundaries() {
+        let cases = [
+            (
+                "examples/standards_protocol_multi_m2",
+                vec!["code", "build"],
+                "protocol standard lowering is not yet supported in V2 Milestone 2",
+            ),
+            (
+                "examples/fail_standard_missing_routine_m2",
+                vec!["code", "check"],
+                "missing required routine 'perimeter'",
+            ),
+            (
+                "examples/fail_standard_signature_m2",
+                vec!["code", "check"],
+                "routine 'area' has incompatible signature",
+            ),
+            (
+                "examples/fail_standard_import_ambiguity_m2",
+                vec!["code", "check"],
+                "standard 'geo' is ambiguous in lexical scope",
+            ),
+        ];
+
+        for (example, args, expected) in cases {
+            let root = copied_example_root(example);
+            let output = run_fol_in_dir(&root, &args);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let combined = format!("{stdout}\n{stderr}");
+
+            assert!(
+                !output.status.success(),
+                "example '{example}' should stay on its current failure boundary: stdout=\n{}\nstderr=\n{}",
+                stdout,
+                stderr
+            );
+            assert!(
+                combined.contains(expected),
+                "example '{example}' should keep boundary '{expected}': stdout=\n{}\nstderr=\n{}",
+                stdout,
+                stderr
+            );
+
+            std::fs::remove_dir_all(root).ok();
+        }
+    }
+
+    #[test]
+    fn test_cli_full_chain_rejects_the_generic_plus_standards_seam_cleanly() {
+        let root = copied_example_root("examples/fail_generic_standard_constraint_m1m2");
+        let output = run_fol_in_dir(&root, &["code", "build"]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            !output.status.success(),
+            "generic-plus-standards seam example should fail cleanly: stdout=\n{}\nstderr=\n{}",
+            stdout,
+            stderr
+        );
+        assert!(
+            combined.contains("generic routine constraints are not yet supported in V2 Milestone 1"),
+            "generic-plus-standards seam should keep the explicit M1 constraint boundary: stdout=\n{}\nstderr=\n{}",
+            stdout,
+            stderr
+        );
+
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

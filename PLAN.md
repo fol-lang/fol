@@ -294,7 +294,7 @@ Completion criteria:
 
 - the example fails with the exact signature-mismatch conformance diagnostic
 
-### Slice 21
+### Slice 21 (complete)
 Add one checked-in negative standards example for imported-standard ambiguity
 or imported-standard unsupported claim if that is the real current boundary.
 
@@ -302,7 +302,7 @@ Completion criteria:
 
 - imported standards edge behavior is represented by a real example package
 
-### Slice 22
+### Slice 22 (complete)
 Expand lowering and CLI full-chain coverage to all new standards examples.
 
 Completion criteria:
@@ -312,7 +312,7 @@ Completion criteria:
 
 ## Epoch 6: Cross-Feature Seam Between M1 And M2
 
-### Slice 23
+### Slice 23 (complete)
 Add one negative example package that mixes generic routines with standards in
 an explicitly unsupported way.
 
@@ -325,7 +325,7 @@ Completion criteria:
 - the seam between M1 generics and M2 standards is represented by a real
   checked-in example
 
-### Slice 24
+### Slice 24 (complete)
 Add resolver and typecheck tests for generic constraints trying to reference
 standards.
 
@@ -333,7 +333,7 @@ Completion criteria:
 
 - the existing boundary is pinned beyond the current narrow coverage
 
-### Slice 25
+### Slice 25 (complete)
 Add CLI and lowering full-chain tests for the mixed generic-plus-standards
 negative seam.
 
@@ -341,7 +341,7 @@ Completion criteria:
 
 - the mixed seam fails consistently in the full path
 
-### Slice 26
+### Slice 26 (complete)
 Add editor diagnostics coverage for the mixed generic-plus-standards negative
 example.
 
@@ -351,7 +351,7 @@ Completion criteria:
 
 ## Epoch 7: V2 Editor Navigation And Completion Hardening
 
-### Slice 27
+### Slice 27 (complete)
 Add real-example hover coverage for V2 generics examples.
 
 Target examples:
@@ -368,7 +368,7 @@ Completion criteria:
 
 - hover is pinned on real generics examples
 
-### Slice 28
+### Slice 28 (complete)
 Add real-example definition coverage for V2 generics examples.
 
 Target assertions:
@@ -379,7 +379,7 @@ Completion criteria:
 
 - definition is pinned on real generics examples
 
-### Slice 29
+### Slice 29 (complete)
 Add real-example hover and definition coverage for standards examples.
 
 Target examples:
@@ -396,7 +396,7 @@ Completion criteria:
 
 - standards navigation is pinned on real examples
 
-### Slice 30
+### Slice 30 (complete)
 Add completion coverage for current V2-safe contexts.
 
 Target cases:

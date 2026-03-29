@@ -596,6 +596,57 @@ fn test_fail_standard_signature_m2_example_rejects_cleanly() {
 }
 
 #[test]
+fn test_fail_standard_import_ambiguity_m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_standard_import_ambiguity_m2");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text =
+        std::fs::read_to_string(&main).expect("imported-standard ambiguity example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    let all_messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        all_messages
+            .iter()
+            .any(|message| message.contains("standard 'geo' is ambiguous in lexical scope")),
+        "imported-standard ambiguity example should surface the resolver ambiguity in editor: {all_messages:#?}"
+    );
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("standard 'geo' is ambiguous in lexical scope"),
+        "imported-standard ambiguity example should keep the resolver ambiguity boundary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
 fn test_fail_standard_blueprint_m2_example_rejects_cleanly() {
     let root = temp_example_root("examples/fail_standard_blueprint_m2");
 
@@ -614,6 +665,57 @@ fn test_fail_standard_blueprint_m2_example_rejects_cleanly() {
             "type 'Rect' claims unsupported standard 'shape'; only protocol standards are supported in V2 Milestone 2",
         ),
         "negative standards M2 example should keep the explicit unsupported-standard message: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_fail_generic_standard_constraint_m1m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_generic_standard_constraint_m1m2");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text = std::fs::read_to_string(&main)
+        .expect("generic-standard seam example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    let all_messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        all_messages.iter().any(|message| {
+            message.contains("generic routine constraints are not yet supported in V2 Milestone 1")
+        }),
+        "generic-standard seam example should surface the explicit M1 constraint boundary in editor: {all_messages:#?}"
+    );
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("generic routine constraints are not yet supported in V2 Milestone 1"),
+        "generic-standard seam example should keep the explicit M1 constraint boundary: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
@@ -4002,6 +4104,7 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(generics_note.contains("examples/fail_generic_type_m1"));
     assert!(generics_note.contains("examples/fail_generic_misuse_m1"));
     assert!(generics_note.contains("examples/fail_generic_cross_file_m1"));
+    assert!(generics_note.contains("examples/fail_generic_standard_constraint_m1m2"));
     assert!(generics_note.contains("generic routine lowering is still explicitly unsupported"));
     assert!(generics_note.contains("receiver-qualified generic routines"));
     assert!(generics_note.contains("imported and cross-file generic routine calls"));
@@ -4013,6 +4116,7 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(standards_note.contains("examples/fail_standard_as_type_m2"));
     assert!(standards_note.contains("examples/fail_standard_missing_routine_m2"));
     assert!(standards_note.contains("examples/fail_standard_signature_m2"));
+    assert!(standards_note.contains("examples/fail_standard_import_ambiguity_m2"));
     assert!(standards_note.contains("lowering/backend still stop at an explicit Milestone 2 boundary"));
     assert!(standards_note.contains("multi-standard conformance on one type"));
     assert!(standards_note.contains("imported-standard conformance truth"));
@@ -4032,6 +4136,7 @@ fn test_v2_m1_example_matrix_stays_honest() {
         "examples/fail_generic_type_m1",
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",
+        "examples/fail_generic_standard_constraint_m1m2",
     ]
     .into_iter()
     .map(|path| path.to_string())
@@ -4055,6 +4160,7 @@ fn test_v2_m2_example_matrix_stays_honest() {
         "examples/fail_standard_as_type_m2",
         "examples/fail_standard_missing_routine_m2",
         "examples/fail_standard_signature_m2",
+        "examples/fail_standard_import_ambiguity_m2",
     ]
     .into_iter()
     .map(|path| path.to_string())

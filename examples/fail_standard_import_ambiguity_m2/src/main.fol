@@ -1,0 +1,10 @@
+use alpha: loc = {"../alpha"};
+use beta: loc = {"../beta"};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun[] main(): int = {
+    return 0;
+};

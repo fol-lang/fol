@@ -1,8 +1,9 @@
 use super::helpers::{copied_example_package_root, open_document};
 use super::super::{
     EditorLspServer, JsonRpcId, JsonRpcRequest, LspCompletionContext, LspCompletionList,
-    LspCompletionParams, LspDocumentSymbolParams, LspPosition, LspSemanticTokens,
-    LspSemanticTokensParams, LspTextDocumentIdentifier, LspWorkspaceSymbolParams,
+    LspCompletionParams, LspDefinitionParams, LspDocumentSymbolParams, LspHover,
+    LspHoverParams, LspLocation, LspPosition, LspSemanticTokens, LspSemanticTokensParams,
+    LspTextDocumentIdentifier, LspWorkspaceSymbolParams,
 };
 use crate::EditorConfig;
 use std::fs;
@@ -23,6 +24,28 @@ fn decode_semantic_tokens(data: &[u32]) -> Vec<(u32, u32, u32, u32, u32)> {
         decoded.push((line, start, chunk[2], chunk[3], chunk[4]));
     }
     decoded
+}
+
+fn find_nth_position(text: &str, needle: &str, ordinal: usize) -> LspPosition {
+    let mut search_offset = 0_usize;
+    let mut byte_index = None;
+    for _ in 0..ordinal {
+        let found = text[search_offset..]
+            .find(needle)
+            .expect("needle should exist in example source");
+        byte_index = Some(search_offset + found);
+        search_offset += found + needle.len();
+    }
+    let byte_index = byte_index.expect("ordinal should be at least 1");
+    let prefix = &text[..byte_index];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u32;
+    let character = prefix
+        .rsplit('\n')
+        .next()
+        .expect("split should keep a trailing segment")
+        .chars()
+        .count() as u32;
+    LspPosition { line, character }
 }
 
 #[test]
@@ -211,6 +234,11 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             Some("generic routine constraints are not yet supported in V2 Milestone 1"),
         ),
         (
+            "examples/fail_generic_standard_constraint_m1m2",
+            "std geo: pro = {\n    fun area(): int;\n};\nfun pick(T: geo)(value: T): T = {\n    return value;\n};\nfun[] main(): int = {\n    return 0;\n};\n",
+            Some("generic routine constraints are not yet supported in V2 Milestone 1"),
+        ),
+        (
             "examples/std_bundled_io",
             "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    var shown: str = std::io::echo_str(\"ok\");\n    return 7;\n};\n",
             None,
@@ -226,6 +254,11 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             "examples/fail_standard_as_type_m2",
             "std geo: pro = {\n    fun area(): int;\n};\nfun use(value: geo): int = {\n    return 0;\n};\n",
             Some("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2"),
+        ),
+        (
+            "examples/fail_standard_import_ambiguity_m2",
+            "use alpha: loc = {\"../alpha\"};\nuse beta: loc = {\"../beta\"};\ntyp Rect()(geo): rec = {\n    var width: int;\n};\nfun[] main(): int = {\n    return 0;\n};\n",
+            Some("standard 'geo' is ambiguous in lexical scope"),
         ),
         (
             "examples/std_echo_min",
@@ -459,6 +492,257 @@ fn lsp_server_respects_model_completion_when_opened_at_real_example_roots() {
             assert!(
                 !labels.iter().any(|candidate| candidate == label),
                 "example '{example}' should hide completion '{label}', got: {labels:?}"
+            );
+        }
+
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_returns_hover_for_v2_generic_examples() {
+    let cases = [
+        ("examples/generic_routine_m1", "pick(", 2, "pick"),
+        ("examples/generic_routine_pair_m1", "pair(", 2, "pair"),
+    ];
+
+    for (example, needle, ordinal, expected) in cases {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let hover = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1401),
+                method: "textDocument/hover".to_string(),
+                params: Some(
+                    serde_json::to_value(LspHoverParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position: find_nth_position(&text, needle, ordinal),
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+        let hover = hover.expect("generic call-site hover should resolve");
+
+        assert!(
+            hover.contents.contains(expected),
+            "example '{example}' should surface hover for '{expected}', got: {hover:?}"
+        );
+        assert!(
+            !hover.contents.contains("lowering") && !hover.contents.contains("backend"),
+            "generic hover should not overclaim lowering/backend support: {hover:?}"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_returns_definitions_for_v2_generic_call_sites() {
+    let cases = [
+        ("examples/generic_routine_m1", "pick(", 2),
+        ("examples/generic_routine_pair_m1", "pair(", 2),
+    ];
+
+    for (example, needle, ordinal) in cases {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let definition = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1402),
+                method: "textDocument/definition".to_string(),
+                params: Some(
+                    serde_json::to_value(LspDefinitionParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position: find_nth_position(&text, needle, ordinal),
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+        let definition = definition.expect("generic call-site definition should resolve");
+
+        assert_eq!(definition.uri, uri);
+        assert_eq!(definition.range.start.line, 0);
+
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_returns_hover_and_definition_for_v2_standards_examples() {
+    let cases = [
+        ("examples/standards_protocol_m2", "(geo)", 1, "geo", "area"),
+        ("examples/standards_protocol_pair_m2", "(geo)", 1, "geo", "area"),
+    ];
+
+    for (example, contract_needle, contract_ordinal, expected_standard, requirement_name) in cases {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let contract_position = {
+            let mut pos = find_nth_position(&text, contract_needle, contract_ordinal);
+            pos.character += 1;
+            pos
+        };
+        let hover = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1403),
+                method: "textDocument/hover".to_string(),
+                params: Some(
+                    serde_json::to_value(LspHoverParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position: contract_position,
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+        let hover = hover.expect("standard contract-header hover should resolve");
+        assert!(
+            hover.contents.contains(expected_standard),
+            "contract hover for '{example}' should mention '{expected_standard}', got: {hover:?}"
+        );
+
+        let definition = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1404),
+                method: "textDocument/definition".to_string(),
+                params: Some(
+                    serde_json::to_value(LspDefinitionParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position: contract_position,
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+        let definition = definition.expect("standard contract-header definition should resolve");
+        assert_eq!(definition.uri, uri);
+        assert_eq!(definition.range.start.line, 0);
+
+        let requirement_hover = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1405),
+                method: "textDocument/hover".to_string(),
+                params: Some(
+                    serde_json::to_value(LspHoverParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position: find_nth_position(&text, &format!("{requirement_name}("), 1),
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let requirement_hover: Option<LspHover> =
+            serde_json::from_value(requirement_hover.result.unwrap()).unwrap();
+        assert!(
+            requirement_hover.is_none(),
+            "required standard routine hover should stay absent until dedicated V2 declaration navigation exists, got: {requirement_hover:?} for '{example}' on '{requirement_name}'"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_keeps_completion_available_in_v2_safe_contexts() {
+    let cases = [
+        (
+            "examples/generic_routine_m1",
+            "fun pick(T)(value: T): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return p;\n};\n",
+            LspPosition { line: 4, character: 12 },
+            None,
+            vec![],
+            vec!["$"],
+        ),
+        (
+            "examples/standards_protocol_m2",
+            "std geo: pro = {\n    fun area(): i\n};\n\ntyp Rect()(geo): rec = {\n    var width: int;\n};\n\nfun (Rect)area(): int = {\n    return 1;\n};\n\nfun[] main(): int = {\n    return 0;\n};\n",
+            LspPosition { line: 1, character: 16 },
+            None,
+            vec!["int"],
+            vec!["geo"],
+        ),
+        (
+            "examples/standards_protocol_m2",
+            "std geo: pro = {\n    fun area(): int;\n};\n\ntyp Rect()(g): rec = {\n    var width: int;\n};\n\nfun (Rect)area(): int = {\n    return 1;\n};\n\nfun[] main(): int = {\n    return 0;\n};\n",
+            LspPosition { line: 3, character: 11 },
+            None,
+            vec!["Rect", "width"],
+            vec!["$"],
+        ),
+        (
+            "examples/fail_generic_standard_constraint_m1m2",
+            "std geo: pro = {\n    fun area(): int;\n};\n\nfun pick(T: geo)(value: T): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return p;\n};\n",
+            LspPosition { line: 7, character: 12 },
+            None,
+            vec![],
+            vec!["$"],
+        ),
+    ];
+
+    for (example, source, position, context, present, absent) in cases {
+        let (root, uri) = copied_example_package_root(example);
+        fs::write(root.join("src/main.fol"), source).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), source);
+
+        let completion = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1406),
+                method: "textDocument/completion".to_string(),
+                params: Some(
+                    serde_json::to_value(LspCompletionParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position,
+                        context,
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let labels = serde_json::from_value::<LspCompletionList>(completion.result.unwrap())
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|item| item.label)
+            .collect::<Vec<_>>();
+
+        for label in present {
+            assert!(
+                labels.iter().any(|candidate| candidate == label),
+                "example '{example}' should expose completion '{label}', got: {labels:?}"
+            );
+        }
+        for label in absent {
+            assert!(
+                !labels.iter().any(|candidate| candidate.contains(label)),
+                "example '{example}' should not expose fake completion '{label}', got: {labels:?}"
             );
         }
 

@@ -544,6 +544,29 @@ fn generic_routines_reject_constraints_exhaustively() {
 }
 
 #[test]
+fn generic_routines_reject_standard_constraints_exhaustively() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         fun pick(T: geo)(value: T): T = {\n\
+             return value;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("generic routine constraints are not yet supported in V2 Milestone 1")
+        }),
+        "Expected generic constraints that reference standards to stay unsupported in M1, got: {errors:?}"
+    );
+}
+
+#[test]
 fn generic_routines_reject_generic_error_shells_exhaustively() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",

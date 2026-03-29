@@ -210,6 +210,44 @@ fn test_resolver_rejects_generic_parameter_use_in_top_level_value_annotations() 
 }
 
 #[test]
+fn test_resolver_accepts_standard_names_in_generic_constraint_positions_without_unresolved_errors() {
+    let temp_root = unique_temp_root("generic_standard_constraint_refs");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         fun pick(T: geo)(value: T): T = {\n\
+             return value;\n\
+         };\n",
+    )
+    .expect("Should write the generic standard-constraint fixture");
+
+    let resolved = resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+    let standard_symbol = resolved
+        .symbols_in_scope(resolved.program_scope)
+        .into_iter()
+        .find(|symbol| symbol.name == "geo" && symbol.kind == SymbolKind::Standard)
+        .expect("Resolver should keep the standard symbol for the generic-constraint fixture");
+    let routine_symbol = resolved
+        .symbols_in_scope(resolved.program_scope)
+        .into_iter()
+        .find(|symbol| symbol.name == "pick" && symbol.kind == SymbolKind::Routine)
+        .expect("Resolver should keep the generic routine symbol for the standard-constraint fixture");
+
+    assert_eq!(standard_symbol.name, "geo");
+    assert_eq!(routine_symbol.name, "pick");
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
 fn test_resolver_keeps_generic_parameter_references_in_nested_signature_positions() {
     let temp_root = unique_temp_root("generic_nested_signature_positions");
     fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
