@@ -299,7 +299,7 @@ Parser handles 16+ (dispatch at
 | `pro` (procedure) | 489 |
 | binding alternatives | 167 |
 
-### 4.2 Missing control flow statements (8 types)
+### 4.2 Missing control flow statements (8 types) (complete)
 
 Grammar has: `return`, `break`, `when`, `loop`, `panic`, `report`,
 `unreachable`, `check`.
