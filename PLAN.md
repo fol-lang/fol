@@ -421,7 +421,7 @@ returns empty for most errors.
 Fix: add structured suggestions to the most common compiler diagnostics
 (type mismatches, missing imports, name typos).
 
-### 5.5 Rename restricted to same-file and current-package
+### 5.5 Rename restricted to same-file and current-package (complete)
 
 File: `lang/tooling/fol-editor/src/lsp/semantic.rs`
 Lines: 1148-1150, 1183-1186

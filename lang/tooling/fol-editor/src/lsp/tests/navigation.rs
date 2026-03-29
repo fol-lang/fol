@@ -1604,8 +1604,10 @@ fn lsp_server_refuses_imported_symbol_rename_outside_the_safe_boundary() {
 
     assert_eq!(error.kind, crate::EditorErrorKind::InvalidInput);
     assert!(
-        !error.message.is_empty(),
-        "rename rejection should keep a concrete message"
+        error
+            .message
+            .contains("rename currently refuses multi-package symbols"),
+        "rename rejection should keep the documented multi-package boundary: {error:?}"
     );
 
     fs::remove_dir_all(root).ok();
