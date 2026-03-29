@@ -3,6 +3,8 @@ Declarations
 ==================
 
 use shared: loc = {"shared::lib"}
+con ResultLabel = "ready"
+lab attempt: int = 1
 ali Result: seq[str]
 typ User: rec = {
     name: str
@@ -10,6 +12,23 @@ typ User: rec = {
 fun load(path: str): str / str = {
     return path
 }
+pro apply(path: str): str = {
+    return path
+}
 log ready(): bol = {
     return true
+}
+def marker: blk[] = {
+    var count: int = 1
+}
+seg core: mod = {
+    def helper: blk[] = { }
+}
+imp Self: User = {
+    fun activate(): bol = {
+        return true
+    }
+}
+std geometry: pro = {
+    fun area(): flt[64]
 }

@@ -277,7 +277,7 @@ The tree-sitter grammar is approximately 35-40% complete relative to the
 actual parser. This means editor syntax highlighting, code navigation, and
 scope tracking break on valid FOL code.
 
-### 4.1 Missing top-level declarations (9 types)
+### 4.1 Missing top-level declarations (9 types) (complete)
 
 File: `lang/tooling/fol-editor/tree-sitter/grammar.js`
 
