@@ -96,6 +96,28 @@ __FOL_SHELL_TYPE_LINES__
 (dot_intrinsic "." @operator)
 (dot_intrinsic name: (identifier) @function.builtin
   (#match? @function.builtin "__FOL_DOT_INTRINSIC_REGEX__"))
+(binary_expr operator: "or" @operator)
+(binary_expr operator: "xor" @operator)
+(binary_expr operator: "nor" @operator)
+(binary_expr operator: "and" @operator)
+(binary_expr operator: "nand" @operator)
+(binary_expr operator: "as" @operator)
+(binary_expr operator: "cast" @operator)
+(binary_expr operator: "is" @operator)
+(binary_expr operator: "has" @operator)
+(binary_expr operator: "in" @operator)
+(binary_expr operator: "on" @operator)
+(binary_expr operator: "of" @operator)
+(binary_expr operator: "at" @operator)
+(unary_expr operator: "not" @operator)
+(this_expr) @variable.builtin
+(self_expr) @variable.builtin
+(where_expr) @keyword
+(get_expr) @keyword
+(async_expr) @keyword
+(await_expr) @keyword
+(go_expr) @keyword
+(do_expr) @keyword
 (qualified_path root: (identifier) @namespace)
 (qualified_path segment: (identifier) @namespace)
 (unwrap_expr "!" @operator)

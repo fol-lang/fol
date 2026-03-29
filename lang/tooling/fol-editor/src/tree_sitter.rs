@@ -148,6 +148,7 @@ mod tests {
         fol_tree_sitter_query_snapshots, fol_tree_sitter_symbols_query,
         CHECKED_IN_HIGHLIGHTS_QUERY, HIGHLIGHTS_QUERY_BASE,
     };
+    use fol_lexer::token::buildin::OPERATOR_KEYWORDS;
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
@@ -275,10 +276,19 @@ mod tests {
             "qualified_path",
             "dot_intrinsic",
             "check_expr",
+            "unary_expr",
             "container_type",
             "shell_type",
             "nil_literal",
             "unwrap_expr",
+            "this_expr",
+            "self_expr",
+            "where_expr",
+            "get_expr",
+            "async_expr",
+            "await_expr",
+            "go_expr",
+            "do_expr",
         ] {
             assert!(
                 grammar.contains(needle),
@@ -404,6 +414,24 @@ mod tests {
                 query.contains(intrinsic.name),
                 "highlight query is missing implemented dot intrinsic '{}'",
                 intrinsic.name
+            );
+        }
+    }
+
+    #[test]
+    fn grammar_and_highlights_cover_compiler_operator_keywords() {
+        let grammar = fol_tree_sitter_grammar();
+        let query = fol_tree_sitter_highlights_query();
+
+        for keyword in OPERATOR_KEYWORDS {
+            let quoted = format!("\"{keyword}\"");
+            assert!(
+                grammar.contains(&format!("'{keyword}'")) || grammar.contains(&quoted),
+                "grammar is missing operator keyword coverage for '{keyword}'"
+            );
+            assert!(
+                query.contains(&format!("operator: {quoted} @operator")),
+                "highlight query is missing operator keyword coverage for '{keyword}'"
             );
         }
     }
