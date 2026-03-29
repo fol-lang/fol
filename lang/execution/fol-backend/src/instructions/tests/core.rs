@@ -231,6 +231,92 @@ fn core_instruction_rendering_emits_scalar_intrinsics_as_native_rust_ops() {
 }
 
 #[test]
+fn workspace_global_rendering_keeps_mutable_globals_on_backend_default_contract() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(15), "main", LoweredBlockId(0));
+    let value_local = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(int_id),
+        name: Some("value".to_string()),
+    });
+    let result_local = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("loaded".to_string()),
+    });
+
+    let load = LoweredInstr {
+        id: LoweredInstrId(20),
+        result: Some(result_local),
+        kind: LoweredInstrKind::LoadGlobal {
+            global: fol_lower::LoweredGlobalId(0),
+        },
+    };
+    let store = LoweredInstr {
+        id: LoweredInstrId(21),
+        result: None,
+        kind: LoweredInstrKind::StoreGlobal {
+            global: fol_lower::LoweredGlobalId(0),
+            value: value_local,
+        },
+    };
+
+    let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
+    package.source_units.push(LoweredSourceUnit {
+        source_unit_id: SourceUnitId(0),
+        path: "app/main.fol".to_string(),
+        package: "app".to_string(),
+        namespace: "app".to_string(),
+    });
+    package.global_decls.insert(
+        fol_lower::LoweredGlobalId(0),
+        fol_lower::LoweredGlobal {
+            id: fol_lower::LoweredGlobalId(0),
+            symbol_id: SymbolId(20),
+            source_unit_id: SourceUnitId(0),
+            name: "counter".to_string(),
+            type_id: int_id,
+            mutable: true,
+        },
+    );
+    let workspace = LoweredWorkspace::new(
+        package_identity.clone(),
+        BTreeMap::from([(package_identity.clone(), package)]),
+        Vec::new(),
+        table.clone(),
+        LoweredSourceMap::new(),
+        LoweredRecoverableAbi::v1(int_id),
+    );
+
+    let load_rendered = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &load,
+    )
+    .expect("load global");
+    let store_rendered = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &store,
+    )
+    .expect("store global");
+
+    assert!(load_rendered.contains(
+        "get_or_init(|| std::sync::Mutex::new(Default::default()))"
+    ));
+    assert!(load_rendered.contains(".lock().unwrap_or_else(|e| e.into_inner()).clone()"));
+    assert!(store_rendered.contains(
+        "*crate::packages::pkg__entry__app::root::g__pkg__entry__app__g0__counter.get_or_init(|| std::sync::Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()) = l__pkg__entry__app__r15__l0__value.clone();"
+    ));
+}
+
+#[test]
 fn combined_core_instruction_snapshot_stays_stable() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
@@ -488,4 +574,3 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
         "l__pkg__entry__app__r12__l0__callback(l__pkg__entry__app__r12__l1__arg);"
     );
 }
-

@@ -102,7 +102,7 @@ evaluates to false.
 
 Fix: return an error instead of a default false.
 
-### 1.5 Mutable global initialization uses Rust Default::default()
+### 1.5 Mutable global initialization uses Rust Default::default() (complete)
 
 File: `lang/execution/fol-backend/src/instructions/render.rs`
 Lines: 77-79

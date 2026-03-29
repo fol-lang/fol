@@ -1327,13 +1327,13 @@ mod tests {
         .expect("backend std artifact");
         let BackendArtifact::CompiledBinary {
             binary_path,
-            emitted_crate_root,
+            crate_root: emitted_crate_root,
         } = artifact
         else {
             panic!("expected compiled binary artifact");
         };
-        let main_rs =
-            fs::read_to_string(emitted_crate_root.join("src/main.rs")).expect("generated main.rs");
+        let main_rs = fs::read_to_string(Path::new(&emitted_crate_root).join("src/main.rs"))
+            .expect("generated main.rs");
         let output = Command::new(&binary_path)
             .output()
             .expect("run emitted std binary");
