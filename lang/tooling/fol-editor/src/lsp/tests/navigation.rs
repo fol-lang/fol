@@ -1031,7 +1031,7 @@ fn lsp_server_returns_no_code_actions_for_typecheck_diagnostics_without_exact_re
 }
 
 #[test]
-fn lsp_server_keeps_current_v1_code_action_inventory_narrow_and_sorted() {
+fn lsp_server_keeps_current_v1_code_actions_to_structured_replacements_only() {
     let (root, uri) = sample_package_root("code_action_inventory_v1");
     fs::write(
         root.join("src/main.fol"),
@@ -1091,6 +1091,10 @@ fn lsp_server_keeps_current_v1_code_action_inventory_narrow_and_sorted() {
         .collect::<Vec<_>>();
 
     assert_eq!(titles, vec!["replace with 'helper'"]);
+    assert!(
+        actions.iter().all(|action| action.title.starts_with("replace with '")),
+        "current V1 code actions should stay limited to exact structured replacements"
+    );
 
     fs::remove_dir_all(root).ok();
 }

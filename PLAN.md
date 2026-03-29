@@ -408,7 +408,7 @@ These produce plausible but semantically incorrect completions. For production,
 either make the compiler-backed path work for these cases or clearly mark
 fallback items as uncertain.
 
-### 5.4 Code actions limited to structured suggestions only
+### 5.4 Code actions limited to structured suggestions only (complete)
 
 File: `lang/tooling/fol-editor/src/lsp/semantic.rs`
 Lines: 144-147
