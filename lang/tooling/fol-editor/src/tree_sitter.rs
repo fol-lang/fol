@@ -148,7 +148,11 @@ mod tests {
         fol_tree_sitter_query_snapshots, fol_tree_sitter_symbols_query,
         CHECKED_IN_HIGHLIGHTS_QUERY, HIGHLIGHTS_QUERY_BASE,
     };
-    use fol_lexer::token::buildin::OPERATOR_KEYWORDS;
+    use fol_lexer::token::buildin::{
+        CONTROL_KEYWORDS, DECLARATION_KEYWORDS, DIAGNOSTIC_KEYWORDS, LITERAL_KEYWORDS,
+        OPERATOR_KEYWORDS, OTHER_KEYWORDS,
+    };
+    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
@@ -441,6 +445,41 @@ mod tests {
                 "highlight query is missing operator keyword coverage for '{keyword}'"
             );
         }
+    }
+
+    #[test]
+    fn grammar_references_every_compiler_keyword_surface() {
+        let grammar = fol_tree_sitter_grammar();
+        let all_keywords: BTreeSet<_> = DECLARATION_KEYWORDS
+            .iter()
+            .chain(CONTROL_KEYWORDS.iter())
+            .chain(OPERATOR_KEYWORDS.iter())
+            .chain(LITERAL_KEYWORDS.iter())
+            .chain(DIAGNOSTIC_KEYWORDS.iter())
+            .chain(OTHER_KEYWORDS.iter())
+            .copied()
+            .collect();
+
+        assert_eq!(
+            all_keywords.len(),
+            55,
+            "compiler keyword inventory changed; update editor summary coverage"
+        );
+
+        let missing = all_keywords
+            .iter()
+            .filter(|keyword| {
+                let single = format!("'{keyword}'");
+                let double = format!("\"{keyword}\"");
+                !grammar.contains(&single) && !grammar.contains(&double)
+            })
+            .copied()
+            .collect::<Vec<_>>();
+
+        assert!(
+            missing.is_empty(),
+            "grammar is missing compiler keywords: {missing:?}"
+        );
     }
 
     #[test]
