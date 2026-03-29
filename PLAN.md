@@ -390,7 +390,7 @@ a file they haven't opened, it won't appear.
 Fix: on workspace symbol requests, trigger analysis of all `.fol` files in the
 workspace root, not just open documents.
 
-### 5.3 Completion degrades to regex fallbacks
+### 5.3 Completion degrades to regex fallbacks (complete)
 
 File: `lang/tooling/fol-editor/src/lsp/semantic.rs`
 
