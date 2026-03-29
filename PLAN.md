@@ -463,7 +463,7 @@ panics at runtime with a `todo!()` instead of a meaningful FOL error.
 Audit: trace all callers of `render_routine_shell()` and confirm none are on
 the normal compilation path.
 
-### 6.2 StdDecl nodes silently produce no type
+### 6.2 StdDecl nodes silently produce no type (complete)
 
 File: `lang/compiler/fol-typecheck/src/exprs/mod.rs`
 Line: 631

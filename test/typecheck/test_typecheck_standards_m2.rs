@@ -48,6 +48,13 @@ fn standards_m2_protocols_lower_typed_standard_and_conformance_metadata() {
         .typed_conformance(type_symbol)
         .expect("typed fixture should record type conformance metadata");
     assert_eq!(conformance.standard_symbol_ids, vec![standard_symbol]);
+
+    let typed_standards = typed.all_typed_standards().collect::<Vec<_>>();
+    assert_eq!(
+        typed_standards.len(),
+        1,
+        "standard declarations should record typed standard metadata instead of disappearing"
+    );
 }
 
 #[test]
