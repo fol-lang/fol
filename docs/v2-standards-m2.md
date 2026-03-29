@@ -43,21 +43,18 @@ deliberately:
 - object-style method dispatch
 - richer extension machinery
 
-## Current pre-implementation truth
+## Current implemented truth
 
-At the current repo state before Milestone 2 semantics land:
+At the current repo state after the landed Milestone 2 semantic slices:
 
-- parser already accepts protocol, blueprint, and extended standards
-- parser already accepts explicit type-side contract headers
-- resolver already collects top-level standard symbols
-- resolver already resolves type-side contract references against those symbols
-- typecheck still rejects standards and type contract conformance as future work
-
-That means the immediate job is honesty and controlled narrowing:
-
-- document the supported target subset
-- freeze the current parser/resolver truth with tests
-- then implement the semantic subset deliberately
+- parser accepts protocol, blueprint, and extended standards
+- parser accepts explicit type-side contract headers
+- resolver collects top-level standard symbols
+- resolver resolves type-side contract references against those symbols
+- typecheck implements protocol-only procedural conformance for required
+  receiver-qualified routines
+- blueprint and extended standards remain explicitly unsupported
+- lowering/backend still stop at an explicit Milestone 2 boundary
 
 ## Immediate implementation rule
 
@@ -73,3 +70,31 @@ In particular:
 
 If those surfaces are parsed but not part of the chosen semantic subset, they
 must fail explicitly and locally.
+
+## Hardening obligations
+
+Milestone 2 is now at the stage where edge-case coverage matters more than
+widening.
+
+Positive obligations:
+
+- parser must keep accepted protocol-standard syntax stable
+- resolver must keep standard symbols and type-side claims stable across files
+- typecheck must keep protocol conformance stable for the current subset
+- editor-opened example packages must remain clean through parse/resolve/typecheck
+
+Negative obligations:
+
+- malformed standard bodies must fail clearly
+- malformed conformance claims must fail clearly
+- unsupported `blu` and `ext` claims must fail clearly
+- standards used as ordinary types must fail clearly
+- generic constraints using standards must fail clearly
+- lowering/backend must continue to stop with one exact Milestone 2 boundary
+
+Hardening examples that should remain in sync:
+
+- positive
+  - `examples/standards_protocol_m2`
+- negative
+  - `examples/fail_standard_blueprint_m2`

@@ -89,3 +89,34 @@ In particular:
 
 If those surfaces are parsed but not part of the chosen semantic subset, they
 must fail explicitly and locally.
+
+## Hardening obligations
+
+Milestone 1 is already implemented narrowly enough that hardening now matters
+more than widening.
+
+Positive obligations:
+
+- parser must keep accepted generic routine headers stable
+- resolver must keep generic parameters routine-local and visible in supported
+  type positions
+- typecheck must keep direct argument-driven inference stable for the current
+  subset
+- editor-opened example packages must remain clean through parse/resolve/typecheck
+
+Negative obligations:
+
+- malformed generic headers must fail clearly in parser
+- duplicate generic parameter names remain parser-owned
+- generic parameter references outside routine scope must fail in resolver
+- generic routine values must fail in typecheck
+- generic constraints must fail explicitly
+- generic types must fail explicitly
+- lowering/backend must continue to stop with one exact Milestone 1 boundary
+
+Hardening examples that should remain in sync:
+
+- positive
+  - `examples/generic_routine_m1`
+- negative
+  - `examples/fail_generic_type_m1`

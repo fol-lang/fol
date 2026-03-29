@@ -92,3 +92,119 @@ fn test_resolver_reports_ambiguous_generic_calls_explicitly() {
     fs::remove_dir_all(&temp_root)
         .expect("Temporary resolver fixture directory should be removable after the test");
 }
+
+#[test]
+fn test_resolver_rejects_generic_parameter_references_in_sibling_routines() {
+    let temp_root = unique_temp_root("generic_sibling_non_visibility");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun pick(T)(value: T): T = {\n    return value;\n};\n\
+         fun[] leak(value: int): T = {\n    return value;\n};\n",
+    )
+    .expect("Should write the sibling generic visibility fixture");
+
+    let errors = try_resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    )
+    .expect_err("Resolver should reject sibling routines using generic parameters");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == ResolverErrorKind::UnresolvedName
+            && error.message().contains("could not resolve type 'T'")
+    }));
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
+fn test_resolver_rejects_local_bindings_that_shadow_generic_names() {
+    let temp_root = unique_temp_root("generic_local_shadow_value_positions");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun pick(T)(value: T): T = {\n\
+             var T: int = 7;\n\
+             fun[] use_local(): int = {\n\
+                 return T;\n\
+             };\n\
+             return value;\n\
+         };\n",
+    )
+    .expect("Should write the generic/local shadow fixture");
+
+    let errors = try_resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    )
+    .expect_err("Resolver should reject local bindings that shadow generic parameters");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == ResolverErrorKind::DuplicateSymbol
+            && error
+                .message()
+                .contains("duplicate local symbol 'T' conflicts with existing generic parameter declaration")
+    }));
+ 
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
+fn test_resolver_rejects_routine_parameters_that_shadow_generic_names() {
+    let temp_root = unique_temp_root("generic_parameter_shadowing_param");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun pick(T)(T: int): T = {\n    return T;\n};\n",
+    )
+    .expect("Should write the generic/parameter shadow fixture");
+
+    let errors = try_resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    )
+    .expect_err("Resolver should reject routine parameters that shadow generic parameters");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == ResolverErrorKind::DuplicateSymbol
+            && error
+                .message()
+                .contains("duplicate local symbol 'T' conflicts with existing generic parameter declaration")
+    }));
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
+fn test_resolver_rejects_generic_parameter_use_in_top_level_value_annotations() {
+    let temp_root = unique_temp_root("generic_top_level_value_annotation");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun pick(T)(value: T): T = {\n    return value;\n};\n\
+         var leaked: T = 1;\n",
+    )
+    .expect("Should write the top-level annotation misuse fixture");
+
+    let errors = try_resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    )
+    .expect_err("Resolver should reject top-level value annotations using generic parameters");
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == ResolverErrorKind::UnresolvedName
+            && error.message().contains("could not resolve type 'T'")
+    }));
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}

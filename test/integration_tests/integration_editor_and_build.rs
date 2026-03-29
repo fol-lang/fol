@@ -3677,6 +3677,32 @@ fn test_docs_reference_real_example_packages() {
 }
 
 #[test]
+fn test_v2_current_subset_inventory_stays_honest() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let versions =
+        std::fs::read_to_string(repo_root().join("plan/VERSIONS.md"))
+            .expect("version note should load");
+
+    assert!(generics_note.contains("examples/generic_routine_m1"));
+    assert!(generics_note.contains("examples/fail_generic_type_m1"));
+    assert!(generics_note.contains("generic routine lowering is still explicitly unsupported"));
+
+    assert!(standards_note.contains("examples/standards_protocol_m2"));
+    assert!(standards_note.contains("examples/fail_standard_blueprint_m2"));
+    assert!(standards_note.contains("lowering/backend still stop at an explicit Milestone 2 boundary"));
+
+    assert!(versions.contains("Milestone 1"));
+    assert!(versions.contains("generic routine core"));
+    assert!(versions.contains("Milestone 2"));
+    assert!(versions.contains("protocol standards only"));
+}
+
+#[test]
 fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
     let bundled_std_docs = std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
         .expect("bundled std docs should exist");
