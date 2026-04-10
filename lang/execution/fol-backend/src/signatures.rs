@@ -100,11 +100,15 @@ pub fn render_routine_shell(
         })
         .collect::<BackendResult<Vec<_>>>()?
         .join("\n");
+    let stub = format!(
+        "    unreachable!(\"backend routine shell '{}' should not be executed\");",
+        routine.name
+    );
 
     Ok(if local_decls.is_empty() {
-        format!("{header} {{\n    todo!()\n}}\n")
+        format!("{header} {{\n{stub}\n}}\n")
     } else {
-        format!("{header} {{\n{local_decls}\n    todo!()\n}}\n")
+        format!("{header} {{\n{local_decls}\n{stub}\n}}\n")
     })
 }
 
@@ -525,7 +529,9 @@ mod tests {
         ));
         assert!(!rendered
             .contains("l__pkg__entry__app__r3__l0__flag: rt::FolInt = Default::default();"));
-        assert!(rendered.contains("todo!()"));
+        assert!(rendered.contains(
+            "unreachable!(\"backend routine shell 'compute' should not be executed\")"
+        ));
         assert_eq!(temp_id, LoweredLocalId(1));
     }
 

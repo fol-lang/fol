@@ -446,7 +446,7 @@ for production readiness.
 
 ## Phase 6: Backend Code Quality
 
-### 6.1 Routine shells emit todo!() (complete)
+### 6.1 Routine shells emit todo!() (complete, verified 2026-04-10)
 
 File: `lang/execution/fol-backend/src/signatures.rs`
 Lines: 105, 107
