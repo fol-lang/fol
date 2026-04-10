@@ -221,7 +221,7 @@ Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:773-775`
 template call lowering is not yet implemented
 ```
 
-### 2.9 Procedure-style method calls as expression values (complete)
+### 2.9 Procedure-style method calls as expression values (complete, verified 2026-04-10)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:340-342`
