@@ -502,7 +502,7 @@ File: `book/src/055_build/900_direction.md`
 This file exists but is not referenced in `book/src/SUMMARY.md`. It won't
 appear in the built book. Either add it to SUMMARY.md or delete it.
 
-### 7.3 Missing authors field in 7 crate Cargo.tomls (complete)
+### 7.3 Missing authors field in 7 crate Cargo.tomls (complete, verified 2026-04-10)
 
 These crates are missing the `authors` field (inconsistent with others):
 
