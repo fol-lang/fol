@@ -480,7 +480,7 @@ that StdDecl nodes never appear in non-build contexts.
 
 ## Phase 7: Infrastructure
 
-### 7.1 Release toolchain pinned at Rust 1.70.0 (complete)
+### 7.1 Release toolchain pinned at Rust 1.70.0 (complete, verified 2026-04-10)
 
 File: `.github/workflows/release.yml`
 
