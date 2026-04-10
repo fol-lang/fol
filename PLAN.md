@@ -317,7 +317,7 @@ Missing:
 | `each` | loop parsing:991 |
 | `assert` | program_parsing.rs:603 |
 
-### 4.3 Missing keyword operators (13+ operators) (complete)
+### 4.3 Missing keyword operators (13+ operators) (complete, verified 2026-04-10)
 
 Grammar defines symbol-based operators only (`==`, `!=`, `<`, `>`, `+`, `-`,
 `*`, `/`, `%`, `&&`, `||`).
