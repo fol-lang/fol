@@ -1294,6 +1294,27 @@ impl SemanticSnapshot {
                 });
             }
         }
+        if let Some((program, source_unit)) = self.current_syntax_source_unit() {
+            let syntax_symbols = syntax_document_symbols(program, source_unit);
+            let expanded_ranges = syntax_symbols
+                .iter()
+                .map(|symbol| (document_symbol_key(symbol), symbol.range))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            for symbol in &mut symbols {
+                if let Some(expanded) = expanded_ranges.get(&document_symbol_key(symbol)) {
+                    symbol.range = *expanded;
+                }
+            }
+            let mut seen = symbols
+                .iter()
+                .map(document_symbol_key)
+                .collect::<std::collections::BTreeSet<_>>();
+            for symbol in syntax_symbols {
+                if seen.insert(document_symbol_key(&symbol)) {
+                    symbols.push(symbol);
+                }
+            }
+        }
         symbols.sort_by(|left, right| {
             left.range
                 .start
@@ -1315,6 +1336,15 @@ impl SemanticSnapshot {
             .source_units
             .iter()
             .find(move |unit| unit.path == path_text)
+    }
+
+    fn current_syntax_source_unit(
+        &self,
+    ) -> Option<(&fol_resolver::ResolvedProgram, &fol_parser::ast::ParsedSourceUnit)> {
+        let (_, program) = self.current_resolved_package()?;
+        let resolved_unit = self.current_source_unit(program)?;
+        let syntax_unit = program.syntax().source_units.get(resolved_unit.id.0)?;
+        Some((program, syntax_unit))
     }
 }
 
@@ -1722,6 +1752,119 @@ fn semantic_token_type_for_symbol_kind(kind: fol_resolver::SymbolKind) -> Option
         | fol_resolver::SymbolKind::Implementation
         | fol_resolver::SymbolKind::Standard => None,
     }
+}
+
+fn document_symbol_key(symbol: &LspDocumentSymbol) -> (String, u8, u32, u32) {
+    (
+        symbol.name.clone(),
+        symbol.kind,
+        symbol.selection_range.start.line,
+        symbol.selection_range.start.character,
+    )
+}
+
+fn syntax_document_symbols(
+    program: &fol_resolver::ResolvedProgram,
+    source_unit: &fol_parser::ast::ParsedSourceUnit,
+) -> Vec<LspDocumentSymbol> {
+    let mut symbols = Vec::new();
+    for item in &source_unit.items {
+        collect_syntax_document_symbols(program, &item.node, &mut symbols);
+    }
+    symbols
+}
+
+fn collect_syntax_document_symbols(
+    program: &fol_resolver::ResolvedProgram,
+    node: &AstNode,
+    symbols: &mut Vec<LspDocumentSymbol>,
+) {
+    if let Some(symbol) = syntax_document_symbol_for_node(program, node) {
+        symbols.push(symbol);
+    }
+
+    for child in node.children() {
+        collect_syntax_document_symbols(program, child, symbols);
+    }
+}
+
+fn syntax_document_symbol_for_node(
+    program: &fol_resolver::ResolvedProgram,
+    node: &AstNode,
+) -> Option<LspDocumentSymbol> {
+    let (name, kind, syntax_id) = match node {
+        AstNode::FunDecl { name, syntax_id, .. }
+        | AstNode::ProDecl { name, syntax_id, .. }
+        | AstNode::LogDecl { name, syntax_id, .. } => {
+            (name.clone(), 12, (*syntax_id)?)
+        }
+        _ => return None,
+    };
+    let selection_origin = program.syntax_index().origin(syntax_id)?.clone();
+    let selection_range = location_to_range(&fol_diagnostics::DiagnosticLocation {
+        file: selection_origin.file.clone(),
+        line: selection_origin.line,
+        column: selection_origin.column,
+        length: Some(selection_origin.length),
+    });
+    Some(LspDocumentSymbol {
+        name,
+        kind,
+        range: expanded_node_range(program, node, &selection_origin),
+        selection_range,
+        children: Vec::new(),
+    })
+}
+
+fn expanded_node_range(
+    program: &fol_resolver::ResolvedProgram,
+    node: &AstNode,
+    origin: &fol_parser::ast::SyntaxOrigin,
+) -> LspRange {
+    let mut range = location_to_range(&fol_diagnostics::DiagnosticLocation {
+        file: origin.file.clone(),
+        line: origin.line,
+        column: origin.column,
+        length: Some(origin.length),
+    });
+    for child in node.children() {
+        let child_range = max_range_for_node(program, child);
+        if range_end(child_range) > range_end(range) {
+            range.end = child_range.end;
+        }
+    }
+    range
+}
+
+fn max_range_for_node(program: &fol_resolver::ResolvedProgram, node: &AstNode) -> LspRange {
+    let mut best = node
+        .syntax_id()
+        .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+        .map(|origin| {
+            location_to_range(&fol_diagnostics::DiagnosticLocation {
+                file: origin.file.clone(),
+                line: origin.line,
+                column: origin.column,
+                length: Some(origin.length),
+            })
+        })
+        .unwrap_or(LspRange {
+            start: LspPosition {
+                line: 0,
+                character: 0,
+            },
+            end: LspPosition {
+                line: 0,
+                character: 0,
+            },
+        });
+    for child in node.children() {
+        let child_range = max_range_for_node(program, child);
+        if range_end(child_range) > range_end(best) {
+            best.end = child_range.end;
+        }
+    }
+    best
 }
 
 fn nest_document_symbols(symbols: Vec<LspDocumentSymbol>) -> Vec<LspDocumentSymbol> {
