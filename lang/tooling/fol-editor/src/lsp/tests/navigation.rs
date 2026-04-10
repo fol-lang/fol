@@ -246,6 +246,42 @@ fn lsp_server_returns_workspace_symbols_for_unopened_workspace_members_too() {
 }
 
 #[test]
+fn lsp_server_workspace_symbols_pick_up_late_unopened_files() {
+    let (root, uri) = sample_loc_workspace_root("workspace_symbols_late_file");
+    let text = fs::read_to_string(root.join("app/src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri, &text);
+
+    fs::write(
+        root.join("shared/late.fol"),
+        "fun[exp] late_helper(): int = {\n    return 5;\n};\n",
+    )
+    .unwrap();
+
+    let symbols = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(891),
+            method: "workspace/symbol".to_string(),
+            params: Some(
+                serde_json::to_value(LspWorkspaceSymbolParams {
+                    query: "late_helper".to_string(),
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let symbols: Vec<LspWorkspaceSymbol> = serde_json::from_value(symbols.result.unwrap()).unwrap();
+
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0].name, "late_helper");
+    assert!(symbols[0].location.uri.ends_with("/shared/late.fol"));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn lsp_server_workspace_symbols_sort_and_qualify_results_deterministically() {
     let (root, uri) = sample_loc_workspace_root("workspace_symbols_order");
     fs::write(

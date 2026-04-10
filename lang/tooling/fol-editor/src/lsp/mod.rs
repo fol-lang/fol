@@ -37,6 +37,7 @@ fn serialize_result(value: &impl serde::Serialize) -> EditorResult<serde_json::V
 }
 use analysis::{analyze_document_diagnostics, analyze_document_semantics};
 use completion_helpers::completion_context_with_lsp;
+use std::fs;
 use std::sync::Arc;
 use transport::from_params;
 use crate::workspace::discover_workspace_roots;
@@ -475,17 +476,11 @@ impl EditorLspServer {
         &mut self,
         query: &str,
     ) -> EditorResult<Vec<LspWorkspaceSymbol>> {
-        let open_documents = self
-            .session
-            .documents
-            .iter()
-            .map(|(uri, document)| (EditorDocumentUri::parse(uri), document.clone()))
-            .collect::<Vec<_>>();
+        let workspace_documents = self.workspace_symbol_documents()?;
         let mut symbols = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
 
-        for (uri, document) in open_documents {
-            let uri = uri?;
+        for (uri, document) in workspace_documents {
             let snapshot = self.semantic_snapshot(&uri, &document)?;
             for symbol in snapshot.workspace_symbols(query) {
                 let key = (
@@ -517,6 +512,42 @@ impl EditorLspServer {
                 )
         });
         Ok(symbols)
+    }
+
+    fn workspace_symbol_documents(
+        &mut self,
+    ) -> EditorResult<Vec<(EditorDocumentUri, EditorDocument)>> {
+        let mut open_documents = Vec::new();
+        for (uri, document) in self.session.documents.iter() {
+            open_documents.push((EditorDocumentUri::parse(uri)?, document.clone()));
+        }
+        let mut documents = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+
+        for (uri, document) in &open_documents {
+            if seen.insert(uri.clone()) {
+                documents.push((uri.clone(), document.clone()));
+            }
+        }
+
+        for (_, document) in &open_documents {
+            let mapping = self.cached_document_mapping(document.path.as_path())?;
+            for path in collect_fol_files(&mapping.analysis_root) {
+                let uri = EditorDocumentUri::from_file_path(path.clone())?;
+                if seen.contains(&uri) {
+                    continue;
+                }
+                let text = match fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(_) => continue,
+                };
+                let document = EditorDocument::new(uri.clone(), 0, text)?;
+                seen.insert(uri.clone());
+                documents.push((uri, document));
+            }
+        }
+
+        Ok(documents)
     }
 
     pub fn completion(
@@ -645,6 +676,32 @@ impl EditorLspServer {
         );
         Ok(diagnostics)
     }
+}
+
+fn collect_fol_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fn visit(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                visit(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "fol") {
+                out.push(path);
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    visit(root, &mut files);
+    files.sort();
+    files
 }
 
 
