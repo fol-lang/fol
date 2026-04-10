@@ -495,7 +495,7 @@ means:
 Fix: update release toolchain to match test CI, or at minimum to the current
 MSRV (minimum supported Rust version) of the workspace.
 
-### 7.2 Orphaned book page (complete)
+### 7.2 Orphaned book page (complete, verified 2026-04-10)
 
 File: `book/src/055_build/900_direction.md`
 
