@@ -143,7 +143,7 @@ anonymous routines with captures are not yet supported
 If captures are V1 scope, lowering should be implemented. If they're future
 work, typecheck should reject them with a boundary message.
 
-### 2.2 Complex type annotations in anonymous routines (complete)
+### 2.2 Complex type annotations in anonymous routines (complete, verified 2026-04-10)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:1090-1094`
