@@ -5185,6 +5185,50 @@ fn test_build_evaluator_rejects_unknown_expression_nodes_during_cli_build() {
 }
 
 #[test]
+fn test_build_evaluator_rejects_condition_based_loops_during_cli_build() {
+    let temp_root = unique_temp_root("build_condition_loop");
+    let root = temp_root.join("demo");
+    std::fs::create_dir_all(root.join("src")).expect("should create source root");
+    std::fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    loop(true) {\n",
+            "        return;\n",
+            "    };\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write build file");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
+    )
+    .expect("should write app source");
+
+    let output = run_fol_in_dir(&root, &["code", "build"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "condition-based build loops should fail the CLI build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(
+        stderr.contains("condition-based loops are not supported in build evaluation"),
+        "CLI build should preserve the explicit loop-boundary diagnostic: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+
+    std::fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
 fn test_cli_code_build_keeps_core_string_boundary_diagnostic() {
     let temp_root = unique_temp_root("build_core_string_boundary");
     let root = temp_root.join("demo");

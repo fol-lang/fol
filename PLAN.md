@@ -74,7 +74,7 @@ doesn't recognize, nothing fails. The build proceeds with missing data.
 Fix: return an `Err(BuildEvaluationError)` with a message naming the
 unrecognized node kind.
 
-### 1.3 Build evaluator silently skips while-loops (complete)
+### 1.3 Build evaluator silently skips while-loops (complete, verified 2026-04-10)
 
 File: `lang/execution/fol-build/src/executor/core.rs`
 Lines: 314-318
