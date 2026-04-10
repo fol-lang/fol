@@ -183,7 +183,7 @@ pub enum UnsupportedLoweringSurface {
 Explicitly marked as V1 boundary. This should either be implemented or
 rejected earlier.
 
-### 2.5 Specific unary/binary operator lowering gaps (complete)
+### 2.5 Specific unary/binary operator lowering gaps (complete, verified 2026-04-10)
 
 Typecheck: accepts various operators
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs`
