@@ -349,7 +349,7 @@ files need updates:
 - `symbols.scm` — add symbol types for segments, standards, labels, constants
 - `locals.scm` — add scope tracking for `let`, `con`, `lab` bindings
 
-### 4.6 Keyword count summary (complete)
+### 4.6 Keyword count summary (complete, verified 2026-04-10)
 
 Lexer defines 43+ keywords. Grammar references 14. Gap: 29 keywords are
 treated as identifiers by tree-sitter.
