@@ -131,7 +131,7 @@ These are features within the V1 language scope that pass typechecking but fail
 at lowering. The user sees a confusing late error instead of a clear early
 rejection.
 
-### 2.1 Anonymous routines with captures (complete)
+### 2.1 Anonymous routines with captures (complete, verified 2026-04-10)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:1122-1126`
