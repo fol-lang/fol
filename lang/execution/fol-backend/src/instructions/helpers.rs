@@ -3,8 +3,8 @@ use crate::{
     BackendErrorKind, BackendResult,
 };
 use fol_lower::{
-    LoweredGlobal, LoweredInstr, LoweredOperand, LoweredRoutine, LoweredTypeDecl,
-    LoweredWorkspace,
+    LoweredBuiltinType, LoweredGlobal, LoweredInstr, LoweredOperand, LoweredRoutine, LoweredType,
+    LoweredTypeDecl, LoweredTypeId, LoweredTypeTable, LoweredWorkspace,
 };
 use fol_resolver::PackageIdentity;
 
@@ -107,6 +107,7 @@ pub fn resolve_type_decl(
 
 pub fn render_global_load(
     workspace: Option<&LoweredWorkspace>,
+    type_table: &LoweredTypeTable,
     global_identity: &PackageIdentity,
     global: &LoweredGlobal,
 ) -> BackendResult<String> {
@@ -116,9 +117,11 @@ pub fn render_global_load(
         mangle_global_name(global_identity, global.id, &global.name)
     );
     if global.mutable {
+        let default_expr =
+            render_type_default_expr_in_workspace(workspace, type_table, global.type_id)?;
         Ok(format!(
-            "{}.get_or_init(|| std::sync::Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()).clone()",
-            global_name
+            "{}.get_or_init(|| std::sync::Mutex::new({default_expr})).lock().unwrap_or_else(|e| e.into_inner()).clone()",
+            global_name,
         ))
     } else {
         Ok(format!(
@@ -226,6 +229,88 @@ pub fn render_native_intrinsic_expression(name: &str, args: &[String]) -> Backen
             BackendErrorKind::Unsupported,
             format!("native Rust intrinsic emission is not implemented yet for '.{other}(...)'"),
         )),
+    }
+}
+
+pub fn render_type_default_expr_in_workspace(
+    workspace: Option<&LoweredWorkspace>,
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+) -> BackendResult<String> {
+    let Some(ty) = type_table.get(type_id) else {
+        return Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!("lowered type {:?} is missing from the type table", type_id),
+        ));
+    };
+
+    match ty {
+        LoweredType::Builtin(LoweredBuiltinType::Int) => Ok("0_i64".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Float) => Ok("0.0_f64".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Bool) => Ok("false".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Char) => Ok("'\\0'".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Str) => Ok("rt_model::FolStr::new(\"\")".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Never) => Err(BackendError::new(
+            BackendErrorKind::Unsupported,
+            "never-typed globals cannot be default-initialized",
+        )),
+        LoweredType::Array {
+            element_type,
+            size: Some(_size),
+        } => {
+            let element_default =
+                render_type_default_expr_in_workspace(workspace, type_table, *element_type)?;
+            Ok(format!("std::array::from_fn(|_| ({element_default}).clone())"))
+        }
+        LoweredType::Array { size: None, .. } => Err(BackendError::new(
+            BackendErrorKind::Unsupported,
+            "unsized arrays are not supported; use vec[] for dynamic collections",
+        )),
+        LoweredType::Vector { .. } => Ok("rt_model::FolVec::new(vec![])".to_string()),
+        LoweredType::Sequence { .. } => Ok("rt_model::FolSeq::new(vec![])".to_string()),
+        LoweredType::Set { .. } => Ok("rt_model::FolSet::from_items(vec![])".to_string()),
+        LoweredType::Map { .. } => Ok("rt_model::FolMap::from_pairs(vec![])".to_string()),
+        LoweredType::Optional { .. } => Ok("rt::FolOption::nil()".to_string()),
+        LoweredType::Error { inner } => Ok(match inner {
+            Some(inner) => format!(
+                "rt::FolError::new({})",
+                render_type_default_expr_in_workspace(workspace, type_table, *inner)?
+            ),
+            None => "rt::FolError::new(())".to_string(),
+        }),
+        LoweredType::Record { .. } | LoweredType::Entry { .. } => Ok(format!(
+            "{}::default()",
+            crate::types::render_rust_type_in_workspace(workspace, type_table, type_id)?
+        )),
+        LoweredType::Routine(routine_type) => {
+            let rendered_type =
+                crate::types::render_rust_type_in_workspace(workspace, type_table, type_id)?;
+            let dummy_params = routine_type
+                .params
+                .iter()
+                .enumerate()
+                .map(|(i, param_id)| {
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, *param_id)
+                        .map(|ty| format!("_p{i}: {ty}"))
+                })
+                .collect::<BackendResult<Vec<_>>>()?;
+            let return_clause = match (routine_type.return_type, routine_type.error_type) {
+                (Some(ret), Some(err)) => format!(
+                    " -> rt::FolRecover<{}, {}>",
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, ret)?,
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, err)?
+                ),
+                (Some(ret), None) => format!(
+                    " -> {}",
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, ret)?
+                ),
+                _ => String::new(),
+            };
+            Ok(format!(
+                "{{ fn __fol_uninit({}){return_clause} {{ unreachable!(\"uninitialized function pointer\") }} __fol_uninit as {rendered_type} }}",
+                dummy_params.join(", ")
+            ))
+        }
     }
 }
 

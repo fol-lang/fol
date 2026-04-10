@@ -10,8 +10,8 @@ use fol_resolver::PackageIdentity;
 use super::helpers::{
     render_clone_expr, render_global_load, render_local_list, render_local_name,
     render_native_intrinsic_expression, render_namespace_module_path, render_operand,
-    render_routine_path, render_type_path, rendered_result_local, resolve_global_decl,
-    resolve_routine_decl, resolve_type_decl,
+    render_routine_path, render_type_default_expr_in_workspace, render_type_path,
+    rendered_result_local, resolve_global_decl, resolve_routine_decl, resolve_type_decl,
 };
 
 pub fn render_core_instruction(
@@ -50,7 +50,7 @@ pub fn render_core_instruction_in_workspace(
             let (global_identity, global_decl) = resolve_global_decl(workspace, *global)?;
             Ok(format!(
                 "let {result} = {};",
-                render_global_load(workspace, global_identity, global_decl)?
+                render_global_load(workspace, type_table, global_identity, global_decl)?
             ))
         }
         LoweredInstrKind::StoreGlobal { global, value } => {
@@ -74,8 +74,10 @@ pub fn render_core_instruction_in_workspace(
                 )?,
                 crate::mangle_global_name(global_identity, *global, &global_decl.name)
             );
+            let default_expr =
+                render_type_default_expr_in_workspace(workspace, type_table, global_decl.type_id)?;
             Ok(format!(
-                "*{global_path}.get_or_init(|| std::sync::Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()) = {value}.clone();",
+                "*{global_path}.get_or_init(|| std::sync::Mutex::new({default_expr})).lock().unwrap_or_else(|e| e.into_inner()) = {value}.clone();",
             ))
         }
         LoweredInstrKind::Call {

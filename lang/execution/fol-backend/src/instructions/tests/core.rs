@@ -231,7 +231,7 @@ fn core_instruction_rendering_emits_scalar_intrinsics_as_native_rust_ops() {
 }
 
 #[test]
-fn workspace_global_rendering_keeps_mutable_globals_on_backend_default_contract() {
+fn workspace_global_rendering_uses_fol_default_initializers_for_mutable_globals() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
@@ -307,12 +307,10 @@ fn workspace_global_rendering_keeps_mutable_globals_on_backend_default_contract(
     )
     .expect("store global");
 
-    assert!(load_rendered.contains(
-        "get_or_init(|| std::sync::Mutex::new(Default::default()))"
-    ));
+    assert!(load_rendered.contains("get_or_init(|| std::sync::Mutex::new(0_i64))"));
     assert!(load_rendered.contains(".lock().unwrap_or_else(|e| e.into_inner()).clone()"));
     assert!(store_rendered.contains(
-        "*crate::packages::pkg__entry__app::root::g__pkg__entry__app__g0__counter.get_or_init(|| std::sync::Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()) = l__pkg__entry__app__r15__l0__value.clone();"
+        "*crate::packages::pkg__entry__app::root::g__pkg__entry__app__g0__counter.get_or_init(|| std::sync::Mutex::new(0_i64)).lock().unwrap_or_else(|e| e.into_inner()) = l__pkg__entry__app__r15__l0__value.clone();"
     ));
 }
 
