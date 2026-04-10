@@ -118,6 +118,13 @@ pub(super) fn position_to_offset(text: &str, position: LspPosition) -> Option<us
 pub(super) fn fallback_decl_name(line: &str, prefixes: &[&str]) -> Option<String> {
     for prefix in prefixes {
         if let Some(rest) = line.strip_prefix(prefix) {
+            let rest = if prefix.ends_with('[') {
+                rest.split_once(']')
+                    .map(|(_, tail)| tail.trim_start())
+                    .unwrap_or(rest)
+            } else {
+                rest
+            };
             let name = rest
                 .split(|ch: char| ch == ':' || ch == '=' || ch == '(' || ch.is_whitespace())
                 .next()
@@ -257,6 +264,20 @@ pub(super) fn dedupe_completion_items(items: Vec<EditorCompletionItem>) -> Vec<E
     filtered
 }
 
+pub(super) fn mark_fallback_completion_items(
+    items: Vec<EditorCompletionItem>,
+) -> Vec<EditorCompletionItem> {
+    items.into_iter()
+        .map(|mut item| {
+            item.detail = Some(match item.detail {
+                Some(detail) => format!("{detail} (fallback)"),
+                None => "fallback".to_string(),
+            });
+            item
+        })
+        .collect()
+}
+
 fn completion_item_cmp(
     left: &EditorCompletionItem,
     right: &EditorCompletionItem,
@@ -291,7 +312,8 @@ fn completion_item_detail_priority(item: &EditorCompletionItem) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        completion_context, completion_context_with_lsp, dedupe_completion_items, fallback_decl_name,
+        completion_context, completion_context_with_lsp, dedupe_completion_items,
+        fallback_decl_name, mark_fallback_completion_items,
         FALLBACK_ALIAS_PREFIXES, FALLBACK_ROUTINE_PREFIXES, FALLBACK_TYPE_PREFIXES,
         CompletionContext,
         EditorCompletionItem,
@@ -373,6 +395,40 @@ mod tests {
         assert_eq!(FALLBACK_TYPE_PREFIXES, &["typ[] ", "typ[", "typ "]);
         assert_eq!(FALLBACK_ALIAS_PREFIXES, &["ali[] ", "ali[", "ali "]);
         assert!(fallback_decl_name("def[] old(): int = {", FALLBACK_ROUTINE_PREFIXES).is_none());
+        assert_eq!(
+            fallback_decl_name("fun[exp] helper(): int = {", FALLBACK_ROUTINE_PREFIXES).as_deref(),
+            Some("helper")
+        );
+        assert_eq!(
+            fallback_decl_name("typ[exp] LocalRec: rec = {", FALLBACK_TYPE_PREFIXES).as_deref(),
+            Some("LocalRec")
+        );
+        assert_eq!(
+            fallback_decl_name("ali[exp] LocalAlias: int;", FALLBACK_ALIAS_PREFIXES).as_deref(),
+            Some("LocalAlias")
+        );
+    }
+
+    #[test]
+    fn mark_fallback_completion_items_preserves_labels_and_marks_details() {
+        let items = mark_fallback_completion_items(vec![
+            EditorCompletionItem {
+                label: "helper".to_string(),
+                kind: 3,
+                detail: Some("routine".to_string()),
+                insert_text: None,
+            },
+            EditorCompletionItem {
+                label: "mystery".to_string(),
+                kind: 1,
+                detail: None,
+                insert_text: None,
+            },
+        ]);
+
+        assert_eq!(items[0].label, "helper");
+        assert_eq!(items[0].detail.as_deref(), Some("routine (fallback)"));
+        assert_eq!(items[1].detail.as_deref(), Some("fallback"));
     }
 }
 

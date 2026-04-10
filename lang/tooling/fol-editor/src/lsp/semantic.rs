@@ -19,7 +19,8 @@ use super::completion_helpers::{
     completion_symbol_is_plain_top_level_candidate, completion_symbol_is_root_visible,
     current_routine_name, dedupe_completion_items, fallback_decl_name,
     fallback_items_from_package_dir, position_to_offset, render_checked_type, render_symbol_kind,
-    symbol_kind_code, symbol_visibility_matches_namespace_root, CompletionContext,
+    symbol_kind_code, symbol_visibility_matches_namespace_root, mark_fallback_completion_items,
+    CompletionContext,
     FALLBACK_ALIAS_PREFIXES, FALLBACK_ROUTINE_PREFIXES, FALLBACK_TYPE_PREFIXES,
 };
 use super::types::{
@@ -733,7 +734,8 @@ impl SemanticSnapshot {
         &self,
         document: &EditorDocument,
     ) -> Vec<EditorCompletionItem> {
-        self.fallback_current_package_top_level_items(
+        mark_fallback_completion_items(
+            self.fallback_current_package_top_level_items(
             document,
             LspPosition {
                 line: u32::MAX,
@@ -744,7 +746,7 @@ impl SemanticSnapshot {
         .filter(|item| {
             item.detail.as_deref() == Some("type") || item.detail.as_deref() == Some("type alias")
         })
-        .collect()
+        .collect())
     }
 
     // FALLBACK: text-matches `use ` prefix to find import aliases
@@ -783,14 +785,14 @@ impl SemanticSnapshot {
                     }),
             );
         }
-        items
+        mark_fallback_completion_items(items)
     }
 
     // FALLBACK: combines local namespace + imported package fallbacks
     fn fallback_qualified_completion_items(&self, qualifier: &str) -> Vec<EditorCompletionItem> {
         let mut items = self.fallback_local_namespace_items(qualifier);
         items.extend(self.fallback_imported_package_items(qualifier));
-        dedupe_completion_items(items)
+        mark_fallback_completion_items(dedupe_completion_items(items))
     }
 
     // FALLBACK: reads imported package files from disk + text-scans declarations
@@ -1345,6 +1347,163 @@ impl SemanticSnapshot {
         let resolved_unit = self.current_source_unit(program)?;
         let syntax_unit = program.syntax().source_units.get(resolved_unit.id.0)?;
         Some((program, syntax_unit))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SemanticSnapshot;
+    use crate::{EditorDocument, EditorDocumentUri, LspPosition};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn fallback_snapshot(root: PathBuf, source_path: PathBuf) -> SemanticSnapshot {
+        SemanticSnapshot {
+            source_analysis_root: root.clone(),
+            analyzed_analysis_root: root.clone(),
+            analyzed_path: Some(source_path.clone()),
+            analyzed_package_root: Some(root.clone()),
+            source_document_path: source_path,
+            source_package_root: Some(root),
+            active_fol_model: None,
+            compiler_diagnostics: Vec::new(),
+            diagnostics: Vec::new(),
+            resolved_workspace: None,
+            typed_workspace: None,
+        }
+    }
+
+    #[test]
+    fn fallback_local_named_type_items_are_marked_as_uncertain() {
+        let root = std::env::temp_dir().join(format!(
+            "fol_semantic_types_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("src")).unwrap();
+        let source_path = root.join("src/main.fol");
+        let text = concat!(
+            "typ[exp] LocalRec: rec = {\n",
+            "    var value: int;\n",
+            "};\n",
+            "ali[exp] LocalAlias: int;\n",
+            "fun[] main(): int = {\n",
+            "    var value: ;\n",
+            "    return 0;\n",
+            "};\n",
+        );
+        fs::write(&source_path, text).unwrap();
+        let document = EditorDocument::new(
+            EditorDocumentUri::from_file_path(source_path.clone()).unwrap(),
+            1,
+            text.to_string(),
+        )
+        .unwrap();
+        let snapshot = fallback_snapshot(root.clone(), source_path);
+
+        let items = snapshot.fallback_local_named_type_items(&document);
+        assert_eq!(
+            items.iter()
+                .find(|item| item.label == "LocalRec")
+                .and_then(|item| item.detail.as_deref()),
+            Some("type (fallback)")
+        );
+        assert_eq!(
+            items.iter()
+                .find(|item| item.label == "LocalAlias")
+                .and_then(|item| item.detail.as_deref()),
+            Some("type alias (fallback)")
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn fallback_qualified_completion_items_are_marked_as_uncertain() {
+        let root = std::env::temp_dir().join(format!(
+            "fol_semantic_qualified_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("shared")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("shared/lib.fol"),
+            "fun[exp] helper(): int = {\n    return 9;\n};\n",
+        )
+        .unwrap();
+        let source_path = root.join("src/main.fol");
+        let text = concat!(
+            "use shared: loc = {\"shared\"};\n\n",
+            "fun[] main(): int = {\n",
+            "    return shared::;\n",
+            "};\n",
+        );
+        fs::write(&source_path, text).unwrap();
+        let snapshot = fallback_snapshot(root.clone(), source_path);
+
+        let items = snapshot.fallback_qualified_completion_items("shared");
+        assert_eq!(
+            items.iter()
+                .find(|item| item.label == "helper")
+                .and_then(|item| item.detail.as_deref()),
+            Some("routine (fallback)")
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn fallback_local_scope_items_remain_unmarked() {
+        let root = std::env::temp_dir().join(format!(
+            "fol_semantic_plain_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("src")).unwrap();
+        let source_path = root.join("src/main.fol");
+        let text = concat!(
+            "fun[] helper(): int = {\n",
+            "    return 7;\n",
+            "};\n\n",
+            "fun[] main(): int = {\n",
+            "    var value: int = helper();\n",
+            "    return value;\n",
+            "};\n",
+        );
+        fs::write(&source_path, text).unwrap();
+        let document = EditorDocument::new(
+            EditorDocumentUri::from_file_path(source_path.clone()).unwrap(),
+            1,
+            text.to_string(),
+        )
+        .unwrap();
+        let snapshot = fallback_snapshot(root.clone(), source_path);
+
+        let items = snapshot.fallback_local_scope_items(
+            &document,
+            LspPosition {
+                line: 5,
+                character: 12,
+            },
+        );
+        assert_eq!(
+            items.iter()
+                .find(|item| item.label == "value")
+                .and_then(|item| item.detail.as_deref()),
+            Some("binding")
+        );
+
+        fs::remove_dir_all(root).ok();
     }
 }
 
