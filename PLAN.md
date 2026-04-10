@@ -32,7 +32,7 @@ This plan DOES flag:
 These are the highest priority. The compiler produces output that is silently
 incorrect or silently incomplete.
 
-### 1.1 Entry point placeholder emits broken binary (complete)
+### 1.1 Entry point placeholder emits broken binary (complete, verified 2026-04-10)
 
 File: `lang/execution/fol-backend/src/emit/skeleton.rs`
 Line: 47
