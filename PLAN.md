@@ -56,7 +56,7 @@ This happens when:
 Fix: return a `BackendError` instead of emitting placeholder code. A binary
 that doesn't call the user's entry point is worse than a failed build.
 
-### 1.2 Build evaluator silently swallows unknown expressions (complete)
+### 1.2 Build evaluator silently swallows unknown expressions (complete, verified 2026-04-10)
 
 File: `lang/execution/fol-build/src/executor/eval_expr.rs`
 Line: 200

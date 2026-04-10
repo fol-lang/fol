@@ -5141,6 +5141,50 @@ fn test_cli_code_build_rejects_missing_source_root() {
 }
 
 #[test]
+fn test_build_evaluator_rejects_unknown_expression_nodes_during_cli_build() {
+    let temp_root = unique_temp_root("build_unknown_expression_node");
+    let root = temp_root.join("demo");
+    std::fs::create_dir_all(root.join("src")).expect("should create source root");
+    std::fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var keep = 1 + 2;\n",
+            "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
+            "    graph.install(app);\n",
+            "};\n",
+        ),
+    )
+    .expect("should write build file");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
+    )
+    .expect("should write app source");
+
+    let output = run_fol_in_dir(&root, &["code", "build"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "unknown build expression nodes should fail the CLI build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(
+        stderr.contains("build evaluation does not support expression node 'binary_op'"),
+        "CLI build should preserve the explicit unknown-expression diagnostic: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+
+    std::fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
 fn test_cli_code_build_keeps_core_string_boundary_diagnostic() {
     let temp_root = unique_temp_root("build_core_string_boundary");
     let root = temp_root.join("demo");
