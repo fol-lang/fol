@@ -312,8 +312,29 @@ fn lower_nested_declarations_in_node(
     current_scope: ScopeId,
     node: &AstNode,
 ) -> Result<(), TypecheckError> {
-    if let Some(error) = unsupported_v1_nested_decl(resolved, node) {
-        return Err(error);
+    let source_unit = resolved
+        .source_unit(source_unit_id)
+        .ok_or_else(|| internal_error("resolved source unit disappeared", None))?;
+    if let AstNode::StdDecl { syntax_id, .. } = node {
+        let is_top_level_standard = syntax_id
+            .is_some_and(|id| source_unit.top_level_nodes.contains(&id));
+        if !is_top_level_standard {
+            return Err(match node_origin(resolved, node) {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    "standard declarations are not supported in executable bodies",
+                    origin,
+                ),
+                None => TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    "standard declarations are not supported in executable bodies",
+                ),
+            });
+        }
+    } else if current_scope != source_unit.scope_id {
+        if let Some(error) = unsupported_v1_nested_decl(resolved, node) {
+            return Err(error);
+        }
     }
 
     match node {

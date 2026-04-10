@@ -604,6 +604,49 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_typecheck_rejects_standard_declarations_inside_routine_bodies() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_typecheck_std_decl_body_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp standard-body fixture dir");
+        fs::write(
+            temp_root.join("main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    when(true) {\n",
+                "        case(true) {\n",
+                "            std geo: pro = {\n",
+                "                fun area(): int;\n",
+                "            };\n",
+                "        }\n",
+                "        * {\n",
+                "            return 0;\n",
+                "        }\n",
+                "    }\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write standard-body boundary fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("standard-body fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject standard declarations inside routine bodies"
+        );
+        assert!(
+            stdout.contains("standard declarations are not supported in executable bodies"),
+            "CLI should preserve the standard-declaration body boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_json_keyword_intrinsic_arity_failures_keep_structured_fields() {
         use std::fs;
 
