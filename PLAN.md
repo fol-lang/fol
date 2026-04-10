@@ -232,7 +232,7 @@ procedure-style method call '{method}' cannot be used as an expression value
 
 This should be a typecheck error, not a lowering error.
 
-### 2.10 Procedure-style calls without value result (complete)
+### 2.10 Procedure-style calls without value result (complete, verified 2026-04-10)
 
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/calls.rs:823-824`
 
