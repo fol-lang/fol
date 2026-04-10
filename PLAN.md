@@ -91,7 +91,7 @@ The condition-based loop branch does nothing and returns `Ok(())`. If a
 Fix: return an `Err(BuildEvaluationError)` with a clear message that
 condition-based loops are not supported in build evaluation.
 
-### 1.4 Build condition evaluator returns false for unknown nodes (complete)
+### 1.4 Build condition evaluator returns false for unknown nodes (complete, verified 2026-04-10)
 
 File: `lang/execution/fol-build/src/executor/eval_condition.rs`
 Line: 79
