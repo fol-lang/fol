@@ -338,7 +338,7 @@ Missing keyword operators from
 - Anonymous functions/closures
 - Power expressions (`a ^ b`)
 
-### 4.5 Query file coverage (complete)
+### 4.5 Query file coverage (complete, verified 2026-04-10)
 
 The `.scm` files under `lang/tooling/fol-editor/queries/fol/` only reference
 grammar rules that exist. Once the grammar is updated, the following query
