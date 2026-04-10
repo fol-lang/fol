@@ -212,7 +212,7 @@ Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:889-891`
 block expression lowering is not yet implemented
 ```
 
-### 2.8 Template call lowering (complete)
+### 2.8 Template call lowering (complete, verified 2026-04-10)
 
 Typecheck: accepts
 Lower: rejects at `lang/compiler/fol-lower/src/exprs/expressions.rs:773-775`
