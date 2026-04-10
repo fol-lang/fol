@@ -219,6 +219,44 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_lowering_condition_loops_now_succeed() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_lowering_condition_loop_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp loop lowering fixture dir");
+        fs::write(
+            temp_root.join("main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    var total: int = 0;\n",
+                "    loop(total < 3) {\n",
+                "        total = total + 1;\n",
+                "    }\n",
+                "    return total;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write loop lowering fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("loop lowering fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "CLI should lower condition loops without hitting the old boundary, got status {:?} and output:\n{}\n{}",
+            output.status.code(),
+            stdout,
+            stderr,
+        );
+        assert!(stdout.contains("Compilation successful"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_explicit_recoverable_handling_lowers_successfully_across_multiple_routines() {
         use std::fs;
 
