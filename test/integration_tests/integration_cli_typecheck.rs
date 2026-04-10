@@ -536,6 +536,41 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_typecheck_rejects_when_expressions_without_default_before_lowering() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_typecheck_when_default_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp when-default fixture dir");
+        fs::write(
+            temp_root.join("main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    return when(1) {\n",
+                "        in {1} -> 1;\n",
+                "    };\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write when-default boundary fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("when-default fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject when expressions without defaults before lowering"
+        );
+        assert!(
+            stdout.contains("when expressions require a default branch"),
+            "CLI should preserve the missing-default boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_typecheck_rejects_invalid_check_calls_full_chain() {
         use std::fs;
 
