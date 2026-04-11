@@ -478,7 +478,7 @@ Acceptance criteria:
 
 - extended standards are no longer parser-only or doc-only
 
-## 10. Workstream G: Decide And Implement Dispatch Rules
+## 10. Workstream G: Decide And Implement Dispatch Rules (complete, verified 2026-04-11)
 
 This is the largest semantic decision still floating in the book examples.
 

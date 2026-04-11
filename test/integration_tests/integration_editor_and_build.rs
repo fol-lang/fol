@@ -4245,6 +4245,23 @@ fn test_v2_contract_keeps_extended_standards_out_of_scope() {
 }
 
 #[test]
+fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(contract.contains("Broader dispatch and inference semantics are not part of the full `V2` target."));
+    assert!(contract.contains("full `V2` does not include standards-driven dispatch"));
+    assert!(standards_book.contains("broader dispatch and inference semantics stay"));
+    assert!(plan.contains("## 10. Workstream G: Decide And Implement Dispatch Rules (complete, verified 2026-04-11)"));
+}
+
+#[test]
 fn test_v2_m1_example_matrix_stays_honest() {
     let actual_examples = [
         "examples/generic_routine_m1",

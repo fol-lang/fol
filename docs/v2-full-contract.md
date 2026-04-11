@@ -87,3 +87,15 @@ Decision:
 - parser support may remain as a future-facing syntax surface
 - semantic, lowering, backend, and editor claims should not treat extended
   standards as shipped `V2`
+
+## Dispatch And Inference
+
+Broader dispatch and inference semantics are not part of the full `V2` target.
+
+Decision:
+
+- full `V2` does not include standards-driven dispatch
+- full `V2` does not include broader inference driven by standards
+- constrained generic calls remain procedural and statically checked
+- future dispatch-oriented examples in the book should be read as later work,
+  not current `V2`

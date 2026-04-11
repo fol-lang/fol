@@ -134,3 +134,6 @@ fun (rect)perim(): flt[64] = { result = 2 * self.width + 2 * self.heigh }
 
 The goal is still procedural. A call like `shape.area()` remains sugar for a
 receiver-qualified routine call, not an object-owned virtual method.
+
+For the current full `V2` target, broader dispatch and inference semantics stay
+outside the shipped contract.
