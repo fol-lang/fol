@@ -4192,6 +4192,25 @@ fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
 }
 
 #[test]
+fn test_v2_constraint_surface_is_frozen_as_standards_only() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(contract.contains("Full `V2` includes standards-as-constraints."));
+    assert!(contract.contains("protocol standards are the only constraint surface"));
+    assert!(contract.contains("dispatch or inference driven by constraints"));
+    assert!(generics_book.contains("Full `V2` includes standards-as-constraints, but not broad dispatch semantics."));
+    assert!(generics_book.contains("protocol standards are the only generic-constraint surface"));
+    assert!(plan.contains("### 6.1 Define Constraint Surface (complete, verified 2026-04-11)"));
+}
+
+#[test]
 fn test_v2_m1_example_matrix_stays_honest() {
     let actual_examples = [
         "examples/generic_routine_m1",

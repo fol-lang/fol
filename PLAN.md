@@ -301,7 +301,7 @@ Acceptance criteria:
 The book currently keeps most of this outside M1/M2.
 If “full V2” is the goal, it must be made explicit and real.
 
-### 6.1 Define Constraint Surface
+### 6.1 Define Constraint Surface (complete, verified 2026-04-11)
 
 Decide whether generic constraints are:
 

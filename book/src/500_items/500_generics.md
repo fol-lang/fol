@@ -73,9 +73,19 @@ typ Pair(T: left, U: right): map[T, U];
 
 ## Generic Calls
 
-This chapter does not define an object-dispatch system. If generics later use
-receiver-qualified routine syntax, that would still be procedural call binding,
-not virtual methods or inheritance.
+Full `V2` includes standards-as-constraints, but not broad dispatch semantics.
+
+Chosen constraint contract:
+
+- protocol standards are the only generic-constraint surface in the full `V2`
+  target
+- constrained generic calls remain procedural and are checked through declared
+  conformance
+- standards-as-constraints do not imply runtime object dispatch
+
+This chapter still does not define an object-dispatch system. If later work
+uses receiver-qualified routine syntax together with constraints, that remains a
+procedural call-binding rule unless the contract changes explicitly.
 
 ```fol
 std foo: pro = { fun bar(); }

@@ -46,3 +46,22 @@ Still outside this generic-type contract:
 - generic inference for type arguments by unrelated contextual usage
 - generic constraints beyond standards-as-constraints
 - a second runtime-owned reified generic type system
+
+## Constraint Contract
+
+Full `V2` includes standards-as-constraints.
+
+Chosen contract:
+
+- generic constraints are expressed through standards
+- protocol standards are the only constraint surface in the full `V2` target
+- constrained generic routines remain procedural call binding, not object
+  dispatch
+- constraint satisfaction is checked statically through declared conformance
+
+Still outside this constraint contract:
+
+- non-standard generic constraint languages
+- blueprint standards as constraints
+- extended standards as constraints
+- dispatch or inference driven by constraints
