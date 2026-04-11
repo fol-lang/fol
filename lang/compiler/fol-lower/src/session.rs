@@ -94,6 +94,7 @@ impl LoweringSession {
             decls::lower_alias_declarations(package, &mut lowered)?;
             decls::lower_record_declarations(package, &mut lowered)?;
             decls::lower_entry_declarations(package, &mut lowered)?;
+            decls::synthesize_structural_runtime_type_declarations(package, &mut lowered)?;
             decls::lower_global_declarations(package, &mut lowered, &mut next_global_index)?;
             decls::lower_routine_declarations(package, &mut lowered, &mut next_routine_index)?;
             packages.insert(package.identity.clone(), lowered);

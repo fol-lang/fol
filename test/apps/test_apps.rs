@@ -326,6 +326,18 @@ fn method_call_binding_stress_fixture_compiles_and_runs() {
 }
 
 #[test]
+fn generic_type_exec_fixture_compiles_and_runs() {
+    let fixture = fixture_root("generic_type_exec");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
+    assert_artifact_paths_exist(&compile_output);
+
+    let run_output = compile_and_run_app(&fixture);
+    assert_exit_code(&run_output, 0);
+    assert_output_contains(&run_output, "42");
+}
+
+#[test]
 fn defer_v1_showcase_example_compiles_and_runs() {
     let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("test/apps/showcases/defer_v1_showcase/app");

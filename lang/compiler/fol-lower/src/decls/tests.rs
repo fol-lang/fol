@@ -3,7 +3,7 @@ mod tests {
     use super::super::{
         lower_alias_declarations, lower_entry_declarations, lower_global_declarations,
         lower_record_declarations, lower_routine_decl, lower_routine_declarations,
-        lower_routine_signatures,
+        lower_routine_signatures, synthesize_structural_runtime_type_declarations,
     };
     use crate::{
         types::LoweredType, LoweredBuiltinType, LoweredFieldLayout, LoweredPackage,
@@ -498,6 +498,77 @@ mod tests {
                         ),
                     ),
                 ]),
+            })
+        );
+    }
+
+    #[test]
+    fn declaration_lowering_synthesizes_runtime_decls_for_instantiated_generic_records() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_type_record_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "typ Box(T): rec = {\n    value: T\n};\nfun[] read(value: Box[int]): int = { return value.value }\nfun[] main(): int = { return 0 }",
+        )
+        .expect("should write generic type lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+        let lowered_workspace = crate::LoweringSession::new(typed.clone())
+            .lower_workspace()
+            .expect("workspace lowering should succeed");
+        let typed_package = typed.entry_package();
+        let mut lowered_package =
+            LoweredPackage::new(crate::LoweredPackageId(0), typed_package.identity.clone());
+        lowered_package.checked_type_map =
+            lowered_workspace.entry_package().checked_type_map.clone();
+
+        lower_record_declarations(typed_package, &mut lowered_package)
+            .expect("record declarations should lower cleanly");
+        synthesize_structural_runtime_type_declarations(typed_package, &mut lowered_package)
+            .expect("instantiated generic runtime declarations should synthesize cleanly");
+
+        let read_signature = lowered_workspace
+            .entry_package()
+            .routine_signatures
+            .values()
+            .find_map(|signature_id| match lowered_workspace.type_table().get(*signature_id) {
+                Some(LoweredType::Routine(signature)) if signature.params.len() == 1 => {
+                    Some(signature.params[0])
+                }
+                _ => None,
+            })
+            .expect("read routine signature should retain its parameter type");
+
+        let synthesized = lowered_package
+            .type_decls
+            .values()
+            .find(|type_decl| type_decl.runtime_type == read_signature && type_decl.name != "Box")
+            .expect("instantiated generic record runtime type should get a lowered declaration");
+
+        assert!(synthesized.name.starts_with("record_t"));
+        assert_eq!(
+            lowered_workspace.type_table().get(synthesized.runtime_type),
+            Some(&LoweredType::Record {
+                fields: std::collections::BTreeMap::from([(
+                    "value".to_string(),
+                    lowered_workspace.entry_package().checked_type_map
+                        [&fol_typecheck::CheckedTypeId(0)],
+                )]),
             })
         );
     }

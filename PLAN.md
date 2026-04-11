@@ -275,7 +275,7 @@ Acceptance criteria:
 
 - generic type declarations and uses are fully typed without fallback wording
 
-### 5.4 Lower And Emit Generic Types
+### 5.4 Lower And Emit Generic Types (complete, verified 2026-04-11)
 
 Primary crates:
 

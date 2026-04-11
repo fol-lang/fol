@@ -11,5 +11,5 @@ pub(crate) use symbol_lookup::{
 };
 pub use type_decls::{
     lower_alias_declarations, lower_entry_declarations, lower_global_declarations,
-    lower_record_declarations,
+    lower_record_declarations, synthesize_structural_runtime_type_declarations,
 };
