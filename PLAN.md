@@ -452,7 +452,7 @@ Acceptance criteria:
 
 This work only starts if extended standards remain inside full `V2`.
 
-### 9.1 Freeze Extended Meaning
+### 9.1 Freeze Extended Meaning (complete, verified 2026-04-11)
 
 Tasks:
 

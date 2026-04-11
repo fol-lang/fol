@@ -4223,8 +4223,25 @@ fn test_v2_contract_keeps_blueprint_standards_out_of_scope() {
 
     assert!(contract.contains("Blueprint standards are not part of the full `V2` target."));
     assert!(contract.contains("semantic, lowering, backend, and editor claims should not treat blueprint"));
-    assert!(standards_book.contains("blueprint standards remain outside the"));
+    assert!(standards_book.contains("blueprint and extended standards remain"));
     assert!(plan.contains("### 8.1 Freeze Blueprint Meaning (complete, verified 2026-04-11)"));
+}
+
+#[test]
+fn test_v2_contract_keeps_extended_standards_out_of_scope() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(contract.contains("Extended standards are not part of the full `V2` target."));
+    assert!(contract.contains("semantic, lowering, backend, and editor claims should not treat extended"));
+    assert!(standards_book.contains("blueprint and extended standards remain"));
+    assert!(plan.contains("### 9.1 Freeze Extended Meaning (complete, verified 2026-04-11)"));
 }
 
 #[test]

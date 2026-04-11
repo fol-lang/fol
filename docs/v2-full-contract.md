@@ -76,3 +76,14 @@ Decision:
 - parser support may remain as a future-facing syntax surface
 - semantic, lowering, backend, and editor claims should not treat blueprint
   standards as shipped `V2`
+
+## Extended Standards
+
+Extended standards are not part of the full `V2` target.
+
+Decision:
+
+- extended standards remain outside full `V2`
+- parser support may remain as a future-facing syntax surface
+- semantic, lowering, backend, and editor claims should not treat extended
+  standards as shipped `V2`

@@ -31,8 +31,9 @@ Still future:
 - dispatch/inference driven by standards
 - object-style method semantics
 
-For the current full `V2` target, blueprint standards remain outside the
-shipped contract even if parser syntax continues to exist for future work.
+For the current full `V2` target, blueprint and extended standards remain
+outside the shipped contract even if parser syntax continues to exist for
+future work.
 
 The intent of standards is procedural and data-oriented. They are not class
 hierarchies, inheritance trees, or object systems.
