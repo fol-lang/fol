@@ -345,7 +345,7 @@ Acceptance criteria:
 
 - constraints are real semantics, not parser sugar or boundary messages
 
-### 6.3 Lower And Emit Constrained Generics
+### 6.3 Lower And Emit Constrained Generics (complete, verified 2026-04-11)
 
 Tasks:
 
