@@ -237,12 +237,12 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
         (
             "examples/fail_generic_misuse_m1",
             "fun pick(T: geo)(value: T): T = {\n    return value;\n};\nfun[] main(): int = {\n    return 0;\n};\n",
-            Some("generic routine constraints are not yet supported in V2 Milestone 1"),
+            Some("must resolve to a standard declaration"),
         ),
         (
             "examples/fail_generic_standard_constraint_m1m2",
-            "std geo: pro = {\n    fun area(): int;\n};\nfun pick(T: geo)(value: T): T = {\n    return value;\n};\nfun[] main(): int = {\n    return 0;\n};\n",
-            Some("generic routine constraints are not yet supported in V2 Milestone 1"),
+            "std geo: pro = {\n    fun area(): int;\n};\ntyp Plain(): rec = {\n    var value: int;\n};\nfun pick(T: geo)(value: T): T = {\n    return value;\n};\nfun[] main(): int = {\n    var plain: Plain = { value = 1 };\n    pick(plain);\n    return 0;\n};\n",
+            Some("requires type 'Plain' to satisfy standard 'geo'"),
         ),
         (
             "examples/std_bundled_io",

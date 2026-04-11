@@ -552,22 +552,30 @@ fn standards_m2_reject_standards_as_ordinary_types_across_more_contexts() {
 }
 
 #[test]
-fn standards_m2_reject_generic_constraints_that_use_standards() {
+fn standards_m2_reject_nonconforming_generic_constraints() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "std geo: pro = {\n\
              fun area(): int;\n\
          };\n\
+         typ Plain(): rec = {\n\
+             var width: int;\n\
+         };\n\
          fun pick(T: geo)(value: T): T = {\n\
              return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var plain: Plain = { width = 1 };\n\
+             pick(plain);\n\
+             return 0;\n\
          };\n",
     )]);
 
     assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
+        error.kind() == TypecheckErrorKind::IncompatibleType
             && error
                 .message()
-                .contains("generic routine constraints are not yet supported in V2 Milestone 1")
+                .contains("requires type 'Plain' to satisfy standard 'geo'")
     }));
 }
 

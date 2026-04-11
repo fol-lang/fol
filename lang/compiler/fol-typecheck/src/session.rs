@@ -315,6 +315,7 @@ impl TypecheckSession {
         typed_symbol.declared_type = Some(translated);
         typed_symbol.receiver_type = translated_receiver;
         typed_symbol.generic_params = foreign_type.generic_params.clone();
+        typed_symbol.generic_constraints = foreign_type.generic_constraints.clone();
         Ok(())
     }
 
@@ -586,6 +587,7 @@ impl TypecheckSession {
                     .type_table_mut()
                     .intern(CheckedType::Routine(crate::RoutineType {
                         generic_params: Vec::new(),
+                        generic_constraints: BTreeMap::new(),
                         param_names: signature.param_names.clone(),
                         param_defaults: signature.param_defaults.clone(),
                         variadic_index: signature.variadic_index,

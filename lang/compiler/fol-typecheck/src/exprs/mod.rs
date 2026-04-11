@@ -16,6 +16,7 @@ use fol_parser::ast::{
     AstNode, CallSurface, FolType, ParsedSourceUnitKind,
 };
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId};
+use std::collections::BTreeMap;
 
 use helpers::{
     binding_kind_for, describe_type, ensure_assignable, ensure_assignable_target,
@@ -449,6 +450,7 @@ pub(crate) fn type_node_with_expectation(
             }
             let routine_type_id = typed.type_table_mut().intern(CheckedType::Routine(RoutineType {
                 generic_params: Vec::new(),
+                generic_constraints: BTreeMap::new(),
                 param_names: vec![String::new(); lowered_params.len()],
                 param_defaults: vec![None; lowered_params.len()],
                 variadic_index: params.iter().enumerate().find_map(|(index, param)| {

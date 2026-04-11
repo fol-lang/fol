@@ -118,3 +118,60 @@ fn generic_type_instantiations_reject_recursive_self_reference_boundary() {
                 .contains("generic recursive type instantiation is not yet supported")
     }), "Expected recursive generic type instantiation boundary to stay explicit, got: {errors:?}");
 }
+
+#[test]
+fn generic_type_instantiations_accept_protocol_constraints() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             value: int\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 1;\n\
+         };\n\
+         typ Box(T: geo): rec = {\n\
+             value: T\n\
+         };\n\
+         fun[] main(value: Box[Rect]): int = {\n\
+             return value.value.area();\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn generic_type_instantiations_reject_nonconforming_protocol_constraints() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Plain(): rec = {\n\
+             value: int\n\
+         };\n\
+         typ Box(T: geo): rec = {\n\
+             value: T\n\
+         };\n\
+         fun[] main(value: Box[Plain]): int = {\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error
+                .message()
+                .contains("requires type 'Plain' to satisfy standard 'geo'")
+    }), "Expected constrained generic type instantiations to reject nonconforming types, got: {errors:?}");
+}

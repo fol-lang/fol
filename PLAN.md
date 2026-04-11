@@ -322,7 +322,7 @@ Acceptance criteria:
   - a positive example if implemented
   - a moved-out-of-V2 example if deferred
 
-### 6.2 Implement Constraint Resolution And Checking
+### 6.2 Implement Constraint Resolution And Checking (complete, verified 2026-04-11)
 
 Primary crates:
 

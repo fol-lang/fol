@@ -349,16 +349,14 @@ fn v1_boundary_rejects_generic_routine_constraints_in_all_supported_header_kinds
     let generic_routine_errors = errors
         .iter()
         .filter(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routine constraints are not yet supported")
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error.message().contains("must resolve to a standard declaration")
         })
         .count();
 
     assert!(
         generic_routine_errors >= 3,
-        "Expected generic routine constraints to stay outside V2 Milestone 1, got: {errors:?}"
+        "Expected non-standard generic constraints to be rejected across headers, got: {errors:?}"
     );
 }
 
@@ -712,6 +710,7 @@ fn workspace_typechecking_imports_mounted_value_and_routine_types_from_foreign_p
         .get(bump.declared_type.expect("mounted imported routines should keep translated signatures")),
         Some(&CheckedType::Routine(RoutineType {
             generic_params: Vec::new(),
+            generic_constraints: BTreeMap::new(),
             param_names: vec!["value".to_string()],
             param_defaults: vec![None],
             variadic_index: None,

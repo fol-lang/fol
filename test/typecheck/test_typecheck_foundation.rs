@@ -274,6 +274,7 @@ fn semantic_type_table_covers_declared_and_structural_shapes() {
     let record = table.intern(CheckedType::Record { fields });
     let routine = table.intern(CheckedType::Routine(RoutineType {
         generic_params: Vec::new(),
+        generic_constraints: BTreeMap::new(),
         param_names: vec!["value".to_string()],
         param_defaults: vec![None],
         variadic_index: None,
@@ -338,6 +339,7 @@ fn render_type_handles_routines() {
     let str_id = table.intern_builtin(BuiltinType::Str);
     let routine_id = table.intern(CheckedType::Routine(RoutineType {
         generic_params: Vec::new(),
+        generic_constraints: BTreeMap::new(),
         param_names: vec!["left".to_string(), "right".to_string()],
         param_defaults: vec![None, None],
         variadic_index: None,

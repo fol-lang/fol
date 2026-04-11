@@ -295,7 +295,7 @@ use super::*;
     }
 
     #[test]
-    fn test_cli_typecheck_rejects_generic_routine_constraints_for_m1() {
+    fn test_cli_typecheck_rejects_non_standard_generic_constraints() {
         use std::fs;
 
         let temp_root = unique_temp_root("cli_generic_constraint_m1_boundary");
@@ -314,11 +314,11 @@ use super::*;
 
         assert!(
             !output.status.success(),
-            "CLI should reject generic routine constraints in M1"
+            "CLI should reject non-standard generic constraints"
         );
         assert!(
-            stdout.contains("generic routine constraints are not yet supported in V2 Milestone 1"),
-            "CLI should preserve the generic routine constraint boundary wording"
+            stdout.contains("must resolve to a standard declaration"),
+            "CLI should surface the generic constraint validation message"
         );
 
         fs::remove_dir_all(&temp_root).ok();

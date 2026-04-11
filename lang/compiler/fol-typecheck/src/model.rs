@@ -35,6 +35,7 @@ pub struct TypedSymbol {
     pub declared_type: Option<CheckedTypeId>,
     pub receiver_type: Option<CheckedTypeId>,
     pub generic_params: Vec<SymbolId>,
+    pub generic_constraints: BTreeMap<SymbolId, Vec<SymbolId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -216,6 +217,7 @@ impl TypedProgram {
                         declared_type: None,
                         receiver_type: None,
                         generic_params: Vec::new(),
+                        generic_constraints: BTreeMap::new(),
                     },
                 )
             })

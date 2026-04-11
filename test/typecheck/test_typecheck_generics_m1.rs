@@ -587,35 +587,43 @@ fn generic_routines_reject_constraints_exhaustively() {
 
     assert!(
         errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routine constraints are not yet supported in V2 Milestone 1")
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error.message().contains("must resolve to a standard declaration")
         }),
-        "Expected generic constraints to stay unsupported in M1, got: {errors:?}"
+        "Expected non-standard generic constraints to be rejected, got: {errors:?}"
     );
 }
 
 #[test]
-fn generic_routines_reject_standard_constraints_exhaustively() {
-    let errors = typecheck_fixture_folder_errors(&[(
+fn generic_routines_accept_standard_constraints_with_conforming_calls() {
+    let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "std geo: pro = {\n\
              fun area(): int;\n\
          };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 1;\n\
+         };\n\
          fun pick(T: geo)(value: T): T = {\n\
              return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var rect: Rect = { width = 1 };\n\
+             pick(rect);\n\
+             return 0;\n\
          };\n",
     )]);
 
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routine constraints are not yet supported in V2 Milestone 1")
-        }),
-        "Expected generic constraints that reference standards to stay unsupported in M1, got: {errors:?}"
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
 

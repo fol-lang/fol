@@ -935,8 +935,6 @@ pub(crate) fn check_call_arguments(
                 let actual = actual_expr
                     .required_value(format!("argument for '{callee}' does not have a type"))?;
                 arg_effects.push(actual_expr.recoverable_effect);
-                let actual = apparent_type_id(typed, actual)?;
-
                 if contains_generics {
                     infer_generic_bindings_from_argument(
                         typed,
@@ -950,7 +948,7 @@ pub(crate) fn check_call_arguments(
                     ensure_assignable(
                         typed,
                         *expected,
-                        actual,
+                        apparent_type_id(typed, actual)?,
                         format!("call to '{callee}'"),
                         origin.clone(),
                     )?;
@@ -1002,7 +1000,6 @@ pub(crate) fn check_call_arguments(
                         "variadic argument for '{callee}' does not have a type"
                     ))?;
                     arg_effects.push(actual_expr.recoverable_effect);
-                    let actual = apparent_type_id(typed, actual)?;
                     if contains_generics {
                         infer_generic_bindings_from_argument(
                             typed,
@@ -1016,7 +1013,7 @@ pub(crate) fn check_call_arguments(
                         ensure_assignable(
                             typed,
                             element_type,
-                            actual,
+                            apparent_type_id(typed, actual)?,
                             format!("call to '{callee}'"),
                             origin.clone(),
                         )?;
@@ -1044,9 +1041,9 @@ fn infer_generic_bindings_from_argument(
     origin: Option<SyntaxOrigin>,
 ) -> Result<(), TypecheckError> {
     let expected = apparent_type_id(typed, expected)?;
-    let actual = apparent_type_id(typed, actual)?;
+    let actual_apparent = apparent_type_id(typed, actual)?;
 
-    match (typed.type_table().get(expected), typed.type_table().get(actual)) {
+    match (typed.type_table().get(expected), typed.type_table().get(actual_apparent)) {
         (
             Some(CheckedType::Declared {
                 symbol,
@@ -1120,9 +1117,9 @@ fn infer_generic_bindings_from_argument(
                 origin,
             ),
             (None, None) => Ok(()),
-            _ => ensure_assignable(typed, expected, actual, surface, origin),
+            _ => ensure_assignable(typed, expected, actual_apparent, surface, origin),
         },
-        _ => ensure_assignable(typed, expected, actual, surface, origin),
+        _ => ensure_assignable(typed, expected, actual_apparent, surface, origin),
     }
 }
 
@@ -1166,9 +1163,17 @@ fn instantiate_generic_signature(
         .error_type
         .map(|ty| substitute_generic_type(typed, ty, bindings, callee, origin.clone()))
         .transpose()?;
+    crate::decls::validate_generic_bindings_against_constraints(
+        typed,
+        bindings,
+        &signature.generic_constraints,
+        format!("call to '{callee}'"),
+        origin.clone(),
+    )?;
 
     Ok(RoutineType {
         generic_params: Vec::new(),
+        generic_constraints: BTreeMap::new(),
         param_names: signature.param_names.clone(),
         param_defaults: signature.param_defaults.clone(),
         variadic_index: signature.variadic_index,

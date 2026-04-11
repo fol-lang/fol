@@ -178,6 +178,8 @@ fn lower_top_level_declaration(
                 find_top_level_type_decl_scope(resolved, source_unit_id, item, symbol_id)?;
             let generic_params =
                 generic_params_in_scope(resolved, type_scope, item, generics)?;
+            let generic_constraints =
+                lower_generic_constraints_for_params(resolved, generics, &generic_params)?;
             let type_id = match type_def {
                 TypeDefinition::Alias { target } => {
                     lower_type(typed, resolved, type_scope, target)?
@@ -211,6 +213,7 @@ fn lower_top_level_declaration(
                 }
             };
             record_symbol_generic_params(typed, symbol_id, generic_params)?;
+            record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
             record_symbol_type(typed, symbol_id, type_id)?;
             if !explicit_contracts.is_empty() {
                 let standard_symbol_ids = explicit_contracts
@@ -545,8 +548,13 @@ fn lower_named_routine_signature(
         .and_then(|id| resolved.scope_for_syntax(id))
         .or_else(|| resolved.symbol(symbol_id).map(|symbol| symbol.scope))
         .ok_or_else(|| internal_error("resolved routine scope disappeared", None))?;
-    let generic_params =
-        lower_routine_generic_params(typed, resolved, source_unit_id, signature_scope, generics)?;
+    let (generic_params, generic_constraints) = lower_routine_generic_params(
+        typed,
+        resolved,
+        source_unit_id,
+        signature_scope,
+        generics,
+    )?;
     let mut lowered_params = Vec::new();
     for param in params {
         let param_type = lower_type(typed, resolved, signature_scope, &param.param_type)?;
@@ -588,6 +596,7 @@ fn lower_named_routine_signature(
         .type_table_mut()
         .intern(CheckedType::Routine(RoutineType {
             generic_params,
+            generic_constraints: generic_constraints.clone(),
             param_names: params.iter().map(|param| param.name.clone()).collect(),
             param_defaults: params.iter().map(|param| param.default.clone()).collect(),
             variadic_index: params.iter().enumerate().find_map(|(index, param)| {
@@ -599,6 +608,7 @@ fn lower_named_routine_signature(
             return_type: lowered_return,
             error_type: lowered_error,
         }));
+    record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
     record_symbol_type(typed, symbol_id, routine_type)?;
     record_symbol_receiver_type(typed, symbol_id, lowered_receiver)?;
     Ok(signature_scope)
@@ -733,14 +743,32 @@ fn lower_standard_symbol_for_contract(
     resolved: &ResolvedProgram,
     contract: &FolType,
 ) -> Result<SymbolId, TypecheckError> {
-    let syntax_id = match contract {
-        FolType::Named { syntax_id, .. } => *syntax_id,
-        FolType::QualifiedNamed { path } => path.syntax_id(),
-        _ => None,
-    };
     let display_name = contract
         .named_text()
         .unwrap_or_else(|| format!("{contract:?}"));
+    let syntax_id = match contract {
+        FolType::Named { syntax_id, .. } => *syntax_id,
+        FolType::QualifiedNamed { path } => path.syntax_id(),
+        _ => {
+            return Err(match type_origin(resolved, contract) {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "type contract '{}' must resolve to a standard declaration",
+                        display_name
+                    ),
+                    origin,
+                ),
+                None => TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "type contract '{}' must resolve to a standard declaration",
+                        display_name
+                    ),
+                ),
+            })
+        }
+    };
     let symbol_id = resolved_symbol_for_syntax(
         resolved,
         syntax_id,
@@ -1010,6 +1038,84 @@ fn check_standard_conformance(
     }
 }
 
+pub(crate) fn validate_generic_bindings_against_constraints(
+    typed: &TypedProgram,
+    bindings: &BTreeMap<SymbolId, CheckedTypeId>,
+    generic_constraints: &BTreeMap<SymbolId, Vec<SymbolId>>,
+    surface: String,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    for (generic_symbol_id, standard_symbol_ids) in generic_constraints {
+        let Some(actual_type) = bindings.get(generic_symbol_id).copied() else {
+            continue;
+        };
+        for standard_symbol_id in standard_symbol_ids {
+            if checked_type_satisfies_standard(typed, actual_type, *standard_symbol_id) {
+                continue;
+            }
+            let generic_name = typed
+                .resolved()
+                .symbol(*generic_symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("T");
+            let standard_name = typed
+                .resolved()
+                .symbol(*standard_symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("standard");
+            let actual_name = typed.type_table().render_type(actual_type);
+            let message = format!(
+                "{surface} requires type '{actual_name}' to satisfy standard '{standard_name}' for generic parameter '{generic_name}'"
+            );
+            return Err(match origin.clone() {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::IncompatibleType,
+                    message,
+                    origin,
+                ),
+                None => TypecheckError::new(TypecheckErrorKind::IncompatibleType, message),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn checked_type_satisfies_standard(
+    typed: &TypedProgram,
+    checked_type_id: CheckedTypeId,
+    standard_symbol_id: SymbolId,
+) -> bool {
+    let Some(type_symbol_id) = conformance_subject_symbol(typed, checked_type_id) else {
+        return false;
+    };
+    typed
+        .typed_conformance(type_symbol_id)
+        .is_some_and(|conformance| conformance.standard_symbol_ids.contains(&standard_symbol_id))
+}
+
+fn conformance_subject_symbol(
+    typed: &TypedProgram,
+    checked_type_id: CheckedTypeId,
+) -> Option<SymbolId> {
+    match typed.type_table().get(checked_type_id)? {
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::Type,
+            ..
+        } => Some(*symbol),
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::Alias,
+            ..
+        } => typed
+            .typed_symbol(*symbol)
+            .and_then(|typed_symbol| typed_symbol.declared_type)
+            .and_then(|target| conformance_subject_symbol(typed, target)),
+        _ => None,
+    }
+}
+
 fn render_standard_signature(
     typed: &TypedProgram,
     name: &str,
@@ -1040,27 +1146,10 @@ fn lower_routine_generic_params(
     source_unit_id: SourceUnitId,
     signature_scope: ScopeId,
     generics: &[Generic],
-) -> Result<Vec<SymbolId>, TypecheckError> {
+) -> Result<(Vec<SymbolId>, BTreeMap<SymbolId, Vec<SymbolId>>), TypecheckError> {
     let mut generic_params = Vec::new();
+    let mut generic_constraints = BTreeMap::new();
     for generic in generics {
-        if !generic.constraints.is_empty() {
-            return Err(match generic
-                .constraints
-                .first()
-                .and_then(|constraint| type_origin(resolved, constraint))
-            {
-                Some(origin) => TypecheckError::with_origin(
-                    TypecheckErrorKind::Unsupported,
-                    "generic routine constraints are not yet supported in V2 Milestone 1",
-                    origin,
-                ),
-                None => TypecheckError::new(
-                    TypecheckErrorKind::Unsupported,
-                    "generic routine constraints are not yet supported in V2 Milestone 1",
-                ),
-            });
-        }
-
         let symbol_id = find_symbol_id_in_scope(
             resolved,
             source_unit_id,
@@ -1074,10 +1163,18 @@ fn lower_routine_generic_params(
             kind: DeclaredTypeKind::GenericParameter,
         });
         record_symbol_type(typed, symbol_id, generic_type)?;
+        let lowered_constraints = generic
+            .constraints
+            .iter()
+            .map(|constraint| lower_standard_symbol_for_contract(resolved, constraint))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !lowered_constraints.is_empty() {
+            generic_constraints.insert(symbol_id, lowered_constraints);
+        }
         generic_params.push(symbol_id);
     }
 
-    Ok(generic_params)
+    Ok((generic_params, generic_constraints))
 }
 
 fn reject_generic_types_in_position(
@@ -1423,6 +1520,7 @@ pub(crate) fn lower_type(
             Ok(typed.type_table_mut().intern(CheckedType::Routine(
                 crate::types::RoutineType {
                     generic_params: Vec::new(),
+                    generic_constraints: BTreeMap::new(),
                     param_names: vec![String::new(); lowered_params.len()],
                     param_defaults: vec![None; lowered_params.len()],
                     variadic_index: None,
@@ -1736,6 +1834,19 @@ fn instantiate_declared_generic_type(
         .copied()
         .zip(arg_types.iter().copied())
         .collect::<BTreeMap<_, _>>();
+    validate_generic_bindings_against_constraints(
+        typed,
+        &bindings,
+        &typed_symbol.generic_constraints,
+        format!(
+            "generic type instantiation '{}'",
+            resolved
+                .symbol(symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("?")
+        ),
+        origin.clone(),
+    )?;
     substitute_generic_checked_type(typed, template, &bindings, origin)
 }
 
@@ -1841,6 +1952,7 @@ fn substitute_generic_checked_type(
                 .transpose()?;
             Ok(typed.type_table_mut().intern(CheckedType::Routine(RoutineType {
                 generic_params: Vec::new(),
+                generic_constraints: BTreeMap::new(),
                 param_names: signature.param_names,
                 param_defaults: signature.param_defaults,
                 variadic_index: signature.variadic_index,
@@ -2161,6 +2273,43 @@ fn record_symbol_generic_params(
     Ok(())
 }
 
+fn record_symbol_generic_constraints(
+    typed: &mut TypedProgram,
+    symbol_id: SymbolId,
+    generic_constraints: BTreeMap<SymbolId, Vec<SymbolId>>,
+) -> Result<(), TypecheckError> {
+    let symbol = typed.typed_symbol_mut(symbol_id).ok_or_else(|| {
+        TypecheckError::new(
+            TypecheckErrorKind::SymbolTableCorrupted,
+            format!(
+                "symbol table corrupted: generic constraint owner {} disappeared",
+                symbol_id.0
+            ),
+        )
+    })?;
+    symbol.generic_constraints = generic_constraints;
+    Ok(())
+}
+
+fn lower_generic_constraints_for_params(
+    resolved: &ResolvedProgram,
+    generics: &[Generic],
+    generic_params: &[SymbolId],
+) -> Result<BTreeMap<SymbolId, Vec<SymbolId>>, TypecheckError> {
+    let mut generic_constraints = BTreeMap::new();
+    for (generic, symbol_id) in generics.iter().zip(generic_params.iter().copied()) {
+        let lowered_constraints = generic
+            .constraints
+            .iter()
+            .map(|constraint| lower_standard_symbol_for_contract(resolved, constraint))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !lowered_constraints.is_empty() {
+            generic_constraints.insert(symbol_id, lowered_constraints);
+        }
+    }
+    Ok(generic_constraints)
+}
+
 fn binding_names(pattern: &BindingPattern) -> Vec<String> {
     match pattern {
         BindingPattern::Name(name) | BindingPattern::Rest(name) => vec![name.clone()],
@@ -2224,13 +2373,6 @@ fn unsupported_v1_decl_with_origin(
     let message = match node {
         AstNode::VarDecl { options, .. } | AstNode::LabDecl { options, .. } => {
             unsupported_binding_surface_message(options)
-        }
-        AstNode::FunDecl { generics, .. }
-        | AstNode::ProDecl { generics, .. }
-        | AstNode::LogDecl { generics, .. }
-            if !generics.is_empty() && generics.iter().any(|generic| !generic.constraints.is_empty()) =>
-        {
-            Some("generic routine constraints are not yet supported in V2 Milestone 1")
         }
         AstNode::FunDecl { params, .. }
         | AstNode::ProDecl { params, .. }

@@ -45,6 +45,7 @@ pub enum DeclaredTypeKind {
 #[derive(Debug, Clone)]
 pub struct RoutineType {
     pub generic_params: Vec<SymbolId>,
+    pub generic_constraints: BTreeMap<SymbolId, Vec<SymbolId>>,
     pub param_names: Vec<String>,
     pub param_defaults: Vec<Option<AstNode>>,
     pub variadic_index: Option<usize>,
@@ -56,6 +57,7 @@ pub struct RoutineType {
 impl PartialEq for RoutineType {
     fn eq(&self, other: &Self) -> bool {
         self.generic_params == other.generic_params
+            && self.generic_constraints == other.generic_constraints
             && self.params == other.params
             && self.return_type == other.return_type
             && self.error_type == other.error_type
@@ -74,12 +76,14 @@ impl Ord for RoutineType {
     fn cmp(&self, other: &Self) -> Ordering {
         (
             &self.generic_params,
+            &self.generic_constraints,
             &self.params,
             self.return_type,
             self.error_type,
         )
             .cmp(&(
                 &other.generic_params,
+                &other.generic_constraints,
             &other.params,
             other.return_type,
             other.error_type,
@@ -90,6 +94,7 @@ impl Ord for RoutineType {
 impl Hash for RoutineType {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.generic_params.hash(state);
+        self.generic_constraints.hash(state);
         self.params.hash(state);
         self.return_type.hash(state);
         self.error_type.hash(state);
@@ -280,6 +285,8 @@ mod tests {
         });
         let record_second = table.intern(CheckedType::Record { fields });
         let routine = table.intern(CheckedType::Routine(RoutineType {
+            generic_params: Vec::new(),
+            generic_constraints: BTreeMap::new(),
             param_names: vec!["point".to_string(), "count".to_string()],
             param_defaults: vec![None, None],
             variadic_index: None,
@@ -344,6 +351,8 @@ mod tests {
         let int_id = table.intern_builtin(BuiltinType::Int);
         let str_id = table.intern_builtin(BuiltinType::Str);
         let routine_id = table.intern(CheckedType::Routine(RoutineType {
+            generic_params: Vec::new(),
+            generic_constraints: BTreeMap::new(),
             param_names: vec!["left".to_string(), "right".to_string()],
             param_defaults: vec![None, None],
             variadic_index: None,

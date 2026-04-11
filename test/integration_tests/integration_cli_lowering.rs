@@ -797,8 +797,8 @@ use super::*;
             stderr
         );
         assert!(
-            combined.contains("generic routine constraints are not yet supported in V2 Milestone 1"),
-            "generic-plus-standards seam should keep the explicit M1 constraint boundary: stdout=\n{}\nstderr=\n{}",
+            combined.contains("requires type 'Plain' to satisfy standard 'geo'"),
+            "generic-plus-standards seam should surface the generic conformance failure: stdout=\n{}\nstderr=\n{}",
             stdout,
             stderr
         );

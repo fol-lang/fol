@@ -449,7 +449,7 @@ fn test_fail_generic_misuse_m1_example_rejects_cleanly() {
         String::from_utf8_lossy(&check.stderr)
     );
     assert!(
-        combined.contains("generic routine constraints are not yet supported in V2 Milestone 1")
+        combined.contains("must resolve to a standard declaration")
             || combined.contains("template instantiation is not yet supported"),
         "generic misuse M1 example should keep explicit misuse boundaries: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&check.stdout),
@@ -792,9 +792,9 @@ fn test_fail_generic_standard_constraint_m1m2_example_rejects_cleanly() {
         .collect::<Vec<_>>();
     assert!(
         all_messages.iter().any(|message| {
-            message.contains("generic routine constraints are not yet supported in V2 Milestone 1")
+            message.contains("requires type 'Plain' to satisfy standard 'geo'")
         }),
-        "generic-standard seam example should surface the explicit M1 constraint boundary in editor: {all_messages:#?}"
+        "generic-standard seam example should surface the conformance failure in editor: {all_messages:#?}"
     );
 
     let check = run_fol_in_dir(&root, &["code", "check"]);
@@ -803,8 +803,8 @@ fn test_fail_generic_standard_constraint_m1m2_example_rejects_cleanly() {
     let combined = format!("{stdout}\n{stderr}");
     assert!(!check.status.success());
     assert!(
-        combined.contains("generic routine constraints are not yet supported in V2 Milestone 1"),
-        "generic-standard seam example should keep the explicit M1 constraint boundary: stdout=\n{}\nstderr=\n{}",
+        combined.contains("requires type 'Plain' to satisfy standard 'geo'"),
+        "generic-standard seam example should surface the generic conformance failure: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
