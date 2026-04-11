@@ -4585,6 +4585,41 @@ fn test_v2_quality_gate_tooling_is_tracked_in_repo_contract() {
 }
 
 #[test]
+fn test_v2_quality_gate_contract_is_tracked_in_repo_contract() {
+    let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
+        .expect("V2 quality gates note should load");
+
+    for required in [
+        "## Contract Gate",
+        "the relevant book chapter updated",
+        "docs notes updated or deleted",
+        "the example matrix updated",
+        "negative examples updated when the semantic boundary changes",
+        "docs/v2-full-contract.md",
+        "docs/v2-generics-m1.md",
+        "docs/v2-standards-m2.md",
+        "book/src/500_items/500_generics.md",
+        "book/src/500_items/400_standards.md",
+        "examples",
+        "test/integration_tests/integration_editor_and_build.rs",
+    ] {
+        assert!(gates.contains(required), "contract gate contract should mention {required}");
+    }
+
+    for path in [
+        "docs/v2-full-contract.md",
+        "docs/v2-generics-m1.md",
+        "docs/v2-standards-m2.md",
+        "book/src/500_items/500_generics.md",
+        "book/src/500_items/400_standards.md",
+        "examples",
+        "test/integration_tests/integration_editor_and_build.rs",
+    ] {
+        assert!(repo_root().join(path).exists(), "contract gate path should exist: {path}");
+    }
+}
+
+#[test]
 fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
     let bundled_std_docs = std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
         .expect("bundled std docs should exist");

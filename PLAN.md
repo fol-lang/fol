@@ -606,7 +606,7 @@ Every V2 slice should satisfy all of these before merge.
 - hover/definition test for new declarations
 - tree-sitter query test
 
-### 13.3 Contract Gate
+### 13.3 Contract Gate (complete, verified 2026-04-11)
 
 - book chapter updated
 - docs note updated or deleted

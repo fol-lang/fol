@@ -38,3 +38,22 @@ The current canonical roots for the shipped `V2` tooling gate are:
 - `lang/tooling/fol-editor/src/lsp/tests/example_models.rs`
 - `lang/tooling/fol-editor/src/tree_sitter.rs`
 - `test/integration_tests/integration_editor_and_build.rs`
+
+## Contract Gate
+
+Every shipped `V2` slice must land with:
+
+- the relevant book chapter updated
+- docs notes updated or deleted
+- the example matrix updated
+- negative examples updated when the semantic boundary changes
+
+The current canonical roots for the shipped `V2` contract gate are:
+
+- `docs/v2-full-contract.md`
+- `docs/v2-generics-m1.md`
+- `docs/v2-standards-m2.md`
+- `book/src/500_items/500_generics.md`
+- `book/src/500_items/400_standards.md`
+- `examples`
+- `test/integration_tests/integration_editor_and_build.rs`
