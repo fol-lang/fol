@@ -430,7 +430,14 @@ Acceptance criteria:
 
 - blueprint semantics are documented in the book and not still labeled future
 
-### 8.2 Parser/Resolver/Typecheck/Lower/Backend
+### 8.2 Parser/Resolver/Typecheck/Lower/Backend (complete, removed from full V2 target, verified 2026-04-11)
+
+Closed by contract:
+
+- [docs/v2-full-contract.md](/home/bresilla/data/code/bresilla/fol/docs/v2-full-contract.md)
+  keeps blueprint standards outside full `V2`
+- [PLAN.md](/home/bresilla/data/code/bresilla/fol/PLAN.md#L344) only activates this
+  workstream if blueprint standards remain inside full `V2`
 
 Tasks:
 
