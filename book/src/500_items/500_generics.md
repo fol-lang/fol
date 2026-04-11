@@ -19,6 +19,8 @@ Current milestone note:
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
+  - `examples/generic_type_exec_m1m2`
+  - `examples/generic_standard_constraint_m1m2`
   - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
@@ -27,6 +29,8 @@ Current milestone note:
 - generic routine backend execution now works for the shipped positive Milestone 1 examples
 - receiver-qualified generic routines, matching default arguments, and
   concrete recoverable error types are now part of the executable Milestone 1 subset
+- generic type execution and constrained generic execution now have checked-in
+  example packages too
 - broader Milestone 1 edge-case policy is still tracked separately from that
   shipped positive core
 - current editor hardening covers hover/definition on checked-in generic

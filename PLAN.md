@@ -559,7 +559,7 @@ Acceptance criteria:
 
 The example set must become the public truth table for V2.
 
-### 12.1 Replace Boundary Examples With Execution Examples Where Appropriate
+### 12.1 Replace Boundary Examples With Execution Examples Where Appropriate (complete, verified 2026-04-11)
 
 Current positive V2 examples mostly prove “open/typecheck then stop at lowering”.
 That is not enough for a complete V2.

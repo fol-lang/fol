@@ -798,6 +798,54 @@ fn test_fail_generic_standard_constraint_m1m2_example_rejects_cleanly() {
 }
 
 #[test]
+fn test_generic_type_exec_m1m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_type_exec_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic type execution example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic type execution example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic type execution example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+#[test]
+fn test_generic_standard_constraint_m1m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_standard_constraint_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "constrained generic execution example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("constrained generic execution example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "constrained generic execution example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("1") || stderr.contains("1"));
+}
+
+#[test]
 fn test_fail_standard_as_type_m2_example_rejects_cleanly() {
     let root = temp_example_root("examples/fail_standard_as_type_m2");
 
@@ -4192,6 +4240,8 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(generics_note.contains("examples/fail_generic_misuse_m1"));
     assert!(generics_note.contains("examples/fail_generic_cross_file_m1"));
     assert!(generics_note.contains("examples/fail_generic_standard_constraint_m1m2"));
+    assert!(generics_note.contains("examples/generic_type_exec_m1m2"));
+    assert!(generics_note.contains("examples/generic_standard_constraint_m1m2"));
     assert!(generics_note.contains("generic routine lowering now succeeds"));
     assert!(generics_note.contains("backend execution now works for the shipped positive"));
     assert!(generics_note.contains("receiver-qualified generic routines"));
@@ -4427,6 +4477,8 @@ fn test_v2_m1_example_matrix_stays_honest() {
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
+        "examples/generic_type_exec_m1m2",
+        "examples/generic_standard_constraint_m1m2",
         "examples/fail_generic_type_m1",
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",
@@ -4477,7 +4529,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         .filter_map(|entry| {
             let name = entry.file_name();
             let name = name.to_str()?;
-            ((name.starts_with("generic_") && name.ends_with("_m1"))
+            ((name.starts_with("generic_") && (name.ends_with("_m1") || name.ends_with("_m1m2")))
                 || (name.starts_with("fail_generic_")
                     && (name.ends_with("_m1") || name.ends_with("_m1m2"))))
             .then(|| format!("examples/{name}"))
@@ -4499,6 +4551,8 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
+        "examples/generic_type_exec_m1m2",
+        "examples/generic_standard_constraint_m1m2",
         "examples/fail_generic_type_m1",
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",

@@ -74,6 +74,9 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - receiver-qualified generic routines now lower and execute through method sugar
 - default-argument generic routines are part of the current executable M1 subset
 - generic routines with concrete recoverable error types are part of the current executable M1 subset
+- full `V2` execution examples now also exist for:
+  - `examples/generic_type_exec_m1m2`
+  - `examples/generic_standard_constraint_m1m2`
 
 That means the current honest boundary is:
 
@@ -97,7 +100,7 @@ Milestone 1 should not silently absorb later `V2` work.
 In particular:
 
 - no generic types
-- no standards-as-constraints semantics
+- no standards-as-constraints semantics inside the narrow Milestone 1 core
 - no full inference
 - no explicit generic-call syntax
 - no broad dispatch rules
@@ -125,7 +128,7 @@ Negative obligations:
 - duplicate generic parameter names remain parser-owned
 - generic parameter references outside routine scope must fail in resolver
 - generic routine values must fail in typecheck
-- generic constraints must fail explicitly
+- non-standard generic constraints must fail explicitly
 - generic types must fail explicitly
 - lowering must continue to succeed for the shipped examples
 - backend execution must continue to succeed for the shipped positive examples
@@ -136,6 +139,8 @@ Hardening examples that should remain in sync:
 - positive
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
+  - `examples/generic_type_exec_m1m2`
+  - `examples/generic_standard_constraint_m1m2`
 - negative
   - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
@@ -144,6 +149,10 @@ Hardening examples that should remain in sync:
 
 Current hardened example matrix:
 
+- positive lowered examples
+- positive executable examples beyond the narrow M1 core
+  - `examples/generic_type_exec_m1m2`
+  - `examples/generic_standard_constraint_m1m2`
 - positive lowered examples
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
@@ -181,7 +190,7 @@ Current deeper hardening boundaries now pinned too:
 - generic hover and definition on checked-in examples are covered
 - plain completion still does not pretend generic-smart suggestions where the
   current editor does not provide them
-- the negative M1/M2 seam example is:
+- the negative generic-constraint conformance example is:
   - `examples/fail_generic_standard_constraint_m1m2`
 
 Second-pass hardening must not widen Milestone 1 into:
