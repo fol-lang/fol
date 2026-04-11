@@ -990,7 +990,6 @@ mod tests {
         std::fs::remove_dir_all(root).ok();
     }
 
-    #[test]
     fn v2_tree_sitter_coverage_keeps_highlights_distinct_from_locals_and_symbols() {
         let highlights = fol_tree_sitter_highlights_query();
         let locals = fol_tree_sitter_locals_query();
@@ -1468,6 +1467,14 @@ mod tests {
                 ["function", "type.builtin"].as_slice(),
             ),
             (
+                repo_root().join("examples/generic_routine_cross_file_m1/src/main.fol"),
+                ["function", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_routine_cross_file_m1/src/shared.fol"),
+                ["function", "type.builtin"].as_slice(),
+            ),
+            (
                 repo_root().join("examples/memo_run_min/src/main.fol"),
                 ["function", "type.builtin"].as_slice(),
             ),
@@ -1477,6 +1484,10 @@ mod tests {
             ),
             (
                 repo_root().join("examples/fail_generic_misuse_m1/src/main.fol"),
+                ["type", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_generic_standard_constraint_m1m2/src/main.fol"),
                 ["type", "function"].as_slice(),
             ),
             (
@@ -1492,11 +1503,35 @@ mod tests {
                 ["function", "type"].as_slice(),
             ),
             (
+                repo_root().join("examples/standards_protocol_multi_m2/src/main.fol"),
+                ["function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_multi_m2/src/contracts.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_multi_m2/src/rect.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
                 repo_root().join("examples/fail_standard_blueprint_m2/src/main.fol"),
                 ["type", "keyword.import"].as_slice(),
             ),
             (
                 repo_root().join("examples/fail_standard_as_type_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_missing_routine_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_signature_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_import_ambiguity_m2/src/main.fol"),
                 ["function", "type"].as_slice(),
             ),
             (

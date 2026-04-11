@@ -4245,6 +4245,39 @@ fn test_v2_contract_keeps_extended_standards_out_of_scope() {
 }
 
 #[test]
+fn test_tree_sitter_suite_tracks_all_shipped_v2_example_roots() {
+    let tree_sitter_tests =
+        std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/tree_sitter.rs"))
+            .expect("tree-sitter test module should exist");
+
+    for relative_path in [
+        "examples/generic_routine_m1/src/main.fol",
+        "examples/generic_routine_pair_m1/src/main.fol",
+        "examples/generic_routine_cross_file_m1/src/main.fol",
+        "examples/generic_routine_cross_file_m1/src/shared.fol",
+        "examples/standards_protocol_m2/src/main.fol",
+        "examples/standards_protocol_pair_m2/src/main.fol",
+        "examples/standards_protocol_multi_m2/src/main.fol",
+        "examples/standards_protocol_multi_m2/src/contracts.fol",
+        "examples/standards_protocol_multi_m2/src/rect.fol",
+        "examples/fail_generic_type_m1/src/main.fol",
+        "examples/fail_generic_misuse_m1/src/main.fol",
+        "examples/fail_generic_standard_constraint_m1m2/src/main.fol",
+        "examples/fail_standard_blueprint_m2/src/main.fol",
+        "examples/fail_standard_as_type_m2/src/main.fol",
+        "examples/fail_standard_missing_routine_m2/src/main.fol",
+        "examples/fail_standard_signature_m2/src/main.fol",
+        "examples/fail_standard_import_ambiguity_m2/src/main.fol",
+    ] {
+        assert!(
+            tree_sitter_tests.contains(relative_path),
+            "tree-sitter tests should keep shipped V2 example query coverage for '{}'",
+            relative_path
+        );
+    }
+}
+
+#[test]
 fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
     let contract =
         std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))

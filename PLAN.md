@@ -523,7 +523,7 @@ Acceptance criteria:
 
 - `fol-editor` no longer documents “no V2-aware editor behavior”
 
-### 11.2 Tree-Sitter Grammar And Queries
+### 11.2 Tree-Sitter Grammar And Queries (complete, verified 2026-04-11)
 
 Tasks:
 
