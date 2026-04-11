@@ -4491,6 +4491,45 @@ fn test_v2_docs_and_book_track_the_current_example_matrix() {
 }
 
 #[test]
+fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
+    let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
+        .expect("V2 quality gates note should load");
+
+    for required in [
+        "## Compiler Pipeline Gate",
+        "parser coverage in `test/parser`",
+        "resolver coverage in `test/resolver`",
+        "typecheck coverage in `test/typecheck`",
+        "lowering coverage in `lang/compiler/fol-lower`",
+        "backend or emitted-Rust coverage in `test/integration_tests`",
+        "compile-and-run app or example coverage in `test/apps` or `test/integration_tests`",
+        "test/parser/test_parser_parts/v2_generics_m1.rs",
+        "test/parser/test_parser_parts/implementation_declarations.rs",
+        "test/resolver/test_resolver_parts/generic_routines.rs",
+        "test/typecheck/test_typecheck_generics_m1.rs",
+        "test/typecheck/test_typecheck_standards_m2.rs",
+        "lang/compiler/fol-lower/src/decls/tests.rs",
+        "test/integration_tests/integration_editor_and_build.rs",
+        "test/apps/test_apps.rs",
+    ] {
+        assert!(gates.contains(required), "compiler gate contract should mention {required}");
+    }
+
+    for path in [
+        "test/parser/test_parser_parts/v2_generics_m1.rs",
+        "test/parser/test_parser_parts/implementation_declarations.rs",
+        "test/resolver/test_resolver_parts/generic_routines.rs",
+        "test/typecheck/test_typecheck_generics_m1.rs",
+        "test/typecheck/test_typecheck_standards_m2.rs",
+        "lang/compiler/fol-lower/src/decls/tests.rs",
+        "test/integration_tests/integration_editor_and_build.rs",
+        "test/apps/test_apps.rs",
+    ] {
+        assert!(repo_root().join(path).is_file(), "compiler gate path should exist: {path}");
+    }
+}
+
+#[test]
 fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
     let bundled_std_docs = std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
         .expect("bundled std docs should exist");

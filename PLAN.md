@@ -591,7 +591,7 @@ Acceptance criteria:
 
 Every V2 slice should satisfy all of these before merge.
 
-### 13.1 Compiler Pipeline Gate
+### 13.1 Compiler Pipeline Gate (complete, verified 2026-04-11)
 
 - parser test
 - resolver test
