@@ -4158,6 +4158,20 @@ fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
 }
 
 #[test]
+fn test_v2_runtime_strategy_note_freezes_monomorphization() {
+    let strategy =
+        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+            .expect("V2 runtime strategy note should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(strategy.contains("monomorphization for executable generic routines"));
+    assert!(strategy.contains("monomorphization for generic type instantiations"));
+    assert!(strategy.contains("no dictionary passing for the current `V2` target"));
+    assert!(plan.contains("### 3.2 Freeze Runtime/Backend Strategy For V2 (complete, verified 2026-04-11)"));
+}
+
+#[test]
 fn test_v2_m1_example_matrix_stays_honest() {
     let actual_examples = [
         "examples/generic_routine_m1",

@@ -98,7 +98,7 @@ Acceptance criteria:
 - no milestone note still describes a now-implemented feature as unsupported
 - no book chapter presents future syntax as if it already ships
 
-### 3.2 Freeze Runtime/Backend Strategy For V2
+### 3.2 Freeze Runtime/Backend Strategy For V2 (complete, verified 2026-04-11)
 
 Decide whether `V2` generics and standards lower by:
 
