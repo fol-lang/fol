@@ -229,7 +229,7 @@ Acceptance criteria:
 
 - one exact syntax and meaning for generic types exists in the book
 
-### 5.2 Parser And Resolver Support For Generic Types
+### 5.2 Parser And Resolver Support For Generic Types (complete, verified 2026-04-11)
 
 Primary crates:
 

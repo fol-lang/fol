@@ -9,6 +9,27 @@ use super::resolve::{
     resolve_visible_symbol,
 };
 
+fn instantiated_type_base(name: &str) -> Option<&str> {
+    let mut square_depth = 0usize;
+
+    for (idx, ch) in name.char_indices() {
+        match ch {
+            '[' => {
+                if square_depth == 0 {
+                    return Some(name[..idx].trim_end());
+                }
+                square_depth += 1;
+            }
+            ']' => {
+                square_depth = square_depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 pub fn record_identifier_reference(
     program: &mut ResolvedProgram,
     source_unit_id: SourceUnitId,
@@ -134,22 +155,42 @@ pub fn record_named_type_reference(
     syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
     origin: Option<fol_parser::ast::SyntaxOrigin>,
 ) -> Result<ReferenceId, ResolverError> {
-    let symbol_id = resolve_visible_or_imported_symbol_of_kinds(
-        program,
-        scope_id,
-        name,
-        &[
-            SymbolKind::Type,
-            SymbolKind::Alias,
-            SymbolKind::GenericParameter,
-            SymbolKind::Standard,
-        ],
-        Some("type"),
-        origin,
-    )?;
+    let resolved_name = instantiated_type_base(name).unwrap_or(name);
+    let (kind, symbol_id) = if resolved_name.contains("::") {
+        let symbol_id = resolve_qualified_symbol(
+            program,
+            scope_id,
+            &QualifiedPath::with_syntax_id(
+                resolved_name
+                    .split("::")
+                    .map(|segment| segment.to_string())
+                    .collect(),
+                syntax_id,
+            ),
+            &[SymbolKind::Type, SymbolKind::Alias, SymbolKind::Standard],
+            "qualified type",
+            origin,
+        )?;
+        (ReferenceKind::QualifiedTypeName, symbol_id)
+    } else {
+        let symbol_id = resolve_visible_or_imported_symbol_of_kinds(
+            program,
+            scope_id,
+            resolved_name,
+            &[
+                SymbolKind::Type,
+                SymbolKind::Alias,
+                SymbolKind::GenericParameter,
+                SymbolKind::Standard,
+            ],
+            Some("type"),
+            origin,
+        )?;
+        (ReferenceKind::TypeName, symbol_id)
+    };
     let reference_id = program.references.push(ResolvedReference {
         id: ReferenceId(0),
-        kind: ReferenceKind::TypeName,
+        kind,
         syntax_id,
         name: name.to_string(),
         scope: scope_id,

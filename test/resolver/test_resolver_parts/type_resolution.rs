@@ -309,3 +309,121 @@ fn test_resolver_treats_str_as_builtin_across_alias_and_type_definition_surfaces
     fs::remove_dir_all(&temp_root)
         .expect("Temporary resolver fixture directory should be removable after the test");
 }
+
+#[test]
+fn test_resolver_resolves_instantiated_generic_type_references_to_the_declared_base_type() {
+    let temp_root = unique_temp_root("type_resolution_generic_type_instantiation");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "typ Box(T): rec = {\n    var value: T;\n};\nali IntBox: Box[int];\nfun[] main(value: Box[int]): IntBox = {\n    var copy: Box[int] = value;\n    return copy;\n};\n",
+    )
+    .expect("Should write generic type instantiation resolver fixture");
+
+    let resolved = resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+    let box_symbol = resolved
+        .symbols_in_scope(resolved.program_scope)
+        .into_iter()
+        .find(|symbol| symbol.name == "Box" && symbol.kind == SymbolKind::Type)
+        .expect("Program scope should keep the generic type declaration symbol");
+    let source_unit_scope = resolved
+        .source_units
+        .iter()
+        .next()
+        .expect("Resolver should keep the source unit")
+        .scope_id;
+    let routine_scope_id = resolved
+        .scopes
+        .iter_with_ids()
+        .find_map(|(scope_id, scope)| matches!(scope.kind, ScopeKind::Routine).then_some(scope_id))
+        .expect("Resolver should create a routine scope");
+
+    assert!(
+        resolved
+            .references_in_scope(source_unit_scope)
+            .into_iter()
+            .any(|reference| {
+                reference.kind == ReferenceKind::TypeName
+                    && reference.name == "Box[int]"
+                    && reference.resolved == Some(box_symbol.id)
+            }),
+        "Alias targets should resolve instantiated generic type references against the declared base type"
+    );
+    assert!(
+        resolved
+            .references_in_scope(routine_scope_id)
+            .into_iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::TypeName
+                    && reference.name == "Box[int]"
+                    && reference.resolved == Some(box_symbol.id)
+            })
+            .count()
+            >= 2,
+        "Routine signatures and local hints should resolve instantiated generic type references against the declared base type"
+    );
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
+
+#[test]
+fn test_resolver_resolves_imported_instantiated_generic_type_references() {
+    let temp_root = unique_temp_root("type_resolution_imported_generic_type_instantiation");
+    let shared_root = temp_root.join("shared");
+    let app_root = temp_root.join("app");
+    fs::create_dir_all(&shared_root).expect("Should create the shared fixture root");
+    fs::create_dir_all(&app_root).expect("Should create the app fixture root");
+    fs::write(
+        shared_root.join("types.fol"),
+        "typ[exp] Box(T): rec = {\n    var value: T;\n};\n",
+    )
+    .expect("Should write shared generic type declaration fixture");
+    fs::write(
+        app_root.join("main.fol"),
+        "use shared: loc = {\"../shared\"};\nfun[] main(value: shared::Box[int]): shared::Box[int] = {\n    var copy: shared::Box[int] = value;\n    return copy;\n};\n",
+    )
+    .expect("Should write imported generic type instantiation fixture");
+
+    let resolved = resolve_package_from_folder(
+        app_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+    let import = resolved
+        .imports_in_scope(resolved.program_scope)
+        .into_iter()
+        .find(|import| import.alias_name == "shared")
+        .expect("Program scope should keep the shared import alias");
+    let box_symbol = resolved
+        .symbols_in_scope(import.target_scope.expect("Import target should resolve"))
+        .into_iter()
+        .find(|symbol| symbol.name == "Box" && symbol.kind == SymbolKind::Type)
+        .expect("Imported scope should keep the generic type declaration symbol");
+    let routine_scope_id = resolved
+        .scopes
+        .iter_with_ids()
+        .find_map(|(scope_id, scope)| matches!(scope.kind, ScopeKind::Routine).then_some(scope_id))
+        .expect("Resolver should create a routine scope");
+
+    assert_eq!(
+        resolved
+            .references_in_scope(routine_scope_id)
+            .into_iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::QualifiedTypeName
+                    && reference.name == "shared::Box[int]"
+                    && reference.resolved == Some(box_symbol.id)
+            })
+            .count(),
+        3,
+        "Routine signatures and local hints should resolve imported instantiated generic types through the base declaration symbol"
+    );
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary resolver fixture directory should be removable after the test");
+}
