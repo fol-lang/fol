@@ -62,7 +62,8 @@ At the current repo state after the landed Milestone 2 semantic slices:
 - typecheck implements protocol-only procedural conformance for required
   receiver-qualified routines
 - blueprint and extended standards remain explicitly unsupported
-- lowering/backend still stop at an explicit Milestone 2 boundary
+- lowering now preserves protocol-standard and conformance metadata
+- backend execution now works for the checked-in positive protocol examples
 
 ## Immediate implementation rule
 
@@ -97,8 +98,8 @@ Negative obligations:
 - malformed conformance claims must fail clearly
 - unsupported `blu` and `ext` claims must fail clearly
 - standards used as ordinary types must fail clearly
-- generic constraints using standards must fail clearly
-- lowering/backend must continue to stop with one exact Milestone 2 boundary
+- generic constraints using standards must follow the full `V2` constraints contract
+- backend/runtime execution must stay procedural rather than drifting into object dispatch
 
 Hardening examples that should remain in sync:
 
@@ -115,7 +116,7 @@ Hardening examples that should remain in sync:
 
 Current hardened example matrix:
 
-- positive lowering-boundary examples
+- positive executable examples
   - `examples/standards_protocol_m2`
   - `examples/standards_protocol_pair_m2`
   - `examples/standards_protocol_multi_m2`
@@ -157,4 +158,4 @@ Second-pass hardening must keep these surfaces out of scope:
 - blueprint standards
 - extended standards
 - standards as ordinary concrete types
-- lowering/backend support beyond the explicit M2 boundary
+- standards-driven dispatch or broader inference

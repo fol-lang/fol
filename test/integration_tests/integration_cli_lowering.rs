@@ -627,19 +627,17 @@ use super::*;
         let combined = format!("{stdout}\n{stderr}");
 
         assert!(
-            !output.status.success(),
-            "standards lowering should fail cleanly in M2, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            output.status.success(),
+            "standards lowering should now succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
         );
-        assert!(
-            combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
-            "CLI lowering should preserve the explicit M2 standards-lowering boundary wording"
-        );
+        assert!(combined.contains("standard geo symbol="));
+        assert!(combined.contains("requires area"));
 
         fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
-    fn test_cli_dump_lowered_rejects_multi_routine_protocol_standards_with_explicit_m2_boundary() {
+    fn test_cli_dump_lowered_supports_multi_routine_protocol_standards() {
         use std::fs;
 
         let temp_root = unique_temp_root("cli_standards_protocol_pair_lowering_m2");
@@ -678,17 +676,16 @@ use super::*;
         let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{stdout}\n{stderr}");
 
-        assert!(!output.status.success());
-        assert!(
-            combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
-            "multi-routine standards lowering should preserve the explicit M2 boundary wording"
-        );
+        assert!(output.status.success());
+        assert!(combined.contains("standard geo symbol="));
+        assert!(combined.contains("requires area"));
+        assert!(combined.contains("requires perimeter"));
 
         fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
-    fn test_cli_dump_lowered_rejects_cross_file_protocol_standards_with_explicit_m2_boundary() {
+    fn test_cli_dump_lowered_supports_cross_file_protocol_standards() {
         use std::fs;
 
         let temp_root = unique_temp_root("cli_standards_protocol_cross_file_lowering_m2");
@@ -724,23 +721,41 @@ use super::*;
         let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{stdout}\n{stderr}");
 
-        assert!(!output.status.success());
-        assert!(
-            combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
-            "cross-file standards lowering should preserve the explicit M2 boundary wording"
-        );
+        assert!(output.status.success());
+        assert!(combined.contains("standard geo symbol="));
+        assert!(combined.contains("conformance type="));
 
         fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
-    fn test_cli_full_chain_keeps_new_standards_examples_on_their_current_boundaries() {
+    fn test_cli_full_chain_builds_positive_standards_examples() {
+        let examples = [
+            "examples/standards_protocol_m2",
+            "examples/standards_protocol_pair_m2",
+            "examples/standards_protocol_multi_m2",
+        ];
+
+        for example in examples {
+            let root = copied_example_root(example);
+            let output = run_fol_in_dir(&root, &["code", "build"]);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            assert!(
+                output.status.success(),
+                "example '{example}' should now build cleanly: stdout=\n{}\nstderr=\n{}",
+                stdout,
+                stderr
+            );
+
+            std::fs::remove_dir_all(root).ok();
+        }
+    }
+
+    #[test]
+    fn test_cli_full_chain_keeps_negative_standards_examples_failing_cleanly() {
         let cases = [
-            (
-                "examples/standards_protocol_multi_m2",
-                vec!["code", "build"],
-                "protocol standard lowering is not yet supported in V2 Milestone 2",
-            ),
             (
                 "examples/fail_standard_missing_routine_m2",
                 vec!["code", "check"],

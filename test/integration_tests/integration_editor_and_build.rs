@@ -509,7 +509,7 @@ fn test_fail_generic_cross_file_m1_example_rejects_cleanly() {
 }
 
 #[test]
-fn test_standards_protocol_m2_example_opens_cleanly_but_stops_before_lowering() {
+fn test_standards_protocol_m2_example_opens_cleanly_and_runs() {
     let root = temp_example_root("examples/standards_protocol_m2");
 
     let main = root.join("src/main.fol");
@@ -540,26 +540,23 @@ fn test_standards_protocol_m2_example_opens_cleanly_but_stops_before_lowering() 
         "standards M2 example should stay editor-clean before lowering: {diagnostics:#?}"
     );
 
-    let build = run_fol_in_dir(&root, &["code", "build"]);
+    let build = run_example_compile(&root, true);
     let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
-    let combined = format!("{stdout}\n{stderr}");
     assert!(
-        !build.status.success(),
-        "standards M2 example should stop before lowering/backend: stdout=\n{}\nstderr=\n{}",
+        build.status.success(),
+        "standards M2 example should now build cleanly: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
-    assert!(
-        combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
-        "standards M2 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("built standards example should run");
+    assert!(run.status.success(), "stdout=\n{stdout}\nstderr=\n{stderr}");
 }
 
 #[test]
-fn test_standards_protocol_pair_m2_example_opens_cleanly_but_stops_before_lowering() {
+fn test_standards_protocol_pair_m2_example_opens_cleanly_and_runs() {
     let root = temp_example_root("examples/standards_protocol_pair_m2");
 
     let main = root.join("src/main.fol");
@@ -591,21 +588,16 @@ fn test_standards_protocol_pair_m2_example_opens_cleanly_but_stops_before_loweri
         "multi-routine standards M2 example should stay editor-clean before lowering: {diagnostics:#?}"
     );
 
-    let build = run_fol_in_dir(&root, &["code", "build"]);
-    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
-    let combined = format!("{stdout}\n{stderr}");
-    assert!(!build.status.success());
-    assert!(
-        combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
-        "multi-routine standards M2 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+    let build = run_example_compile(&root, true);
+    assert!(build.status.success());
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("built standards pair example should run");
+    assert!(run.status.success());
 }
 
 #[test]
-fn test_standards_protocol_multi_m2_example_opens_cleanly_but_stops_before_lowering() {
+fn test_standards_protocol_multi_m2_example_opens_cleanly_and_runs() {
     let root = temp_example_root("examples/standards_protocol_multi_m2");
 
     let main = root.join("src/main.fol");
@@ -637,17 +629,12 @@ fn test_standards_protocol_multi_m2_example_opens_cleanly_but_stops_before_lower
         "multi-standard standards M2 example should stay editor-clean before lowering: {diagnostics:#?}"
     );
 
-    let build = run_fol_in_dir(&root, &["code", "build"]);
-    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
-    let combined = format!("{stdout}\n{stderr}");
-    assert!(!build.status.success());
-    assert!(
-        combined.contains("protocol standard lowering is not yet supported in V2 Milestone 2"),
-        "multi-standard standards M2 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
+    let build = run_example_compile(&root, true);
+    assert!(build.status.success());
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("built multi-standard example should run");
+    assert!(run.status.success());
 }
 
 #[test]
@@ -4218,7 +4205,8 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(standards_note.contains("examples/fail_standard_missing_routine_m2"));
     assert!(standards_note.contains("examples/fail_standard_signature_m2"));
     assert!(standards_note.contains("examples/fail_standard_import_ambiguity_m2"));
-    assert!(standards_note.contains("lowering/backend still stop at an explicit Milestone 2 boundary"));
+    assert!(standards_note.contains("lowering now preserves protocol-standard and conformance metadata"));
+    assert!(standards_note.contains("backend execution now works for the checked-in positive protocol examples"));
     assert!(standards_note.contains("multi-standard conformance on one type"));
     assert!(standards_note.contains("imported-standard conformance truth"));
 

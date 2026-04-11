@@ -102,8 +102,8 @@ This subset is intentionally narrow:
 - only `pro` is semantic today
 - only required routines are semantic today
 - the type claim is checked procedurally
-- lowering/backend support is not yet implemented, so successful typecheck
-  still stops before code generation with an explicit Milestone 2 boundary
+- lowering preserves protocol-standard and conformance metadata
+- backend execution works for the checked-in positive protocol examples
 - editor hardening now covers contract-header hover/definition on checked-in
   standards examples while keeping broader required-routine hover support out
   of the claimed contract

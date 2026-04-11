@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn declaration_lowering_rejects_protocol_standards_with_explicit_m2_boundary() {
+    fn declaration_lowering_records_protocol_standards_and_conformances() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_standard_protocol_m2_{}.fol",
             std::time::SystemTime::now()
@@ -265,16 +265,21 @@ mod tests {
             .check_resolved_workspace(resolved)
             .expect("Lowering fixture should typecheck");
 
-        let errors = crate::LoweringSession::new(typed)
+        let lowered = crate::LoweringSession::new(typed)
             .lower_workspace()
-            .expect_err("protocol standard lowering should stay explicitly unsupported in M2");
+            .expect("protocol standard lowering should now succeed");
+        let entry_package = lowered.entry_package();
 
-        assert!(errors.iter().any(|error| {
-            error.kind() == crate::LoweringErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("protocol standard lowering is not yet supported in V2 Milestone 2")
-        }));
+        assert_eq!(entry_package.standards.len(), 1);
+        assert_eq!(entry_package.conformances.len(), 1);
+        let standard = entry_package
+            .standards
+            .values()
+            .next()
+            .expect("lowered package should retain the protocol standard");
+        assert_eq!(standard.name, "geo");
+        assert_eq!(standard.required_routines.len(), 1);
+        assert_eq!(standard.required_routines[0].name, "area");
     }
 
     #[test]

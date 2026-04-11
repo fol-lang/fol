@@ -2,6 +2,7 @@ use crate::{
     ids::{LoweredGlobalId, LoweredPackageId, LoweredRoutineId, LoweredTypeId},
     types::LoweredTypeTable,
 };
+use fol_parser::ast::StandardKind;
 use fol_parser::ast::SyntaxOrigin;
 use fol_resolver::{MountedSymbolProvenance, PackageIdentity, SourceUnitId, SymbolId};
 use fol_typecheck::CheckedTypeId;
@@ -126,6 +127,31 @@ pub struct LoweredTypeDecl {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoweredStandardRoutine {
+    pub symbol_id: SymbolId,
+    pub name: String,
+    pub params: Vec<LoweredTypeId>,
+    pub return_type: Option<LoweredTypeId>,
+    pub error_type: Option<LoweredTypeId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoweredStandard {
+    pub symbol_id: SymbolId,
+    pub name: String,
+    pub source_unit_id: SourceUnitId,
+    pub scope_id: fol_resolver::ScopeId,
+    pub kind: StandardKind,
+    pub required_routines: Vec<LoweredStandardRoutine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoweredConformance {
+    pub type_symbol_id: SymbolId,
+    pub standard_symbol_ids: Vec<SymbolId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoweredGlobal {
     pub id: LoweredGlobalId,
     pub symbol_id: SymbolId,
@@ -186,6 +212,8 @@ pub struct LoweredPackage {
     pub symbol_ownership: BTreeMap<SymbolId, LoweredSymbolOwnership>,
     pub checked_type_map: BTreeMap<CheckedTypeId, LoweredTypeId>,
     pub routine_signatures: BTreeMap<SymbolId, LoweredTypeId>,
+    pub standards: BTreeMap<SymbolId, LoweredStandard>,
+    pub conformances: BTreeMap<SymbolId, LoweredConformance>,
     pub type_decls: BTreeMap<SymbolId, LoweredTypeDecl>,
     pub global_decls: BTreeMap<LoweredGlobalId, LoweredGlobal>,
     pub routine_decls: BTreeMap<LoweredRoutineId, crate::LoweredRoutine>,
@@ -204,6 +232,8 @@ impl LoweredPackage {
             symbol_ownership: BTreeMap::new(),
             checked_type_map: BTreeMap::new(),
             routine_signatures: BTreeMap::new(),
+            standards: BTreeMap::new(),
+            conformances: BTreeMap::new(),
             type_decls: BTreeMap::new(),
             global_decls: BTreeMap::new(),
             routine_decls: BTreeMap::new(),

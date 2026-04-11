@@ -89,6 +89,43 @@ pub fn render_lowered_workspace(workspace: &LoweredWorkspace) -> String {
                 type_decl.name, type_decl.symbol_id.0, type_decl.runtime_type.0, type_decl.kind
             );
         }
+        for standard in package.standards.values() {
+            let _ = writeln!(
+                output,
+                "  standard {} symbol={} kind={:?}",
+                standard.name,
+                standard.symbol_id.0,
+                standard.kind
+            );
+            for requirement in &standard.required_routines {
+                let _ = writeln!(
+                    output,
+                    "    requires {} symbol={} params={:?} return={:?} error={:?}",
+                    requirement.name,
+                    requirement.symbol_id.0,
+                    requirement
+                        .params
+                        .iter()
+                        .map(|type_id| format!("t{}", type_id.0))
+                        .collect::<Vec<_>>(),
+                    requirement.return_type.map(|type_id| format!("t{}", type_id.0)),
+                    requirement.error_type.map(|type_id| format!("t{}", type_id.0)),
+                );
+            }
+        }
+        for conformance in package.conformances.values() {
+            let _ = writeln!(
+                output,
+                "  conformance type={} standards={}",
+                conformance.type_symbol_id.0,
+                conformance
+                    .standard_symbol_ids
+                    .iter()
+                    .map(|symbol_id| symbol_id.0.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
         for global in package.global_decls.values() {
             let _ = writeln!(
                 output,

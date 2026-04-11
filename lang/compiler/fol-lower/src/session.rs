@@ -87,13 +87,11 @@ impl LoweringSession {
                     .map(|lowered_type_id| (checked_type_id, lowered_type_id))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
-            if let Some(error) = unsupported_standard_lowering_error(package) {
-                return Err(vec![error]);
-            }
             decls::lower_routine_signatures(package, &mut lowered)?;
             decls::lower_alias_declarations(package, &mut lowered)?;
             decls::lower_record_declarations(package, &mut lowered)?;
             decls::lower_entry_declarations(package, &mut lowered)?;
+            decls::lower_standard_declarations(package, &mut lowered)?;
             decls::synthesize_structural_runtime_type_declarations(package, &mut lowered)?;
             decls::lower_global_declarations(package, &mut lowered, &mut next_global_index)?;
             decls::lower_routine_declarations(package, &mut lowered, &mut next_routine_index)?;
@@ -141,24 +139,6 @@ impl LoweringSession {
         verify::verify_workspace(&workspace)?;
         Ok(workspace)
     }
-}
-
-fn unsupported_standard_lowering_error(
-    typed_package: &fol_typecheck::TypedPackage,
-) -> Option<LoweringError> {
-    let first_standard = typed_package.program.all_typed_standards().next()?;
-    let standard_name = typed_package
-        .program
-        .resolved()
-        .symbol(first_standard.symbol_id)
-        .map(|symbol| symbol.name.as_str())
-        .unwrap_or("standard");
-    Some(LoweringError::with_kind(
-        LoweringErrorKind::Unsupported,
-        format!(
-            "protocol standard lowering is not yet supported in V2 Milestone 2 (encountered standard '{standard_name}')"
-        ),
-    ))
 }
 
 fn build_workspace_source_map(

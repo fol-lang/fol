@@ -350,6 +350,10 @@ impl TypedProgram {
         self.conformances.get(&symbol_id)
     }
 
+    pub fn all_typed_conformances(&self) -> impl Iterator<Item = &TypedConformance> {
+        self.conformances.values()
+    }
+
     pub(crate) fn typed_reference_mut(
         &mut self,
         reference_id: fol_resolver::ReferenceId,
