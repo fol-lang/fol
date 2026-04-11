@@ -392,7 +392,7 @@ Acceptance criteria:
 
 - `--dump-lowered` succeeds on positive protocol-standard examples
 
-### 7.2 Emit And Execute Protocol-Conforming Programs
+### 7.2 Emit And Execute Protocol-Conforming Programs (complete, verified 2026-04-11)
 
 Primary crates:
 
