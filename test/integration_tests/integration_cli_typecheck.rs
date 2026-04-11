@@ -260,26 +260,35 @@ use super::*;
     }
 
     #[test]
-    fn test_cli_typecheck_rejects_generic_types_for_m1() {
+    fn test_cli_typecheck_accepts_generic_types_through_semantic_check() {
         use std::fs;
 
         let temp_root = unique_temp_root("cli_generic_type_m1_boundary");
-        fs::create_dir_all(&temp_root).expect("Should create temp generic-type fixture root");
+        fs::create_dir_all(temp_root.join("src")).expect("Should create temp generic-type fixture root");
         fs::write(
-            temp_root.join("main.fol"),
-            "typ Box(T): rec = {\n    value: int\n};\n",
+            temp_root.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"generic_type_check\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"generic_type_check\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
+        )
+        .expect("Should write generic type build fixture");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            "typ Box(T): rec = {\n    value: T\n};\nfun[] main(value: Box[int]): int = {\n    return value.value;\n};\n",
         )
         .expect("Should write generic type fixture");
 
-        let output = run_fol(&[temp_root
-            .to_str()
-            .expect("CLI generic-type fixture path should be utf-8")]);
+        let output = run_fol_in_dir(&temp_root, &["code", "check"]);
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
 
-        assert!(!output.status.success(), "CLI should reject generic types in M1");
         assert!(
-            stdout.contains("generic types are not yet supported"),
-            "CLI should preserve the generic-type boundary wording"
+            output.status.success(),
+            "CLI semantic check should accept generic types now: stdout=\n{}\nstderr=\n{}",
+            stdout,
+            stderr
+        );
+        assert!(
+            !stdout.contains("generic types are not yet supported"),
+            "CLI semantic check should no longer report the stale generic-type typecheck boundary"
         );
 
         fs::remove_dir_all(&temp_root).ok();

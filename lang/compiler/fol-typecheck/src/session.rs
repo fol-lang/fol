@@ -135,11 +135,11 @@ impl TypecheckSession {
                 package.program.clone(),
                 self.config.capability_model,
             );
-            if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed) {
-                errors.append(&mut package_errors);
-            } else if let Err(mut package_errors) =
+            if let Err(mut package_errors) =
                 self.hydrate_mounted_symbol_types(&mut typed, typed_packages)
             {
+                errors.append(&mut package_errors);
+            } else if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed) {
                 errors.append(&mut package_errors);
             } else if let Err(mut package_errors) = exprs::type_program(&mut typed) {
                 errors.append(&mut package_errors);
@@ -314,6 +314,7 @@ impl TypecheckSession {
         })?;
         typed_symbol.declared_type = Some(translated);
         typed_symbol.receiver_type = translated_receiver;
+        typed_symbol.generic_params = foreign_type.generic_params.clone();
         Ok(())
     }
 

@@ -314,15 +314,6 @@ fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("generic types are not yet supported")
-        }),
-        "Expected a generic-type boundary diagnostic, got: {errors:?}"
-    );
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
                     .contains("definition/meta declarations are planned for a future release")
         }),
         "Expected a def/meta boundary diagnostic, got: {errors:?}"
@@ -389,27 +380,6 @@ fn v1_boundary_rejects_generic_error_types_for_m1() {
                     .contains("generic error types are not yet supported in V2 Milestone 1")
         }),
         "Expected generic error types to stay outside V2 Milestone 1, got: {errors:?}"
-    );
-}
-
-#[test]
-fn v1_boundary_keeps_generic_types_and_standards_as_out_of_scope_for_m1() {
-    let errors = typecheck_fixture_folder_errors(&[(
-        "main.fol",
-        "std shape: pro = {\n\
-             fun area(): int;\n\
-         };\n\
-         typ Box(T): rec = {\n\
-             value: int\n\
-         };\n",
-    )]);
-
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error.message().contains("generic types are not yet supported")
-        }),
-        "Expected generic types to stay outside V2 Milestone 1 while protocol standards remain supported, got: {errors:?}"
     );
 }
 

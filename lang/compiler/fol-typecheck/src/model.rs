@@ -34,6 +34,7 @@ pub struct TypedSymbol {
     pub source_unit_id: SourceUnitId,
     pub declared_type: Option<CheckedTypeId>,
     pub receiver_type: Option<CheckedTypeId>,
+    pub generic_params: Vec<SymbolId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,6 +215,7 @@ impl TypedProgram {
                         source_unit_id: symbol.source_unit,
                         declared_type: None,
                         receiver_type: None,
+                        generic_params: Vec::new(),
                     },
                 )
             })

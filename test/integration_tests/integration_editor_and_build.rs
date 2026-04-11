@@ -422,24 +422,15 @@ fn test_recoverable_generic_routines_with_concrete_error_types_build_and_run() {
 }
 
 #[test]
-fn test_fail_generic_type_m1_example_rejects_cleanly() {
+fn test_fail_generic_type_m1_example_semantic_check_now_passes() {
     let root = temp_example_root("examples/fail_generic_type_m1");
 
     let check = run_fol_in_dir(&root, &["code", "check"]);
     let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
-    let combined = format!("{stdout}\n{stderr}");
     assert!(
-        !check.status.success(),
-        "generic type M1 boundary example should fail semantic checking: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&check.stdout),
-        String::from_utf8_lossy(&check.stderr)
-    );
-    assert!(
-        combined.contains("generic types are not yet supported"),
-        "generic type M1 boundary example should keep the explicit generic-type message: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&check.stdout),
-        String::from_utf8_lossy(&check.stderr)
+        check.status.success(),
+        "generic type example should pass semantic checking now: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
 }
 

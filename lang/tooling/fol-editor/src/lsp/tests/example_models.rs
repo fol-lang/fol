@@ -232,7 +232,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
         (
             "examples/fail_generic_type_m1",
             "typ Box(T): rec = {\n    var item: T;\n};\nfun[] main(): int = {\n    return 0;\n};\n",
-            Some("generic types are not yet supported"),
+            None,
         ),
         (
             "examples/fail_generic_misuse_m1",

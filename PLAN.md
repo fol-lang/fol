@@ -253,7 +253,7 @@ Acceptance criteria:
 
 - generic type syntax is parse/resolve complete for the chosen contract
 
-### 5.3 Typecheck Generic Types
+### 5.3 Typecheck Generic Types (complete, verified 2026-04-11)
 
 Primary crate:
 

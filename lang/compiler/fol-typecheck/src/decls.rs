@@ -167,26 +167,27 @@ fn lower_top_level_declaration(
             )?;
         }
         AstNode::TypeDecl {
+            generics,
             name,
             explicit_contracts,
             type_def,
             ..
         } => {
             let symbol_id = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Type], name)?;
-            let symbol_scope = resolved
-                .symbol(symbol_id)
-                .map(|symbol| symbol.scope)
-                .ok_or_else(|| internal_error("resolved type symbol disappeared", None))?;
+            let type_scope =
+                find_top_level_type_decl_scope(resolved, source_unit_id, item, symbol_id)?;
+            let generic_params =
+                generic_params_in_scope(resolved, type_scope, item, generics)?;
             let type_id = match type_def {
                 TypeDefinition::Alias { target } => {
-                    lower_type(typed, resolved, symbol_scope, target)?
+                    lower_type(typed, resolved, type_scope, target)?
                 }
                 TypeDefinition::Record { fields, .. } => {
                     let mut lowered = BTreeMap::new();
                     for (field_name, field_type) in fields {
                         lowered.insert(
                             field_name.clone(),
-                            lower_type(typed, resolved, symbol_scope, field_type)?,
+                            lower_type(typed, resolved, type_scope, field_type)?,
                         );
                     }
                     typed
@@ -200,7 +201,7 @@ fn lower_top_level_declaration(
                             variant_name.clone(),
                             variant_type
                                 .as_ref()
-                                .map(|variant| lower_type(typed, resolved, symbol_scope, variant))
+                                .map(|variant| lower_type(typed, resolved, type_scope, variant))
                                 .transpose()?,
                         );
                     }
@@ -209,6 +210,7 @@ fn lower_top_level_declaration(
                         .intern(CheckedType::Entry { variants: lowered })
                 }
             };
+            record_symbol_generic_params(typed, symbol_id, generic_params)?;
             record_symbol_type(typed, symbol_id, type_id)?;
             if !explicit_contracts.is_empty() {
                 let standard_symbol_ids = explicit_contracts
@@ -1203,21 +1205,127 @@ pub(crate) fn lower_type(
         }
         FolType::Never => Ok(typed.builtin_types().never),
         FolType::Named { name, syntax_id } => {
-            let symbol_id = resolved_symbol_for_syntax(
-                resolved,
-                *syntax_id,
-                name,
-                SymbolReferenceShape::Named,
-            )?;
+            if let Some(instantiated) = parse_instantiated_type_args(name, type_origin(resolved, typ))? {
+                let symbol_id = if let Some(syntax_id) = *syntax_id {
+                    resolved_symbol_for_syntax(
+                        resolved,
+                        Some(syntax_id),
+                        name,
+                        SymbolReferenceShape::Named,
+                    )
+                    .or_else(|_| {
+                        resolve_declared_symbol_by_text(
+                            resolved,
+                            scope_id,
+                            &instantiated.base_name,
+                            type_origin(resolved, typ),
+                        )
+                    })?
+                } else {
+                    resolve_declared_symbol_by_text(
+                        resolved,
+                        scope_id,
+                        &instantiated.base_name,
+                        type_origin(resolved, typ),
+                    )?
+                };
+                let arg_types = instantiated
+                    .args
+                    .iter()
+                    .map(|arg| lower_type(typed, resolved, scope_id, arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return instantiate_declared_generic_type(
+                    typed,
+                    resolved,
+                    symbol_id,
+                    &arg_types,
+                    type_origin(resolved, typ),
+                );
+            }
+            let symbol_id = if syntax_id.is_some() {
+                resolved_symbol_for_syntax(
+                    resolved,
+                    *syntax_id,
+                    name,
+                    SymbolReferenceShape::Named,
+                )
+                .or_else(|_| {
+                    resolve_declared_symbol_by_text(
+                        resolved,
+                        scope_id,
+                        name,
+                        type_origin(resolved, typ),
+                    )
+                })?
+            } else {
+                resolve_declared_symbol_by_text(resolved, scope_id, name, type_origin(resolved, typ))?
+            };
             lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id)
         }
         FolType::QualifiedNamed { path } => {
-            let symbol_id = resolved_symbol_for_syntax(
-                resolved,
-                path.syntax_id(),
-                &path.joined(),
-                SymbolReferenceShape::Qualified,
-            )?;
+            let joined = path.joined();
+            if let Some(instantiated) =
+                parse_instantiated_type_args(&joined, type_origin(resolved, typ))?
+            {
+                let symbol_id = if path.syntax_id().is_some() {
+                    resolved_symbol_for_syntax(
+                        resolved,
+                        path.syntax_id(),
+                        &joined,
+                        SymbolReferenceShape::Qualified,
+                    )
+                    .or_else(|_| {
+                        resolve_declared_symbol_by_text(
+                            resolved,
+                            scope_id,
+                            &instantiated.base_name,
+                            type_origin(resolved, typ),
+                        )
+                    })?
+                } else {
+                    resolve_declared_symbol_by_text(
+                        resolved,
+                        scope_id,
+                        &instantiated.base_name,
+                        type_origin(resolved, typ),
+                    )?
+                };
+                let arg_types = instantiated
+                    .args
+                    .iter()
+                    .map(|arg| lower_type(typed, resolved, scope_id, arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return instantiate_declared_generic_type(
+                    typed,
+                    resolved,
+                    symbol_id,
+                    &arg_types,
+                    type_origin(resolved, typ),
+                );
+            }
+            let symbol_id = if path.syntax_id().is_some() {
+                resolved_symbol_for_syntax(
+                    resolved,
+                    path.syntax_id(),
+                    &joined,
+                    SymbolReferenceShape::Qualified,
+                )
+                .or_else(|_| {
+                    resolve_declared_symbol_by_text(
+                        resolved,
+                        scope_id,
+                        &joined,
+                        type_origin(resolved, typ),
+                    )
+                })?
+            } else {
+                resolve_declared_symbol_by_text(
+                    resolved,
+                    scope_id,
+                    &joined,
+                    type_origin(resolved, typ),
+                )?
+            };
             lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id)
         }
         FolType::Array { element_type, size } => {
@@ -1325,6 +1433,422 @@ pub(crate) fn lower_type(
             )))
         }
         unsupported => Err(unsupported_type_error(resolved, unsupported)),
+    }
+}
+
+#[derive(Debug)]
+struct ParsedInstantiatedType {
+    base_name: String,
+    args: Vec<FolType>,
+}
+
+fn parse_instantiated_type_args(
+    raw: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<Option<ParsedInstantiatedType>, TypecheckError> {
+    let Some(open_index) = raw.find('[') else {
+        return Ok(None);
+    };
+    if !raw.ends_with(']') {
+        return Err(invalid_input_error(
+            format!("instantiated type '{raw}' is missing a closing ']'"),
+            origin,
+        ));
+    }
+    let base_name = raw[..open_index].trim().to_string();
+    let inner = &raw[open_index + 1..raw.len() - 1];
+    let args = split_type_argument_text(inner)
+        .into_iter()
+        .map(|arg| {
+            fol_parser::parse_type_reference_text(&arg).map_err(|diagnostic| {
+                invalid_input_error(
+                    format!("could not parse generic type argument '{arg}': {}", diagnostic.message),
+                    origin.clone(),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(ParsedInstantiatedType { base_name, args }))
+}
+
+fn split_type_argument_text(raw: &str) -> Vec<String> {
+    let mut depth = 0usize;
+    let mut current = String::new();
+    let mut args = Vec::new();
+
+    for ch in raw.chars() {
+        match ch {
+            '[' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ']' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' | ';' if depth == 0 => {
+                let trimmed = current.trim();
+                if !trimmed.is_empty() {
+                    args.push(trimmed.to_string());
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        args.push(trimmed.to_string());
+    }
+
+    args
+}
+
+fn resolve_declared_symbol_by_text(
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    display_name: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<SymbolId, TypecheckError> {
+    if display_name.contains("::") {
+        let segments = display_name
+            .split("::")
+            .map(|segment| segment.trim())
+            .filter(|segment| !segment.is_empty())
+            .collect::<Vec<_>>();
+        if segments.len() < 2 {
+            return Err(invalid_input_error(
+                format!("qualified generic type argument '{display_name}' is malformed"),
+                origin,
+            ));
+        }
+        let (mut current_scope, mut current_namespace) = resolve_qualified_type_root_by_text(
+            resolved,
+            scope_id,
+            segments[0],
+            display_name,
+            origin.clone(),
+        )?;
+        for segment in &segments[1..segments.len() - 1] {
+            current_namespace.push_str("::");
+            current_namespace.push_str(segment);
+            current_scope = resolved.namespace_scope(&current_namespace).ok_or_else(|| {
+                invalid_input_error(
+                    format!("could not resolve generic type argument '{display_name}'"),
+                    origin.clone(),
+                )
+            })?;
+        }
+        return resolve_symbol_in_scope_by_text(
+            resolved,
+            current_scope,
+            segments.last().copied().unwrap_or_default(),
+            display_name,
+            origin,
+        );
+    }
+
+    let mut current_scope = Some(scope_id);
+    let canonical_name = canonical_identifier_key(display_name);
+    while let Some(scope_id) = current_scope {
+        let matches = resolved
+            .symbols_named_in_scope(scope_id, &canonical_name)
+            .into_iter()
+            .filter(|symbol| {
+                matches!(
+                    symbol.kind,
+                    SymbolKind::Type
+                        | SymbolKind::Alias
+                        | SymbolKind::GenericParameter
+                        | SymbolKind::Standard
+                )
+            })
+            .collect::<Vec<_>>();
+        match matches.len() {
+            1 => return Ok(matches[0].id),
+            0 => {
+                current_scope = resolved.scope(scope_id).and_then(|scope| scope.parent);
+            }
+            _ => {
+                return Err(invalid_input_error(
+                    format!("generic type argument '{display_name}' is ambiguous in the current scope"),
+                    origin,
+                ));
+            }
+        }
+    }
+
+    Err(invalid_input_error(
+        format!("could not resolve generic type argument '{display_name}'"),
+        origin,
+    ))
+}
+
+fn resolve_qualified_type_root_by_text(
+    resolved: &ResolvedProgram,
+    starting_scope: ScopeId,
+    root_segment: &str,
+    full_path: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(ScopeId, String), TypecheckError> {
+    if root_segment == resolved.package_name() {
+        return Ok((resolved.program_scope, resolved.package_name().to_string()));
+    }
+
+    let canonical_root = canonical_identifier_key(root_segment);
+    let mut current_scope = Some(starting_scope);
+    while let Some(scope_id) = current_scope {
+        let import_aliases = resolved
+            .symbols_named_in_scope(scope_id, &canonical_root)
+            .into_iter()
+            .filter(|symbol| symbol.kind == SymbolKind::ImportAlias)
+            .collect::<Vec<_>>();
+        match import_aliases.len() {
+            1 => {
+                let target_scope = resolved
+                    .imports_in_scope(scope_id)
+                    .into_iter()
+                    .find(|import| import.alias_symbol == import_aliases[0].id)
+                    .and_then(|import| import.target_scope)
+                    .ok_or_else(|| {
+                        invalid_input_error(
+                            format!("could not resolve generic type argument '{full_path}'"),
+                            origin.clone(),
+                        )
+                    })?;
+                let namespace = resolved
+                    .scope(target_scope)
+                    .and_then(|scope| match &scope.kind {
+                        fol_resolver::ScopeKind::ProgramRoot { package } => Some(package.clone()),
+                        fol_resolver::ScopeKind::NamespaceRoot { namespace } => {
+                            Some(namespace.clone())
+                        }
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        TypecheckError::new(
+                            TypecheckErrorKind::Internal,
+                            "qualified type lookup lost its namespace root",
+                        )
+                    })?;
+                return Ok((target_scope, namespace));
+            }
+            0 => current_scope = resolved.scope(scope_id).and_then(|scope| scope.parent),
+            _ => {
+                return Err(invalid_input_error(
+                    format!("generic type argument '{full_path}' is ambiguous in the current scope"),
+                    origin,
+                ))
+            }
+        }
+    }
+
+    let namespace = format!("{}::{}", resolved.package_name(), root_segment);
+    resolved
+        .namespace_scope(&namespace)
+        .map(|scope_id| (scope_id, namespace))
+        .ok_or_else(|| {
+            invalid_input_error(
+                format!("could not resolve generic type argument '{full_path}'"),
+                origin,
+            )
+        })
+}
+
+fn resolve_symbol_in_scope_by_text(
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    name: &str,
+    full_path: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<SymbolId, TypecheckError> {
+    let canonical_name = canonical_identifier_key(name);
+    let matches = resolved
+        .symbols_named_in_scope(scope_id, &canonical_name)
+        .into_iter()
+        .filter(|symbol| {
+            matches!(
+                symbol.kind,
+                SymbolKind::Type
+                    | SymbolKind::Alias
+                    | SymbolKind::GenericParameter
+                    | SymbolKind::Standard
+            )
+        })
+        .collect::<Vec<_>>();
+    match matches.len() {
+        1 => Ok(matches[0].id),
+        0 => Err(invalid_input_error(
+            format!("could not resolve generic type argument '{full_path}'"),
+            origin,
+        )),
+        _ => Err(invalid_input_error(
+            format!("generic type argument '{full_path}' is ambiguous in the current scope"),
+            origin,
+        )),
+    }
+}
+
+fn instantiate_declared_generic_type(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    symbol_id: SymbolId,
+    arg_types: &[CheckedTypeId],
+    origin: Option<SyntaxOrigin>,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let typed_symbol = typed.typed_symbol(symbol_id).ok_or_else(|| {
+        internal_error("instantiated type symbol disappeared during type lowering", origin.clone())
+    })?;
+    let template = typed_symbol.declared_type.ok_or_else(|| {
+        match origin.clone() {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::Unsupported,
+                "generic recursive type instantiation is not yet supported",
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::Unsupported,
+                "generic recursive type instantiation is not yet supported",
+            ),
+        }
+    })?;
+    if typed_symbol.generic_params.is_empty() {
+        return lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id);
+    }
+    if typed_symbol.generic_params.len() != arg_types.len() {
+        return Err(invalid_input_error(
+            format!(
+                "generic type '{}' expects {} type argument(s) but got {}",
+                resolved
+                    .symbol(symbol_id)
+                    .map(|symbol| symbol.name.as_str())
+                    .unwrap_or("?"),
+                typed_symbol.generic_params.len(),
+                arg_types.len()
+            ),
+            origin,
+        ));
+    }
+    let bindings = typed_symbol
+        .generic_params
+        .iter()
+        .copied()
+        .zip(arg_types.iter().copied())
+        .collect::<BTreeMap<_, _>>();
+    substitute_generic_checked_type(typed, template, &bindings, origin)
+}
+
+fn substitute_generic_checked_type(
+    typed: &mut TypedProgram,
+    type_id: CheckedTypeId,
+    bindings: &BTreeMap<SymbolId, CheckedTypeId>,
+    origin: Option<SyntaxOrigin>,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let checked = typed
+        .type_table()
+        .get(type_id)
+        .cloned()
+        .ok_or_else(|| internal_error("generic type substitution lost a checked type", origin.clone()))?;
+    match checked {
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::GenericParameter,
+            ..
+        } => bindings.get(&symbol).copied().ok_or_else(|| {
+            invalid_input_error(
+                format!("generic type substitution left parameter '{}' unbound", symbol.0),
+                origin.clone(),
+            )
+        }),
+        CheckedType::Declared { .. } | CheckedType::Builtin(_) => Ok(type_id),
+        CheckedType::Array { element_type, size } => {
+            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Array { element_type, size }))
+        }
+        CheckedType::Vector { element_type } => {
+            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Vector { element_type }))
+        }
+        CheckedType::Sequence { element_type } => {
+            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Sequence { element_type }))
+        }
+        CheckedType::Set { member_types } => {
+            let member_types = member_types
+                .into_iter()
+                .map(|member| substitute_generic_checked_type(typed, member, bindings, origin.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Set { member_types }))
+        }
+        CheckedType::Map { key_type, value_type } => {
+            let key_type = substitute_generic_checked_type(typed, key_type, bindings, origin.clone())?;
+            let value_type =
+                substitute_generic_checked_type(typed, value_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Map { key_type, value_type }))
+        }
+        CheckedType::Optional { inner } => {
+            let inner = substitute_generic_checked_type(typed, inner, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Optional { inner }))
+        }
+        CheckedType::Error { inner } => {
+            let inner = inner
+                .map(|inner| substitute_generic_checked_type(typed, inner, bindings, origin.clone()))
+                .transpose()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Error { inner }))
+        }
+        CheckedType::Record { fields } => {
+            let fields = fields
+                .into_iter()
+                .map(|(field_name, field_type)| {
+                    substitute_generic_checked_type(typed, field_type, bindings, origin.clone())
+                        .map(|field_type| (field_name, field_type))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Record { fields }))
+        }
+        CheckedType::Entry { variants } => {
+            let variants = variants
+                .into_iter()
+                .map(|(variant_name, variant_type)| {
+                    variant_type
+                        .map(|variant_type| {
+                            substitute_generic_checked_type(typed, variant_type, bindings, origin.clone())
+                        })
+                        .transpose()
+                        .map(|variant_type| (variant_name, variant_type))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Entry { variants }))
+        }
+        CheckedType::Routine(signature) => {
+            let params = signature
+                .params
+                .into_iter()
+                .map(|param| substitute_generic_checked_type(typed, param, bindings, origin.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let return_type = signature
+                .return_type
+                .map(|return_type| {
+                    substitute_generic_checked_type(typed, return_type, bindings, origin.clone())
+                })
+                .transpose()?;
+            let error_type = signature
+                .error_type
+                .map(|error_type| {
+                    substitute_generic_checked_type(typed, error_type, bindings, origin.clone())
+                })
+                .transpose()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Routine(RoutineType {
+                generic_params: Vec::new(),
+                param_names: signature.param_names,
+                param_defaults: signature.param_defaults,
+                variadic_index: signature.variadic_index,
+                params,
+                return_type,
+                error_type,
+            })))
+        }
     }
 }
 
@@ -1619,6 +2143,24 @@ fn record_symbol_receiver_type(
     Ok(())
 }
 
+fn record_symbol_generic_params(
+    typed: &mut TypedProgram,
+    symbol_id: SymbolId,
+    generic_params: Vec<SymbolId>,
+) -> Result<(), TypecheckError> {
+    let symbol = typed.typed_symbol_mut(symbol_id).ok_or_else(|| {
+        TypecheckError::new(
+            TypecheckErrorKind::SymbolTableCorrupted,
+            format!(
+                "symbol table corrupted: symbol {} is missing while recording generic params",
+                symbol_id.0
+            ),
+        )
+    })?;
+    symbol.generic_params = generic_params;
+    Ok(())
+}
+
 fn binding_names(pattern: &BindingPattern) -> Vec<String> {
     match pattern {
         BindingPattern::Name(name) | BindingPattern::Rest(name) => vec![name.clone()],
@@ -1700,9 +2242,6 @@ fn unsupported_v1_decl_with_origin(
         {
             Some("type extension declarations are planned for a future release")
         }
-        AstNode::TypeDecl { generics, .. } if !generics.is_empty() => {
-            Some("generic types are not yet supported")
-        }
         AstNode::DefDecl { .. } => {
             Some("definition/meta declarations are planned for a future release")
         }
@@ -1730,6 +2269,93 @@ fn unsupported_v1_decl_with_origin(
         }
         None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
     })
+}
+
+fn find_top_level_type_decl_scope(
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    item: &ParsedTopLevel,
+    _symbol_id: SymbolId,
+) -> Result<ScopeId, TypecheckError> {
+    let parent_scope = resolved
+        .source_unit(source_unit_id)
+        .map(|source_unit| source_unit.scope_id)
+        .ok_or_else(|| internal_error("resolved source unit disappeared during type lowering", None))?;
+    let decl_origin = resolved.syntax_index().origin(item.node_id).cloned();
+    let source_unit = resolved
+        .syntax()
+        .source_units
+        .get(source_unit_id.0)
+        .ok_or_else(|| internal_error("resolved source unit disappeared during type lowering", None))?;
+    let type_scope_index = source_unit
+        .items
+        .iter()
+        .filter(|candidate| {
+            matches!(
+                candidate.node,
+                AstNode::TypeDecl { .. } | AstNode::ImpDecl { .. }
+            )
+        })
+        .position(|candidate| candidate.node_id == item.node_id)
+        .ok_or_else(|| {
+            internal_error(
+                "type declaration disappeared from source unit while lowering signatures",
+                decl_origin.clone(),
+            )
+        })?;
+
+    let candidate_scopes = resolved
+        .scopes
+        .iter_with_ids()
+        .filter_map(|(scope_id, scope)| {
+            (matches!(scope.kind, fol_resolver::ScopeKind::TypeDeclaration)
+                && scope.parent == Some(parent_scope)
+                && scope.source_unit == Some(source_unit_id))
+                .then_some(scope_id)
+        })
+        .collect::<Vec<_>>();
+
+    candidate_scopes
+        .get(type_scope_index)
+        .copied()
+        .ok_or_else(|| {
+            internal_error(
+                "type declaration lost its resolver-owned declaration scope",
+                decl_origin,
+            )
+        })
+}
+
+fn generic_params_in_scope(
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    item: &ParsedTopLevel,
+    generics: &[Generic],
+) -> Result<Vec<SymbolId>, TypecheckError> {
+    let decl_origin = resolved.syntax_index().origin(item.node_id).cloned();
+    let generic_symbols = resolved
+        .scope(scope_id)
+        .ok_or_else(|| {
+            internal_error(
+                "type declaration resolved to an unknown declaration scope",
+                decl_origin.clone(),
+            )
+        })?
+        .symbols
+        .iter()
+        .filter_map(|symbol_id| resolved.symbol(*symbol_id))
+        .filter(|symbol| symbol.kind == SymbolKind::GenericParameter)
+        .map(|symbol| symbol.id)
+        .collect::<Vec<_>>();
+
+    if generic_symbols.len() != generics.len() {
+        return Err(internal_error(
+            "generic type declaration lost its resolver-owned parameter scope",
+            decl_origin,
+        ));
+    }
+
+    Ok(generic_symbols)
 }
 
 pub(crate) fn unsupported_routine_param_surface_message(
