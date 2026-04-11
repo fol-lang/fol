@@ -75,7 +75,7 @@ If any one of those is false, `V2` is not complete.
 These decisions should be made before large implementation work starts.
 Without them, the compiler will drift into multiple partial semantics.
 
-### 3.1 Freeze The Actual V2 Surface
+### 3.1 Freeze The Actual V2 Surface (complete, verified 2026-04-11)
 
 Decide whether full `V2` includes:
 

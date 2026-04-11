@@ -4282,6 +4282,35 @@ fn test_v2_milestone_notes_are_retained_as_transition_notes() {
 }
 
 #[test]
+fn test_v2_surface_freeze_is_now_explicit_across_plan_docs_and_book() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(contract.contains("Current full `V2` target:"));
+    assert!(contract.contains("Still out of scope for this `V2` target:"));
+    assert!(generics_book.contains("Full `V2` now includes generic type declarations"));
+    assert!(standards_book.contains("For the current full `V2` target"));
+    assert!(generics_note.contains("Historical transition note:"));
+    assert!(standards_note.contains("Historical transition note:"));
+    assert!(plan.contains("### 3.1 Freeze The Actual V2 Surface (complete, verified 2026-04-11)"));
+}
+
+#[test]
 fn test_v2_m1_example_matrix_stays_honest() {
     let actual_examples = [
         "examples/generic_routine_m1",
