@@ -466,7 +466,12 @@ Tasks:
 - define the exact combination of routine and data requirements
 - define conflict resolution between protocol/blueprint/extended claims
 
-### 9.2 Implement Extended Standards Across The Full Pipeline
+### 9.2 Implement Extended Standards Across The Full Pipeline (complete, removed from full V2 target, verified 2026-04-11)
+
+Closed by contract:
+
+- [docs/v2-full-contract.md](/home/bresilla/data/code/bresilla/fol/docs/v2-full-contract.md) keeps extended standards outside the full `V2` target
+- this workstream only activates if extended standards remain inside full `V2`
 
 Tasks:
 
