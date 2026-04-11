@@ -4172,6 +4172,26 @@ fn test_v2_runtime_strategy_note_freezes_monomorphization() {
 }
 
 #[test]
+fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(contract.contains("Full `V2` includes generic types."));
+    assert!(contract.contains("typ Box(T: item): rec = { ... };"));
+    assert!(contract.contains("generic records and generic aliases are part of the target"));
+    assert!(generics_book.contains("Full `V2` now includes generic type declarations and explicit instantiation."));
+    assert!(generics_book.contains("typ Box(T: item): rec = {"));
+    assert!(generics_book.contains("typ Pair(T: left, U: right): map[T, U];"));
+    assert!(plan.contains("### 5.1 Resolve The Generic Type Contract (complete, verified 2026-04-11)"));
+}
+
+#[test]
 fn test_v2_m1_example_matrix_stays_honest() {
     let actual_examples = [
         "examples/generic_routine_m1",

@@ -26,3 +26,23 @@ The implementation rule is:
 
 - land one exact compiler/runtime/editor contract for the surfaces above
 - keep later dispatch-oriented work outside `V2` until chosen explicitly
+
+## Generic Type Contract
+
+Full `V2` includes generic types.
+
+Chosen contract:
+
+- generic type declarations are part of full `V2`
+- the canonical declaration surface follows the existing parser-owned shape, for
+  example `typ Box(T: item): rec = { ... };`
+- generic records and generic aliases are part of the target
+- generic argument arity must be explicit and exact
+- generic types remain a compile-time instantiation surface under the chosen
+  monomorphization strategy
+
+Still outside this generic-type contract:
+
+- generic inference for type arguments by unrelated contextual usage
+- generic constraints beyond standards-as-constraints
+- a second runtime-owned reified generic type system

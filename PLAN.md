@@ -209,7 +209,7 @@ Acceptance criteria:
 
 This is the biggest missing semantic block if full `V2` includes generics beyond M1.
 
-### 5.1 Resolve The Generic Type Contract
+### 5.1 Resolve The Generic Type Contract (complete, verified 2026-04-11)
 
 Tasks:
 

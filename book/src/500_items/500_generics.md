@@ -51,15 +51,24 @@ fun biggerInteger(a, b: int[64]): int[64] = { max(a, b) }
 
 ### Generic Types
 
-Generic type surfaces are later-milestone design only. They are shown here as
-future syntax, not current `V1` behavior.
+Full `V2` now includes generic type declarations and explicit instantiation.
 
-```
-typ container[T: gen, N: int](): obj = {
-	var anarray: arr[T,N];
-	+fun getsize(): num = { result = N; }
+Chosen contract:
+
+- the canonical declaration surface follows the existing parser-owned shape
+- generic records and generic aliases are in scope for full `V2`
+- generic arguments are explicit and arity-checked
+- generic types use the same monomorphization-oriented execution strategy as
+  generic routines
+
+Example declaration shapes:
+
+```fol
+typ Box(T: item): rec = {
+    value: T;
 };
-var aContainer: container[int, 5] = { anarray = {zero, one, two, three, four}; };
+
+typ Pair(T: left, U: right): map[T, U];
 ```
 
 ## Generic Calls
