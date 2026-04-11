@@ -4139,6 +4139,21 @@ fn test_v2_current_subset_inventory_stays_honest() {
 }
 
 #[test]
+fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+
+    assert!(contract.contains("executable generic routines"));
+    assert!(contract.contains("generic types"));
+    assert!(contract.contains("executable protocol standards"));
+    assert!(contract.contains("standards-as-constraints"));
+    assert!(contract.contains("blueprint standards"));
+    assert!(contract.contains("extended standards"));
+    assert!(contract.contains("broad dispatch driven by standards"));
+}
+
+#[test]
 fn test_v2_m1_example_matrix_stays_honest() {
     let actual_examples = [
         "examples/generic_routine_m1",
