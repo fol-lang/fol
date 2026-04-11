@@ -24,3 +24,17 @@ The current canonical roots for the shipped `V2` matrix are:
 - `lang/compiler/fol-lower/src/decls/tests.rs`
 - `test/integration_tests/integration_editor_and_build.rs`
 - `test/apps/test_apps.rs`
+
+## Tooling Gate
+
+Every shipped `V2` slice must land with:
+
+- editor-opened example coverage
+- hover and definition coverage for new declarations
+- tree-sitter query coverage for the shipped example matrix
+
+The current canonical roots for the shipped `V2` tooling gate are:
+
+- `lang/tooling/fol-editor/src/lsp/tests/example_models.rs`
+- `lang/tooling/fol-editor/src/tree_sitter.rs`
+- `test/integration_tests/integration_editor_and_build.rs`

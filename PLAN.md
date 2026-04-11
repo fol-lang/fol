@@ -600,7 +600,7 @@ Every V2 slice should satisfy all of these before merge.
 - backend/emitted-Rust test
 - app/example compile-and-run test where relevant
 
-### 13.2 Tooling Gate
+### 13.2 Tooling Gate (complete, verified 2026-04-11)
 
 - editor-opened example test
 - hover/definition test for new declarations

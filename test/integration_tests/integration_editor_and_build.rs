@@ -4530,6 +4530,61 @@ fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
 }
 
 #[test]
+fn test_v2_quality_gate_tooling_is_tracked_in_repo_contract() {
+    let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
+        .expect("V2 quality gates note should load");
+    let lsp_tests = std::fs::read_to_string(
+        repo_root().join("lang/tooling/fol-editor/src/lsp/tests/example_models.rs"),
+    )
+    .expect("V2 LSP example-model tests should load");
+    let tree_sitter_tests =
+        std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/tree_sitter.rs"))
+            .expect("tree-sitter query tests should load");
+
+    for required in [
+        "## Tooling Gate",
+        "editor-opened example coverage",
+        "hover and definition coverage for new declarations",
+        "tree-sitter query coverage for the shipped example matrix",
+        "lang/tooling/fol-editor/src/lsp/tests/example_models.rs",
+        "lang/tooling/fol-editor/src/tree_sitter.rs",
+        "test/integration_tests/integration_editor_and_build.rs",
+    ] {
+        assert!(gates.contains(required), "tooling gate contract should mention {required}");
+    }
+
+    for path in [
+        "lang/tooling/fol-editor/src/lsp/tests/example_models.rs",
+        "lang/tooling/fol-editor/src/tree_sitter.rs",
+        "test/integration_tests/integration_editor_and_build.rs",
+    ] {
+        assert!(repo_root().join(path).is_file(), "tooling gate path should exist: {path}");
+    }
+
+    for example in [
+        "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
+        "examples/standards_protocol_multi_m2",
+    ] {
+        assert!(lsp_tests.contains(example), "tooling gate LSP tests should mention {example}");
+    }
+
+    for source in [
+        "examples/generic_routine_cross_file_m1/src/main.fol",
+        "examples/generic_routine_cross_file_m1/src/shared.fol",
+        "examples/standards_protocol_multi_m2/src/main.fol",
+        "examples/standards_protocol_multi_m2/src/contracts.fol",
+        "examples/standards_protocol_multi_m2/src/rect.fol",
+    ] {
+        assert!(
+            tree_sitter_tests.contains(source),
+            "tooling gate tree-sitter tests should mention {source}"
+        );
+    }
+}
+
+#[test]
 fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
     let bundled_std_docs = std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
         .expect("bundled std docs should exist");
