@@ -564,7 +564,7 @@ Acceptance criteria:
 - positive examples compile and run
 - negative examples fail with exact intentional diagnostics
 
-### 12.2 Remove Or Retag No-Longer-Correct Milestone Notes
+### 12.2 Remove Or Retag No-Longer-Correct Milestone Notes (complete, verified 2026-04-11)
 
 Tasks:
 

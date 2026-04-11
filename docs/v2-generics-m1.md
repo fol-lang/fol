@@ -1,5 +1,11 @@
 # V2 Generics Milestone 1
 
+Historical transition note:
+
+- this document tracks the narrow M1 hardening state, not the full `V2`
+  product contract
+- the current full `V2` target is frozen in `docs/v2-full-contract.md`
+
 This note freezes the intended scope for the first `V2` generics milestone.
 
 It is not the full `V2` generic design.

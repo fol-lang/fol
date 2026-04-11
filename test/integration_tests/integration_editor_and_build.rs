@@ -4262,6 +4262,26 @@ fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
 }
 
 #[test]
+fn test_v2_milestone_notes_are_retained_as_transition_notes() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(generics_note.contains("Historical transition note:"));
+    assert!(generics_note.contains("not the full `V2`"));
+    assert!(generics_note.contains("docs/v2-full-contract.md"));
+    assert!(standards_note.contains("Historical transition note:"));
+    assert!(standards_note.contains("not the full `V2`"));
+    assert!(standards_note.contains("docs/v2-full-contract.md"));
+    assert!(plan.contains("### 12.2 Remove Or Retag No-Longer-Correct Milestone Notes (complete, verified 2026-04-11)"));
+}
+
+#[test]
 fn test_v2_m1_example_matrix_stays_honest() {
     let actual_examples = [
         "examples/generic_routine_m1",
