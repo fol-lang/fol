@@ -254,6 +254,12 @@ pub fn render_type_default_expr_in_workspace(
             BackendErrorKind::Unsupported,
             "never-typed globals cannot be default-initialized",
         )),
+        LoweredType::GenericParameter { name } => Err(BackendError::new(
+            BackendErrorKind::Unsupported,
+            format!(
+                "backend execution for generic parameter type '{name}' is not implemented yet"
+            ),
+        )),
         LoweredType::Array {
             element_type,
             size: Some(_size),

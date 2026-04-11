@@ -69,17 +69,19 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - typecheck supports direct generic routine calls with narrow argument-driven inference
 - generic routine values remain unsupported
 - generic types remain unsupported
-- generic routine lowering is still explicitly unsupported
+- generic routine lowering now succeeds for the shipped Milestone 1 examples
+- backend execution for generic routines is still deferred to the next slice
 
 That means the current honest boundary is:
 
-- parser/resolver/typecheck fixtures and editor-opened examples are the current
-  validation path for Milestone 1 generic routine examples
-- full lowering/backend execution still stops with an explicit generic-routine diagnostic
+- parser/resolver/typecheck fixtures, lowered snapshots, and editor-opened
+  examples are the current validation path for Milestone 1 generic routine examples
+- full backend execution still stops after lowering because backend generic
+  emission is not implemented yet
 - no narrowing slice should pretend resolver owns duplicate generic-name
   diagnostics when parser already rejects them first
-- no narrowing slice should claim generic lowering works in Milestone 1
-  while the chosen boundary is still an explicit lowering stop
+- no narrowing slice should claim generic backend execution works in Milestone 1
+  while the chosen boundary is still a backend stop
 
 ## Immediate implementation rule
 
@@ -118,7 +120,9 @@ Negative obligations:
 - generic routine values must fail in typecheck
 - generic constraints must fail explicitly
 - generic types must fail explicitly
-- lowering/backend must continue to stop with one exact Milestone 1 boundary
+- lowering must continue to succeed for the shipped examples
+- backend must continue to stop with one exact Milestone 1 boundary until the
+  execution slice lands
 
 Hardening examples that should remain in sync:
 
@@ -133,7 +137,7 @@ Hardening examples that should remain in sync:
 
 Current hardened example matrix:
 
-- positive lowering-boundary examples
+- positive lowered examples
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
@@ -175,4 +179,4 @@ Second-pass hardening must not widen Milestone 1 into:
 - generic constraints
 - generic types
 - first-class generic routine values
-- backend/lowering support
+- backend execution support

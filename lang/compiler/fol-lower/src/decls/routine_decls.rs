@@ -9,15 +9,6 @@ use fol_typecheck::CheckedType;
 use super::symbol_lookup::{find_local_symbol_id, find_symbol_in_scope_or_descendants};
 use super::type_decls::lower_symbol_signature;
 
-fn unsupported_generic_routine_lowering_error(name: &str) -> LoweringError {
-    LoweringError::with_kind(
-        LoweringErrorKind::Unsupported,
-        format!(
-            "generic routine '{name}' lowering is not yet supported in V2 Milestone 1"
-        ),
-    )
-}
-
 pub fn lower_routine_signatures(
     typed_package: &fol_typecheck::TypedPackage,
     lowered_package: &mut LoweredPackage,
@@ -246,12 +237,7 @@ pub fn lower_routine_decl(
                 ),
             )
         })? {
-        CheckedType::Routine(signature) => {
-            if !signature.generic_params.is_empty() {
-                return Err(unsupported_generic_routine_lowering_error(name));
-            }
-            signature.params
-        }
+        CheckedType::Routine(signature) => signature.params,
         _ => {
             return Err(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,

@@ -124,11 +124,11 @@ Acceptance criteria:
 This is the first execution milestone because the repo already has parser, resolver,
 typecheck, examples, and editor depth for the narrow subset.
 
-### 4.1 Lower Generic Routine Declarations
+### 4.1 Lower Generic Routine Declarations (complete, verified 2026-04-11)
 
-Current gap:
+Current gap before this slice:
 
-- generic routines typecheck but lowering stops with an explicit boundary
+- generic routines typechecked but lowering stopped with an explicit boundary
 
 Primary crates:
 

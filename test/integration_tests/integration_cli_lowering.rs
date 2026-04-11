@@ -383,7 +383,7 @@ use super::*;
     }
 
     #[test]
-    fn test_cli_dump_lowered_rejects_generic_routines_with_explicit_m1_boundary() {
+    fn test_cli_dump_lowered_supports_generic_routines_in_v2_m1() {
         use std::fs;
 
         let temp_root = unique_temp_root("cli_generic_routine_lowering_m1");
@@ -413,19 +413,16 @@ use super::*;
         let combined = format!("{stdout}\n{stderr}");
 
         assert!(
-            !output.status.success(),
-            "generic routine lowering should fail cleanly in M1, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            output.status.success(),
+            "generic routine lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
         );
-        assert!(
-            combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
-            "CLI lowering should preserve the explicit M1 generic-lowering boundary wording"
-        );
+        assert!(combined.contains("GenericParameter"));
 
         fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
-    fn test_cli_dump_lowered_rejects_multi_param_generic_routines_with_explicit_m1_boundary() {
+    fn test_cli_dump_lowered_supports_multi_param_generic_routines_in_v2_m1() {
         use std::fs;
 
         let temp_root = unique_temp_root("cli_generic_pair_lowering_m1");
@@ -454,17 +451,17 @@ use super::*;
         let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{stdout}\n{stderr}");
 
-        assert!(!output.status.success());
         assert!(
-            combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
-            "CLI lowering should preserve the explicit M1 generic-lowering boundary wording for generic pairs"
+            output.status.success(),
+            "multi-param generic routine lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
         );
+        assert!(combined.contains("GenericParameter"));
 
         fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
-    fn test_cli_dump_lowered_rejects_generic_routines_with_default_params_with_explicit_m1_boundary() {
+    fn test_cli_dump_lowered_supports_generic_routines_with_default_params_in_v2_m1() {
         use std::fs;
 
         let temp_root = unique_temp_root("cli_generic_defaults_lowering_m1");
@@ -493,11 +490,11 @@ use super::*;
         let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{stdout}\n{stderr}");
 
-        assert!(!output.status.success());
         assert!(
-            combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
-            "CLI lowering should preserve the explicit M1 generic-lowering boundary wording for generic defaults"
+            output.status.success(),
+            "generic default lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
         );
+        assert!(combined.contains("GenericParameter"));
 
         fs::remove_dir_all(&temp_root).ok();
     }

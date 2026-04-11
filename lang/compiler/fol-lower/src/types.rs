@@ -21,6 +21,9 @@ pub struct LoweredRoutineType {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LoweredType {
     Builtin(LoweredBuiltinType),
+    GenericParameter {
+        name: String,
+    },
     Array {
         element_type: LoweredTypeId,
         size: Option<usize>,

@@ -220,12 +220,9 @@ fn translate_checked_type(
         CheckedType::Builtin(builtin) => lowered_types.intern_builtin(lower_builtin(builtin)),
         CheckedType::Declared { symbol, name, kind } => {
             if kind == DeclaredTypeKind::GenericParameter {
-                return Err(vec![LoweringError::with_kind(
-                    LoweringErrorKind::Unsupported,
-                    format!(
-                        "generic routine lowering is not yet supported in V2 Milestone 1 (encountered generic parameter type '{name}')"
-                    ),
-                )]);
+                let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
+                cache.insert((package_identity.clone(), checked_type_id), lowered);
+                return Ok(lowered);
             }
             let typed_symbol = program.typed_symbol(symbol);
             let runtime_type = typed_symbol

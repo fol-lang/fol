@@ -182,7 +182,7 @@ fn positive_runtime_model_examples() -> &'static [(&'static str, &'static str)] 
 }
 
 #[test]
-fn test_generic_routine_m1_example_opens_cleanly_but_stops_before_lowering() {
+fn test_generic_routine_m1_example_opens_cleanly_and_dumps_lowered() {
     let root = temp_example_root("examples/generic_routine_m1");
 
     let main = root.join("src/main.fol");
@@ -213,26 +213,26 @@ fn test_generic_routine_m1_example_opens_cleanly_but_stops_before_lowering() {
         "generic routine M1 example should stay editor-clean before lowering: {diagnostics:#?}"
     );
 
-    let build = run_fol_in_dir(&root, &["code", "build"]);
+    let build = run_fol_in_dir(&root, &["--dump-lowered", "."]);
     let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
     let combined = format!("{stdout}\n{stderr}");
     assert!(
-        !build.status.success(),
-        "generic routine M1 example should stop before lowering/backend: stdout=\n{}\nstderr=\n{}",
+        build.status.success(),
+        "generic routine M1 example should dump lowered output: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
     assert!(
-        combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
-        "generic routine M1 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
+        combined.contains("GenericParameter"),
+        "generic routine M1 example should surface lowered generic parameter types: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
 }
 
 #[test]
-fn test_generic_routine_pair_m1_example_opens_cleanly_but_stops_before_lowering() {
+fn test_generic_routine_pair_m1_example_opens_cleanly_and_dumps_lowered() {
     let root = temp_example_root("examples/generic_routine_pair_m1");
 
     let main = root.join("src/main.fol");
@@ -264,21 +264,21 @@ fn test_generic_routine_pair_m1_example_opens_cleanly_but_stops_before_lowering(
         "generic pair M1 example should stay editor-clean before lowering: {diagnostics:#?}"
     );
 
-    let build = run_fol_in_dir(&root, &["code", "build"]);
+    let build = run_fol_in_dir(&root, &["--dump-lowered", "."]);
     let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
     let combined = format!("{stdout}\n{stderr}");
-    assert!(!build.status.success());
+    assert!(build.status.success());
     assert!(
-        combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
-        "generic pair M1 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
+        combined.contains("GenericParameter"),
+        "generic pair M1 example should surface lowered generic parameter types: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
 }
 
 #[test]
-fn test_generic_routine_cross_file_m1_example_opens_cleanly_but_stops_before_lowering() {
+fn test_generic_routine_cross_file_m1_example_opens_cleanly_and_dumps_lowered() {
     let root = temp_example_root("examples/generic_routine_cross_file_m1");
 
     let main = root.join("src/main.fol");
@@ -310,14 +310,14 @@ fn test_generic_routine_cross_file_m1_example_opens_cleanly_but_stops_before_low
         "cross-file generic M1 example should stay editor-clean before lowering: {diagnostics:#?}"
     );
 
-    let build = run_example_compile(&root, false);
+    let build = run_fol_in_dir(&root, &["--dump-lowered", "."]);
     let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
     let combined = format!("{stdout}\n{stderr}");
-    assert!(!build.status.success());
+    assert!(build.status.success());
     assert!(
-        combined.contains("generic routine lowering is not yet supported in V2 Milestone 1"),
-        "cross-file generic M1 example should surface the explicit lowering boundary: stdout=\n{}\nstderr=\n{}",
+        combined.contains("GenericParameter"),
+        "cross-file generic M1 example should surface lowered generic parameter types: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
@@ -4116,7 +4116,8 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(generics_note.contains("examples/fail_generic_misuse_m1"));
     assert!(generics_note.contains("examples/fail_generic_cross_file_m1"));
     assert!(generics_note.contains("examples/fail_generic_standard_constraint_m1m2"));
-    assert!(generics_note.contains("generic routine lowering is still explicitly unsupported"));
+    assert!(generics_note.contains("generic routine lowering now succeeds"));
+    assert!(generics_note.contains("backend execution for generic routines is still deferred"));
     assert!(generics_note.contains("receiver-qualified generic routines"));
     assert!(generics_note.contains("imported and cross-file generic routine calls"));
 

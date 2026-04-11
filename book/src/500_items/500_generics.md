@@ -23,8 +23,9 @@ Current milestone note:
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
   - `examples/fail_generic_standard_constraint_m1m2`
-- generic routine lowering/backend support is still explicitly out of scope for
-  the current Milestone 1 state
+- generic routine lowering now succeeds for the shipped Milestone 1 example set
+- generic routine backend execution is still out of scope for the current
+  Milestone 1 state
 - current editor hardening covers hover/definition on checked-in generic
   examples without claiming broader generic-aware completion than the shipped
   editor currently provides

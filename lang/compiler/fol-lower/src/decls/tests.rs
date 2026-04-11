@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn declaration_lowering_rejects_generic_routines_with_explicit_m1_boundary() {
+    fn declaration_lowering_supports_generic_routines_in_the_lowered_workspace() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_generic_routine_m1_{}.fol",
             std::time::SystemTime::now()
@@ -109,20 +109,19 @@ mod tests {
             .check_resolved_workspace(resolved)
             .expect("Lowering fixture should typecheck");
 
-        let errors = crate::LoweringSession::new(typed)
+        let lowered = crate::LoweringSession::new(typed)
             .lower_workspace()
-            .expect_err("generic routine lowering should stay explicitly unsupported in M1");
-
-        assert!(errors.iter().any(|error| {
-            error.kind() == crate::LoweringErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routine lowering is not yet supported in V2 Milestone 1")
-        }));
+            .expect("generic routine lowering should succeed");
+        assert!(
+            (0..lowered.type_table().len()).any(|index| matches!(
+                lowered.type_table().get(crate::LoweredTypeId(index)),
+                Some(LoweredType::GenericParameter { name }) if name == "T"
+            ))
+        );
     }
 
     #[test]
-    fn declaration_lowering_rejects_multi_param_generic_routines_with_explicit_m1_boundary() {
+    fn declaration_lowering_supports_multi_param_generic_routines_in_the_lowered_workspace() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_generic_routine_pair_m1_{}.fol",
             std::time::SystemTime::now()
@@ -148,20 +147,22 @@ mod tests {
             .check_resolved_workspace(resolved)
             .expect("Lowering fixture should typecheck");
 
-        let errors = crate::LoweringSession::new(typed)
+        let lowered = crate::LoweringSession::new(typed)
             .lower_workspace()
-            .expect_err("generic pair lowering should stay explicitly unsupported in M1");
-
-        assert!(errors.iter().any(|error| {
-            error.kind() == crate::LoweringErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routine lowering is not yet supported in V2 Milestone 1")
-        }));
+            .expect("generic pair lowering should succeed");
+        assert!(
+            (0..lowered.type_table().len())
+                .filter(|index| matches!(
+                    lowered.type_table().get(crate::LoweredTypeId(*index)),
+                    Some(LoweredType::GenericParameter { .. })
+                ))
+                .count()
+                >= 1
+        );
     }
 
     #[test]
-    fn declaration_lowering_rejects_return_only_generic_routines_with_explicit_m1_boundary() {
+    fn declaration_lowering_supports_return_only_generic_routines_in_the_lowered_workspace() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_generic_return_only_m1_{}.fol",
             std::time::SystemTime::now()
@@ -187,20 +188,13 @@ mod tests {
             .check_resolved_workspace(resolved)
             .expect("Lowering fixture should typecheck");
 
-        let errors = crate::LoweringSession::new(typed)
+        crate::LoweringSession::new(typed)
             .lower_workspace()
-            .expect_err("generic return-only lowering should stay explicitly unsupported in M1");
-
-        assert!(errors.iter().any(|error| {
-            error.kind() == crate::LoweringErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routine lowering is not yet supported in V2 Milestone 1")
-        }));
+            .expect("generic return-only lowering should succeed");
     }
 
     #[test]
-    fn declaration_lowering_rejects_generic_routines_with_default_params_with_explicit_m1_boundary() {
+    fn declaration_lowering_supports_generic_routines_with_default_params_in_the_lowered_workspace() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_generic_defaults_m1_{}.fol",
             std::time::SystemTime::now()
@@ -226,16 +220,9 @@ mod tests {
             .check_resolved_workspace(resolved)
             .expect("Lowering fixture should typecheck");
 
-        let errors = crate::LoweringSession::new(typed)
+        crate::LoweringSession::new(typed)
             .lower_workspace()
-            .expect_err("generic default-params lowering should stay explicitly unsupported in M1");
-
-        assert!(errors.iter().any(|error| {
-            error.kind() == crate::LoweringErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routine lowering is not yet supported in V2 Milestone 1")
-        }));
+            .expect("generic default-params lowering should succeed");
     }
 
     #[test]
