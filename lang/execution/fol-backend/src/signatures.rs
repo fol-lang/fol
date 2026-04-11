@@ -9,6 +9,96 @@ use fol_lower::{
 };
 use fol_resolver::PackageIdentity;
 
+fn collect_generic_params_from_type(
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+    params: &mut Vec<String>,
+) {
+    let Some(ty) = type_table.get(type_id) else {
+        return;
+    };
+    match ty {
+        LoweredType::GenericParameter { name } => {
+            if !params.iter().any(|existing| existing == name) {
+                params.push(name.clone());
+            }
+        }
+        LoweredType::Array { element_type, .. }
+        | LoweredType::Vector { element_type }
+        | LoweredType::Sequence { element_type }
+        | LoweredType::Optional { inner: element_type } => {
+            collect_generic_params_from_type(type_table, *element_type, params);
+        }
+        LoweredType::Map {
+            key_type,
+            value_type,
+        } => {
+            collect_generic_params_from_type(type_table, *key_type, params);
+            collect_generic_params_from_type(type_table, *value_type, params);
+        }
+        LoweredType::Error { inner } => {
+            if let Some(inner) = inner {
+                collect_generic_params_from_type(type_table, *inner, params);
+            }
+        }
+        LoweredType::Set { member_types } => {
+            for member in member_types {
+                collect_generic_params_from_type(type_table, *member, params);
+            }
+        }
+        LoweredType::Record { fields } => {
+            for field in fields.values() {
+                collect_generic_params_from_type(type_table, *field, params);
+            }
+        }
+        LoweredType::Entry { variants } => {
+            for variant in variants.values().flatten() {
+                collect_generic_params_from_type(type_table, *variant, params);
+            }
+        }
+        LoweredType::Routine(signature) => {
+            for param in &signature.params {
+                collect_generic_params_from_type(type_table, *param, params);
+            }
+            if let Some(ret) = signature.return_type {
+                collect_generic_params_from_type(type_table, ret, params);
+            }
+            if let Some(err) = signature.error_type {
+                collect_generic_params_from_type(type_table, err, params);
+            }
+        }
+        LoweredType::Builtin(_) => {}
+    }
+}
+
+fn render_generic_clause(signature: &LoweredRoutineType, type_table: &LoweredTypeTable) -> String {
+    let mut params = Vec::new();
+    for param in &signature.params {
+        collect_generic_params_from_type(type_table, *param, &mut params);
+    }
+    if let Some(ret) = signature.return_type {
+        collect_generic_params_from_type(type_table, ret, &mut params);
+    }
+    if let Some(err) = signature.error_type {
+        collect_generic_params_from_type(type_table, err, &mut params);
+    }
+    if params.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<{}>",
+            params
+                .iter()
+                .map(|name| format!(
+                    "{}: Clone + Default",
+                    crate::sanitize_backend_ident(name)
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
 fn recoverable_error_type_for_local(
     routine: &LoweredRoutine,
     local_id: fol_lower::LoweredLocalId,
@@ -68,10 +158,12 @@ pub fn render_routine_signature(
     )?);
 
     let return_type = render_routine_return_type(workspace, signature, type_table)?;
+    let generic_clause = render_generic_clause(signature, type_table);
 
     Ok(format!(
-        "pub fn {}({}){}",
+        "pub fn {}{}({}){}",
         mangle_routine_name(package_identity, routine.id, &routine.name),
+        generic_clause,
         params.join(", "),
         return_type
     ))

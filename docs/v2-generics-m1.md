@@ -70,18 +70,19 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - generic routine values remain unsupported
 - generic types remain unsupported
 - generic routine lowering now succeeds for the shipped Milestone 1 examples
-- backend execution for generic routines is still deferred to the next slice
+- backend execution now works for the shipped positive Milestone 1 examples
 
 That means the current honest boundary is:
 
-- parser/resolver/typecheck fixtures, lowered snapshots, and editor-opened
-  examples are the current validation path for Milestone 1 generic routine examples
-- full backend execution still stops after lowering because backend generic
-  emission is not implemented yet
+- parser/resolver/typecheck fixtures, lowered snapshots, editor-opened
+  examples, and compile-and-run examples are the current validation path for
+  Milestone 1 generic routine examples
+- broader generic edge-case policy is still deferred to the next Milestone 1
+  slice
 - no narrowing slice should pretend resolver owns duplicate generic-name
   diagnostics when parser already rejects them first
-- no narrowing slice should claim generic backend execution works in Milestone 1
-  while the chosen boundary is still a backend stop
+- no narrowing slice should claim all generic edge cases work in Milestone 1
+  before those cases are chosen and tested explicitly
 
 ## Immediate implementation rule
 
@@ -121,8 +122,8 @@ Negative obligations:
 - generic constraints must fail explicitly
 - generic types must fail explicitly
 - lowering must continue to succeed for the shipped examples
-- backend must continue to stop with one exact Milestone 1 boundary until the
-  execution slice lands
+- backend execution must continue to succeed for the shipped positive examples
+- broader edge cases must keep explicit tests and explicit acceptance/rejection
 
 Hardening examples that should remain in sync:
 
@@ -179,4 +180,4 @@ Second-pass hardening must not widen Milestone 1 into:
 - generic constraints
 - generic types
 - first-class generic routine values
-- backend execution support
+- broad generic edge-case support without explicit tests

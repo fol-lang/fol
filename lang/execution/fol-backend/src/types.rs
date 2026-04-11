@@ -30,10 +30,7 @@ pub fn render_rust_type_in_workspace(
     match ty {
         LoweredType::Builtin(LoweredBuiltinType::Str) => Ok("rt_model::FolStr".to_string()),
         LoweredType::Builtin(builtin) => Ok(render_builtin_type(*builtin)?.to_string()),
-        LoweredType::GenericParameter { name } => Err(BackendError::new(
-            BackendErrorKind::Unsupported,
-            format!("backend execution for generic parameter type '{name}' is not implemented yet"),
-        )),
+        LoweredType::GenericParameter { name } => Ok(sanitize_backend_ident(name)),
         LoweredType::Array {
             element_type,
             size: Some(size),

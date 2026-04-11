@@ -36,7 +36,8 @@ The current repo state is:
 
 - `V2 Milestone 1` is partially real for a narrow generic-routine subset
 - `V2 Milestone 2` is partially real for a narrow protocol-standard subset
-- both milestones currently stop before full lowering/backend execution
+- `V2 Milestone 1` now lowers and executes the shipped positive generic-routine examples
+- `V2 Milestone 2` still stops before full lowering/backend execution
 - broader `V2` design still exists only in docs/book examples or parser surface
 
 The key current contracts are:
@@ -161,7 +162,7 @@ Acceptance criteria:
 - `--dump-lowered` succeeds on all positive M1 examples
 - no generic-routine lowering boundary remains in `fol-lower`
 
-### 4.2 Emit And Execute Generic Routine Calls
+### 4.2 Emit And Execute Generic Routine Calls (complete, verified 2026-04-11)
 
 Primary crates:
 

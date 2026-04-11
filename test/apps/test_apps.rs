@@ -1270,12 +1270,14 @@ fn fail_defer_break_nested_fixture_fails_cleanly() {
 }
 
 #[test]
-fn fail_generic_routine_fixture_rejects_cleanly() {
+fn fail_generic_routine_fixture_now_executes_as_supported_generic_code() {
     let fixture = fixture_root("fail_generic_routine");
-    let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(
-        &output,
-        "backend execution for generic parameter type 'T' is not implemented yet",
+    let run_output = compile_and_run_app(&fixture);
+    assert!(
+        run_output.status.success(),
+        "supported generic routine fixture should execute cleanly\nstdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
     );
 }
 

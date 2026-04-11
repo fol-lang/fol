@@ -324,6 +324,42 @@ fn test_generic_routine_cross_file_m1_example_opens_cleanly_and_dumps_lowered() 
 }
 
 #[test]
+fn test_generic_routine_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_routine_m1");
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic routine M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
+fn test_generic_routine_pair_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_routine_pair_m1");
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic pair M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
+fn test_generic_routine_cross_file_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_routine_cross_file_m1");
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "cross-file generic M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
 fn test_fail_generic_type_m1_example_rejects_cleanly() {
     let root = temp_example_root("examples/fail_generic_type_m1");
 
@@ -4117,7 +4153,7 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(generics_note.contains("examples/fail_generic_cross_file_m1"));
     assert!(generics_note.contains("examples/fail_generic_standard_constraint_m1m2"));
     assert!(generics_note.contains("generic routine lowering now succeeds"));
-    assert!(generics_note.contains("backend execution for generic routines is still deferred"));
+    assert!(generics_note.contains("backend execution now works for the shipped positive"));
     assert!(generics_note.contains("receiver-qualified generic routines"));
     assert!(generics_note.contains("imported and cross-file generic routine calls"));
 
