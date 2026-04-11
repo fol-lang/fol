@@ -4143,6 +4143,8 @@ fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
     let contract =
         std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
             .expect("full V2 contract note should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
 
     assert!(contract.contains("executable generic routines"));
     assert!(contract.contains("generic types"));
@@ -4151,6 +4153,8 @@ fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
     assert!(contract.contains("blueprint standards"));
     assert!(contract.contains("extended standards"));
     assert!(contract.contains("broad dispatch driven by standards"));
+    assert!(plan.contains("## 16. Open Question (complete, resolved 2026-04-11)"));
+    assert!(plan.contains("broader dispatch/inference work shown in future-facing book examples remains"));
 }
 
 #[test]

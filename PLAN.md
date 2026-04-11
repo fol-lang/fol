@@ -657,19 +657,21 @@ The first concrete backlog after this plan replacement should be:
 8. decide whether generic types, blueprint standards, extended standards, and standards-as-constraints are in or out for full `V2`
 9. if in, implement them in that order with full pipeline and editor coverage
 
-## 16. Open Question
+## 16. Open Question (complete, resolved 2026-04-11)
 
-One product question remains important enough to answer explicitly before large
-amounts of work land:
+Resolved decision:
 
-- does “full V2” in this repo include only:
+- full `V2` in this repo includes only:
   - executable generic routines
   - executable protocol standards
   - generic types
   - standards-as-constraints
-  and still keep dispatch/inference beyond that for later
+- broader dispatch/inference work shown in future-facing book examples remains
+  outside this `V2` target
 
-or does it include the broader dispatch-oriented examples shown in the book too
+Implementation rule after this decision:
 
-This question does not block replacing this file with a plan.
-It does block claiming `V2` is complete without clarifying the contract first.
+- do not widen `V2` to standards-driven dispatch
+- do not widen `V2` to broader inference semantics
+- keep blueprint and extended standards outside the full `V2` target unless the
+  contract is changed explicitly later
