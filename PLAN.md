@@ -504,7 +504,7 @@ Acceptance criteria:
 The current repo explicitly says editor support is not broadly V2-aware.
 That must change if `V2` is going to be called complete.
 
-### 11.1 LSP Semantic Awareness
+### 11.1 LSP Semantic Awareness (complete, verified 2026-04-11)
 
 Tasks:
 

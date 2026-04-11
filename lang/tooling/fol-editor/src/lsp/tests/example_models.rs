@@ -54,9 +54,11 @@ fn lsp_server_opens_real_model_example_packages_cleanly() {
         "examples/core_defer",
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
         "examples/memo_defaults",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
+        "examples/standards_protocol_multi_m2",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
         "examples/std_echo_min",
@@ -80,8 +82,10 @@ fn lsp_server_returns_document_symbols_for_real_example_roots() {
     for example in [
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
+        "examples/standards_protocol_multi_m2",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
         "examples/core_run_min",
@@ -125,8 +129,10 @@ fn lsp_server_returns_workspace_symbols_for_open_real_examples() {
     for example in [
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
+        "examples/standards_protocol_multi_m2",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
     ] {
@@ -548,6 +554,7 @@ fn lsp_server_returns_definitions_for_v2_generic_call_sites() {
     let cases = [
         ("examples/generic_routine_m1", "pick(", 2),
         ("examples/generic_routine_pair_m1", "pair(", 2),
+        ("examples/generic_routine_cross_file_m1", "pick(", 1),
     ];
 
     for (example, needle, ordinal) in cases {
@@ -665,6 +672,70 @@ fn lsp_server_returns_hover_and_definition_for_v2_standards_examples() {
 
         fs::remove_dir_all(root).ok();
     }
+}
+
+#[test]
+fn lsp_server_returns_hover_and_definition_for_v2_multi_standard_examples() {
+    let (root, _) = copied_example_package_root("examples/standards_protocol_multi_m2");
+    let rect_path = root.join("src/rect.fol");
+    let contracts_path = root.join("src/contracts.fol");
+    let rect_uri = format!("file://{}", rect_path.display());
+    let contracts_uri = format!("file://{}", contracts_path.display());
+    let rect_text = fs::read_to_string(&rect_path).unwrap();
+    let contracts_text = fs::read_to_string(&contracts_path).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, contracts_uri.clone(), &contracts_text);
+    open_document(&mut server, rect_uri.clone(), &rect_text);
+
+    let mut contract_position = find_nth_position(&rect_text, "(geo", 1);
+    contract_position.character += 1;
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1407),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier {
+                        uri: rect_uri.clone(),
+                    },
+                    position: contract_position,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    let hover = hover.expect("multi-standard contract hover should resolve");
+    assert!(
+        hover.contents.contains("geo"),
+        "multi-standard hover should mention the selected protocol, got: {hover:?}"
+    );
+
+    let definition = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1408),
+            method: "textDocument/definition".to_string(),
+            params: Some(
+                serde_json::to_value(LspDefinitionParams {
+                    text_document: LspTextDocumentIdentifier {
+                        uri: rect_uri.clone(),
+                    },
+                    position: contract_position,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+    let definition = definition.expect("multi-standard contract definition should resolve");
+    assert_eq!(definition.uri, contracts_uri);
+    assert_eq!(definition.range.start.line, 0);
+
+    fs::remove_dir_all(root).ok();
 }
 
 #[test]

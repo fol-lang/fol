@@ -669,7 +669,7 @@ use super::*;
                 "rename across packages",
                 "all compiler diagnostics have quick fixes",
                 "code actions for every compiler diagnostic",
-                "supports V2 editor behavior",
+                "full V2 editor behavior",
             ],
         );
 
@@ -698,15 +698,23 @@ use super::*;
             std::fs::read_to_string(repo_root().join("docs/editor-sync.md"))
                 .expect("editor sync docs should exist");
         assert!(
-            editor_sync.contains("Current V1 non-goals"),
-            "editor sync docs should state the V1 editor non-goals explicitly"
+            editor_sync.contains("Current editor non-goals"),
+            "editor sync docs should state the current editor non-goals explicitly"
+        );
+        assert!(
+            editor_sync.contains("shipped V2-aware coverage is intentionally narrow"),
+            "editor sync docs should describe the current shipped V2 editor subset"
         );
 
         let agents =
             std::fs::read_to_string(repo_root().join("AGENTS.md")).expect("AGENTS should exist");
         assert!(
-            agents.contains("Current V1 editor non-goals"),
-            "AGENTS should carry the current V1 editor non-goal guidance"
+            agents.contains("Current editor non-goals"),
+            "AGENTS should carry the current editor non-goal guidance"
+        );
+        assert!(
+            lsp_book.contains("generic-routine and protocol-standard examples"),
+            "LSP book should describe the shipped V2 editor subset explicitly"
         );
     }
 

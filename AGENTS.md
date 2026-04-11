@@ -202,9 +202,10 @@ Book references:
 - `book/src/050_tooling/500_lsp.md`
 - `book/src/050_tooling/450_feature_checklist.md`
 
-Current V1 editor non-goals:
+Current editor non-goals:
 
-- no V2-aware editor behavior
+- no broad V2-aware editor behavior beyond the checked-in shipped generic
+  routine and protocol-standard example subset
 - no range formatting
 - no broad rename beyond the current safe supported scope
 - no editor-owned semantic rules that compete with compiler-backed analysis
