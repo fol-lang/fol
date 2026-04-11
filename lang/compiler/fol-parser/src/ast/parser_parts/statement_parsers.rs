@@ -931,6 +931,7 @@ impl AstParser {
         let args = self.parse_open_paren_and_call_args(tokens, "Expected '(' after method name")?;
 
         Ok(AstNode::MethodCall {
+            syntax_id: self.record_syntax_origin(&method_token),
             object: Box::new(object),
             method,
             args,

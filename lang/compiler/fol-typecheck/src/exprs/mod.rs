@@ -532,7 +532,12 @@ pub(crate) fn type_node_with_expectation(
         AstNode::QualifiedFunctionCall { path, args } => {
             calls::type_qualified_function_call(typed, resolved, context, path, args)
         }
-        AstNode::MethodCall { object, method, args } => {
+        AstNode::MethodCall {
+            object,
+            method,
+            args,
+            ..
+        } => {
             calls::type_method_call(typed, resolved, context, node, object, method, args)
         }
         AstNode::FieldAccess { object, field } => {

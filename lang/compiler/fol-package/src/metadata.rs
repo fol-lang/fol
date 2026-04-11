@@ -218,7 +218,12 @@ fn collect_metadata_fields(
                     string_bindings.insert(name.clone(), literal);
                 }
             }
-            AstNode::MethodCall { object, method, args } if method == "meta" => {
+            AstNode::MethodCall {
+                object,
+                method,
+                args,
+                ..
+            } if method == "meta" => {
                 if !is_build_receiver(object, build_aliases) {
                     continue;
                 }
@@ -285,7 +290,12 @@ fn collect_dependency_decls(
                     string_bindings.insert(name.clone(), literal);
                 }
             }
-            AstNode::MethodCall { object, method, args } if method == "add_dep" => {
+            AstNode::MethodCall {
+                object,
+                method,
+                args,
+                ..
+            } if method == "add_dep" => {
                 if !is_build_receiver(object, build_aliases) {
                     continue;
                 }

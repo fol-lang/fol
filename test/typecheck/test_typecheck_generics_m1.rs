@@ -163,6 +163,59 @@ fn generic_receiver_routine_calls_typecheck_with_direct_method_sugar() {
 }
 
 #[test]
+fn generic_routine_calls_typecheck_with_matching_default_arguments() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun pick(T)(value: T, fallback: int = 1): T = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return pick(7);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn generic_routine_calls_typecheck_with_concrete_recoverable_error_types() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun bounce(T)(value: T, fail: bol): T / str = {\n\
+             when(fail) {\n\
+                 case(true) { report(\"bad\"); }\n\
+                 * { return pick(value); }\n\
+             }\n\
+         };\n\
+         fun[] main(): int = {\n\
+             when(check(bounce(7, false))) {\n\
+                 case(true) { return 0; }\n\
+                 * { return 1; }\n\
+             }\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
 fn generic_routine_calls_typecheck_across_optional_and_vec_signature_shapes() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",

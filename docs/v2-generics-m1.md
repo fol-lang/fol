@@ -71,14 +71,20 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - generic types remain unsupported
 - generic routine lowering now succeeds for the shipped Milestone 1 examples
 - backend execution now works for the shipped positive Milestone 1 examples
+- receiver-qualified generic routines now lower and execute through method sugar
+- default-argument generic routines are part of the current executable M1 subset
+- generic routines with concrete recoverable error types are part of the current executable M1 subset
 
 That means the current honest boundary is:
 
 - parser/resolver/typecheck fixtures, lowered snapshots, editor-opened
   examples, and compile-and-run examples are the current validation path for
   Milestone 1 generic routine examples
-- broader generic edge-case policy is still deferred to the next Milestone 1
-  slice
+- the chosen executable M1 edge cases are now:
+  - receiver-qualified generic routines
+  - default-argument generic routines
+  - generic routines with concrete recoverable error types
+- generic error shells remain explicitly unsupported in M1
 - no narrowing slice should pretend resolver owns duplicate generic-name
   diagnostics when parser already rejects them first
 - no narrowing slice should claim all generic edge cases work in Milestone 1
@@ -156,11 +162,14 @@ The second pass is narrower and deeper.
 Current hardening targets:
 
 - receiver-qualified generic routines
-  - parser and typecheck must pin the exact current truth
-  - no silent support or silent rejection
+  - parser, typecheck, lowering, and runtime now pin the current truth
 - richer signature-position generic usage
   - nested optional, error-shell, and container positions must keep explicit
     current behavior
+- default arguments in generic routines
+  - executable behavior is now pinned for matching inference cases
+- concrete recoverable error types in generic routines
+  - executable behavior is now pinned for current `check(...)` usage
 - imported and cross-file generic routine calls
   - `loc`/workspace cases must be pinned independently from single-file cases
 - editor and tree-sitter coverage depth

@@ -190,7 +190,12 @@ impl BuildBodyExecutor {
                 self.eval_handle_method(receiver, name, args)
             }
 
-            AstNode::MethodCall { object, method, args } => {
+            AstNode::MethodCall {
+                object,
+                method,
+                args,
+                ..
+            } => {
                 let Some(receiver) = self.eval_expr(object)? else {
                     return Ok(None);
                 };

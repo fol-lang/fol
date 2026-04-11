@@ -204,7 +204,12 @@ fn test_unary_plus_preserves_call_and_method_call_expression_shapes() {
                     AstNode::Return { value: Some(value) }
                     if matches!(
                         value.as_ref(),
-                        AstNode::MethodCall { object, method, args }
+                        AstNode::MethodCall {
+                            object,
+                            method,
+                            args,
+                            ..
+                        }
                         if matches!(object.as_ref(), AstNode::Identifier { name, .. } if name == "obj")
                             && method == "get"
                             && args.len() == 1

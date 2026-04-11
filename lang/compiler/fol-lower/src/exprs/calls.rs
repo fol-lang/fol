@@ -1148,7 +1148,7 @@ pub(crate) fn resolve_method_target(
     decl_index: &WorkspaceDeclIndex,
     method: &str,
     receiver_type: LoweredTypeId,
-) -> Result<(crate::LoweredRoutineId, Option<LoweredTypeId>, Option<LoweredTypeId>), LoweringError>
+) -> Result<crate::LoweredRoutineId, LoweringError>
 {
     let mut matches = Vec::new();
 
@@ -1176,23 +1176,7 @@ pub(crate) fn resolve_method_target(
         else {
             continue;
         };
-        let Some(signature_checked_type) = typed_symbol.declared_type else {
-            continue;
-        };
-        let Some(fol_typecheck::CheckedType::Routine(signature)) = typed_package
-            .program
-            .type_table()
-            .get(signature_checked_type)
-        else {
-            continue;
-        };
-        let return_type = signature
-            .return_type
-            .and_then(|return_type| checked_type_map.get(&return_type).copied());
-        let error_type = signature
-            .error_type
-            .and_then(|error_type| checked_type_map.get(&error_type).copied());
-        matches.push((routine_id, return_type, error_type));
+        matches.push(routine_id);
     }
 
     match matches.len() {

@@ -246,6 +246,7 @@ pub enum AstNode {
 
     /// Method call: object.method(args)
     MethodCall {
+        syntax_id: Option<SyntaxNodeId>,
         object: Box<AstNode>,
         method: String,
         args: Vec<AstNode>,
@@ -459,6 +460,7 @@ impl AstNode {
             | AstNode::UseDecl { syntax_id, .. }
             | AstNode::Identifier { syntax_id, .. }
             | AstNode::FunctionCall { syntax_id, .. }
+            | AstNode::MethodCall { syntax_id, .. }
             | AstNode::RecordInit { syntax_id, .. }
             | AstNode::Defer { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,

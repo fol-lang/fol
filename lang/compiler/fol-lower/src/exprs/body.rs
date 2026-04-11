@@ -664,6 +664,7 @@ pub(crate) fn lower_body_node(
             Ok(None)
         }
         AstNode::MethodCall {
+            syntax_id,
             object,
             method,
             args,
@@ -679,7 +680,7 @@ pub(crate) fn lower_body_node(
                 scope_id,
                 object,
             )?;
-            let (callee, result_type, error_type) = resolve_method_target(
+            let callee = resolve_method_target(
                 typed_package,
                 checked_type_map,
                 current_identity,
@@ -687,6 +688,13 @@ pub(crate) fn lower_body_node(
                 method,
                 receiver.type_id,
             )?;
+            let typed_node = syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+            let result_type = typed_node
+                .and_then(|node| node.inferred_type)
+                .and_then(|checked_type| checked_type_map.get(&checked_type).copied());
+            let error_type = typed_node
+                .and_then(|node| node.recoverable_effect)
+                .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
             let mut lowered_args = vec![receiver.local_id];
             let param_types = decl_index
                 .routine_param_types(callee)

@@ -188,7 +188,7 @@ Acceptance criteria:
 - positive M1 examples compile and execute
 - no backend/runtime panic or placeholder path exists for supported generics
 
-### 4.3 Expand M1 Semantics To The Chosen Narrow Edge Cases
+### 4.3 Expand M1 Semantics To The Chosen Narrow Edge Cases (complete, verified 2026-04-11)
 
 Tasks:
 

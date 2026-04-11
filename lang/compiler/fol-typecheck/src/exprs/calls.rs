@@ -728,6 +728,14 @@ pub(crate) fn type_method_call(
                 .map(|error_type| RecoverableCallEffect { error_type }),
         ],
     )?;
+    if let Some(syntax_id) = node.syntax_id() {
+        if let Some(return_type) = signature.return_type {
+            typed.record_node_type(syntax_id, context.source_unit_id, return_type)?;
+        }
+        if let Some(effect) = merged {
+            typed.record_node_recoverable_effect(syntax_id, context.source_unit_id, effect)?;
+        }
+    }
     Ok(TypedExpr::maybe_value(signature.return_type).with_optional_effect(merged))
 }
 

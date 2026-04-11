@@ -69,6 +69,7 @@ impl AstParser {
                         let args = self.parse_call_args(tokens)?;
                         node = self.attach_leading_comments(
                             AstNode::MethodCall {
+                                syntax_id: self.record_syntax_origin(&member_token),
                                 object: Box::new(node),
                                 method: member,
                                 args,

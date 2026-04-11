@@ -500,6 +500,97 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_dump_lowered_supports_receiver_qualified_generic_routines_in_v2_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_receiver_generic_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp receiver generic fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "typ Box: rec = {\n",
+                "    value: int\n",
+                "};\n",
+                "var current: Box = { value = 1 };\n",
+                "fun (Box)pick(T)(value: T): T = {\n",
+                "    return value;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return current.pick(7);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write receiver generic lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("receiver generic lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            output.status.success(),
+            "receiver-qualified generic lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(combined.contains("call"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_supports_generic_routines_with_concrete_recoverable_errors_in_v2_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_recoverable_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp recoverable generic fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "fun pick(T)(value: T): T = {\n",
+                "    return value;\n",
+                "};\n",
+                "fun bounce(T)(value: T, fail: bol): T / str = {\n",
+                "    when(fail) {\n",
+                "        case(true) { report(\"bad\"); }\n",
+                "        * { return pick(value); }\n",
+                "    }\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    when(check(bounce(7, false))) {\n",
+                "        case(true) { return 0; }\n",
+                "        * { return 1; }\n",
+                "    }\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write recoverable generic lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("recoverable generic lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            output.status.success(),
+            "recoverable generic lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(combined.contains("recoverable-abi"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_dump_lowered_rejects_protocol_standards_with_explicit_m2_boundary() {
         use std::fs;
 

@@ -129,6 +129,20 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) {
     }
 }
 
+fn write_temp_app(root_name: &str, main_source: &str) -> std::path::PathBuf {
+    let root = unique_temp_root(root_name);
+    std::fs::create_dir_all(root.join("src")).expect("temp app src should exist");
+    std::fs::write(
+        root.join("build.fol"),
+        format!(
+            "pro[] build(): non = {{\n    var build = .build();\n    build.meta({{\n        name = \"{root_name}\",\n        version = \"0.1.0\",\n    }});\n\n    var graph = build.graph();\n    graph.add_exe({{\n        name = \"{root_name}\",\n        root = \"src/main.fol\",\n        fol_model = \"memo\",\n    }});\n    return;\n}};\n"
+        ),
+    )
+    .expect("temp app build file should write");
+    std::fs::write(root.join("src/main.fol"), main_source).expect("temp app main source should write");
+    root
+}
+
 fn temp_example_root(example_path: &str) -> std::path::PathBuf {
     let source = repo_root().join(example_path);
     let temp_root = unique_temp_root(&format!("example_copy_{}", example_path.replace('/', "_")));
@@ -357,6 +371,54 @@ fn test_generic_routine_cross_file_m1_example_builds_and_runs() {
         run.status.success(),
         "cross-file generic M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
+}
+
+#[test]
+fn test_receiver_qualified_generic_routines_build_and_run() {
+    let root = write_temp_app(
+        "receiver_generic_m1",
+        "typ Box: rec = {\n    value: int\n};\n\nvar current: Box = { value = 1 };\n\nfun (Box)pick(T)(value: T): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return current.pick(7);\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "receiver-qualified generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_default_argument_generic_routines_build_and_run() {
+    let root = write_temp_app(
+        "default_generic_m1",
+        "fun pick(T)(value: T, fallback: int = 1): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return pick(7);\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "default-argument generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_recoverable_generic_routines_with_concrete_error_types_build_and_run() {
+    let root = write_temp_app(
+        "recoverable_generic_m1",
+        "fun pick(T)(value: T): T = {\n    return value;\n};\n\nfun bounce(T)(value: T, fail: bol): T / str = {\n    when(fail) {\n        case(true) { report(\"bad\"); }\n        * { return pick(value); }\n    }\n};\n\nfun[] main(): int = {\n    when(check(bounce(7, false))) {\n        case(true) { return 0; }\n        * { return 1; }\n    }\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "recoverable generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
 }
 
 #[test]
