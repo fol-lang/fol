@@ -1200,15 +1200,15 @@ fn substitute_generic_type(
             kind: DeclaredTypeKind::GenericParameter,
             ..
         } => bindings.get(&symbol).copied().ok_or_else(|| {
+            let generic_name = typed
+                .resolved()
+                .symbol(symbol)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("?");
             TypecheckError::with_origin(
                 TypecheckErrorKind::Unsupported,
                 format!(
-                    "call to '{callee}' leaves generic parameter '{}' underconstrained in V2 Milestone 1",
-                    typed
-                        .resolved()
-                        .symbol(symbol)
-                        .map(|symbol| symbol.name.as_str())
-                        .unwrap_or("?")
+                    "call to '{callee}' leaves generic parameter '{generic_name}' underconstrained in V2 Milestone 1; inference only uses call arguments, so add an argument whose type mentions '{generic_name}' or make the routine stop depending on '{generic_name}' outside the argument list"
                 ),
                 origin.unwrap_or(SyntaxOrigin {
                     file: None,

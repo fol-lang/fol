@@ -398,6 +398,9 @@ fn generic_routine_calls_reject_underconstrained_return_only_generics() {
                 && error
                     .message()
                     .contains("leaves generic parameter 'T' underconstrained")
+                && error
+                    .message()
+                    .contains("inference only uses call arguments")
         }),
         "Expected underconstrained generic returns to fail explicitly, got: {errors:?}"
     );
@@ -421,6 +424,9 @@ fn generic_routine_calls_reject_partially_inferred_generics() {
                 && error
                     .message()
                     .contains("leaves generic parameter 'U' underconstrained")
+                && error
+                    .message()
+                    .contains("add an argument whose type mentions 'U'")
         }),
         "Expected partially inferred generic calls to fail explicitly, got: {errors:?}"
     );
@@ -447,6 +453,9 @@ fn generic_routine_calls_reject_arguments_omitted_from_inference_even_with_neste
                 && error
                     .message()
                     .contains("leaves generic parameter 'U' underconstrained")
+                && error
+                    .message()
+                    .contains("inference only uses call arguments")
         }),
         "Expected omitted generic arguments to stay underconstrained in M1, got: {errors:?}"
     );
@@ -471,6 +480,9 @@ fn generic_routine_calls_reject_context_only_inference() {
                 && error
                     .message()
                     .contains("leaves generic parameter 'T' underconstrained")
+                && error
+                    .message()
+                    .contains("make the routine stop depending on 'T' outside the argument list")
         }),
         "Expected contextual return typing to stay outside M1 inference, got: {errors:?}"
     );
