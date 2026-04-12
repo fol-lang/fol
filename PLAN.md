@@ -154,7 +154,7 @@ Acceptance:
 Tracked slices:
 
 - [x] B1. Add editor coverage for the positive executable generic-type example.
-- [ ] B2. Add editor coverage for the positive executable constrained-generic example.
+- [x] B2. Add editor coverage for the positive executable constrained-generic example.
 - [ ] B3. Re-audit editor docs so they match the real tested example matrix.
 
 

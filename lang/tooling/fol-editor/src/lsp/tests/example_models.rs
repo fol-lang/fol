@@ -55,6 +55,7 @@ fn lsp_server_opens_real_model_example_packages_cleanly() {
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
+        "examples/generic_standard_constraint_m1m2",
         "examples/generic_type_exec_m1m2",
         "examples/memo_defaults",
         "examples/standards_protocol_m2",
@@ -84,6 +85,7 @@ fn lsp_server_returns_document_symbols_for_real_example_roots() {
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
+        "examples/generic_standard_constraint_m1m2",
         "examples/generic_type_exec_m1m2",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
@@ -308,6 +310,7 @@ fn lsp_server_returns_semantic_tokens_for_real_model_examples() {
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/memo_defaults",
+        "examples/generic_standard_constraint_m1m2",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
         "examples/generic_type_semantic_m1m2",
@@ -642,6 +645,62 @@ fn lsp_server_returns_hover_and_definition_for_positive_generic_type_example() {
     let definition = definition.expect("generic-type definition should resolve");
     assert_eq!(definition.uri, uri);
     assert_eq!(definition.range.start.line, 2);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_returns_hover_and_definition_for_positive_constrained_generic_example() {
+    let (root, uri) = copied_example_package_root("examples/generic_standard_constraint_m1m2");
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.clone(), &text);
+
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1411),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: find_nth_position(&text, "pick(", 2),
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    let hover = hover.expect("constrained generic call-site hover should resolve");
+    assert!(
+        hover.contents.contains("pick"),
+        "constrained-generic hover should mention the routine, got: {hover:?}"
+    );
+    assert!(
+        hover.contents.contains("geo"),
+        "constrained-generic hover should mention the protocol constraint, got: {hover:?}"
+    );
+
+    let definition = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1412),
+            method: "textDocument/definition".to_string(),
+            params: Some(
+                serde_json::to_value(LspDefinitionParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: find_nth_position(&text, "pick(", 2),
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+    let definition = definition.expect("constrained-generic call-site definition should resolve");
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start.line, 12);
 
     fs::remove_dir_all(root).ok();
 }
