@@ -4256,7 +4256,8 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(standards_note.contains("examples/fail_standard_signature_m2"));
     assert!(standards_note.contains("examples/fail_standard_import_ambiguity_m2"));
     assert!(standards_note.contains("lowering now preserves protocol-standard and conformance metadata"));
-    assert!(standards_note.contains("backend execution now works for the checked-in positive protocol examples"));
+    assert!(standards_note.contains("ordinary receiver-qualified routine emission"));
+    assert!(standards_note.contains("not through a second"));
     assert!(standards_note.contains("multi-standard conformance on one type"));
     assert!(standards_note.contains("imported-standard conformance truth"));
 
@@ -4321,6 +4322,23 @@ fn test_runtime_crate_docs_align_with_the_v2_monomorphization_boundary() {
     assert!(runtime_docs.contains("does not define a second witness/dictionary system"));
     assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
     assert!(plan.contains("[x] D1. Make the runtime crate docs and V2 strategy docs agree"));
+}
+
+#[test]
+fn test_v2_standards_docs_keep_execution_semantics_procedural() {
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(standards_note.contains("ordinary receiver-qualified routine emission"));
+    assert!(standards_note.contains("docs must not imply that lowered protocol metadata creates a runtime witness"));
+    assert!(standards_book.contains("ordinary receiver-qualified routine calls, not through a runtime object model"));
+    assert!(plan.contains("[x] A3. Reconcile standards/runtime docs so they do not imply richer runtime"));
 }
 
 #[test]

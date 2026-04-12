@@ -62,8 +62,11 @@ At the current repo state after the landed Milestone 2 semantic slices:
 - typecheck implements protocol-only procedural conformance for required
   receiver-qualified routines
 - blueprint and extended standards remain explicitly unsupported
-- lowering now preserves protocol-standard and conformance metadata
+- lowering now preserves protocol-standard and conformance metadata for
+  diagnostics, audits, and backend-owned procedural lowering
 - backend execution now works for the checked-in positive protocol examples
+  through ordinary receiver-qualified routine emission, not through a second
+  runtime object model
 
 ## Immediate implementation rule
 
@@ -100,6 +103,8 @@ Negative obligations:
 - standards used as ordinary types must fail clearly
 - generic constraints using standards must follow the full `V2` constraints contract
 - backend/runtime execution must stay procedural rather than drifting into object dispatch
+- docs must not imply that lowered protocol metadata creates a runtime witness,
+  vtable, or object-dispatch layer
 
 Hardening examples that should remain in sync:
 

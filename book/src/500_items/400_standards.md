@@ -102,8 +102,10 @@ This subset is intentionally narrow:
 - only `pro` is semantic today
 - only required routines are semantic today
 - the type claim is checked procedurally
-- lowering preserves protocol-standard and conformance metadata
-- backend execution works for the checked-in positive protocol examples
+- lowering preserves protocol-standard and conformance metadata for audits and
+  procedural backend lowering
+- backend execution works for the checked-in positive protocol examples through
+  ordinary receiver-qualified routine calls, not through a runtime object model
 - editor hardening now covers contract-header hover/definition on checked-in
   standards examples while keeping broader required-routine hover support out
   of the claimed contract
