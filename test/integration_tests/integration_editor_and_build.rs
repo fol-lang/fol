@@ -4281,8 +4281,11 @@ fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
     assert!(contract.contains("blueprint standards"));
     assert!(contract.contains("extended standards"));
     assert!(contract.contains("broad dispatch driven by standards"));
-    assert!(plan.contains("## 16. Open Question (complete, resolved 2026-04-11)"));
-    assert!(plan.contains("broader dispatch/inference work shown in future-facing book examples remains"));
+    assert!(plan.contains("# V2 Audit Follow-Up Plan"));
+    assert!(plan.contains("This plan replaces the earlier \"full V2 is complete\" checklist."));
+    assert!(plan.contains("the frozen V2 compiler contract is mostly implemented"));
+    assert!(plan.contains("tooling and tree-sitter parity"));
+    assert!(plan.contains("backend/runtime meaning for lowered standards metadata"));
 }
 
 #[test]
@@ -4296,7 +4299,8 @@ fn test_v2_runtime_strategy_note_freezes_monomorphization() {
     assert!(strategy.contains("monomorphization for executable generic routines"));
     assert!(strategy.contains("monomorphization for generic type instantiations"));
     assert!(strategy.contains("no dictionary passing for the current `V2` target"));
-    assert!(plan.contains("### 3.2 Freeze Runtime/Backend Strategy For V2 (complete, verified 2026-04-11)"));
+    assert!(plan.contains("# 6. Workstream D: Backend/Runtime Meaning Of Standards"));
+    assert!(plan.contains("[ ] D1. Make the runtime crate docs and V2 strategy docs agree on the current"));
 }
 
 #[test]
@@ -4316,7 +4320,8 @@ fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
     assert!(generics_book.contains("Full `V2` now includes generic type declarations and explicit instantiation."));
     assert!(generics_book.contains("typ Box(T: item): rec = {"));
     assert!(generics_book.contains("typ Pair(T: left, U: right): map[T, U];"));
-    assert!(plan.contains("### 5.1 Resolve The Generic Type Contract (complete, verified 2026-04-11)"));
+    assert!(plan.contains("# 3. Workstream A: Contract Honesty And Plan Cleanup"));
+    assert!(plan.contains("# 7. Workstream E: Example Portability And Honest Execution"));
 }
 
 #[test]
@@ -4335,7 +4340,7 @@ fn test_v2_constraint_surface_is_frozen_as_standards_only() {
     assert!(contract.contains("dispatch or inference driven by constraints"));
     assert!(generics_book.contains("Full `V2` includes standards-as-constraints, but not broad dispatch semantics."));
     assert!(generics_book.contains("protocol standards are the only generic-constraint surface"));
-    assert!(plan.contains("### 6.1 Define Constraint Surface (complete, verified 2026-04-11)"));
+    assert!(plan.contains("# 8. Workstream F: Remaining Narrow-Surface Boundaries"));
 }
 
 #[test]
@@ -4352,7 +4357,7 @@ fn test_v2_contract_keeps_blueprint_standards_out_of_scope() {
     assert!(contract.contains("Blueprint standards are not part of the full `V2` target."));
     assert!(contract.contains("semantic, lowering, backend, and editor claims should not treat blueprint"));
     assert!(standards_book.contains("blueprint and extended standards remain"));
-    assert!(plan.contains("### 8.1 Freeze Blueprint Meaning (complete, verified 2026-04-11)"));
+    assert!(plan.contains("Those deferred items should stay out of current claims"));
 }
 
 #[test]
@@ -4369,7 +4374,7 @@ fn test_v2_contract_keeps_extended_standards_out_of_scope() {
     assert!(contract.contains("Extended standards are not part of the full `V2` target."));
     assert!(contract.contains("semantic, lowering, backend, and editor claims should not treat extended"));
     assert!(standards_book.contains("blueprint and extended standards remain"));
-    assert!(plan.contains("### 9.1 Freeze Extended Meaning (complete, verified 2026-04-11)"));
+    assert!(plan.contains("Those deferred items should stay out of current claims"));
 }
 
 #[test]
@@ -4419,7 +4424,7 @@ fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
     assert!(contract.contains("Broader dispatch and inference semantics are not part of the full `V2` target."));
     assert!(contract.contains("full `V2` does not include standards-driven dispatch"));
     assert!(standards_book.contains("broader dispatch and inference semantics stay"));
-    assert!(plan.contains("## 10. Workstream G: Decide And Implement Dispatch Rules (complete, verified 2026-04-11)"));
+    assert!(plan.contains("Those deferred items should stay out of current claims"));
 }
 
 #[test]
@@ -4439,7 +4444,7 @@ fn test_v2_milestone_notes_are_retained_as_transition_notes() {
     assert!(standards_note.contains("Historical transition note:"));
     assert!(standards_note.contains("not the full `V2`"));
     assert!(standards_note.contains("docs/v2-full-contract.md"));
-    assert!(plan.contains("### 12.2 Remove Or Retag No-Longer-Correct Milestone Notes (complete, verified 2026-04-11)"));
+    assert!(plan.contains("# 3. Workstream A: Contract Honesty And Plan Cleanup"));
 }
 
 #[test]
@@ -4468,7 +4473,8 @@ fn test_v2_surface_freeze_is_now_explicit_across_plan_docs_and_book() {
     assert!(standards_book.contains("For the current full `V2` target"));
     assert!(generics_note.contains("Historical transition note:"));
     assert!(standards_note.contains("Historical transition note:"));
-    assert!(plan.contains("### 3.1 Freeze The Actual V2 Surface (complete, verified 2026-04-11)"));
+    assert!(plan.contains("# 1. Current Truth"));
+    assert!(plan.contains("# 2. Exit Criteria"));
 }
 
 #[test]

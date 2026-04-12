@@ -1,690 +1,376 @@
-# V2 Full Implementation Plan
+# V2 Audit Follow-Up Plan
 
-Last updated: 2026-04-11
+This plan replaces the earlier "full V2 is complete" checklist.
 
-This plan replaces the old production-readiness audit plan.
-Its purpose is different:
+That earlier plan was good enough to drive the narrow compiler-side milestone
+work, but it is no longer an honest tracker for the project's actual state
+after the repo-wide audit.
 
-- define the work needed to make `V2` of FOL real
-- keep the book, compiler, backend, editor, examples, and tests aligned
-- separate already-landed narrow milestones from the still-missing broader `V2`
+The current audit result is:
 
-This plan assumes:
+- the frozen V2 compiler contract is mostly implemented
+- the repo is not yet fully aligned end to end
+- the remaining gaps are mostly:
+  - tooling and tree-sitter parity
+  - stale tests and stale example labeling
+  - ambiguous backend/runtime meaning for lowered standards metadata
+  - portability gaps between documented examples and harness-only setup
 
-- `V1` production hardening is already done
-- `V2` means more than parser acceptance and semantic boundaries
-- a `V2` feature is not complete until it has:
-  - parser support
-  - resolver support
-  - typecheck support
-  - lowering support where required
-  - backend/runtime support where required
-  - editor/tree-sitter audit
-  - real example coverage
-  - negative example coverage
-  - book and docs updates
+This file tracks the remaining work required before V2 can be described as
+fully implemented across the project, not just in the compiler core.
 
-This plan also assumes the repo should keep the current no-legacy policy:
 
-- no compatibility shims
-- no parallel old/new semantics
-- no fallback design paths once a direction is chosen
+# 1. Current Truth
 
-## 1. Current Truth
+The currently frozen shipped V2 contract is still:
 
-The current repo state is:
+- executable generic routines
+- generic types
+- protocol standards
+- standards-as-constraints
 
-- `V2 Milestone 1` is partially real for a narrow generic-routine subset
-- `V2 Milestone 2` is partially real for a narrow protocol-standard subset
-- `V2 Milestone 1` now lowers and executes the shipped positive generic-routine examples
-- `V2 Milestone 2` still stops before full lowering/backend execution
-- broader `V2` design still exists only in docs/book examples or parser surface
+That narrow contract is defined in:
 
-The key current contracts are:
+- `docs/v2-full-contract.md`
+- `docs/v2-runtime-strategy.md`
 
-- [book/src/500_items/500_generics.md](/home/bresilla/data/code/bresilla/fol/book/src/500_items/500_generics.md)
-- [docs/v2-generics-m1.md](/home/bresilla/data/code/bresilla/fol/docs/v2-generics-m1.md)
-- [book/src/500_items/400_standards.md](/home/bresilla/data/code/bresilla/fol/book/src/500_items/400_standards.md)
-- [docs/v2-standards-m2.md](/home/bresilla/data/code/bresilla/fol/docs/v2-standards-m2.md)
+The audit also confirmed that broader historical V2 ideas are still deferred
+and are not part of the current target:
 
-Current explicit non-completion boundaries include:
+- blueprint standards
+- extended standards
+- standards as ordinary concrete value types
+- standards-driven dispatch
+- broader inference / solver-style behavior
+- object-style dispatch semantics
 
-- generic routine lowering/backend still blocked in [lang/compiler/fol-lower/src/decls/routine_decls.rs](/home/bresilla/data/code/bresilla/fol/lang/compiler/fol-lower/src/decls/routine_decls.rs)
-- generic parameter type lowering still blocked in [lang/compiler/fol-lower/src/session.rs](/home/bresilla/data/code/bresilla/fol/lang/compiler/fol-lower/src/session.rs)
-- protocol standard lowering/backend still blocked in [lang/compiler/fol-lower/src/session.rs](/home/bresilla/data/code/bresilla/fol/lang/compiler/fol-lower/src/session.rs)
-- blueprint and extended standards still intentionally unsupported in [lang/compiler/fol-typecheck/src/decls.rs](/home/bresilla/data/code/bresilla/fol/lang/compiler/fol-typecheck/src/decls.rs)
+Those deferred items should stay out of current claims and out of completion
+criteria for this plan.
 
-## 2. Exit Criteria For “V2 Complete”
 
-`V2` should only be called complete when all of the following are true:
+# 2. Exit Criteria
 
-- generic routines compile, lower, emit, and run in supported `V2` cases
-- generic type declarations and instantiations compile, lower, emit, and run
-- chosen generic constraint semantics are implemented, not just documented
-- protocol standards compile, lower, emit, and run
-- blueprint standards compile, lower, emit, and run if they remain part of `V2`
-- extended standards compile, lower, emit, and run if they remain part of `V2`
-- standards/generics interaction is implemented for the chosen contract
-- editor behavior is updated to reflect real `V2`, not just boundary messaging
-- tree-sitter supports the final `V2` syntax surface actually shipped
-- the book stops describing major `V2` pieces as future work
+V2 is only "fully implemented" when all of the following are true together:
 
-If any one of those is false, `V2` is not complete.
+1. Compiler truth is implemented and tested.
+2. Backend/runtime meaning is honest and non-ambiguous.
+3. Tree-sitter and editor behavior match the shipped V2 syntax and semantics.
+4. Positive and negative examples are labeled correctly and run the documented
+   way.
+5. Book/docs/PLAN/example inventory all describe the same product reality.
 
-## 3. Product Decisions To Freeze First
+If one of those fails, V2 is still only partially complete at the repo level.
 
-These decisions should be made before large implementation work starts.
-Without them, the compiler will drift into multiple partial semantics.
 
-### 3.1 Freeze The Actual V2 Surface (complete, verified 2026-04-11)
+# 3. Workstream A: Contract Honesty And Plan Cleanup
 
-Decide whether full `V2` includes:
+Goal:
 
-- generic routines only, or generic routines plus generic types
-- constraints only as named standards, or a wider constraint language
-- protocol standards only, or protocol + blueprint + extended standards
-- standards as non-value contracts only, or also as ordinary type surfaces
-- procedural conformance only, or any dispatch/inference behavior
+- remove stale statements that still describe old V2 boundaries
+- make docs, plan text, and milestone notes agree on what is real today
 
-Required outputs:
+Required work:
 
-- update [book/src/500_items/500_generics.md](/home/bresilla/data/code/bresilla/fol/book/src/500_items/500_generics.md)
-- update [book/src/500_items/400_standards.md](/home/bresilla/data/code/bresilla/fol/book/src/500_items/400_standards.md)
-- either retire or rewrite [docs/v2-generics-m1.md](/home/bresilla/data/code/bresilla/fol/docs/v2-generics-m1.md)
-- either retire or rewrite [docs/v2-standards-m2.md](/home/bresilla/data/code/bresilla/fol/docs/v2-standards-m2.md)
+- remove stale wording that still says standards stop before lowering/backend
+  if the current code/tests claim executable protocol examples
+- rewrite milestone docs that still describe old boundaries after the code
+  moved past them
+- ensure `PLAN.md`, milestone notes, and book chapters no longer disagree
 
-Acceptance criteria:
+Primary files:
 
-- one exact shipped `V2` contract exists in docs
-- no milestone note still describes a now-implemented feature as unsupported
-- no book chapter presents future syntax as if it already ships
+- `PLAN.md`
+- `docs/v2-full-contract.md`
+- `docs/v2-generics-m1.md`
+- `docs/v2-standards-m2.md`
+- `book/src/500_items/500_generics.md`
+- `book/src/500_items/400_standards.md`
 
-### 3.2 Freeze Runtime/Backend Strategy For V2 (complete, verified 2026-04-11)
+Acceptance:
 
-Decide whether `V2` generics and standards lower by:
+- no current doc says "not lowered/executable" for a surface that current
+  tests already exercise positively
+- no current doc implies broader V2 features that were explicitly cut
 
-- monomorphization
-- dictionary/witness passing
-- a hybrid model
+Tracked slices:
 
-This must be decided before lowering work for generics and standards.
+- [x] A1. Replace stale completed-plan assertions with follow-up-plan checks.
+- [ ] A2. Retag generic milestone docs and book entries that still describe
+  `examples/fail_generic_type_m1` as a negative boundary.
+- [ ] A3. Reconcile standards/runtime docs so they do not imply richer runtime
+  semantics than the backend currently implements.
 
-Required outputs:
 
-- one backend strategy note in `docs/`
-- one emitted-IR strategy implemented in `fol-lower`
-- one backend emission strategy implemented in `fol-backend`
+# 4. Workstream B: Tree-Sitter Parity For Shipped V2
 
-Acceptance criteria:
+Goal:
 
-- generics and standards use the same chosen model across lowering and backend
-- test expectations describe one model, not several competing ones
+- make tree-sitter honestly support the shipped V2 syntax that the compiler
+  accepts, or narrow the shipped claim if that support is intentionally absent
 
-## 4. Workstream A: Finish Current Narrow M1 Generics End To End
+Known audit findings:
 
-This is the first execution milestone because the repo already has parser, resolver,
-typecheck, examples, and editor depth for the narrow subset.
+- `lang/tooling/fol-editor/tree-sitter/grammar.js` is not yet fully shaped for
+  the shipped V2 generic/contract forms
+- a V2 standards tree-sitter test currently fails
+- one supposed V2 audit function is present without `#[test]`, so it does not
+  actually gate anything
 
-### 4.1 Lower Generic Routine Declarations (complete, verified 2026-04-11)
+Required work:
 
-Current gap before this slice:
+- audit and fix grammar support for shipped generic type forms
+- audit and fix grammar support for shipped protocol standard/conformance forms
+- update highlight/locals/symbol queries where syntax shape changes
+- convert the non-running audit helper into a real test or delete it and add a
+  real replacement
+- ensure V2 example inventory checks are testing what the docs claim
 
-- generic routines typechecked but lowering stopped with an explicit boundary
+Primary files:
 
-Primary crates:
+- `lang/tooling/fol-editor/tree-sitter/grammar.js`
+- `lang/tooling/fol-editor/queries/fol/highlights.scm`
+- `lang/tooling/fol-editor/queries/fol/locals.scm`
+- `lang/tooling/fol-editor/queries/fol/symbols.scm`
+- `lang/tooling/fol-editor/src/tree_sitter.rs`
 
-- `lang/compiler/fol-lower`
-- `lang/compiler/fol-typecheck`
+Acceptance:
 
-Tasks:
+- the shipped V2 example set parses under tree-sitter
+- the failing V2 standards tree-sitter test passes
+- there is no fake audit coverage hidden behind a missing `#[test]`
 
-- lower generic routine declarations into a backend-owned generic IR shape
-- lower generic parameter references in:
-  - routine parameter types
-  - routine return types
-  - nested shell/container positions that the book chooses to support
-- reject unsupported generic signatures earlier if they are still out of scope
+Tracked slices:
 
-Tests:
+- [ ] B1. Turn the non-running V2 tree-sitter audit helper into a real test.
+- [ ] B2. Fix shipped V2 standards tree-sitter query coverage so the failing
+  standards example test passes honestly.
 
-- convert existing lowering-boundary examples into lowering-success examples:
-  - `examples/generic_routine_m1`
-  - `examples/generic_routine_pair_m1`
-  - `examples/generic_routine_cross_file_m1`
-- add IR snapshot coverage for:
-  - single generic routine
-  - cross-file generic routine
-  - imported generic routine call
-  - nested generic type positions allowed by contract
 
-Acceptance criteria:
+# 5. Workstream C: Editor Regression And Mirror Cleanup
 
-- `--dump-lowered` succeeds on all positive M1 examples
-- no generic-routine lowering boundary remains in `fol-lower`
+Goal:
 
-### 4.2 Emit And Execute Generic Routine Calls (complete, verified 2026-04-11)
+- remove stale editor expectations that still reflect old V2 boundaries
 
-Primary crates:
+Known audit findings:
 
-- `lang/execution/fol-backend`
-- `lang/execution/fol-runtime`
-- `lang/tooling/fol-frontend`
+- at least one editor navigation regression still expects generic types to be
+  unsupported
+- that regression is malformed enough to fail earlier than the intended
+  semantic boundary
+- the editor docs are narrower and mostly honest, but the test matrix is not
+  fully synchronized with current compiler truth
 
-Tasks:
+Required work:
 
-- implement backend emission for chosen generic lowering strategy
-- ensure generated Rust/runtime support matches `core`/`memo` model legality
-- keep generated symbol naming stable and debuggable
-- make generic calls work across files and packages
+- repair malformed V2 editor regression fixtures
+- update generic-type hover/definition/typecheck expectations to current truth
+- verify standards example hover/definition behavior against the now-shipped
+  surface
+- keep the editor mirror honest where support is intentionally narrow
 
-Tests:
+Primary files:
 
-- positive app/example compile-and-run tests
-- emitted-Rust snapshot tests
-- cross-package integration tests
+- `lang/tooling/fol-editor/src/lsp/tests/navigation.rs`
+- `lang/tooling/fol-editor/src/lsp/tests/example_models.rs`
+- `test/integration_tests/integration_cli_typecheck.rs`
+- `test/integration_tests/integration_editor_and_build.rs`
+- `docs/editor-sync.md`
+- `book/src/050_tooling/500_lsp.md`
 
-Acceptance criteria:
+Acceptance:
 
-- positive M1 examples compile and execute
-- no backend/runtime panic or placeholder path exists for supported generics
+- there are no editor regressions asserting old V2 boundaries that are no
+  longer true
+- editor tests fail only for real unsupported behavior, not malformed fixtures
+- editor docs match current shipped support
 
-### 4.3 Expand M1 Semantics To The Chosen Narrow Edge Cases (complete, verified 2026-04-11)
+Tracked slices:
 
-Tasks:
+- [ ] C1. Repair the malformed editor regression that still expects generic
+  types to be unsupported.
+- [ ] C2. Re-audit editor docs/tests against the currently shipped V2 subset
+  and remove stale narrow-boundary wording.
 
-- decide supported status for receiver-qualified generic routines
-- decide supported status for default arguments in generic routines
-- decide supported status for recoverable/generic interaction
-- implement or reject each path explicitly and early
 
-Tests:
+# 6. Workstream D: Backend/Runtime Meaning Of Standards
 
-- parser, resolver, typecheck, lowering, and runtime coverage for each chosen case
-- negative tests for every non-chosen case
+Goal:
 
-Acceptance criteria:
+- remove ambiguity around what lowered standards/conformance data actually
+  means at execution time
 
-- no generic edge case is parser-only or typecheck-only by accident
+Known audit findings:
 
-## 5. Workstream B: Implement Generic Types
+- typecheck enforces standards/conformance legality
+- lowering carries protocol/conformance metadata
+- backend/runtime do not currently appear to consume that metadata as a richer
+  execution model
+- runtime docs still describe standards/generics as out of scope in places
 
-This is the biggest missing semantic block if full `V2` includes generics beyond M1.
+This workstream needs a hard project decision first:
 
-### 5.1 Resolve The Generic Type Contract (complete, verified 2026-04-11)
+- either standards remain a compile-time-only legality/selection mechanism
+- or backend/runtime must gain explicit support that consumes the lowered
+  metadata
 
-Tasks:
+The repo should not continue in an ambiguous middle state.
 
-- define which type forms can be generic:
-  - record types
-  - entry types
-  - aliases
-  - containers with generic arguments
-- define instantiation syntax and canonical spelling
-- define where generic arguments are inferred vs required
+Required work:
 
-Required docs:
+- document the chosen semantics explicitly
+- if compile-time-only:
+  - remove broader runtime wording
+  - add tests proving the intended compile-time-only boundary
+- if runtime-significant:
+  - implement backend/runtime consumption of lowered standards metadata
+  - add execution tests that prove the runtime effect is real
+- align runtime crate docs with the chosen truth
 
-- rewrite the generic type sections in [book/src/500_items/500_generics.md](/home/bresilla/data/code/bresilla/fol/book/src/500_items/500_generics.md)
+Primary files:
 
-Acceptance criteria:
+- `lang/compiler/fol-typecheck/src/decls.rs`
+- `lang/compiler/fol-typecheck/src/exprs/calls.rs`
+- `lang/compiler/fol-lower/src/decls/standards.rs`
+- `lang/compiler/fol-lower/src/session.rs`
+- `lang/execution/fol-backend/src/...`
+- `lang/execution/fol-runtime/src/lib.rs`
+- `docs/v2-runtime-strategy.md`
+- `docs/v2-standards-m2.md`
 
-- one exact syntax and meaning for generic types exists in the book
+Acceptance:
 
-### 5.2 Parser And Resolver Support For Generic Types (complete, verified 2026-04-11)
+- the backend/runtime contract for standards is explicit
+- code, runtime docs, and examples all match that contract
+- there is no remaining claim that implies richer runtime semantics unless the
+  runtime actually implements them
 
-Primary crates:
+Tracked slices:
 
-- `lang/compiler/fol-parser`
-- `lang/compiler/fol-resolver`
+- [ ] D1. Make the runtime crate docs and V2 strategy docs agree on the current
+  standards/generics contract.
+- [ ] D2. Add explicit tests/docs that standards remain procedural and
+  compile-time constrained unless backend/runtime semantics expand further.
 
-Tasks:
 
-- accept generic type declarations in final shipped syntax
-- bind generic type parameters in the correct scopes
-- resolve instantiated generic type references across files/packages
+# 7. Workstream E: Example Portability And Honest Execution
 
-Tests:
+Goal:
 
-- parser inventory for type generics
-- resolver scope tests for generic type parameter visibility
-- imported/cross-file generic type reference tests
+- make the shipped V2 examples runnable in the way the docs describe, without
+  hidden harness assumptions
 
-Acceptance criteria:
+Known audit findings:
 
-- generic type syntax is parse/resolve complete for the chosen contract
+- positive V2 examples do run in the main harness
+- some examples rely on package-store wiring or test harness setup that is not
+  obvious from the docs
+- at least one example still carries an old "negative boundary" identity in
+  docs even though it is now positive
 
-### 5.3 Typecheck Generic Types (complete, verified 2026-04-11)
+Required work:
 
-Primary crate:
+- retag examples whose role changed from negative boundary to positive example
+- document exact setup for bundled `std` example execution
+- reduce harness-only magic where practical
+- add explicit integration coverage for the documented invocation path
 
-- `lang/compiler/fol-typecheck`
+Primary files:
 
-Tasks:
+- `examples/fail_generic_type_m1/...`
+- `examples/generic_type_exec_m1m2/...`
+- `examples/generic_standard_constraint_m1m2/...`
+- `test/integration_tests/integration_editor_and_build.rs`
+- `docs/v2-generics-m1.md`
+- `docs/v2-standards-m2.md`
+- `docs/bundled-std.md`
 
-- represent generic type declarations and instantiated types in typed IR
-- validate generic argument counts and compatibility
-- support generic fields, nested uses, and aliasing where chosen
-- reject unsupported recursive or unsized cases explicitly
+Acceptance:
 
-Tests:
+- no positive example is still documented as a negative boundary
+- the documented way to run shipped V2 examples is the way they are actually
+  tested
+- bundled `std` setup is explicit and reproducible
 
-- positive examples for instantiated generic records/aliases
-- negative examples for arity mismatch, invalid constraints, unsupported recursion
+Tracked slices:
 
-Acceptance criteria:
+- [ ] E1. Retag example inventories and docs where positive V2 examples still
+  carry negative-boundary names.
+- [ ] E2. Document the exact bundled-`std` execution/setup path used by shipped
+  V2 examples.
 
-- generic type declarations and uses are fully typed without fallback wording
 
-### 5.4 Lower And Emit Generic Types (complete, verified 2026-04-11)
+# 8. Workstream F: Remaining Narrow-Surface Boundaries
 
-Primary crates:
+Goal:
 
-- `lang/compiler/fol-lower`
-- `lang/execution/fol-backend`
+- keep the narrow shipped V2 contract honest by making unsupported edge cases
+  explicit and tested
 
-Tasks:
+Known remaining narrow boundaries from the audit:
 
-- lower instantiated generic types into backend-owned lowered types
-- emit stable runtime/backend representations
-- ensure equality, defaulting, field access, method sugar, and shell wrapping all work
+- generic receiver types are still restricted
+- generic error types are still restricted
+- underconstrained generics are still rejected
+- generic routines are not ordinary routine values
+- recursive generic type instantiation is still rejected
+- protocol standards still only allow the current narrow required routine
+  signature surface
 
-Tests:
+Required work:
 
-- emitted-Rust snapshots for instantiated types
-- compile-and-run app fixtures using instantiated generic records and aliases
+- decide which of these remain part of the intentionally narrow shipped V2
+  contract
+- for every kept boundary:
+  - add or repair explicit negative tests
+  - document it as a current boundary
+- for every boundary the project wants to lift:
+  - create a dedicated implementation slice with tests across compiler,
+    editor, and docs
 
-Acceptance criteria:
+Primary files:
 
-- generic types are executable, not just semantic
+- `lang/compiler/fol-typecheck/src/decls.rs`
+- `lang/compiler/fol-typecheck/src/exprs/calls.rs`
+- milestone docs and example fixtures
 
-## 6. Workstream C: Implement Constraints And Generic/Standards Interaction
+Acceptance:
 
-The book currently keeps most of this outside M1/M2.
-If “full V2” is the goal, it must be made explicit and real.
+- every remaining unsupported V2 edge case is either:
+  - explicitly documented and tested as a current boundary
+  - or fully implemented and reflected everywhere
 
-### 6.1 Define Constraint Surface (complete, verified 2026-04-11)
+Tracked slices:
 
-Decide whether generic constraints are:
+- [ ] F1. Audit remaining narrow generic boundaries and pin each one as either
+  a documented current limit or a future implementation slice.
 
-- standards-only
-- a broader trait-like surface
-- limited to protocol standards
 
-Tasks:
+# 9. Recommended Order
 
-- define syntax and meaning
-- define where constraint solving is allowed
-- define diagnostics for unsatisfied constraints
+Work should proceed in this order:
 
-Acceptance criteria:
+1. contract/doc cleanup so the tracker is honest again
+2. tree-sitter parity and missing real test coverage
+3. stale editor regression cleanup
+4. example relabeling and portable execution path cleanup
+5. hard decision on backend/runtime meaning of standards
+6. close remaining narrow-boundary documentation/tests
 
-- current negative seam `fail_generic_standard_constraint_m1m2` becomes either:
-  - a positive example if implemented
-  - a moved-out-of-V2 example if deferred
+Reason:
 
-### 6.2 Implement Constraint Resolution And Checking (complete, verified 2026-04-11)
+- steps 1 through 4 remove false signals and stale regressions
+- step 5 is the only item that may require a deeper architecture choice
+- step 6 prevents the project from drifting back into ambiguous claims
 
-Primary crates:
 
-- `fol-resolver`
-- `fol-typecheck`
+# 10. Completion Rule
 
-Tasks:
+This plan is complete only when:
 
-- resolve constraint references
-- bind constrained generic parameters
-- check conformance at call sites and instantiation sites
-- produce precise diagnostics for failed constraint satisfaction
-
-Tests:
-
-- positive constrained generic examples
-- negative examples for missing conformance and ambiguous matches
-
-Acceptance criteria:
-
-- constraints are real semantics, not parser sugar or boundary messages
-
-### 6.3 Lower And Emit Constrained Generics (complete, verified 2026-04-11)
-
-Tasks:
-
-- pass evidence/witnesses or monomorphize by constrained concrete instantiation
-- ensure backend model matches the chosen generics strategy
-
-Acceptance criteria:
-
-- constrained generic examples compile and run
-
-## 7. Workstream D: Finish Current Narrow M2 Standards End To End
-
-This is the second execution milestone already close semantically.
-
-### 7.1 Lower Protocol Standards (complete, verified 2026-04-11)
-
-Current gap:
-
-- protocol standards typecheck but lowering stops explicitly
-
-Primary crates:
-
-- `fol-lower`
-- `fol-typecheck`
-
-Tasks:
-
-- lower protocol standard declarations into lowered contract metadata
-- lower type-side conformance claims
-- lower exact required-routine matches and extra-overload acceptance
-
-Tests:
-
-- convert current lowering-boundary examples into lowering-success examples:
-  - `examples/standards_protocol_m2`
-  - `examples/standards_protocol_pair_m2`
-  - `examples/standards_protocol_multi_m2`
-- add lowered snapshots for:
-  - single protocol
-  - multi-protocol conformance
-  - imported protocol conformance
-
-Acceptance criteria:
-
-- `--dump-lowered` succeeds on positive protocol-standard examples
-
-### 7.2 Emit And Execute Protocol-Conforming Programs (complete, verified 2026-04-11)
-
-Primary crates:
-
-- `fol-backend`
-- `fol-runtime`
-
-Tasks:
-
-- emit the chosen runtime/backend representation of standards and conformance
-- ensure receiver-qualified routine calls through standards work under the chosen model
-- keep semantics procedural, not accidental object dispatch, unless the contract changes
-
-Tests:
-
-- compile-and-run tests for positive standards M2 examples
-- emitted-Rust tests for conformance metadata plumbing
-
-Acceptance criteria:
-
-- protocol-standard examples compile and run end to end
-- no explicit M2 lowering/backend boundary remains for protocol standards
-
-## 8. Workstream E: Implement Blueprint Standards
-
-This work only starts if blueprint standards remain inside full `V2`.
-
-### 8.1 Freeze Blueprint Meaning (complete, verified 2026-04-11)
-
-Tasks:
-
-- define whether blueprints describe required data members only
-- define how type-side claims check blueprint requirements
-- define interaction with aliases, entries, optional/error shells, and generics
-
-Acceptance criteria:
-
-- blueprint semantics are documented in the book and not still labeled future
-
-### 8.2 Parser/Resolver/Typecheck/Lower/Backend (complete, removed from full V2 target, verified 2026-04-11)
-
-Closed by contract:
-
-- [docs/v2-full-contract.md](/home/bresilla/data/code/bresilla/fol/docs/v2-full-contract.md)
-  keeps blueprint standards outside full `V2`
-- [PLAN.md](/home/bresilla/data/code/bresilla/fol/PLAN.md#L344) only activates this
-  workstream if blueprint standards remain inside full `V2`
-
-Tasks:
-
-- keep parser syntax if already chosen, otherwise simplify it
-- resolve blueprint declarations and claims
-- check required data-member conformance
-- lower and emit the chosen contract representation
-
-Tests:
-
-- positive blueprint examples
-- negative examples for missing fields, type mismatches, ambiguous members
-
-Acceptance criteria:
-
-- blueprint examples compile and run or compile and statically validate if runtime execution is irrelevant
-
-## 9. Workstream F: Implement Extended Standards
-
-This work only starts if extended standards remain inside full `V2`.
-
-### 9.1 Freeze Extended Meaning (complete, verified 2026-04-11)
-
-Tasks:
-
-- define the exact combination of routine and data requirements
-- define conflict resolution between protocol/blueprint/extended claims
-
-### 9.2 Implement Extended Standards Across The Full Pipeline (complete, removed from full V2 target, verified 2026-04-11)
-
-Closed by contract:
-
-- [docs/v2-full-contract.md](/home/bresilla/data/code/bresilla/fol/docs/v2-full-contract.md) keeps extended standards outside the full `V2` target
-- this workstream only activates if extended standards remain inside full `V2`
-
-Tasks:
-
-- resolver collection
-- typecheck conformance
-- lowering
-- backend emission
-- editor/tree-sitter support
-
-Tests:
-
-- positive extended examples
-- negative examples for partial conformance and conflict cases
-
-Acceptance criteria:
-
-- extended standards are no longer parser-only or doc-only
-
-## 10. Workstream G: Decide And Implement Dispatch Rules (complete, verified 2026-04-11)
-
-This is the largest semantic decision still floating in the book examples.
-
-Questions the codebase must answer before implementation:
-
-- are standards used only for conformance checking, or also for dispatch?
-- are generic constraints callable only by monomorphized concrete routines?
-- is `value.bar()` through constrained generics allowed in `V2`?
-- is this still procedural call binding, or a new dispatch layer?
-
-Tasks:
-
-- freeze one dispatch model in the book
-- implement resolver/typecheck call selection accordingly
-- implement lowering/backend accordingly
-
-Acceptance criteria:
-
-- no example in the book implies a dispatch model the compiler does not implement
-
-## 11. Workstream H: Editor, LSP, And Tree-Sitter For Real V2
-
-The current repo explicitly says editor support is not broadly V2-aware.
-That must change if `V2` is going to be called complete.
-
-### 11.1 LSP Semantic Awareness (complete, verified 2026-04-11)
-
-Tasks:
-
-- hover and definition for generic declarations, instantiations, standards, conformance claims
-- completion for:
-  - generic parameters in valid scopes
-  - generic type instantiations if shipped
-  - standards/conformance-related names if shipped
-- diagnostics and code actions that reflect real V2 semantics
-
-Tests:
-
-- real example-root editor tests for every shipped V2 example
-
-Acceptance criteria:
-
-- `fol-editor` no longer documents “no V2-aware editor behavior”
-
-### 11.2 Tree-Sitter Grammar And Queries (complete, verified 2026-04-11)
-
-Tasks:
-
-- ensure final shipped V2 syntax is represented in:
-  - `grammar.js`
-  - highlights queries
-  - locals queries
-  - symbols queries
-- remove captures for non-shipped V2 syntax if the syntax is dropped
-
-Tests:
-
-- real example query tests for all positive and negative V2 examples
-
-Acceptance criteria:
-
-- tree-sitter matches shipped V2 syntax, not speculative future syntax
-
-## 12. Workstream I: Examples, Fixtures, And Book Contract Cleanup
-
-The example set must become the public truth table for V2.
-
-### 12.1 Replace Boundary Examples With Execution Examples Where Appropriate (complete, verified 2026-04-11)
-
-Current positive V2 examples mostly prove “open/typecheck then stop at lowering”.
-That is not enough for a complete V2.
-
-Tasks:
-
-- upgrade positive M1/M2 examples from boundary fixtures to execution fixtures
-- add richer examples for:
-  - generic types
-  - constrained generics
-  - blueprint/extended standards if included
-
-Acceptance criteria:
-
-- positive examples compile and run
-- negative examples fail with exact intentional diagnostics
-
-### 12.2 Remove Or Retag No-Longer-Correct Milestone Notes (complete, verified 2026-04-11)
-
-Tasks:
-
-- remove milestone wording once the milestone is fully shipped
-- keep a changelog/history note elsewhere if needed
-
-Acceptance criteria:
-
-- docs do not simultaneously call a feature “implemented” and “still unsupported”
-
-## 13. Workstream J: Cross-Cutting Quality Gates
-
-Every V2 slice should satisfy all of these before merge.
-
-### 13.1 Compiler Pipeline Gate (complete, verified 2026-04-11)
-
-- parser test
-- resolver test
-- typecheck test
-- lowering test
-- backend/emitted-Rust test
-- app/example compile-and-run test where relevant
-
-### 13.2 Tooling Gate (complete, verified 2026-04-11)
-
-- editor-opened example test
-- hover/definition test for new declarations
-- tree-sitter query test
-
-### 13.3 Contract Gate (complete, verified 2026-04-11)
-
-- book chapter updated
-- docs note updated or deleted
-- example matrix updated
-- negative examples updated
-
-## 14. Recommended Delivery Order
-
-This is the suggested implementation order.
-
-### Phase 1
-
-- freeze full `V2` product contract
-- freeze generic/standard backend strategy
-
-### Phase 2
-
-- finish executable M1 generic routines end to end
-
-### Phase 3
-
-- finish executable M2 protocol standards end to end
-
-### Phase 4
-
-- implement generic types
-
-### Phase 5
-
-- implement constraints and generic/standards interaction
-
-### Phase 6
-
-- implement blueprint standards if still inside `V2`
-
-### Phase 7
-
-- implement extended standards if still inside `V2`
-
-### Phase 8
-
-- implement chosen dispatch/inference semantics if still inside `V2`
-
-### Phase 9
-
-- finish V2-aware editor/tree-sitter/LSP
-- rewrite book/docs from milestone language to shipped-contract language
-
-## 15. Concrete Backlog
-
-The first concrete backlog after this plan replacement should be:
-
-1. [complete, verified 2026-04-11] write one `docs/v2-full-contract.md` file that freezes what “full V2” means
-2. implement generic routine lowering in `fol-lower`
-3. implement backend emission for positive generic routine examples
-4. convert generic M1 examples from lowering-boundary tests into run tests
-5. implement protocol-standard lowering in `fol-lower`
-6. implement backend emission for positive standards M2 examples
-7. convert standards M2 examples from lowering-boundary tests into run tests
-8. decide whether generic types, blueprint standards, extended standards, and standards-as-constraints are in or out for full `V2`
-9. if in, implement them in that order with full pipeline and editor coverage
-
-## 16. Open Question (complete, resolved 2026-04-11)
-
-Resolved decision:
-
-- full `V2` in this repo includes only:
-  - executable generic routines
-  - executable protocol standards
-  - generic types
-  - standards-as-constraints
-- broader dispatch/inference work shown in future-facing book examples remains
-  outside this `V2` target
-
-Implementation rule after this decision:
-
-- do not widen `V2` to standards-driven dispatch
-- do not widen `V2` to broader inference semantics
-- keep blueprint and extended standards outside the full `V2` target unless the
-  contract is changed explicitly later
+- compiler, backend/runtime, editor, tree-sitter, tests, examples, and docs
+  all describe the same V2 product
+- deferred broader-V2 ideas remain clearly deferred
+- no current shipped example or test still relies on stale milestone language
+- the project can honestly say "V2 is fully implemented" without narrowing
+  that claim to "compiler-side only"
