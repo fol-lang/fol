@@ -14,6 +14,8 @@ This means:
   instantiated lowered routines and lowered types
 - backend emission should not introduce a second witness/dictionary calling
   convention for the current `V2` target
+- standard-constrained calls should become ordinary emitted receiver-qualified
+  or monomorphized routine calls after compile-time conformance checking
 - protocol standards should remain procedural contracts, not a runtime object
   model
 - `fol-runtime` remains a runtime support crate, not a second generic or

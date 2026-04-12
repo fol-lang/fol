@@ -4342,6 +4342,44 @@ fn test_v2_standards_docs_keep_execution_semantics_procedural() {
 }
 
 #[test]
+fn test_v2_standards_execution_stays_free_of_runtime_dispatch_artifacts() {
+    let strategy =
+        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+            .expect("V2 runtime strategy note should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    for example in [
+        "examples/standards_protocol_m2",
+        "examples/generic_standard_constraint_m1m2",
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(
+            build.status.success(),
+            "standards execution example '{example}' should build cleanly: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let generated = find_file_by_name(&emitted_crate_root(&build), "main.rs")
+            .expect("generated backend source should exist");
+        let source = std::fs::read_to_string(&generated)
+            .expect("generated backend source should load");
+        for forbidden in ["dyn ", "vtable", "witness", "dictionary"] {
+            assert!(
+                !source.contains(forbidden),
+                "standards example '{example}' should stay procedural without '{forbidden}' in {:?}:\n{}",
+                generated,
+                source
+            );
+        }
+    }
+
+    assert!(strategy.contains("ordinary emitted receiver-qualified"));
+    assert!(plan.contains("[x] D2. Add explicit tests/docs that standards remain procedural"));
+}
+
+#[test]
 fn test_editor_docs_track_the_current_shipped_v2_subset() {
     let editor_sync =
         std::fs::read_to_string(repo_root().join("docs/editor-sync.md"))
