@@ -137,6 +137,9 @@ Current hardened example matrix:
 The shipped narrow `V2` standards subset still keeps these limits explicit:
 
 - protocol standards support only the current required routine-signature surface
+- generic required routine signatures remain unsupported
+- receiver-qualified required routine signatures remain unsupported
+- capturing required routine signatures remain unsupported
 - standards cannot be used as ordinary value types
 - default standard implementations remain unsupported
 

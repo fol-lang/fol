@@ -106,6 +106,8 @@ This subset is intentionally narrow:
 
 - only `pro` is semantic today
 - only required routines are semantic today
+- richer requirement forms such as generic, receiver-qualified, and capturing
+  standard requirements remain unsupported
 - the type claim is checked procedurally
 - lowering preserves protocol-standard and conformance metadata for audits and
   procedural backend lowering

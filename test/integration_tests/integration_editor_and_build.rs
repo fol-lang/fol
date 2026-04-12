@@ -4847,6 +4847,9 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     let standards_note =
         std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
             .expect("standards milestone note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
     let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
         .expect("V2 plan should load");
 
@@ -4858,11 +4861,16 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     assert!(generics_note.contains("implementation slice with parser, typecheck, editor, doc, and example updates"));
 
     assert!(standards_note.contains("required routine-signature surface"));
+    assert!(standards_note.contains("generic required routine signatures remain unsupported"));
+    assert!(standards_note.contains("receiver-qualified required routine signatures remain unsupported"));
+    assert!(standards_note.contains("capturing required routine signatures remain unsupported"));
+    assert!(standards_book.contains("richer requirement forms such as generic, receiver-qualified, and capturing"));
     assert!(standards_note.contains("standards cannot be used as ordinary value types"));
     assert!(standards_note.contains("default standard implementations remain unsupported"));
     assert!(standards_note.contains("implementation slice with compiler, backend, editor, doc, and example work"));
 
     assert!(plan.contains("every retained generic limit remains explicitly documented and tested"));
+    assert!(plan.contains("[x] D3. Decide whether any richer required routine signature forms should be added."));
 
 }
 

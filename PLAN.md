@@ -255,7 +255,7 @@ Tracked slices:
 
 - [ ] D1. Improve conformance diagnostics for missing and ambiguous required routines.
 - [ ] D2. Audit cross-package standards diagnostics and tighten them where weak.
-- [ ] D3. Decide whether any richer required routine signature forms should be added.
+- [x] D3. Decide whether any richer required routine signature forms should be added.
 
 
 # 8. Workstream E: Constraint Ergonomics Without Solver Creep
