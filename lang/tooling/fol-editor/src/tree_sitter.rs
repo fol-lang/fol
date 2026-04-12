@@ -243,6 +243,7 @@ mod tests {
             "standard_requirement",
             "block",
             "generic_params",
+            "generic_type_expr",
             "type_contract_claims",
             "when_expr",
             "loop_expr",
@@ -768,6 +769,9 @@ mod tests {
         assert!(corpus
             .iter()
             .any(|case| case.source.contains("typ User: rec")));
+        assert!(corpus
+            .iter()
+            .any(|case| case.source.contains("ali IntBox: Box[int]")));
         assert!(corpus
             .iter()
             .any(|case| case.source.contains("true") || case.source.contains("false")));
@@ -1486,6 +1490,10 @@ mod tests {
             (
                 repo_root().join("examples/generic_type_semantic_m1m2/src/main.fol"),
                 ["type", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_type_exec_m1m2/src/main.fol"),
+                ["keyword.import", "type", "function"].as_slice(),
             ),
             (
                 repo_root().join("examples/fail_generic_misuse_m1/src/main.fol"),

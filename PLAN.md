@@ -111,9 +111,9 @@ Acceptance:
 
 Tracked slices:
 
-- [ ] A1. Add tree-sitter support for generic-type instantiation syntax.
-- [ ] A2. Audit query files against the new generic-type tree shape.
-- [ ] A3. Add tree-sitter coverage for shipped positive executable generic-type
+- [x] A1. Add tree-sitter support for generic-type instantiation syntax.
+- [x] A2. Audit query files against the new generic-type tree shape.
+- [x] A3. Add tree-sitter coverage for shipped positive executable generic-type
   examples.
 
 

@@ -32,3 +32,7 @@ imp Self: User = {
 std geometry: pro = {
     fun area(): flt[64]
 }
+typ Box(T): rec = {
+    value: T
+}
+ali IntBox: Box[int]

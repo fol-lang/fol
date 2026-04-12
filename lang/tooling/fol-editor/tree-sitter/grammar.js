@@ -98,12 +98,19 @@ module.exports = grammar({
     entry_type: _ => 'ent',
 
     type_expr: $ => choice(
+      $.generic_type_expr,
       $.qualified_path,
       $.identifier,
       $.container_type,
       $.shell_type,
     ),
 
+    generic_type_expr: $ => seq(
+      field('base', choice($.qualified_path, $.identifier)),
+      '[',
+      commaSep1($.type_expr),
+      ']',
+    ),
     container_type: $ => seq(choice('arr', 'vec', 'seq', 'set', 'map'), '[', commaSep1($.type_expr), ']'),
     shell_type: $ => seq(choice('opt', 'err'), '[', $.type_expr, ']'),
 
