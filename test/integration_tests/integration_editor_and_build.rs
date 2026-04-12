@@ -4774,6 +4774,31 @@ fn test_bundled_std_docs_pin_the_normal_v2_example_execution_path() {
 }
 
 #[test]
+fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(generics_note.contains("underconstrained generic calls are rejected"));
+    assert!(generics_note.contains("generic routines are not first-class routine values"));
+    assert!(generics_note.contains("generic error shells remain unsupported"));
+    assert!(generics_note.contains("recursive generic type instantiation remains rejected"));
+    assert!(generics_note.contains("implementation slice with parser, typecheck, editor, doc, and example updates"));
+
+    assert!(standards_note.contains("required routine-signature surface"));
+    assert!(standards_note.contains("standards cannot be used as ordinary value types"));
+    assert!(standards_note.contains("default standard implementations remain unsupported"));
+    assert!(standards_note.contains("implementation slice with compiler, backend, editor, doc, and example work"));
+
+    assert!(plan.contains("[x] F1. Audit remaining narrow generic boundaries and pin each one"));
+}
+
+#[test]
 fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
     let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
         .expect("V2 quality gates note should load");

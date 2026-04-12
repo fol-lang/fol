@@ -342,7 +342,7 @@ Acceptance:
 
 Tracked slices:
 
-- [ ] F1. Audit remaining narrow generic boundaries and pin each one as either
+- [x] F1. Audit remaining narrow generic boundaries and pin each one as either
   a documented current limit or a future implementation slice.
 
 

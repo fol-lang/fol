@@ -194,6 +194,20 @@ Current deeper hardening boundaries now pinned too:
 - the negative generic-constraint conformance example is:
   - `examples/fail_generic_standard_constraint_m1m2`
 
+## Current documented narrow limits
+
+The shipped narrow `V2` surface still keeps these limits explicit:
+
+- underconstrained generic calls are rejected instead of using broader
+  solver-style inference
+- generic routines are not first-class routine values
+- generic error shells remain unsupported in the Milestone 1 routine subset
+- recursive generic type instantiation remains rejected
+
+If any of these limits change, they should move through a dedicated
+implementation slice with parser, typecheck, editor, doc, and example updates
+rather than disappearing from the contract silently.
+
 Second-pass hardening must not widen Milestone 1 into:
 
 - generic constraints

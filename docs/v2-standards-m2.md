@@ -132,6 +132,18 @@ Current hardened example matrix:
   - `examples/fail_standard_signature_m2`
   - `examples/fail_standard_import_ambiguity_m2`
 
+## Current documented narrow limits
+
+The shipped narrow `V2` standards subset still keeps these limits explicit:
+
+- protocol standards support only the current required routine-signature surface
+- standards cannot be used as ordinary value types
+- default standard implementations remain unsupported
+
+If the project lifts any of these limits, that should happen in a dedicated
+implementation slice with compiler, backend, editor, doc, and example work in
+the same change set.
+
 ## Second-pass hardening targets
 
 The first hardening pass covered the broad Milestone 2 protocol subset.
