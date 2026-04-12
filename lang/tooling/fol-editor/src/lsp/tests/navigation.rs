@@ -388,18 +388,19 @@ fn lsp_server_surfaces_future_version_boundary_diagnostics() {
 }
 
 #[test]
-fn lsp_server_surfaces_generic_m1_boundary_diagnostics() {
+fn lsp_server_surfaces_current_generic_m1_boundaries_only() {
     let (root, uri) = sample_package_root("generic_m1_boundaries");
     let source = concat!(
         "fun pick(T)(value: T): T = {\n",
         "    return value;\n",
         "};\n",
         "typ Box(T): rec = {\n",
-        "    value: int\n",
+        "    value: T\n",
         "};\n",
         "fun[] main(): int = {\n",
+        "    var kept: Box[int] = { value = 1 };\n",
         "    var chosen: fun(int): int = pick;\n",
-        "    return pick$(1);\n",
+        "    return pick$(kept.value);\n",
         "};\n",
     );
     fs::write(root.join("src/main.fol"), source).unwrap();
@@ -414,8 +415,8 @@ fn lsp_server_surfaces_generic_m1_boundary_diagnostics() {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("generic types are not yet supported")),
-        "editor path should surface the generic-type M1 boundary, got: {messages:?}"
+            .all(|message| !message.contains("generic types are not yet supported")),
+        "editor path should not surface the removed generic-type boundary, got: {messages:?}"
     );
     assert!(
         messages.iter().any(|message| message.contains(

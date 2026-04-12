@@ -187,7 +187,7 @@ Acceptance:
 
 Tracked slices:
 
-- [ ] C1. Repair the malformed editor regression that still expects generic
+- [x] C1. Repair the malformed editor regression that still expects generic
   types to be unsupported.
 - [ ] C2. Re-audit editor docs/tests against the currently shipped V2 subset
   and remove stale narrow-boundary wording.
