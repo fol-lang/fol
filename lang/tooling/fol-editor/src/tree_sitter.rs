@@ -1484,7 +1484,7 @@ mod tests {
                 ["function", "type.builtin"].as_slice(),
             ),
             (
-                repo_root().join("examples/fail_generic_type_m1/src/main.fol"),
+                repo_root().join("examples/generic_type_semantic_m1m2/src/main.fol"),
                 ["type", "function"].as_slice(),
             ),
             (

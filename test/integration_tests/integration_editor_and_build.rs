@@ -422,8 +422,8 @@ fn test_recoverable_generic_routines_with_concrete_error_types_build_and_run() {
 }
 
 #[test]
-fn test_fail_generic_type_m1_example_semantic_check_now_passes() {
-    let root = temp_example_root("examples/fail_generic_type_m1");
+fn test_generic_type_semantic_m1m2_example_semantic_check_passes() {
+    let root = temp_example_root("examples/generic_type_semantic_m1m2");
 
     let check = run_fol_in_dir(&root, &["code", "check"]);
     let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
@@ -4236,7 +4236,7 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(generics_note.contains("examples/generic_routine_m1"));
     assert!(generics_note.contains("examples/generic_routine_pair_m1"));
     assert!(generics_note.contains("examples/generic_routine_cross_file_m1"));
-    assert!(generics_note.contains("examples/fail_generic_type_m1"));
+    assert!(generics_note.contains("examples/generic_type_semantic_m1m2"));
     assert!(generics_note.contains("examples/fail_generic_misuse_m1"));
     assert!(generics_note.contains("examples/fail_generic_cross_file_m1"));
     assert!(generics_note.contains("examples/fail_generic_standard_constraint_m1m2"));
@@ -4451,7 +4451,7 @@ fn test_tree_sitter_suite_tracks_all_shipped_v2_example_roots() {
         "examples/standards_protocol_multi_m2/src/main.fol",
         "examples/standards_protocol_multi_m2/src/contracts.fol",
         "examples/standards_protocol_multi_m2/src/rect.fol",
-        "examples/fail_generic_type_m1/src/main.fol",
+        "examples/generic_type_semantic_m1m2/src/main.fol",
         "examples/fail_generic_misuse_m1/src/main.fol",
         "examples/fail_generic_standard_constraint_m1m2/src/main.fol",
         "examples/fail_standard_blueprint_m2/src/main.fol",
@@ -4543,7 +4543,7 @@ fn test_v2_m1_example_matrix_stays_honest() {
         "examples/generic_routine_cross_file_m1",
         "examples/generic_type_exec_m1m2",
         "examples/generic_standard_constraint_m1m2",
-        "examples/fail_generic_type_m1",
+        "examples/generic_type_semantic_m1m2",
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",
         "examples/fail_generic_standard_constraint_m1m2",
@@ -4617,7 +4617,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         "examples/generic_routine_cross_file_m1",
         "examples/generic_type_exec_m1m2",
         "examples/generic_standard_constraint_m1m2",
-        "examples/fail_generic_type_m1",
+        "examples/generic_type_semantic_m1m2",
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",
         "examples/fail_generic_standard_constraint_m1m2",
@@ -4662,7 +4662,7 @@ fn test_v2_docs_and_book_track_the_current_example_matrix() {
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
-        "examples/fail_generic_type_m1",
+        "examples/generic_type_semantic_m1m2",
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",
         "examples/fail_generic_standard_constraint_m1m2",
@@ -4687,7 +4687,7 @@ fn test_v2_docs_and_book_track_the_current_example_matrix() {
 }
 
 #[test]
-fn test_v2_generics_docs_retag_fail_generic_type_example_honestly() {
+fn test_v2_generics_docs_retag_generic_type_example_honestly() {
     let generics_note =
         std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
             .expect("generic milestone note should load");
@@ -4698,10 +4698,11 @@ fn test_v2_generics_docs_retag_fail_generic_type_example_honestly() {
         .expect("V2 plan should load");
 
     assert!(!generics_note.contains("generic types remain unsupported"));
-    assert!(!generics_note.contains("- negative\n  - `examples/fail_generic_type_m1`"));
-    assert!(generics_note.contains("historical example name `examples/fail_generic_type_m1`"));
-    assert!(generics_note.contains("- `examples/fail_generic_type_m1`"));
-    assert!(generics_book.contains("historical name retained"));
+    assert!(!generics_note.contains("- negative\n  - `examples/generic_type_semantic_m1m2`"));
+    assert!(!generics_note.contains("historical example name `examples/fail_generic_type_m1`"));
+    assert!(generics_note.contains("- `examples/generic_type_semantic_m1m2`"));
+    assert!(!generics_book.contains("historical name retained"));
+    assert!(generics_book.contains("examples/generic_type_semantic_m1m2"));
     assert!(generics_book.contains("positive semantic-check"));
     assert!(plan.contains("[x] A2. Retag generic milestone docs and book entries"));
 }

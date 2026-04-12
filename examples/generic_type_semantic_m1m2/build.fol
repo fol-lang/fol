@@ -1,13 +1,13 @@
 pro[] build(): non = {
     var build = .build();
     build.meta({
-        name = "fail_generic_type_m1",
+        name = "generic_type_semantic_m1m2",
         version = "0.1.0",
     });
 
     var graph = build.graph();
     graph.add_exe({
-        name = "fail_generic_type_m1",
+        name = "generic_type_semantic_m1m2",
         root = "src/main.fol",
         fol_model = "memo",
     });

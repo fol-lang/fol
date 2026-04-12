@@ -230,7 +230,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             None,
         ),
         (
-            "examples/fail_generic_type_m1",
+            "examples/generic_type_semantic_m1m2",
             "typ Box(T): rec = {\n    var item: T;\n};\nfun[] main(): int = {\n    return 0;\n};\n",
             None,
         ),
@@ -308,7 +308,7 @@ fn lsp_server_returns_semantic_tokens_for_real_model_examples() {
         "examples/memo_defaults",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
-        "examples/fail_generic_type_m1",
+        "examples/generic_type_semantic_m1m2",
         "examples/fail_generic_misuse_m1",
         "examples/fail_standard_blueprint_m2",
         "examples/fail_standard_as_type_m2",

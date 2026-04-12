@@ -19,9 +19,8 @@ Current milestone note:
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
-  - `examples/fail_generic_type_m1`
-    - historical name retained, but the example is now a positive semantic-check
-      fixture for generic type declarations
+  - `examples/generic_type_semantic_m1m2`
+    - positive semantic-check fixture for generic type declarations
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
   - `examples/fail_generic_misuse_m1`

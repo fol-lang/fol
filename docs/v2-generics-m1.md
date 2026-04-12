@@ -76,9 +76,8 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - full `V2` execution examples now also exist for:
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
-- the historical example name `examples/fail_generic_type_m1` now survives only
-  as a semantic-check fixture name; it is no longer a negative generic-types
-  boundary example
+- generic type declarations now use the positively named semantic-check fixture
+  `examples/generic_type_semantic_m1m2`
 
 That means the current honest boundary is:
 
@@ -141,7 +140,7 @@ Hardening examples that should remain in sync:
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
-  - `examples/fail_generic_type_m1`
+  - `examples/generic_type_semantic_m1m2`
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
 - negative
@@ -159,7 +158,7 @@ Current hardened example matrix:
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
-  - `examples/fail_generic_type_m1`
+  - `examples/generic_type_semantic_m1m2`
 - negative semantic-boundary examples
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
