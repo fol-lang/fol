@@ -4832,6 +4832,33 @@ fn test_agents_md_keeps_current_v2_milestone_truth() {
 }
 
 #[test]
+fn test_tooling_docs_keep_workspace_symbols_root_scoped() {
+    let lsp = std::fs::read_to_string(repo_root().join("book/src/050_tooling/500_lsp.md"))
+        .expect("LSP chapter should load");
+    let editor = std::fs::read_to_string(repo_root().join("book/src/050_tooling/300_editor.md"))
+        .expect("editor tooling chapter should load");
+    let lsp_impl =
+        std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/lsp/mod.rs"))
+            .expect("LSP implementation should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(lsp.contains(
+        "workspace symbols across discovered `.fol` files under the mapped workspace root"
+    ));
+    assert!(editor.contains(
+        "workspace symbols across discovered `.fol` files under the mapped workspace root"
+    ));
+    assert!(!lsp.contains("workspace symbols for current open workspace members"));
+    assert!(!editor.contains("workspace symbols for current open workspace members"));
+    assert!(lsp_impl.contains("fn collect_fol_files(root: &std::path::Path) -> Vec<std::path::PathBuf>"));
+    assert!(lsp_impl.contains("visit(root, &mut files);"));
+    assert!(plan.contains(
+        "[x] F3. Re-audit tooling docs for stale workspace-symbol/editor boundary claims."
+    ));
+}
+
+#[test]
 fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
     let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
         .expect("V2 quality gates note should load");
