@@ -4629,6 +4629,26 @@ fn test_v2_docs_and_book_track_the_current_example_matrix() {
 }
 
 #[test]
+fn test_v2_generics_docs_retag_fail_generic_type_example_honestly() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(!generics_note.contains("generic types remain unsupported"));
+    assert!(!generics_note.contains("- negative\n  - `examples/fail_generic_type_m1`"));
+    assert!(generics_note.contains("historical example name `examples/fail_generic_type_m1`"));
+    assert!(generics_note.contains("- `examples/fail_generic_type_m1`"));
+    assert!(generics_book.contains("historical name retained"));
+    assert!(generics_book.contains("positive semantic-check"));
+    assert!(plan.contains("[x] A2. Retag generic milestone docs and book entries"));
+}
+
+#[test]
 fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
     let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
         .expect("V2 quality gates note should load");

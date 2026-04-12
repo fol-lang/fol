@@ -68,7 +68,6 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - resolver binds routine-local generic parameter symbols in supported type positions
 - typecheck supports direct generic routine calls with narrow argument-driven inference
 - generic routine values remain unsupported
-- generic types remain unsupported
 - generic routine lowering now succeeds for the shipped Milestone 1 examples
 - backend execution now works for the shipped positive Milestone 1 examples
 - receiver-qualified generic routines now lower and execute through method sugar
@@ -77,6 +76,9 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - full `V2` execution examples now also exist for:
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
+- the historical example name `examples/fail_generic_type_m1` now survives only
+  as a semantic-check fixture name; it is no longer a negative generic-types
+  boundary example
 
 That means the current honest boundary is:
 
@@ -129,7 +131,6 @@ Negative obligations:
 - generic parameter references outside routine scope must fail in resolver
 - generic routine values must fail in typecheck
 - non-standard generic constraints must fail explicitly
-- generic types must fail explicitly
 - lowering must continue to succeed for the shipped examples
 - backend execution must continue to succeed for the shipped positive examples
 - broader edge cases must keep explicit tests and explicit acceptance/rejection
@@ -139,10 +140,11 @@ Hardening examples that should remain in sync:
 - positive
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
+  - `examples/generic_routine_cross_file_m1`
+  - `examples/fail_generic_type_m1`
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
 - negative
-  - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
   - `examples/fail_generic_standard_constraint_m1m2`
@@ -153,12 +155,12 @@ Current hardened example matrix:
 - positive executable examples beyond the narrow M1 core
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
-- positive lowered examples
+- positive semantic-check or lowered examples
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
-- negative semantic-boundary examples
   - `examples/fail_generic_type_m1`
+- negative semantic-boundary examples
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
   - `examples/fail_generic_standard_constraint_m1m2`

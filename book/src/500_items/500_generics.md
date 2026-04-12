@@ -19,9 +19,11 @@ Current milestone note:
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
+  - `examples/fail_generic_type_m1`
+    - historical name retained, but the example is now a positive semantic-check
+      fixture for generic type declarations
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
-  - `examples/fail_generic_type_m1`
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
   - `examples/fail_generic_standard_constraint_m1m2`
@@ -36,7 +38,8 @@ Current milestone note:
 - current editor hardening covers hover/definition on checked-in generic
   examples without claiming broader generic-aware completion than the shipped
   editor currently provides
-- generic types are not part of the implemented `V1` typechecker
+- generic types are not part of `V1`; they now belong to the shipped narrow
+  full-`V2` contract instead
 - examples here should be read as:
   - current narrow `V2` Milestone 1 generic-routine work where noted
   - otherwise later `V2` design

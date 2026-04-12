@@ -95,7 +95,7 @@ Acceptance:
 Tracked slices:
 
 - [x] A1. Replace stale completed-plan assertions with follow-up-plan checks.
-- [ ] A2. Retag generic milestone docs and book entries that still describe
+- [x] A2. Retag generic milestone docs and book entries that still describe
   `examples/fail_generic_type_m1` as a negative boundary.
 - [ ] A3. Reconcile standards/runtime docs so they do not imply richer runtime
   semantics than the backend currently implements.
