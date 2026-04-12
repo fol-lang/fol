@@ -16,6 +16,8 @@ This means:
   convention for the current `V2` target
 - protocol standards should remain procedural contracts, not a runtime object
   model
+- `fol-runtime` remains a runtime support crate, not a second generic or
+  standards object system
 
 Explicit non-goals for this strategy:
 

@@ -247,7 +247,7 @@ Acceptance:
 
 Tracked slices:
 
-- [ ] D1. Make the runtime crate docs and V2 strategy docs agree on the current
+- [x] D1. Make the runtime crate docs and V2 strategy docs agree on the current
   standards/generics contract.
 - [ ] D2. Add explicit tests/docs that standards remain procedural and
   compile-time constrained unless backend/runtime semantics expand further.

@@ -4299,8 +4299,28 @@ fn test_v2_runtime_strategy_note_freezes_monomorphization() {
     assert!(strategy.contains("monomorphization for executable generic routines"));
     assert!(strategy.contains("monomorphization for generic type instantiations"));
     assert!(strategy.contains("no dictionary passing for the current `V2` target"));
+    assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
     assert!(plan.contains("# 6. Workstream D: Backend/Runtime Meaning Of Standards"));
-    assert!(plan.contains("[ ] D1. Make the runtime crate docs and V2 strategy docs agree on the current"));
+    assert!(plan.contains("[x] D1. Make the runtime crate docs and V2 strategy docs agree on the current"));
+}
+
+#[test]
+fn test_runtime_crate_docs_align_with_the_v2_monomorphization_boundary() {
+    let runtime_docs =
+        std::fs::read_to_string(repo_root().join("lang/execution/fol-runtime/src/lib.rs"))
+            .expect("runtime crate docs should load");
+    let strategy =
+        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+            .expect("V2 runtime strategy note should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(runtime_docs.contains("a runtime-owned generic reification model"));
+    assert!(runtime_docs.contains("object-style standards/dispatch machinery"));
+    assert!(runtime_docs.contains("Full `V2` generics, generic types, and procedural standards still execute"));
+    assert!(runtime_docs.contains("does not define a second witness/dictionary system"));
+    assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
+    assert!(plan.contains("[x] D1. Make the runtime crate docs and V2 strategy docs agree"));
 }
 
 #[test]
