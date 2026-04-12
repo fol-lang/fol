@@ -4809,6 +4809,9 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     let generics_note =
         std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
             .expect("generic milestone note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
     let standards_note =
         std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
             .expect("standards milestone note should load");
@@ -4818,6 +4821,7 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     assert!(generics_note.contains("underconstrained generic calls are rejected"));
     assert!(generics_note.contains("generic routines are not first-class routine values"));
     assert!(generics_note.contains("generic error shells remain unsupported"));
+    assert!(generics_book.contains("generic error shells remain outside the current shipped Milestone 1 routine subset"));
     assert!(generics_note.contains("recursive generic type instantiation remains rejected"));
     assert!(generics_note.contains("implementation slice with parser, typecheck, editor, doc, and example updates"));
 

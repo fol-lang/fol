@@ -206,7 +206,7 @@ Tracked slices:
 
 - [x] C1. Improve underconstrained-generic diagnostics without widening inference.
 - [ ] C2. Decide whether generic receiver types stay a limit or become supported.
-- [ ] C3. Decide whether generic recoverable error types stay a limit or become supported.
+- [x] C3. Decide whether generic recoverable error types stay a limit or become supported.
 - [ ] C4. Audit nested generic-type composition and improve diagnostics or implementation.
 
 

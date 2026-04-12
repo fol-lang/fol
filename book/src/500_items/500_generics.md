@@ -37,6 +37,7 @@ Current milestone note:
 - current editor hardening covers hover/definition on checked-in generic
   examples without claiming broader generic-aware completion than the shipped
   editor currently provides
+- generic error shells remain outside the current shipped Milestone 1 routine subset
 - generic types are not part of `V1`; they now belong to the shipped narrow
   full-`V2` contract instead
 - examples here should be read as:
