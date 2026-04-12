@@ -27,9 +27,14 @@ Still future:
 - extended standards as real semantic contracts
 - required data-member conformance
 - standards as ordinary concrete types
-- generic constraints using standards
 - dispatch/inference driven by standards
 - object-style method semantics
+
+Part of the current shipped full-`V2` contract:
+
+- standards-as-constraints through protocol standards
+- procedural constrained-generic call binding
+- static conformance checking for those constraints
 
 For the current full `V2` target, blueprint and extended standards remain
 outside the shipped contract even if parser syntax continues to exist for

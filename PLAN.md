@@ -341,7 +341,7 @@ Acceptance:
 Tracked slices:
 
 - [x] F1. Remove stale pre-landing V2 milestone wording from `AGENTS.md`.
-- [ ] F2. Fix stale standards-book wording about standards-as-constraints being future work.
+- [x] F2. Fix stale standards-book wording about standards-as-constraints being future work.
 - [ ] F3. Re-audit tooling docs for stale workspace-symbol/editor boundary claims.
 
 

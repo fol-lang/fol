@@ -4441,6 +4441,21 @@ fn test_v2_constraint_surface_is_frozen_as_standards_only() {
 }
 
 #[test]
+fn test_standards_book_keeps_standards_as_constraints_in_current_v2_contract() {
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(!standards_book.contains("- generic constraints using standards"));
+    assert!(standards_book.contains("standards-as-constraints through protocol standards"));
+    assert!(standards_book.contains("procedural constrained-generic call binding"));
+    assert!(standards_book.contains("static conformance checking for those constraints"));
+    assert!(plan.contains("[x] F2. Fix stale standards-book wording about standards-as-constraints being future work."));
+}
+
+#[test]
 fn test_v2_contract_keeps_blueprint_standards_out_of_scope() {
     let contract =
         std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
