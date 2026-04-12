@@ -4397,7 +4397,22 @@ fn test_editor_docs_track_the_current_shipped_v2_subset() {
     assert!(lsp_book.contains("constrained-generic"));
     assert!(lsp_book.contains("- generic types"));
     assert!(lsp_book.contains("- constrained generics"));
+    for example in [
+        "examples/generic_type_exec_m1m2",
+        "examples/generic_standard_constraint_m1m2",
+        "examples/standards_protocol_m2",
+    ] {
+        assert!(
+            editor_sync.contains(example),
+            "editor sync docs should name the tested positive V2 example '{example}'"
+        );
+        assert!(
+            lsp_book.contains(example),
+            "LSP docs should name the tested positive V2 example '{example}'"
+        );
+    }
     assert!(plan.contains("# 5. Workstream B: Editor Coverage For Real Positive V2 Examples"));
+    assert!(plan.contains("[x] B3. Re-audit editor docs so they match the real tested example matrix."));
 }
 
 #[test]

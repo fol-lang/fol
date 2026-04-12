@@ -32,6 +32,10 @@ Current shipped V2-aware coverage is intentionally narrow:
 - diagnostics, hover, definition, symbols, and completion are exercised against
   the checked-in generic-routine, generic-type, constrained-generic, and
   protocol-standard example packages
+- the current positive executable example roots covered by editor tests are:
+  - `examples/generic_type_exec_m1m2`
+  - `examples/generic_standard_constraint_m1m2`
+  - `examples/standards_protocol_m2`
 - those tests should stay honest about current boundaries and must not imply
   lowering/backend support that the compiler does not yet ship
 
