@@ -71,6 +71,7 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - generic routine lowering now succeeds for the shipped Milestone 1 examples
 - backend execution now works for the shipped positive Milestone 1 examples
 - receiver-qualified generic routines now lower and execute through method sugar
+- concrete instantiated generic-type receivers such as `Box[int]` now lower and execute too
 - default-argument generic routines are part of the current executable M1 subset
 - generic routines with concrete recoverable error types are part of the current executable M1 subset
 - full `V2` execution examples now also exist for:
@@ -86,6 +87,7 @@ That means the current honest boundary is:
   Milestone 1 generic routine examples
 - the chosen executable M1 edge cases are now:
   - receiver-qualified generic routines
+  - concrete instantiated generic-type receivers
   - default-argument generic routines
   - generic routines with concrete recoverable error types
 - generic error shells remain explicitly unsupported in M1

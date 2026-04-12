@@ -29,7 +29,8 @@ Current milestone note:
 - generic routine lowering now succeeds for the shipped Milestone 1 example set
 - generic routine backend execution now works for the shipped positive Milestone 1 examples
 - receiver-qualified generic routines, matching default arguments, and
-  concrete recoverable error types are now part of the executable Milestone 1 subset
+  concrete instantiated generic-type receivers and concrete recoverable error
+  types are now part of the executable Milestone 1 subset
 - generic type execution and constrained generic execution now have checked-in
   example packages too
 - broader Milestone 1 edge-case policy is still tracked separately from that

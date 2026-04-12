@@ -390,6 +390,22 @@ fn test_receiver_qualified_generic_routines_build_and_run() {
 }
 
 #[test]
+fn test_instantiated_generic_receiver_routines_build_and_run() {
+    let root = write_temp_app(
+        "receiver_generic_type_exec",
+        "typ Box(T): rec = {\n    value: T\n};\n\nfun (Box[int])area(): int = {\n    return 1;\n};\n\nfun[] main(): int = {\n    var box: Box[int] = { value = 7 };\n    return box.area();\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "instantiated generic receiver routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn test_default_argument_generic_routines_build_and_run() {
     let root = write_temp_app(
         "default_generic_m1",

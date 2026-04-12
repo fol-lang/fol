@@ -163,6 +163,32 @@ fn generic_receiver_routine_calls_typecheck_with_direct_method_sugar() {
 }
 
 #[test]
+fn instantiated_generic_receiver_routines_typecheck_with_direct_method_sugar() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Box(T): rec = {\n\
+             value: T\n\
+         };\n\
+         fun (Box[int])area(): int = {\n\
+             return 1;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var box: Box[int] = { value = 7 };\n\
+             return box.area();\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
 fn generic_routine_calls_typecheck_with_matching_default_arguments() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
