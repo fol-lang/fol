@@ -55,6 +55,7 @@ fn lsp_server_opens_real_model_example_packages_cleanly() {
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
+        "examples/generic_type_exec_m1m2",
         "examples/memo_defaults",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
@@ -83,6 +84,7 @@ fn lsp_server_returns_document_symbols_for_real_example_roots() {
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
+        "examples/generic_type_exec_m1m2",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
         "examples/standards_protocol_multi_m2",
@@ -309,6 +311,7 @@ fn lsp_server_returns_semantic_tokens_for_real_model_examples() {
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
         "examples/generic_type_semantic_m1m2",
+        "examples/generic_type_exec_m1m2",
         "examples/fail_generic_misuse_m1",
         "examples/fail_standard_blueprint_m2",
         "examples/fail_standard_as_type_m2",
@@ -586,6 +589,61 @@ fn lsp_server_returns_definitions_for_v2_generic_call_sites() {
 
         fs::remove_dir_all(root).ok();
     }
+}
+
+#[test]
+fn lsp_server_returns_hover_and_definition_for_positive_generic_type_example() {
+    let (root, uri) = copied_example_package_root("examples/generic_type_exec_m1m2");
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.clone(), &text);
+
+    let mut type_use_position = find_nth_position(&text, "Box[int]", 1);
+    type_use_position.character += 1;
+
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1409),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: type_use_position,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    let hover = hover.expect("generic-type hover should resolve");
+    assert!(
+        hover.contents.contains("Box"),
+        "generic-type hover should mention the base type, got: {hover:?}"
+    );
+
+    let definition = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1410),
+            method: "textDocument/definition".to_string(),
+            params: Some(
+                serde_json::to_value(LspDefinitionParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: type_use_position,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+    let definition = definition.expect("generic-type definition should resolve");
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start.line, 2);
+
+    fs::remove_dir_all(root).ok();
 }
 
 #[test]
