@@ -142,7 +142,7 @@ Acceptance:
 Tracked slices:
 
 - [x] B1. Turn the non-running V2 tree-sitter audit helper into a real test.
-- [ ] B2. Fix shipped V2 standards tree-sitter query coverage so the failing
+- [x] B2. Fix shipped V2 standards tree-sitter query coverage so the failing
   standards example test passes honestly.
 
 
