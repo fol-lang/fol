@@ -299,8 +299,8 @@ Acceptance:
 
 Tracked slices:
 
-- [ ] E1. Improve constrained-generic routine diagnostics.
-- [ ] E2. Improve constrained generic-type instantiation diagnostics.
+- [x] E1. Improve constrained-generic routine diagnostics.
+- [x] E2. Improve constrained generic-type instantiation diagnostics.
 - [ ] E3. Audit ambiguous-constraint and imported-constraint diagnostics.
 
 

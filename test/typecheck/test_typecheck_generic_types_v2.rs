@@ -173,5 +173,8 @@ fn generic_type_instantiations_reject_nonconforming_protocol_constraints() {
             && error
                 .message()
                 .contains("requires type 'Plain' to satisfy standard 'geo'")
+            && error
+                .message()
+                .contains("implement the required routines")
     }), "Expected constrained generic type instantiations to reject nonconforming types, got: {errors:?}");
 }

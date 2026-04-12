@@ -576,6 +576,9 @@ fn standards_m2_reject_nonconforming_generic_constraints() {
             && error
                 .message()
                 .contains("requires type 'Plain' to satisfy standard 'geo'")
+            && error
+                .message()
+                .contains("add an explicit conformance header for 'geo' on 'Plain'")
     }));
 }
 

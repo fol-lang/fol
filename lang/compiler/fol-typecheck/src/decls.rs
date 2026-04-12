@@ -1065,7 +1065,7 @@ pub(crate) fn validate_generic_bindings_against_constraints(
                 .unwrap_or("standard");
             let actual_name = typed.type_table().render_type(actual_type);
             let message = format!(
-                "{surface} requires type '{actual_name}' to satisfy standard '{standard_name}' for generic parameter '{generic_name}'"
+                "{surface} requires type '{actual_name}' to satisfy standard '{standard_name}' for generic parameter '{generic_name}'; add an explicit conformance header for '{standard_name}' on '{actual_name}' and implement the required routines"
             );
             return Err(match origin.clone() {
                 Some(origin) => TypecheckError::with_origin(
