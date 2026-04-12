@@ -10,8 +10,8 @@ should not depend on copied compiler name lists.
 
 Current editor non-goals:
 
-- no broad V2-aware language/editor support beyond the shipped generic-routine
-  and protocol-standard example subset
+- no broad V2-aware language/editor support beyond the shipped generic-routine,
+  generic-type, constrained-generic, and protocol-standard example subset
 - no editor-owned semantic divergence from compiler results
 - no broad rename outside the currently documented safe classes
 - no `textDocument/rangeFormatting` until structure-safe partial formatting
@@ -30,7 +30,8 @@ The intended split is:
 Current shipped V2-aware coverage is intentionally narrow:
 
 - diagnostics, hover, definition, symbols, and completion are exercised against
-  the checked-in generic-routine and protocol-standard example packages
+  the checked-in generic-routine, generic-type, constrained-generic, and
+  protocol-standard example packages
 - those tests should stay honest about current boundaries and must not imply
   lowering/backend support that the compiler does not yet ship
 

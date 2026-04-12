@@ -713,7 +713,9 @@ use super::*;
             "AGENTS should carry the current editor non-goal guidance"
         );
         assert!(
-            lsp_book.contains("generic-routine and protocol-standard examples"),
+            lsp_book.contains(
+                "generic-routine, generic-type, constrained-generic, and protocol-standard"
+            ),
             "LSP book should describe the shipped V2 editor subset explicitly"
         );
     }

@@ -4324,6 +4324,26 @@ fn test_runtime_crate_docs_align_with_the_v2_monomorphization_boundary() {
 }
 
 #[test]
+fn test_editor_docs_track_the_current_shipped_v2_subset() {
+    let editor_sync =
+        std::fs::read_to_string(repo_root().join("docs/editor-sync.md"))
+            .expect("editor sync note should load");
+    let lsp_book =
+        std::fs::read_to_string(repo_root().join("book/src/050_tooling/500_lsp.md"))
+            .expect("LSP book chapter should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(editor_sync.contains("generic-type"));
+    assert!(editor_sync.contains("constrained-generic"));
+    assert!(lsp_book.contains("generic-type"));
+    assert!(lsp_book.contains("constrained-generic"));
+    assert!(lsp_book.contains("- generic types"));
+    assert!(lsp_book.contains("- constrained generics"));
+    assert!(plan.contains("[x] C2. Re-audit editor docs/tests against the currently shipped V2 subset"));
+}
+
+#[test]
 fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
     let contract =
         std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
