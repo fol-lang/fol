@@ -296,7 +296,7 @@ Tracked slices:
 
 - [x] E1. Retag example inventories and docs where positive V2 examples still
   carry negative-boundary names.
-- [ ] E2. Document the exact bundled-`std` execution/setup path used by shipped
+- [x] E2. Document the exact bundled-`std` execution/setup path used by shipped
   V2 examples.
 
 

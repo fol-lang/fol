@@ -4746,6 +4746,34 @@ fn test_v2_generics_docs_retag_generic_type_example_honestly() {
 }
 
 #[test]
+fn test_bundled_std_docs_pin_the_normal_v2_example_execution_path() {
+    let bundled_std =
+        std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
+            .expect("bundled std docs should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    for example in [
+        "examples/generic_type_exec_m1m2",
+        "examples/generic_standard_constraint_m1m2",
+    ] {
+        assert!(
+            bundled_std.contains(example),
+            "bundled std docs should mention shipped V2 std-consuming example {example}"
+        );
+    }
+
+    assert!(bundled_std.contains("build.add_dep({"));
+    assert!(bundled_std.contains("alias = \"std\""));
+    assert!(bundled_std.contains("source = \"internal\""));
+    assert!(bundled_std.contains("target = \"standard\""));
+    assert!(bundled_std.contains("fol code build"));
+    assert!(bundled_std.contains("fol code run"));
+    assert!(bundled_std.contains("does not require `--package-store-root` or `--std-root`"));
+    assert!(plan.contains("[x] E2. Document the exact bundled-`std` execution/setup path used by shipped"));
+}
+
+#[test]
 fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
     let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
         .expect("V2 quality gates note should load");
