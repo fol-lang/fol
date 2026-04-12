@@ -990,6 +990,7 @@ mod tests {
         std::fs::remove_dir_all(root).ok();
     }
 
+    #[test]
     fn v2_tree_sitter_coverage_keeps_highlights_distinct_from_locals_and_symbols() {
         let highlights = fol_tree_sitter_highlights_query();
         let locals = fol_tree_sitter_locals_query();
