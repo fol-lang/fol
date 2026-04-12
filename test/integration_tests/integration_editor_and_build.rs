@@ -4282,11 +4282,11 @@ fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
     assert!(contract.contains("blueprint standards"));
     assert!(contract.contains("extended standards"));
     assert!(contract.contains("broad dispatch driven by standards"));
-    assert!(plan.contains("# V2 Audit Follow-Up Plan"));
-    assert!(plan.contains("This plan replaces the earlier \"full V2 is complete\" checklist."));
-    assert!(plan.contains("the frozen V2 compiler contract is mostly implemented"));
-    assert!(plan.contains("tooling and tree-sitter parity"));
-    assert!(plan.contains("backend/runtime meaning for lowered standards metadata"));
+    assert!(plan.contains("# V2 Continuation Plan"));
+    assert!(plan.contains("static polymorphism"));
+    assert!(plan.contains("no object model"));
+    assert!(plan.contains("# 4. Workstream A: Tooling Parity For Real V2 Syntax"));
+    assert!(plan.contains("# 5. Workstream B: Editor Coverage For Real Positive V2 Examples"));
 }
 
 #[test]
@@ -4301,8 +4301,9 @@ fn test_v2_runtime_strategy_note_freezes_monomorphization() {
     assert!(strategy.contains("monomorphization for generic type instantiations"));
     assert!(strategy.contains("no dictionary passing for the current `V2` target"));
     assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
-    assert!(plan.contains("# 6. Workstream D: Backend/Runtime Meaning Of Standards"));
-    assert!(plan.contains("[x] D1. Make the runtime crate docs and V2 strategy docs agree on the current"));
+    assert!(plan.contains("# 1. Guardrails"));
+    assert!(plan.contains("runtime witness/dictionary/vtable systems"));
+    assert!(plan.contains("# 7. Workstream D: Static Standards Improvements"));
 }
 
 #[test]
@@ -4321,7 +4322,7 @@ fn test_runtime_crate_docs_align_with_the_v2_monomorphization_boundary() {
     assert!(runtime_docs.contains("Full `V2` generics, generic types, and procedural standards still execute"));
     assert!(runtime_docs.contains("does not define a second witness/dictionary system"));
     assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
-    assert!(plan.contains("[x] D1. Make the runtime crate docs and V2 strategy docs agree"));
+    assert!(plan.contains("runtime witness/dictionary/vtable systems"));
 }
 
 #[test]
@@ -4338,7 +4339,7 @@ fn test_v2_standards_docs_keep_execution_semantics_procedural() {
     assert!(standards_note.contains("ordinary receiver-qualified routine emission"));
     assert!(standards_note.contains("docs must not imply that lowered protocol metadata creates a runtime witness"));
     assert!(standards_book.contains("ordinary receiver-qualified routine calls, not through a runtime object model"));
-    assert!(plan.contains("[x] A3. Reconcile standards/runtime docs so they do not imply richer runtime"));
+    assert!(plan.contains("runtime witness/dictionary/vtable systems"));
 }
 
 #[test]
@@ -4376,7 +4377,7 @@ fn test_v2_standards_execution_stays_free_of_runtime_dispatch_artifacts() {
     }
 
     assert!(strategy.contains("ordinary emitted receiver-qualified"));
-    assert!(plan.contains("[x] D2. Add explicit tests/docs that standards remain procedural"));
+    assert!(plan.contains("static conformance checking"));
 }
 
 #[test]
@@ -4396,7 +4397,7 @@ fn test_editor_docs_track_the_current_shipped_v2_subset() {
     assert!(lsp_book.contains("constrained-generic"));
     assert!(lsp_book.contains("- generic types"));
     assert!(lsp_book.contains("- constrained generics"));
-    assert!(plan.contains("[x] C2. Re-audit editor docs/tests against the currently shipped V2 subset"));
+    assert!(plan.contains("# 5. Workstream B: Editor Coverage For Real Positive V2 Examples"));
 }
 
 #[test]
@@ -4416,8 +4417,8 @@ fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
     assert!(generics_book.contains("Full `V2` now includes generic type declarations and explicit instantiation."));
     assert!(generics_book.contains("typ Box(T: item): rec = {"));
     assert!(generics_book.contains("typ Pair(T: left, U: right): map[T, U];"));
-    assert!(plan.contains("# 3. Workstream A: Contract Honesty And Plan Cleanup"));
-    assert!(plan.contains("# 7. Workstream E: Example Portability And Honest Execution"));
+    assert!(plan.contains("# 4. Workstream A: Tooling Parity For Real V2 Syntax"));
+    assert!(plan.contains("# 6. Workstream C: Narrow Generic Improvements"));
 }
 
 #[test]
@@ -4436,7 +4437,7 @@ fn test_v2_constraint_surface_is_frozen_as_standards_only() {
     assert!(contract.contains("dispatch or inference driven by constraints"));
     assert!(generics_book.contains("Full `V2` includes standards-as-constraints, but not broad dispatch semantics."));
     assert!(generics_book.contains("protocol standards are the only generic-constraint surface"));
-    assert!(plan.contains("# 8. Workstream F: Remaining Narrow-Surface Boundaries"));
+    assert!(plan.contains("# 8. Workstream E: Constraint Ergonomics Without Solver Creep"));
 }
 
 #[test]
@@ -4453,7 +4454,7 @@ fn test_v2_contract_keeps_blueprint_standards_out_of_scope() {
     assert!(contract.contains("Blueprint standards are not part of the full `V2` target."));
     assert!(contract.contains("semantic, lowering, backend, and editor claims should not treat blueprint"));
     assert!(standards_book.contains("blueprint and extended standards remain"));
-    assert!(plan.contains("Those deferred items should stay out of current claims"));
+    assert!(plan.contains("If future work wants any of that, it should be a separate explicit roadmap"));
 }
 
 #[test]
@@ -4470,7 +4471,7 @@ fn test_v2_contract_keeps_extended_standards_out_of_scope() {
     assert!(contract.contains("Extended standards are not part of the full `V2` target."));
     assert!(contract.contains("semantic, lowering, backend, and editor claims should not treat extended"));
     assert!(standards_book.contains("blueprint and extended standards remain"));
-    assert!(plan.contains("Those deferred items should stay out of current claims"));
+    assert!(plan.contains("If future work wants any of that, it should be a separate explicit roadmap"));
 }
 
 #[test]
@@ -4520,7 +4521,7 @@ fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
     assert!(contract.contains("Broader dispatch and inference semantics are not part of the full `V2` target."));
     assert!(contract.contains("full `V2` does not include standards-driven dispatch"));
     assert!(standards_book.contains("broader dispatch and inference semantics stay"));
-    assert!(plan.contains("Those deferred items should stay out of current claims"));
+    assert!(plan.contains("If future work wants any of that, it should be a separate explicit roadmap"));
 }
 
 #[test]
@@ -4540,7 +4541,7 @@ fn test_v2_milestone_notes_are_retained_as_transition_notes() {
     assert!(standards_note.contains("Historical transition note:"));
     assert!(standards_note.contains("not the full `V2`"));
     assert!(standards_note.contains("docs/v2-full-contract.md"));
-    assert!(plan.contains("# 3. Workstream A: Contract Honesty And Plan Cleanup"));
+    assert!(plan.contains("# 2. Current Truth"));
 }
 
 #[test]
@@ -4569,8 +4570,8 @@ fn test_v2_surface_freeze_is_now_explicit_across_plan_docs_and_book() {
     assert!(standards_book.contains("For the current full `V2` target"));
     assert!(generics_note.contains("Historical transition note:"));
     assert!(standards_note.contains("Historical transition note:"));
-    assert!(plan.contains("# 1. Current Truth"));
-    assert!(plan.contains("# 2. Exit Criteria"));
+    assert!(plan.contains("# 2. Current Truth"));
+    assert!(plan.contains("# 3. Exit Criteria"));
 }
 
 #[test]
@@ -4742,7 +4743,7 @@ fn test_v2_generics_docs_retag_generic_type_example_honestly() {
     assert!(!generics_book.contains("historical name retained"));
     assert!(generics_book.contains("examples/generic_type_semantic_m1m2"));
     assert!(generics_book.contains("positive semantic-check"));
-    assert!(plan.contains("[x] A2. Retag generic milestone docs and book entries"));
+    assert!(plan.contains("# 9. Workstream F: Repo-Wide Contract Honesty"));
 }
 
 #[test]
@@ -4770,7 +4771,7 @@ fn test_bundled_std_docs_pin_the_normal_v2_example_execution_path() {
     assert!(bundled_std.contains("fol code build"));
     assert!(bundled_std.contains("fol code run"));
     assert!(bundled_std.contains("does not require `--package-store-root` or `--std-root`"));
-    assert!(plan.contains("[x] E2. Document the exact bundled-`std` execution/setup path used by shipped"));
+    assert!(plan.contains("# 3. Exit Criteria"));
 }
 
 #[test]
@@ -4795,7 +4796,24 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     assert!(standards_note.contains("default standard implementations remain unsupported"));
     assert!(standards_note.contains("implementation slice with compiler, backend, editor, doc, and example work"));
 
-    assert!(plan.contains("[x] F1. Audit remaining narrow generic boundaries and pin each one"));
+    assert!(plan.contains("every retained generic limit remains explicitly documented and tested"));
+
+}
+
+#[test]
+fn test_agents_md_keeps_current_v2_milestone_truth() {
+    let agents =
+        std::fs::read_to_string(repo_root().join("AGENTS.md"))
+            .expect("AGENTS.md should load");
+    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
+        .expect("V2 plan should load");
+
+    assert!(agents.contains("generic routine lowering/backend execution now exist"));
+    assert!(agents.contains("protocol standards now lower and the shipped positive protocol examples"));
+    assert!(agents.contains("execute through ordinary procedural emission"));
+    assert!(!agents.contains("no generic lowering yet"));
+    assert!(!agents.contains("no standards lowering/backend support yet"));
+    assert!(plan.contains("[x] F1. Remove stale pre-landing V2 milestone wording from `AGENTS.md`."));
 }
 
 #[test]

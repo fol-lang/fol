@@ -290,10 +290,12 @@ Examples already marked as V2-oriented in the book:
 Current landed `V2` subset:
 
 - Milestone 1
-  - generic routines only
+  - executable generic routines
   - narrow argument-driven inference only
-  - no generic types
-  - no generic lowering yet
+  - generic types exist in the shipped full-`V2` contract, but they are not
+    part of the narrow Milestone 1 core itself
+  - generic routine lowering/backend execution now exist for the shipped
+    positive Milestone 1 examples
   - deeper example-driven hover/definition and tree-sitter audit now exist for
     the checked-in Milestone 1 examples
 - Milestone 2
@@ -302,7 +304,8 @@ Current landed `V2` subset:
   - explicit type-side conformance headers
   - conformance checking in typecheck
   - no blueprint or extended semantic support
-  - no standards lowering/backend support yet
+  - protocol standards now lower and the shipped positive protocol examples
+    execute through ordinary procedural emission
   - deeper example-driven hover/definition and tree-sitter audit now exist for
     the checked-in Milestone 2 examples
 
@@ -322,14 +325,14 @@ Current landed subset note:
 
 - the active `V2` Milestone 1 work currently covers only a narrow
   generic-routine core
-- parser, resolver, typecheck, and editor coverage can be real for that subset
-  before lowering/backend are real
-- if lowering/backend still stop generic routines explicitly, docs/examples/tests
-  must say so honestly
+- parser, resolver, typecheck, lowering, backend, and editor coverage are now
+  real for the shipped positive Milestone 1 examples
+- broader generic work beyond that narrow core should stay explicit in docs,
+  tests, and examples rather than being inferred from the milestone name
 - the active `V2` Milestone 2 work currently covers only protocol standards and
-  narrow conformance checking
+  narrow procedural conformance
 - when hardening `V2`, keep the checked-in positive and negative example matrix
-  synchronized with milestone docs, editor coverage, and lowering-boundary
+  synchronized with milestone docs, editor coverage, and current execution
   expectations
 - if V2 editor or tree-sitter coverage is expanded, keep semantic tokens,
   locals, symbols, and example inventory checks aligned in the same change
