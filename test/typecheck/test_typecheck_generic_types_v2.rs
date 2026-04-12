@@ -46,6 +46,28 @@ fn generic_alias_instantiations_typecheck_through_nested_generic_uses() {
 }
 
 #[test]
+fn nested_generic_record_instantiations_typecheck_through_field_access() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Box(T): rec = {\n\
+             value: T\n\
+         };\n\
+         fun[] main(value: Box[Box[int]]): int = {\n\
+             return value.value.value;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
 fn imported_generic_type_instantiations_typecheck_with_field_access() {
     let root = unique_temp_dir("generic_type_workspace_ok");
     create_dir_all(root.join("shared")).expect("shared fixture directory should exist");

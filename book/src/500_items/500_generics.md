@@ -33,6 +33,8 @@ Current milestone note:
   types are now part of the executable Milestone 1 subset
 - generic type execution and constrained generic execution now have checked-in
   example packages too
+- nested generic-type composition now works for the checked nested-record
+  subset such as `Box[Box[int]]`
 - broader Milestone 1 edge-case policy is still tracked separately from that
   shipped positive core
 - current editor hardening covers hover/definition on checked-in generic

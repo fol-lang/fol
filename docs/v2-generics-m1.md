@@ -79,6 +79,8 @@ At the current repo state after the landed Milestone 1 semantic slices:
   - `examples/generic_standard_constraint_m1m2`
 - generic type declarations now use the positively named semantic-check fixture
   `examples/generic_type_semantic_m1m2`
+- nested generic-type composition now typechecks and executes for the checked
+  nested-record subset such as `Box[Box[int]]`
 
 That means the current honest boundary is:
 
@@ -193,6 +195,8 @@ Current deeper hardening boundaries now pinned too:
 - generic hover and definition on checked-in examples are covered
 - plain completion still does not pretend generic-smart suggestions where the
   current editor does not provide them
+- nested generic-type composition is pinned for the checked nested-record
+  subset without widening into recursive generic self-instantiation
 - the negative generic-constraint conformance example is:
   - `examples/fail_generic_standard_constraint_m1m2`
 

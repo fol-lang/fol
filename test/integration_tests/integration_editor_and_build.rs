@@ -838,6 +838,22 @@ fn test_generic_type_exec_m1m2_example_builds_and_runs() {
 }
 
 #[test]
+fn test_nested_generic_types_build_and_run() {
+    let root = write_temp_app(
+        "nested_generic_type_exec",
+        "typ Box(T): rec = {\n    value: T\n};\n\nfun[] take(value: Box[Box[int]]): int = {\n    return value.value.value;\n};\n\nfun[] main(): int = {\n    var inner: Box[int] = { value = 7 };\n    var outer: Box[Box[int]] = { value = inner };\n    return take(outer);\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "nested generic types should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn test_generic_standard_constraint_m1m2_example_builds_and_runs() {
     let root = temp_example_root("examples/generic_standard_constraint_m1m2");
 
