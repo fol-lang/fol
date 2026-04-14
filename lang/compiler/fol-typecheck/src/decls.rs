@@ -1825,7 +1825,7 @@ fn instantiate_declared_generic_type(
     substitute_generic_checked_type(typed, template, &bindings, origin)
 }
 
-fn substitute_generic_checked_type(
+pub(crate) fn substitute_generic_checked_type(
     typed: &mut TypedProgram,
     type_id: CheckedTypeId,
     bindings: &BTreeMap<SymbolId, CheckedTypeId>,
@@ -1936,6 +1936,136 @@ fn substitute_generic_checked_type(
                 error_type,
             })))
         }
+    }
+}
+
+/// Unify a routine's receiver template against a concrete object type,
+/// binding any generic parameters from `generic_params` along the way.
+///
+/// Returns `Some(bindings)` iff the object type is structurally compatible
+/// with the template and every generic parameter that appears in the
+/// template has a consistent binding. Used by method resolution to match
+/// a `fun (Box[T])...` receiver against a call-site `Box[int]`.
+pub(crate) fn unify_receiver_with_object(
+    typed: &TypedProgram,
+    template: CheckedTypeId,
+    object: CheckedTypeId,
+    generic_params: &[SymbolId],
+) -> Option<BTreeMap<SymbolId, CheckedTypeId>> {
+    let mut bindings: BTreeMap<SymbolId, CheckedTypeId> = BTreeMap::new();
+    if unify_checked_type(typed, template, object, generic_params, &mut bindings) {
+        Some(bindings)
+    } else {
+        None
+    }
+}
+
+fn unify_checked_type(
+    typed: &TypedProgram,
+    template: CheckedTypeId,
+    object: CheckedTypeId,
+    generic_params: &[SymbolId],
+    bindings: &mut BTreeMap<SymbolId, CheckedTypeId>,
+) -> bool {
+    if template == object {
+        return true;
+    }
+    let template_checked = match typed.type_table().get(template) {
+        Some(checked) => checked,
+        None => return false,
+    };
+    if let CheckedType::Declared {
+        symbol,
+        kind: DeclaredTypeKind::GenericParameter,
+        ..
+    } = template_checked
+    {
+        if generic_params.contains(symbol) {
+            match bindings.get(symbol) {
+                Some(existing) => return *existing == object,
+                None => {
+                    bindings.insert(*symbol, object);
+                    return true;
+                }
+            }
+        }
+    }
+    let object_checked = match typed.type_table().get(object) {
+        Some(checked) => checked,
+        None => return false,
+    };
+    match (template_checked.clone(), object_checked.clone()) {
+        (CheckedType::Builtin(a), CheckedType::Builtin(b)) => a == b,
+        (
+            CheckedType::Declared {
+                symbol: a,
+                kind: DeclaredTypeKind::Type,
+                ..
+            },
+            CheckedType::Declared {
+                symbol: b,
+                kind: DeclaredTypeKind::Type,
+                ..
+            },
+        ) => a == b,
+        (
+            CheckedType::Declared {
+                symbol: a,
+                kind: DeclaredTypeKind::Alias,
+                ..
+            },
+            CheckedType::Declared {
+                symbol: b,
+                kind: DeclaredTypeKind::Alias,
+                ..
+            },
+        ) => a == b,
+        (CheckedType::Array { element_type: t, size: ts }, CheckedType::Array { element_type: o, size: os }) => {
+            ts == os && unify_checked_type(typed, t, o, generic_params, bindings)
+        }
+        (CheckedType::Vector { element_type: t }, CheckedType::Vector { element_type: o })
+        | (CheckedType::Sequence { element_type: t }, CheckedType::Sequence { element_type: o })
+        | (CheckedType::Optional { inner: t }, CheckedType::Optional { inner: o }) => {
+            unify_checked_type(typed, t, o, generic_params, bindings)
+        }
+        (CheckedType::Error { inner: t }, CheckedType::Error { inner: o }) => match (t, o) {
+            (Some(t), Some(o)) => unify_checked_type(typed, t, o, generic_params, bindings),
+            (None, None) => true,
+            _ => false,
+        },
+        (CheckedType::Map { key_type: tk, value_type: tv }, CheckedType::Map { key_type: ok, value_type: ov }) => {
+            unify_checked_type(typed, tk, ok, generic_params, bindings)
+                && unify_checked_type(typed, tv, ov, generic_params, bindings)
+        }
+        (CheckedType::Set { member_types: t }, CheckedType::Set { member_types: o }) => {
+            t.len() == o.len()
+                && t.iter()
+                    .zip(o.iter())
+                    .all(|(a, b)| unify_checked_type(typed, *a, *b, generic_params, bindings))
+        }
+        (CheckedType::Record { fields: t }, CheckedType::Record { fields: o }) => {
+            t.len() == o.len()
+                && t.iter().all(|(name, t_ty)| match o.get(name) {
+                    Some(o_ty) => {
+                        unify_checked_type(typed, *t_ty, *o_ty, generic_params, bindings)
+                    }
+                    None => false,
+                })
+        }
+        (CheckedType::Entry { variants: t }, CheckedType::Entry { variants: o }) => {
+            t.len() == o.len()
+                && t.iter().all(|(name, t_ty)| match o.get(name) {
+                    Some(o_ty) => match (t_ty, o_ty) {
+                        (Some(t_ty), Some(o_ty)) => {
+                            unify_checked_type(typed, *t_ty, *o_ty, generic_params, bindings)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    },
+                    None => false,
+                })
+        }
+        _ => false,
     }
 }
 

@@ -163,11 +163,11 @@ fn generic_receiver_routine_calls_typecheck_with_direct_method_sugar() {
 }
 
 #[test]
-fn generic_receiver_types_no_longer_rejected_at_lowering() {
+fn generic_receiver_types_lower_cleanly() {
     // H1: the "generic receiver types are not yet supported" rejection at
     // routine signature lowering is gone. The routine signature lowers
-    // cleanly; method resolution with generic-receiver unification is the
-    // next slice (H2).
+    // cleanly; method resolution unifies the generic receiver against the
+    // call-site object type in H2.
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "typ Box(T): rec = {\n\
@@ -181,6 +181,32 @@ fn generic_receiver_types_no_longer_rejected_at_lowering() {
     let (_unwrap_id, unwrap_symbol) = find_typed_symbol(&typed, "unwrap", SymbolKind::Routine);
     assert!(unwrap_symbol.declared_type.is_some(),
         "generic receiver routines must lower to a typed signature");
+}
+
+#[test]
+fn generic_receiver_routine_call_binds_routine_generic_through_receiver() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Box(T): rec = {\n\
+             value: T\n\
+         };\n\
+         fun (Box[T])unwrap(T)(fallback: T): T = {\n\
+             return fallback;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var box: Box[int] = { value = 7 };\n\
+             return box.unwrap(3);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
 }
 
 #[test]

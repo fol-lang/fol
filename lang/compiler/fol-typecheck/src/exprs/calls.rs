@@ -829,18 +829,45 @@ fn routine_signature_for_method(
         .collect::<Vec<_>>();
 
     for symbol_id in candidate_ids {
-        if typed
+        let receiver_type = typed
             .typed_symbol(symbol_id)
-            .and_then(|symbol| symbol.receiver_type)
-            .is_some_and(|receiver_type| receiver_type == object_type)
-        {
+            .and_then(|symbol| symbol.receiver_type);
+        let Some(receiver_type) = receiver_type else {
+            continue;
+        };
+        if receiver_type == object_type {
             matches.push(routine_signature_for_symbol(
                 typed,
                 typed.resolved(),
                 symbol_id,
                 origin.clone(),
             )?);
+            continue;
         }
+        // Try to unify the routine's generic receiver template against the
+        // concrete object type. If it unifies, bind the routine generics and
+        // monomorphize the signature here so downstream argument checking
+        // sees a fully-concrete signature.
+        let signature = routine_signature_for_symbol(
+            typed,
+            typed.resolved(),
+            symbol_id,
+            origin.clone(),
+        )?;
+        if signature.generic_params.is_empty() {
+            continue;
+        }
+        let Some(bindings) = crate::decls::unify_receiver_with_object(
+            typed,
+            receiver_type,
+            object_type,
+            &signature.generic_params,
+        ) else {
+            continue;
+        };
+        let instantiated =
+            instantiate_generic_signature(typed, &signature, &bindings, method, origin.clone())?;
+        matches.push(instantiated);
     }
 
     match matches.len() {
