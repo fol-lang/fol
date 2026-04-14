@@ -163,6 +163,73 @@ fn generic_receiver_routine_calls_typecheck_with_direct_method_sugar() {
 }
 
 #[test]
+fn explicit_generic_call_turbofish_substitutes_type_argument() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return pick::[int](7);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn explicit_generic_call_turbofish_reports_arity_mismatch() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return pick::[int, str](7);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("explicit generic call to 'pick' expects 1 type argument(s) but got 2")),
+        "turbofish arity mismatch should produce a clean error: {errors:?}"
+    );
+}
+
+#[test]
+fn explicit_generic_call_turbofish_rejects_non_conforming_constraint() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Plain(): rec = { var width: int; };\n\
+         fun measure(T: geo)(value: T): int = {\n\
+             return 0;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var plain: Plain = { width = 1 };\n\
+             return measure::[Plain](plain);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("requires type 'Plain' to satisfy standard 'geo'")),
+        "turbofish constraint failure should surface the generic-constraint error: {errors:?}"
+    );
+}
+
+#[test]
 fn generic_receiver_types_lower_cleanly() {
     // H1: the "generic receiver types are not yet supported" rejection at
     // routine signature lowering is gone. The routine signature lowers

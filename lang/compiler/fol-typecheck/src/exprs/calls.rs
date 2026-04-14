@@ -25,6 +25,7 @@ pub(crate) fn type_function_call(
     resolved: &ResolvedProgram,
     context: TypeContext,
     name: &str,
+    type_args: &[fol_parser::ast::FolType],
     args: &[AstNode],
     syntax_id: Option<SyntaxNodeId>,
 ) -> Result<TypedExpr, TypecheckError> {
@@ -42,6 +43,19 @@ pub(crate) fn type_function_call(
         reference_id,
         origin_for(resolved, syntax_id),
     )?;
+    let signature = if type_args.is_empty() {
+        signature
+    } else {
+        instantiate_signature_with_explicit_type_args(
+            typed,
+            resolved,
+            context,
+            &signature,
+            name,
+            type_args,
+            origin_for(resolved, syntax_id),
+        )?
+    };
     let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
@@ -1175,6 +1189,59 @@ fn bind_generic_parameter(
         bindings.insert(symbol, actual);
         Ok(())
     }
+}
+
+/// Substitute a generic routine signature with the explicit type
+/// arguments supplied at the call site via turbofish syntax
+/// (`pick::[int](x)`). Runs constraint validation in the same way as
+/// argument-driven inference.
+fn instantiate_signature_with_explicit_type_args(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    signature: &RoutineType,
+    callee: &str,
+    type_args: &[fol_parser::ast::FolType],
+    origin: Option<SyntaxOrigin>,
+) -> Result<RoutineType, TypecheckError> {
+    if signature.generic_params.is_empty() {
+        return Err(match origin.clone() {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "explicit generic type arguments supplied to '{callee}', which is not a generic routine"
+                ),
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "explicit generic type arguments supplied to '{callee}', which is not a generic routine"
+                ),
+            ),
+        });
+    }
+    if type_args.len() != signature.generic_params.len() {
+        let message = format!(
+            "explicit generic call to '{callee}' expects {} type argument(s) but got {}",
+            signature.generic_params.len(),
+            type_args.len()
+        );
+        return Err(match origin {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                message,
+                origin,
+            ),
+            None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+        });
+    }
+    let mut bindings: BTreeMap<SymbolId, CheckedTypeId> = BTreeMap::new();
+    for (symbol_id, type_arg) in signature.generic_params.iter().zip(type_args.iter()) {
+        let lowered = crate::decls::lower_type(typed, resolved, context.scope_id, type_arg)?;
+        bindings.insert(*symbol_id, lowered);
+    }
+    instantiate_generic_signature(typed, signature, &bindings, callee, origin)
 }
 
 fn instantiate_generic_signature(

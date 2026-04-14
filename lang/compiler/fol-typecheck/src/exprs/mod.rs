@@ -515,6 +515,7 @@ pub(crate) fn type_node_with_expectation(
         AstNode::FunctionCall {
             name,
             args,
+            type_args,
             syntax_id,
             ..
         } => {
@@ -528,7 +529,15 @@ pub(crate) fn type_node_with_expectation(
                     *syntax_id,
                 )
             } else {
-                calls::type_function_call(typed, resolved, context, name, args, *syntax_id)
+                calls::type_function_call(
+                    typed,
+                    resolved,
+                    context,
+                    name,
+                    type_args,
+                    args,
+                    *syntax_id,
+                )
             }
         }
         AstNode::QualifiedFunctionCall { path, args } => {
