@@ -29,7 +29,7 @@ fn test_resolver_collects_top_level_named_declarations_across_multiple_files() {
     .expect("Should write imported namespace fixture");
     fs::write(
         temp_root.join("03_meta.fol"),
-        "def[] mark: blk[];\nseg coreSeg: mod = { def helper: blk[] = { } };\nimp Self: Count = { fun ready(): bol = { return true; } };\nstd geometry: pro = { fun area(): int; };\n",
+        "def[] mark: blk[];\nseg coreSeg: mod = { def helper: blk[] = { } };\nstd geometry: pro = { fun area(): int; };\n",
     )
     .expect("Should write meta fixture");
 
@@ -57,7 +57,6 @@ fn test_resolver_collects_top_level_named_declarations_across_multiple_files() {
         ("core".to_string(), SymbolKind::ImportAlias),
         ("mark".to_string(), SymbolKind::Definition),
         ("coreSeg".to_string(), SymbolKind::Segment),
-        ("Self".to_string(), SymbolKind::Implementation),
         ("geometry".to_string(), SymbolKind::Standard),
     ] {
         assert!(

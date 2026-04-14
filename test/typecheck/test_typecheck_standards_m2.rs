@@ -74,6 +74,30 @@ fn standards_m2_reject_missing_required_routines_cleanly() {
             && error
                 .message()
                 .contains("type 'Rect' does not satisfy standard 'geo': missing required routine 'area'")
+            && error.message().contains("expected fun area(): int")
+    }));
+}
+
+#[test]
+fn standards_m2_missing_required_routine_diagnostic_includes_multi_param_signature() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun scale(factor: int, offset: int): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error
+                .message()
+                .contains("missing required routine 'scale'")
+            && error
+                .message()
+                .contains("expected fun scale(int, int): int")
     }));
 }
 
@@ -293,6 +317,33 @@ fn standards_m2_reject_cross_file_protocol_signature_mismatches() {
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
             && error.message().contains("routine 'area' has incompatible signature")
+            && error.message().contains("expected fun area(): int")
+    }));
+}
+
+#[test]
+fn standards_m2_reject_cross_file_missing_required_routine_with_expected_signature() {
+    let errors = typecheck_fixture_folder_errors(&[
+        (
+            "contracts.fol",
+            "std geo: pro = {\n\
+                 fun perimeter(): int;\n\
+             };\n",
+        ),
+        (
+            "rect.fol",
+            "typ Rect()(geo): rec = {\n\
+                 var width: int;\n\
+             };\n",
+        ),
+    ]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error
+                .message()
+                .contains("type 'Rect' does not satisfy standard 'geo': missing required routine 'perimeter'")
+            && error.message().contains("expected fun perimeter(): int")
     }));
 }
 
@@ -583,28 +634,103 @@ fn standards_m2_reject_nonconforming_generic_constraints() {
 }
 
 #[test]
-fn standards_m2_reject_implementation_dispatch_surfaces_cleanly() {
+fn standards_m2_reject_nonconforming_generic_constraint_from_imported_standard() {
+    let errors = typecheck_fixture_folder_errors(&[
+        (
+            "contracts.fol",
+            "std geo: pro = {\n\
+                 fun area(): int;\n\
+             };\n",
+        ),
+        (
+            "main.fol",
+            "typ Plain(): rec = {\n\
+                 var width: int;\n\
+             };\n\
+             fun pick(T: geo)(value: T): T = {\n\
+                 return value;\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var plain: Plain = { width = 1 };\n\
+                 pick(plain);\n\
+                 return 0;\n\
+             };\n",
+        ),
+    ]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error
+                .message()
+                .contains("requires type 'Plain' to satisfy standard 'geo'")
+            && error
+                .message()
+                .contains("add an explicit conformance header for 'geo' on 'Plain'")
+    }));
+}
+
+#[test]
+fn standards_m2_reject_nonconforming_generic_constraint_when_two_standards_are_in_scope() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "std geo: pro = {\n\
              fun area(): int;\n\
          };\n\
-         typ Rect: rec = {\n\
+         std sized: pro = {\n\
+             fun size(): int;\n\
+         };\n\
+         typ Plain(): rec = {\n\
              var width: int;\n\
          };\n\
-         imp Self: geo = {\n\
-             fun area(): int = {\n\
-                 return 1;\n\
-             };\n\
+         fun measure(T: sized)(value: T): int = {\n\
+             return 0;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var plain: Plain = { width = 1 };\n\
+             measure(plain);\n\
+             return 0;\n\
          };\n",
     )]);
 
     assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
+        error.kind() == TypecheckErrorKind::IncompatibleType
             && error
                 .message()
-                .contains("implementation declarations are planned for a future release")
+                .contains("requires type 'Plain' to satisfy standard 'sized'")
+            && !error.message().contains("standard 'geo'")
     }));
+}
+
+#[test]
+fn standards_m2_imp_implementation_blocks_are_removed_from_grammar() {
+    let root = unique_temp_dir("standards_m2_imp_removed_from_grammar");
+    write_fixture_files(
+        &root,
+        &[(
+            "main.fol",
+            "std geo: pro = {\n\
+                 fun area(): int;\n\
+             };\n\
+             typ Rect: rec = {\n\
+                 var width: int;\n\
+             };\n\
+             imp Self: geo = {\n\
+                 fun area(): int = {\n\
+                     return 1;\n\
+                 };\n\
+             };\n",
+        )],
+    );
+
+    let mut file_stream = FileStream::from_folder(
+        root.to_str()
+            .expect("fixture source directory should be valid UTF-8"),
+    )
+    .expect("fixture source directory should be readable");
+    let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut file_stream);
+    AstParser::new()
+        .parse_package(&mut lexer)
+        .expect_err("'imp' implementation blocks should no longer parse after V2 cleanup");
 }
 
 #[test]

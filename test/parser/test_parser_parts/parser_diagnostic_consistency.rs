@@ -20,10 +20,6 @@ fn test_parser_owned_unknown_option_diagnostics_name_the_surface() {
     for (path, expected) in [
         ("test/parser/simple_use_unknown_option.fol", "Unknown use option"),
         (
-            "test/parser/simple_imp_unknown_option.fol",
-            "Unknown implementation option",
-        ),
-        (
             "test/parser/simple_std_unknown_options.fol",
             "Unknown standard option",
         ),
@@ -91,10 +87,6 @@ fn test_duplicate_and_conflicting_diagnostics_stay_surface_specific() {
         (
             "test/parser/simple_use_conflicting_options.fol",
             "Conflicting use options 'export' and 'hidden'",
-        ),
-        (
-            "test/parser/simple_imp_conflicting_options.fol",
-            "Conflicting implementation visibility options",
         ),
         (
             "test/parser/simple_std_conflicting_options.fol",

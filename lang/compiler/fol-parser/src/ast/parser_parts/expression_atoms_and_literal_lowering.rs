@@ -139,7 +139,6 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::Typ)
                     | KEYWORD::Keyword(BUILDIN::Std)
                     | KEYWORD::Keyword(BUILDIN::Ali)
-                    | KEYWORD::Keyword(BUILDIN::Imp)
                     | KEYWORD::Keyword(BUILDIN::Lab)
                     | KEYWORD::Keyword(BUILDIN::This)
                     | KEYWORD::Keyword(BUILDIN::Selfi)

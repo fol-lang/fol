@@ -23,16 +23,6 @@ fn test_quoted_type_references_parse_in_declaration_targets() {
                     } if name == "Alias" && target == "Target"
                 )
             }));
-            assert!(declarations.iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::ImpDecl {
-                        name,
-                        target: FolType::Named { name: target , ..},
-                        ..
-                    } if name == "Worker" && target == "Target"
-                )
-            }));
         }
         _ => panic!("Expected program node"),
     }
@@ -60,16 +50,6 @@ fn test_single_quoted_type_references_parse_in_declaration_targets() {
                         name,
                         target: FolType::Named { name: target , ..},
                     } if name == "Alias" && target == "Target"
-                )
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::ImpDecl {
-                        name,
-                        target: FolType::Named { name: target , ..},
-                        ..
-                    } if name == "Worker" && target == "Target"
                 )
             }));
         }

@@ -361,7 +361,6 @@ fn symbol_kind_display_name_covers_all_variants() {
     assert_eq!(SymbolKind::Capture.display_name(), "capture");
     assert_eq!(SymbolKind::ImportAlias.display_name(), "namespace");
     assert_eq!(SymbolKind::Segment.display_name(), "segment");
-    assert_eq!(SymbolKind::Implementation.display_name(), "implementation");
     assert_eq!(SymbolKind::Standard.display_name(), "standard");
 }
 

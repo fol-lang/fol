@@ -870,39 +870,6 @@ pub fn traverse_node(
         AstNode::SegDecl { seg_type, .. } => {
             types::resolve_type_reference(session, program, source_unit_id, scope_id, seg_type)?;
         }
-        AstNode::ImpDecl {
-            generics,
-            target,
-            body,
-            ..
-        } => {
-            let impl_scope =
-                program.add_scope(ScopeKind::TypeDeclaration, scope_id, source_unit_id);
-            insert_generic_symbols(program, source_unit_id, impl_scope, generics)?;
-            for generic in generics {
-                for constraint in &generic.constraints {
-                    types::resolve_type_reference(
-                        session,
-                        program,
-                        source_unit_id,
-                        impl_scope,
-                        constraint,
-                    )?;
-                }
-            }
-            types::resolve_type_reference(session, program, source_unit_id, impl_scope, target)?;
-            for member in body {
-                traverse_node(
-                    session,
-                    program,
-                    source_unit_id,
-                    impl_scope,
-                    member,
-                    false,
-                    routine_context,
-                )?;
-            }
-        }
         AstNode::Literal(_) | AstNode::PatternWildcard => {}
         AstNode::UseDecl {
             name,

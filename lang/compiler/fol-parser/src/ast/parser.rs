@@ -456,8 +456,6 @@ mod flow_body_parsers;
 mod grouped_binding_parsers;
 #[path = "parser_parts/grouped_type_parsers.rs"]
 mod grouped_type_parsers;
-#[path = "parser_parts/implementation_declaration_parsers.rs"]
-mod implementation_declaration_parsers;
 #[path = "parser_parts/inquiry_clause_parsers.rs"]
 mod inquiry_clause_parsers;
 #[path = "parser_parts/pipe_expression_parsers.rs"]

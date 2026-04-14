@@ -66,31 +66,6 @@ fn test_type_generic_headers_accept_keyword_and_quoted_names() {
 }
 
 #[test]
-fn test_implementation_generic_headers_accept_keyword_and_quoted_names() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_imp_named_generics.fol")
-        .expect("Should read named implementation generics fixture");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-    let ast = parser
-        .parse(&mut lexer)
-        .expect("Parser should accept keyword and quoted implementation generic names");
-
-    match ast {
-        AstNode::Program { declarations } => {
-            assert!(declarations.iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::ImpDecl { generics, .. }
-                    if generics.len() == 2 && generics[0].name == "get" && generics[1].name == "item"
-                )
-            }));
-        }
-        _ => panic!("Expected program node"),
-    }
-}
-
-#[test]
 fn test_single_quoted_generic_headers_parse() {
     let mut file_stream = FileStream::from_file("test/parser/simple_single_quoted_generics.fol")
         .expect("Should read single-quoted generic-header fixture");
@@ -108,9 +83,6 @@ fn test_single_quoted_generic_headers_parse() {
             }));
             assert!(declarations.iter().any(|node| {
                 matches!(node, AstNode::TypeDecl { generics, .. } if generics.len() == 2 && generics[0].name == "get" && generics[1].name == "item")
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::ImpDecl { generics, .. } if generics.len() == 2 && generics[0].name == "get" && generics[1].name == "item")
             }));
         }
         _ => panic!("Expected program node"),
@@ -143,9 +115,6 @@ fn test_named_generic_constraints_accept_quoted_type_references() {
             assert!(declarations.iter().any(|node| {
                 matches!(node, AstNode::TypeDecl { generics, .. } if has_expected_constraints(generics))
             }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::ImpDecl { generics, .. } if has_expected_constraints(generics))
-            }));
         }
         _ => panic!("Expected program node"),
     }
@@ -158,7 +127,7 @@ fn test_generic_headers_preserve_inner_opposite_quote_chars() {
     let fixture = temp_root.join("inner_quotes.fol");
     fs::write(
         &fixture,
-        "fun demo(\"g'et\", 'it\"em')(value: int): int = {\n    return value;\n};\ntyp Box(\"g'et\", 'it\"em'): rec = {\n    value: int;\n};\nimp(\"g'et\", 'it\"em') Self: Pair = {\n    fun run(): int = {\n        return 1;\n    };\n};\n",
+        "fun demo(\"g'et\", 'it\"em')(value: int): int = {\n    return value;\n};\ntyp Box(\"g'et\", 'it\"em'): rec = {\n    value: int;\n};\n",
     )
     .expect("Should write temp generic fixture");
 
@@ -187,9 +156,6 @@ fn test_generic_headers_preserve_inner_opposite_quote_chars() {
             }));
             assert!(declarations.iter().any(|node| {
                 matches!(node, AstNode::TypeDecl { name, generics, .. } if name == "Box" && has_expected_generics(generics))
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::ImpDecl { generics, .. } if has_expected_generics(generics))
             }));
         }
         _ => panic!("Expected program node"),

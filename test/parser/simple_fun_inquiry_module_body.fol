@@ -2,7 +2,6 @@ fun[] inspect(value: int): int = {
     return value;
     where(self) {
         seg local_seg: mod;
-        imp LocalImpl: int;
         std LocalStd: pro = { fun ping(): int; };
     }
 };

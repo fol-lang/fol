@@ -309,9 +309,6 @@ mod quoted_function_type_refs;
 #[path = "test_parser_parts/quoted_iteration_binders.rs"]
 mod quoted_iteration_binders;
 #[cfg(test)]
-#[path = "test_parser_parts/implementation_declarations.rs"]
-mod implementation_declarations;
-#[cfg(test)]
 #[path = "test_parser_parts/illegal_token_contexts_expressions.rs"]
 mod illegal_token_contexts_expressions;
 #[cfg(test)]

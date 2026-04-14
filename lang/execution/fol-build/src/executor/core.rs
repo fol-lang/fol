@@ -549,12 +549,6 @@ fn validate_node_public_surface(
         AstNode::AliasDecl { target, .. } => {
             validate_type_public_surface(package, target)?;
         }
-        AstNode::ImpDecl { target, body, .. } => {
-            validate_type_public_surface(package, target)?;
-            for stmt in body {
-                validate_node_public_surface(package, stmt)?;
-            }
-        }
         AstNode::DefDecl {
             params,
             def_type,

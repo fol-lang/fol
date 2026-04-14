@@ -179,17 +179,6 @@ fn collect_symbols_from_top_level(
                 origin,
             )?;
         }
-        AstNode::ImpDecl { name, .. } => {
-            insert_symbol(
-                program,
-                source_unit_id,
-                scope_id,
-                name,
-                SymbolKind::Implementation,
-                item,
-                origin,
-            )?;
-        }
         AstNode::StdDecl { name, .. } => {
             insert_symbol(
                 program,

@@ -223,7 +223,6 @@ pub(crate) fn symbol_kind_label(kind: SymbolKind) -> &'static str {
         SymbolKind::Alias => "alias",
         SymbolKind::Definition => "definition",
         SymbolKind::Segment => "segment",
-        SymbolKind::Implementation => "implementation",
         SymbolKind::Standard => "standard",
         SymbolKind::ImportAlias => "import alias",
         SymbolKind::GenericParameter => "generic parameter",

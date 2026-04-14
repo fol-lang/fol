@@ -77,11 +77,6 @@ impl AstParser {
             return Ok(vec![node]);
         }
 
-        if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-            let node = self.parse_imp_decl(tokens)?;
-            return Ok(vec![node]);
-        }
-
         if matches!(key, KEYWORD::Keyword(BUILDIN::Std)) && self.lookahead_is_std_decl(tokens) {
             let node = self.parse_std_decl(tokens)?;
             return Ok(vec![node]);

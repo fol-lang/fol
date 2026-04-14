@@ -40,7 +40,6 @@ module.exports = grammar({
       $.ali_decl,
       $.def_decl,
       $.seg_decl,
-      $.imp_decl,
       $.std_decl,
       $.comment,
       $.doc_comment,
@@ -67,7 +66,6 @@ module.exports = grammar({
     ali_decl: $ => seq('ali', optional(field('modifiers', $.decl_modifiers)), field('name', $.identifier), ':', field('target', $.type_expr)),
     def_decl: $ => seq('def', optional(field('modifiers', $.decl_modifiers)), field('name', $.identifier), optional($.params), ':', field('def_type', $.type_expr), optional(seq('=', $.block))),
     seg_decl: $ => seq('seg', optional(field('modifiers', $.decl_modifiers)), field('name', $.identifier), ':', field('seg_type', $.type_expr), '=', $.block),
-    imp_decl: $ => seq('imp', optional(field('modifiers', $.decl_modifiers)), field('name', $.identifier), ':', field('target', $.type_expr), '=', $.block),
     std_decl: $ => seq(
       'std',
       optional(field('modifiers', $.decl_modifiers)),

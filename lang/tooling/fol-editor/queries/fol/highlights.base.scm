@@ -9,7 +9,6 @@
 (ali_decl "ali" @keyword.type)
 (def_decl "def" @keyword.type)
 (seg_decl "seg" @keyword.type)
-(imp_decl "imp" @keyword.type)
 (std_decl "std" @keyword.type)
 (if_stmt "if" @keyword.conditional)
 (if_expr "if" @keyword.conditional)

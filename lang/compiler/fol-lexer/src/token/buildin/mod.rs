@@ -38,7 +38,6 @@ pub enum BUILDIN {
     Typ,
     Std,
     Ali,
-    Imp,
     Lab,
 
     Not,
@@ -99,7 +98,6 @@ impl fmt::Display for BUILDIN {
             BUILDIN::Typ => "typ",
             BUILDIN::Std => "std",
             BUILDIN::Ali => "ali",
-            BUILDIN::Imp => "imp",
             BUILDIN::Lab => "lab",
             BUILDIN::Not => "not",
             BUILDIN::Or => "or",

@@ -960,7 +960,6 @@ pub(crate) fn lower_expression_observed(
         | AstNode::AliasDecl { .. }
         | AstNode::DefDecl { .. }
         | AstNode::SegDecl { .. }
-        | AstNode::ImpDecl { .. }
         | AstNode::StdDecl { .. }
         | AstNode::LabDecl { .. }
         | AstNode::Comment { .. }

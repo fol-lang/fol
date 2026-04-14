@@ -1,8 +1,0 @@
-fun demo(): int = {
-    imp Local: Box = {
-        fun ready(): bol = {
-            return true;
-        }
-    };
-    return 1;
-};

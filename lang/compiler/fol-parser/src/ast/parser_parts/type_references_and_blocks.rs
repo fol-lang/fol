@@ -282,12 +282,6 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-                body.push(self.parse_imp_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
             if matches!(key, KEYWORD::Keyword(BUILDIN::Std)) && self.lookahead_is_std_decl(tokens) {
                 body.push(self.parse_std_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;

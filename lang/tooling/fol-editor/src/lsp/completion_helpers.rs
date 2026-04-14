@@ -231,7 +231,7 @@ pub(super) fn symbol_kind_code(kind: fol_resolver::SymbolKind) -> u8 {
         | fol_resolver::SymbolKind::LoopBinder
         | fol_resolver::SymbolKind::RollingBinder => 13,
         fol_resolver::SymbolKind::Segment => 2,
-        fol_resolver::SymbolKind::Implementation | fol_resolver::SymbolKind::Standard => 6,
+        fol_resolver::SymbolKind::Standard => 6,
     }
 }
 
@@ -487,7 +487,6 @@ pub(super) fn completion_symbol_detail(kind: fol_resolver::SymbolKind) -> &'stat
         fol_resolver::SymbolKind::Capture => "capture",
         fol_resolver::SymbolKind::ImportAlias => "namespace",
         fol_resolver::SymbolKind::Segment => "namespace segment",
-        fol_resolver::SymbolKind::Implementation => "implementation",
         fol_resolver::SymbolKind::Standard => "standard",
     }
 }
@@ -498,7 +497,7 @@ pub(super) fn completion_symbol_kind(kind: fol_resolver::SymbolKind) -> u8 {
         fol_resolver::SymbolKind::Definition => 12,
         fol_resolver::SymbolKind::Type | fol_resolver::SymbolKind::Alias => 22,
         fol_resolver::SymbolKind::ImportAlias | fol_resolver::SymbolKind::Segment => 9,
-        fol_resolver::SymbolKind::Implementation | fol_resolver::SymbolKind::Standard => 12,
+        fol_resolver::SymbolKind::Standard => 12,
         fol_resolver::SymbolKind::ValueBinding
         | fol_resolver::SymbolKind::LabelBinding
         | fol_resolver::SymbolKind::DestructureBinding

@@ -921,21 +921,28 @@ fn check_standard_conformance(
                         .symbol(standard.symbol_id)
                         .map(|symbol| symbol.name.clone())
                         .unwrap_or_else(|| format!("#{}", standard.symbol_id.0));
+                    let expected_signature = render_standard_signature(
+                        typed,
+                        &requirement.name,
+                        &requirement.params,
+                        requirement.return_type,
+                        requirement.error_type,
+                    );
                     let mut error = if exact_matches.len() > 1 {
                         match node_origin(resolved, &item.node) {
                             Some(origin) => TypecheckError::with_origin(
                                 TypecheckErrorKind::InvalidInput,
                                 format!(
-                                    "type '{}' satisfies standard '{}' ambiguously: multiple routines match required routine '{}'",
-                                    name, standard_name, requirement.name
+                                    "type '{}' satisfies standard '{}' ambiguously: multiple routines match required routine '{}'; expected exactly one routine with signature {}",
+                                    name, standard_name, requirement.name, expected_signature
                                 ),
                                 origin,
                             ),
                             None => TypecheckError::new(
                                 TypecheckErrorKind::InvalidInput,
                                 format!(
-                                    "type '{}' satisfies standard '{}' ambiguously: multiple routines match required routine '{}'",
-                                    name, standard_name, requirement.name
+                                    "type '{}' satisfies standard '{}' ambiguously: multiple routines match required routine '{}'; expected exactly one routine with signature {}",
+                                    name, standard_name, requirement.name, expected_signature
                                 ),
                             ),
                         }
@@ -944,16 +951,16 @@ fn check_standard_conformance(
                             Some(origin) => TypecheckError::with_origin(
                                 TypecheckErrorKind::IncompatibleType,
                                 format!(
-                                    "type '{}' does not satisfy standard '{}': missing required routine '{}'",
-                                    name, standard_name, requirement.name
+                                    "type '{}' does not satisfy standard '{}': missing required routine '{}'; expected {}",
+                                    name, standard_name, requirement.name, expected_signature
                                 ),
                                 origin,
                             ),
                             None => TypecheckError::new(
                                 TypecheckErrorKind::IncompatibleType,
                                 format!(
-                                    "type '{}' does not satisfy standard '{}': missing required routine '{}'",
-                                    name, standard_name, requirement.name
+                                    "type '{}' does not satisfy standard '{}': missing required routine '{}'; expected {}",
+                                    name, standard_name, requirement.name, expected_signature
                                 ),
                             ),
                         }
@@ -979,13 +986,7 @@ fn check_standard_conformance(
                                     name,
                                     standard_name,
                                     requirement.name,
-                                    render_standard_signature(
-                                        typed,
-                                        &requirement.name,
-                                        &requirement.params,
-                                        requirement.return_type,
-                                        requirement.error_type,
-                                    ),
+                                    expected_signature,
                                     actual_signatures,
                                 ),
                                 origin,
@@ -997,13 +998,7 @@ fn check_standard_conformance(
                                     name,
                                     standard_name,
                                     requirement.name,
-                                    render_standard_signature(
-                                        typed,
-                                        &requirement.name,
-                                        &requirement.params,
-                                        requirement.return_type,
-                                        requirement.error_type,
-                                    ),
+                                    expected_signature,
                                     actual_signatures,
                                 ),
                             ),
@@ -2390,9 +2385,6 @@ fn unsupported_v1_decl_with_origin(
         AstNode::SegDecl { .. } => {
             Some("segment declarations are planned for a future release")
         }
-        AstNode::ImpDecl { .. } => {
-            Some("implementation declarations are planned for a future release")
-        }
         AstNode::StdDecl { kind, .. } => Some(match kind {
             fol_parser::ast::StandardKind::Protocol => return None,
             fol_parser::ast::StandardKind::Blueprint => {
@@ -2435,7 +2427,7 @@ fn find_top_level_type_decl_scope(
         .filter(|candidate| {
             matches!(
                 candidate.node,
-                AstNode::TypeDecl { .. } | AstNode::ImpDecl { .. }
+                AstNode::TypeDecl { .. }
             )
         })
         .position(|candidate| candidate.node_id == item.node_id)

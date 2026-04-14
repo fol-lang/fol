@@ -1,5 +1,0 @@
-imp[](T: gen[]; U: gen[]) Self: Pair = {
-    fun ready(): bol = {
-        return true;
-    }
-};

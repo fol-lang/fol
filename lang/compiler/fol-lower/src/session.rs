@@ -228,7 +228,6 @@ fn translate_checked_type(
                                     fol_resolver::SymbolKind::Parameter => "parameter",
                                     fol_resolver::SymbolKind::GenericParameter => "generic",
                                     fol_resolver::SymbolKind::Standard => "standard",
-                                    fol_resolver::SymbolKind::Implementation => "implementation",
                                     fol_resolver::SymbolKind::Capture => "capture",
                                     fol_resolver::SymbolKind::LoopBinder => "loop-binder",
                                     fol_resolver::SymbolKind::RollingBinder => "rolling-binder",

@@ -458,8 +458,8 @@ fn test_pipe_expression_supports_routine_stages() {
     };
 
     assert!(
-        contains_pipe_stage(&return_value, |node| matches!(node, AstNode::ImpDecl { .. })),
-        "Expected pipe tree to contain an implementation stage, got: {return_value:#?}"
+        contains_pipe_stage(&return_value, |node| matches!(node, AstNode::FunDecl { .. })),
+        "Expected pipe tree to contain a routine stage, got: {return_value:#?}"
     );
 }
 

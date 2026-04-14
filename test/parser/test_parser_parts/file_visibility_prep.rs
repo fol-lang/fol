@@ -38,7 +38,6 @@ fn top_level_name(node: &AstNode) -> Option<&str> {
         | AstNode::AliasDecl { name, .. }
         | AstNode::DefDecl { name, .. }
         | AstNode::SegDecl { name, .. }
-        | AstNode::ImpDecl { name, .. }
         | AstNode::StdDecl { name, .. } => Some(name.as_str()),
         _ => None,
     }

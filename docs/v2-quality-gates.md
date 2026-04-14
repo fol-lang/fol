@@ -17,7 +17,6 @@ Every executable `V2` language slice must land with:
 The current canonical roots for the shipped `V2` matrix are:
 
 - `test/parser/test_parser_parts/v2_generics_m1.rs`
-- `test/parser/test_parser_parts/implementation_declarations.rs`
 - `test/resolver/test_resolver_parts/generic_routines.rs`
 - `test/typecheck/test_typecheck_generics_m1.rs`
 - `test/typecheck/test_typecheck_standards_m2.rs`

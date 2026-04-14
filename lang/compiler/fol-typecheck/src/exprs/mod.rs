@@ -670,7 +670,6 @@ pub(crate) fn type_node_with_expectation(
         | AstNode::AliasDecl { .. }
         | AstNode::DefDecl { .. }
         | AstNode::SegDecl { .. }
-        | AstNode::ImpDecl { .. }
         | AstNode::DestructureDecl { .. }
         | AstNode::NamedArgument { .. }
         | AstNode::Unpack { .. }

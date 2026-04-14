@@ -1908,7 +1908,6 @@ fn semantic_token_type_for_symbol_kind(kind: fol_resolver::SymbolKind) -> Option
         | fol_resolver::SymbolKind::RollingBinder
         | fol_resolver::SymbolKind::Definition => Some(4),
         fol_resolver::SymbolKind::Segment
-        | fol_resolver::SymbolKind::Implementation
         | fol_resolver::SymbolKind::Standard => None,
     }
 }

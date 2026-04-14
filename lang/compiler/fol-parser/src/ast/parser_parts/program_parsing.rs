@@ -325,28 +325,6 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-                let before = (
-                    token.loc().row(),
-                    token.loc().col(),
-                    token.con().to_string(),
-                );
-                match self.parse_imp_decl(tokens) {
-                    Ok(node) => {
-                        self.consume_required_semicolon(tokens).map_err(|e| vec![e])?;
-                        self.push_top_level_entry(&mut entries, &token, node);
-                        self.bump_if_no_progress(tokens, before);
-                    }
-                    Err(error) => {
-                        errors.push(error);
-                        self.sync_to_next_declaration(tokens);
-                    }
-                }
-                if tokens.curr(false).is_err() {
-                    break;
-                }
-                continue;
-            }
 
             if matches!(key, KEYWORD::Keyword(BUILDIN::Std)) && self.lookahead_is_std_decl(tokens) {
                 let before = (

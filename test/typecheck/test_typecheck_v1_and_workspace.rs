@@ -397,11 +397,6 @@ fn v1_boundary_keeps_protocol_conformance_while_rejecting_later_surfaces() {
          typ[ext] StrExt: str;\n\
          typ Box: rec = {\n\
          };\n\
-         imp Self: Box = {\n\
-             fun ready(): bol = {\n\
-                 return true;\n\
-             }\n\
-         };\n\
          std geometry: blu = {\n\
              var width: int;\n\
          };\n",
@@ -415,15 +410,6 @@ fn v1_boundary_keeps_protocol_conformance_while_rejecting_later_surfaces() {
                     .contains("type extension declarations are planned for a future release")
         }),
         "Expected a type-extension boundary diagnostic, got: {errors:?}"
-    );
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("implementation declarations are planned for a future release")
-        }),
-        "Expected an implementation boundary diagnostic, got: {errors:?}"
     );
     assert!(
         errors.iter().any(|error| {
