@@ -422,11 +422,15 @@ Docs:
 
 Tracked slices:
 
-- [ ] J1. Typecheck constraint validation on generic type instantiation.
-- [ ] J2. Lowering / backend with trait bounds on generic structs.
+- [x] J1. Typecheck constraint validation on generic type instantiation
+  (direct, imported constraint, nested instantiation).
+- [x] J2. Lowering / backend verified via the
+  `examples/generic_type_constrained_m1m2` example which builds and
+  runs end to end.
 - [ ] J3. LSP hover / completion / diagnostics.
 - [ ] J4. Tree-sitter queries audit.
-- [ ] J5. Positive and negative examples plus docs.
+- [x] J5. Positive example plus imported-constraint and nested-
+  instantiation negative typecheck tests.
 
 
 # 8. Workstream K: Default Standard Implementations
