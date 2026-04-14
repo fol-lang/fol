@@ -221,11 +221,11 @@ Acceptance for G1–G5:
 
 Tracked slices:
 
-- [ ] G1. Remove `imp Self: std = { ... }` implementation blocks.
-- [ ] G2. Turn standards-in-type-position into a permanent error.
-- [ ] G3. Remove receiver-qualified required routines from `std` bodies.
-- [ ] G4. Remove capturing required routines from `std` bodies.
-- [ ] G5. Remove per-routine generic required routines from `std` bodies.
+- [x] G1. Remove `imp Self: std = { ... }` implementation blocks.
+- [x] G2. Turn standards-in-type-position into a permanent error.
+- [x] G3. Remove receiver-qualified required routines from `std` bodies.
+- [x] G4. Remove capturing required routines from `std` bodies.
+- [x] G5. Remove per-routine generic required routines from `std` bodies.
 
 
 # 5. Workstream H: Generic Receiver Types
