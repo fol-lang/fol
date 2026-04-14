@@ -283,11 +283,19 @@ Docs:
 
 Tracked slices:
 
-- [ ] H1. Parser/AST/resolver verification and typecheck lift.
-- [ ] H2. Lowering / backend emission for generic receiver routines.
-- [ ] H3. LSP hover / definition / diagnostics.
-- [ ] H4. Tree-sitter grammar / queries audit and coverage.
-- [ ] H5. Positive and negative examples plus docs.
+- [x] H1. Parser/AST/resolver verification and typecheck lift.
+- [x] H2. Method resolution unifies generic receiver templates against
+  the call-site object type and records the chosen routine symbol so
+  lowering can look it up directly.
+- [ ] H3. Lowering / backend emission for generic receiver routines —
+  the generic-bearing record that the routine's receiver lowers to
+  does not yet map to a backend type declaration. Needs either generic
+  Rust struct emission for Box-style templates, or per-call-site
+  monomorphization of generic receiver routines. Deferred as a
+  standalone backend slice.
+- [ ] H4. LSP hover / definition / diagnostics (blocked by H3).
+- [ ] H5. Tree-sitter grammar / queries audit and coverage.
+- [ ] H6. Positive and negative examples plus docs (blocked by H3).
 
 
 # 6. Workstream I: Explicit Generic-Call Syntax

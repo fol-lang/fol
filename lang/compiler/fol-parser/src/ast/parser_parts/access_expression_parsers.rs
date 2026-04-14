@@ -173,6 +173,16 @@ impl AstParser {
                 break;
             }
 
+            // Turbofish escape: `ident::[TypeArgs](args)` is an explicit
+            // generic call, not a continuation of the qualified path. Leave
+            // `::` in place so the postfix expression parser can take it.
+            if matches!(
+                self.next_significant_key_from_window(tokens),
+                Some(KEYWORD::Symbol(SYMBOL::SquarO))
+            ) {
+                break;
+            }
+
             let _ = tokens.bump();
             self.skip_ignorable(tokens)?;
 

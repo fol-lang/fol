@@ -157,11 +157,14 @@ pub enum AstNode {
         operand: Box<AstNode>,
     },
 
-    /// Function call: function_name(args)
+    /// Function call: function_name(args) or function_name[TypeArgs](args)
     FunctionCall {
         syntax_id: Option<SyntaxNodeId>,
         surface: CallSurface,
         name: String,
+        /// Explicit generic type arguments (turbofish-style `name[T, U](...)`).
+        /// Empty when the caller relies on argument-driven inference.
+        type_args: Vec<FolType>,
         args: Vec<AstNode>,
     },
 

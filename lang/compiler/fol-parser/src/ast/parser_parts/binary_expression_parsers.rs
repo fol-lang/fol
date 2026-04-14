@@ -374,6 +374,43 @@ impl AstParser {
         ))
     }
 
+    /// Assuming the current token is an opening `[`, scan the lookahead
+    /// window for the matching closing `]` and return the first
+    /// significant token key that follows it. Returns `None` if the
+    /// brackets are unbalanced within the lookahead window.
+    pub(super) fn key_after_balanced_square_brackets(
+        &self,
+        tokens: &fol_lexer::lexer::stage3::Elements,
+    ) -> Option<KEYWORD> {
+        let window = tokens.next_vec();
+        let mut depth = 1usize;
+        let mut closed = false;
+        for candidate in window {
+            let token = match candidate {
+                Ok(token) => token,
+                Err(_) => continue,
+            };
+            let key = token.key();
+            if closed {
+                if Self::key_is_soft_ignorable(&key) {
+                    continue;
+                }
+                return Some(key);
+            }
+            match key {
+                KEYWORD::Symbol(SYMBOL::SquarO) => depth += 1,
+                KEYWORD::Symbol(SYMBOL::SquarC) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        closed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
     pub(super) fn next_significant_key_from_window(
         &self,
         tokens: &fol_lexer::lexer::stage3::Elements,

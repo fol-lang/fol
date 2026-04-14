@@ -68,6 +68,7 @@ impl AstParser {
             syntax_id: self.record_syntax_origin(&name_token),
             surface: crate::ast::CallSurface::DotIntrinsic,
             name,
+            type_args: Vec::new(),
             args,
         })
     }

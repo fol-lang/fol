@@ -126,6 +126,7 @@ impl AstParser {
             syntax_id,
             surface: crate::ast::CallSurface::KeywordIntrinsic,
             name,
+            type_args: Vec::new(),
             args,
         })
     }
@@ -891,6 +892,7 @@ impl AstParser {
                 syntax_id: path.syntax_id(),
                 surface: crate::ast::CallSurface::Plain,
                 name: path.joined(),
+                type_args: Vec::new(),
                 args,
             }
         })

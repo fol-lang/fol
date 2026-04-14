@@ -307,6 +307,88 @@ fn test_v2_m1_parser_rejects_broken_generic_header_punctuation() {
 }
 
 #[test]
+fn test_v2_parser_accepts_explicit_generic_call_turbofish_syntax() {
+    let ast = parse_script_package_from_inline(
+        "explicit_generic_call",
+        "fun pick(T)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return pick::[int](7);\n\
+         };\n",
+    );
+
+    assert!(
+        ast.source_units
+            .iter()
+            .flat_map(|unit| unit.items.iter())
+            .any(|item| matches!(
+                &item.node,
+                AstNode::FunDecl { name, body, .. }
+                    if name == "main"
+                        && body.iter().any(|stmt| matches!(
+                            stmt,
+                            AstNode::Return { value: Some(value) }
+                                if matches!(value.as_ref(),
+                                    AstNode::FunctionCall { name, type_args, args, .. }
+                                    if name == "pick"
+                                        && type_args.len() == 1
+                                        && args.len() == 1)
+                        ))
+            )),
+        "parser should emit a FunctionCall with type_args for `pick[int](7)`"
+    );
+}
+
+#[test]
+fn test_v2_parser_preserves_index_access_when_bracket_is_not_followed_by_paren() {
+    let ast = parse_script_package_from_inline(
+        "index_access_still_parses",
+        "fun[] main(): int = {\n\
+             var xs: arr[int, 3] = { 1, 2, 3 };\n\
+             return xs[0];\n\
+         };\n",
+    );
+
+    assert!(
+        ast.source_units
+            .iter()
+            .flat_map(|unit| unit.items.iter())
+            .any(|item| matches!(
+                &item.node,
+                AstNode::FunDecl { name, body, .. }
+                    if name == "main"
+                        && body.iter().any(|stmt| matches!(
+                            stmt,
+                            AstNode::Return { value: Some(value) }
+                                if matches!(value.as_ref(), AstNode::IndexAccess { .. })
+                        ))
+            )),
+        "`xs[0]` should still parse as index access, not as a generic call"
+    );
+}
+
+#[test]
+fn test_v2_parser_rejects_explicit_generic_call_with_no_type_arguments() {
+    let errors = parse_script_package_errors_from_inline(
+        "empty_turbofish",
+        "fun pick(T)(value: T): T = { return value; };\n\
+         fun[] main(): int = {\n\
+             return pick::[](7);\n\
+         };\n",
+    );
+    assert!(
+        errors.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("Explicit generic calls require at least one type argument")
+            || diagnostic
+                .message
+                .contains("Expected ',' or ']' in explicit generic type arguments")),
+        "empty turbofish should be rejected with a clear message: {errors:?}"
+    );
+}
+
+#[test]
 fn test_v2_m1_parser_keeps_template_call_surface_separate_from_generics() {
     let ast = parse_script_package_from_inline(
         "template_call_boundary",
