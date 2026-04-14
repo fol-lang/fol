@@ -384,8 +384,8 @@ use super::*;
 
         assert!(!output.status.success(), "CLI should reject standards as ordinary types in M2");
         assert!(
-            stdout.contains("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2"),
-            "CLI should preserve the standards-as-type boundary wording"
+            stdout.contains("standard 'geo' is a static contract, not a value type; use it as a generic constraint instead"),
+            "CLI should surface the permanent standards-as-type rejection wording"
         );
 
         fs::remove_dir_all(&temp_root).ok();

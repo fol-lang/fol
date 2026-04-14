@@ -564,7 +564,7 @@ fn standards_m2_reject_standards_as_ordinary_types_cleanly() {
         error.kind() == TypecheckErrorKind::Unsupported
             && error
                 .message()
-                .contains("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2")
+                .contains("standard 'geo' is a static contract, not a value type; use it as a generic constraint instead")
     }));
 }
 
@@ -593,7 +593,7 @@ fn standards_m2_reject_standards_as_ordinary_types_across_more_contexts() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2")
+                    .contains("standard 'geo' is a static contract, not a value type; use it as a generic constraint instead")
         })
         .count();
     assert!(

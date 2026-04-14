@@ -887,8 +887,8 @@ fn test_fail_standard_as_type_m2_example_rejects_cleanly() {
     let combined = format!("{stdout}\n{stderr}");
     assert!(!check.status.success());
     assert!(
-        combined.contains("standard 'geo' cannot be used as an ordinary type in V2 Milestone 2"),
-        "negative standards-as-type example should keep the explicit unsupported-type message: stdout=\n{}\nstderr=\n{}",
+        combined.contains("standard 'geo' is a static contract, not a value type; use it as a generic constraint instead"),
+        "negative standards-as-type example should keep the permanent rejection message: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );

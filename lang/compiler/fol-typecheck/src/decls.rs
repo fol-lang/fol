@@ -1997,7 +1997,7 @@ fn lower_declared_symbol(
                 Some(origin) => TypecheckError::with_origin(
                     TypecheckErrorKind::Unsupported,
                     format!(
-                        "standard '{}' cannot be used as an ordinary type in V2 Milestone 2",
+                        "standard '{}' is a static contract, not a value type; use it as a generic constraint instead",
                         symbol.name
                     ),
                     origin,
@@ -2005,7 +2005,7 @@ fn lower_declared_symbol(
                 None => TypecheckError::new(
                     TypecheckErrorKind::Unsupported,
                     format!(
-                        "standard '{}' cannot be used as an ordinary type in V2 Milestone 2",
+                        "standard '{}' is a static contract, not a value type; use it as a generic constraint instead",
                         symbol.name
                     ),
                 ),
