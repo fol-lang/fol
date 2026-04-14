@@ -814,6 +814,30 @@ fn test_fail_generic_standard_constraint_m1m2_example_rejects_cleanly() {
 }
 
 #[test]
+fn test_generic_type_constrained_m1m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_type_constrained_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "constrained generic type example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("constrained generic type example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "constrained generic type example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("4") || stderr.contains("4"));
+}
+
+#[test]
 fn test_generic_turbofish_m1_example_builds_and_runs() {
     let root = temp_example_root("examples/generic_turbofish_m1");
 
@@ -4742,6 +4766,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
         "examples/generic_turbofish_m1",
+        "examples/generic_type_constrained_m1m2",
         "examples/generic_type_exec_m1m2",
         "examples/generic_standard_constraint_m1m2",
         "examples/generic_type_semantic_m1m2",
