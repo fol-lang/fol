@@ -355,11 +355,14 @@ Docs:
 
 Tracked slices:
 
-- [ ] I1. Parser and AST for explicit generic-call syntax.
-- [ ] I2. Typecheck substitution and constraint check at explicit args.
+- [x] I1. Parser and AST for explicit generic-call syntax. Uses
+  `name::[TypeArgs](args)` turbofish so the parser never has to guess
+  between an index-invoke `xs[i](v)` and a generic call.
+- [x] I2. Typecheck substitution and constraint check at explicit args
+  (arity mismatch, constraint-failure diagnostics).
 - [ ] I3. Lowering / backend verification.
 - [ ] I4. LSP hover / completion / diagnostics.
-- [ ] I5. Tree-sitter grammar / queries with index disambiguation.
+- [ ] I5. Tree-sitter grammar / queries with turbofish disambiguation.
 - [ ] I6. Positive and negative examples plus docs.
 
 
