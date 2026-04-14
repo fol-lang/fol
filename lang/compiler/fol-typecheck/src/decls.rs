@@ -582,12 +582,6 @@ fn lower_named_routine_signature(
         .transpose()?;
     reject_generic_types_in_position(
         typed,
-        lowered_receiver,
-        receiver_type.and_then(|ty| type_origin(resolved, ty)),
-        "generic receiver types are not yet supported in V2 Milestone 1",
-    )?;
-    reject_generic_types_in_position(
-        typed,
         lowered_error,
         error_type.and_then(|ty| type_origin(resolved, ty)),
         "generic error types are not yet supported in V2 Milestone 1",

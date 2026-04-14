@@ -163,6 +163,27 @@ fn generic_receiver_routine_calls_typecheck_with_direct_method_sugar() {
 }
 
 #[test]
+fn generic_receiver_types_no_longer_rejected_at_lowering() {
+    // H1: the "generic receiver types are not yet supported" rejection at
+    // routine signature lowering is gone. The routine signature lowers
+    // cleanly; method resolution with generic-receiver unification is the
+    // next slice (H2).
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Box(T): rec = {\n\
+             value: T\n\
+         };\n\
+         fun (Box[T])unwrap(T)(fallback: T): T = {\n\
+             return fallback;\n\
+         };\n",
+    )]);
+
+    let (_unwrap_id, unwrap_symbol) = find_typed_symbol(&typed, "unwrap", SymbolKind::Routine);
+    assert!(unwrap_symbol.declared_type.is_some(),
+        "generic receiver routines must lower to a typed signature");
+}
+
+#[test]
 fn instantiated_generic_receiver_routines_typecheck_with_direct_method_sugar() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
