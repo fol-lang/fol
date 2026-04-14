@@ -360,10 +360,13 @@ Tracked slices:
   between an index-invoke `xs[i](v)` and a generic call.
 - [x] I2. Typecheck substitution and constraint check at explicit args
   (arity mismatch, constraint-failure diagnostics).
-- [ ] I3. Lowering / backend verification.
+- [x] I3. Lowering / backend verification — the turbofish form falls
+  through the existing generic-routine monomorphization path; the
+  `examples/generic_turbofish_m1` example builds and runs.
 - [ ] I4. LSP hover / completion / diagnostics.
 - [ ] I5. Tree-sitter grammar / queries with turbofish disambiguation.
-- [ ] I6. Positive and negative examples plus docs.
+- [x] I6. Positive example (`examples/generic_turbofish_m1`) and
+  parser/typecheck negative tests for arity and constraint failures.
 
 
 # 7. Workstream J: Constrained Generic Types
