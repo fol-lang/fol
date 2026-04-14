@@ -837,6 +837,7 @@ fn test_generic_type_exec_m1m2_example_builds_and_runs() {
     assert!(stdout.contains("42") || stderr.contains("42"));
 }
 
+
 #[test]
 fn test_nested_generic_types_build_and_run() {
     let root = write_temp_app(

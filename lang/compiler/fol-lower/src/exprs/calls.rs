@@ -1148,8 +1148,33 @@ pub(crate) fn resolve_method_target(
     decl_index: &WorkspaceDeclIndex,
     method: &str,
     receiver_type: LoweredTypeId,
+    call_syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
 ) -> Result<crate::LoweredRoutineId, LoweringError>
 {
+    // Fast path: typecheck already resolved the method symbol for this call
+    // site (including generic receiver unification). Prefer that when present.
+    if let Some(syntax_id) = call_syntax_id {
+        if let Some(symbol_id) = typed_package.program.method_call_target(syntax_id) {
+            let symbol = typed_package
+                .program
+                .resolved()
+                .symbol(symbol_id)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("method '{method}' resolved to an unknown symbol"),
+                    )
+                })?;
+            let (owning_identity, owning_symbol_id) =
+                canonical_symbol_key(current_identity, symbol.mounted_from.as_ref(), symbol_id);
+            if let Some(routine_id) =
+                decl_index.routine_id_for_symbol(&owning_identity, owning_symbol_id)
+            {
+                return Ok(routine_id);
+            }
+        }
+    }
+
     let mut matches = Vec::new();
 
     for (symbol_id, symbol) in typed_package.program.resolved().symbols.iter_with_ids() {

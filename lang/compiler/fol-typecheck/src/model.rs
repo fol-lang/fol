@@ -92,6 +92,7 @@ pub struct TypedProgram {
     standards: BTreeMap<SymbolId, TypedStandard>,
     conformances: BTreeMap<SymbolId, TypedConformance>,
     apparent_type_overrides: BTreeMap<CheckedTypeId, CheckedTypeId>,
+    method_call_targets: BTreeMap<SyntaxNodeId, SymbolId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -268,7 +269,16 @@ impl TypedProgram {
             standards: BTreeMap::new(),
             conformances: BTreeMap::new(),
             apparent_type_overrides: BTreeMap::new(),
+            method_call_targets: BTreeMap::new(),
         }
+    }
+
+    pub fn record_method_call_target(&mut self, syntax_id: SyntaxNodeId, symbol_id: SymbolId) {
+        self.method_call_targets.insert(syntax_id, symbol_id);
+    }
+
+    pub fn method_call_target(&self, syntax_id: SyntaxNodeId) -> Option<SymbolId> {
+        self.method_call_targets.get(&syntax_id).copied()
     }
 
     pub fn package_name(&self) -> &str {

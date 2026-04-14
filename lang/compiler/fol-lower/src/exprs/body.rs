@@ -687,6 +687,7 @@ pub(crate) fn lower_body_node(
                 decl_index,
                 method,
                 receiver.type_id,
+                *syntax_id,
             )?;
             let typed_node = syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
             let result_type = typed_node

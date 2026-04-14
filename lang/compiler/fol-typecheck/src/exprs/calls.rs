@@ -704,7 +704,13 @@ pub(crate) fn type_method_call(
         "method receiver for '{method}' does not have a type"
     ))?;
     let origin = node_origin(resolved, node).or_else(|| node_origin(resolved, object));
-    let signature = routine_signature_for_method(typed, method, object_type, origin.clone())?;
+    let signature = routine_signature_for_method(
+        typed,
+        method,
+        object_type,
+        origin.clone(),
+        node.syntax_id(),
+    )?;
     let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
@@ -816,8 +822,9 @@ fn routine_signature_for_method(
     method: &str,
     object_type: crate::CheckedTypeId,
     origin: Option<SyntaxOrigin>,
+    call_syntax_id: Option<SyntaxNodeId>,
 ) -> Result<RoutineType, TypecheckError> {
-    let mut matches = Vec::new();
+    let mut matches: Vec<(SymbolId, RoutineType)> = Vec::new();
 
     let candidate_ids = typed
         .resolved()
@@ -836,12 +843,10 @@ fn routine_signature_for_method(
             continue;
         };
         if receiver_type == object_type {
-            matches.push(routine_signature_for_symbol(
-                typed,
-                typed.resolved(),
+            matches.push((
                 symbol_id,
-                origin.clone(),
-            )?);
+                routine_signature_for_symbol(typed, typed.resolved(), symbol_id, origin.clone())?,
+            ));
             continue;
         }
         // Try to unify the routine's generic receiver template against the
@@ -867,11 +872,17 @@ fn routine_signature_for_method(
         };
         let instantiated =
             instantiate_generic_signature(typed, &signature, &bindings, method, origin.clone())?;
-        matches.push(instantiated);
+        matches.push((symbol_id, instantiated));
     }
 
     match matches.len() {
-        1 => Ok(matches.remove(0)),
+        1 => {
+            let (chosen_symbol, signature) = matches.remove(0);
+            if let Some(syntax_id) = call_syntax_id {
+                typed.record_method_call_target(syntax_id, chosen_symbol);
+            }
+            Ok(signature)
+        }
         0 => Err(origin.clone().map_or_else(
             || {
                 TypecheckError::new(
