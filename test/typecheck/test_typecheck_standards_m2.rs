@@ -496,56 +496,64 @@ fn standards_m2_reject_claims_against_unsupported_standard_kinds_cleanly() {
     }));
 }
 
-#[test]
-fn standards_m2_reject_generic_required_routine_signatures_cleanly() {
-    let errors = typecheck_fixture_folder_errors(&[(
-        "main.fol",
-        "std geo: pro = {\n\
-             fun area(T)(value: T): int;\n\
-         };\n",
-    )]);
-
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
-            && error
-                .message()
-                .contains("generic standard routine requirements are not yet supported in V2 Milestone 2")
-    }));
+fn parse_standards_fixture_errors(source: &str) -> Vec<fol_diagnostics::Diagnostic> {
+    let root = unique_temp_dir("standards_m2_parse_error");
+    write_fixture_files(&root, &[("main.fol", source)]);
+    let mut file_stream = FileStream::from_folder(
+        root.to_str()
+            .expect("fixture source directory should be valid UTF-8"),
+    )
+    .expect("fixture source directory should be readable");
+    let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut file_stream);
+    AstParser::new()
+        .parse_package(&mut lexer)
+        .expect_err("standards fixture should fail to parse")
 }
 
 #[test]
-fn standards_m2_reject_receiver_qualified_required_routine_signatures_cleanly() {
-    let errors = typecheck_fixture_folder_errors(&[(
-        "main.fol",
+fn standards_m2_generic_required_routine_signatures_removed_from_grammar() {
+    let errors = parse_standards_fixture_errors(
+        "std geo: pro = {\n\
+             fun area(T)(value: T): int;\n\
+         };\n",
+    );
+    assert!(
+        errors.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("Standard routine requirements cannot declare their own generic parameters")),
+        "generic required routines should fail at parse time, got: {errors:?}"
+    );
+}
+
+#[test]
+fn standards_m2_receiver_qualified_required_routine_signatures_removed_from_grammar() {
+    let errors = parse_standards_fixture_errors(
         "typ Rect: rec = { var width: int; };\n\
          std geo: pro = {\n\
              fun (Rect)area(): int;\n\
          };\n",
-    )]);
-
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
-            && error
-                .message()
-                .contains("receiver-qualified standard requirements are not yet supported in V2 Milestone 2")
-    }));
+    );
+    assert!(
+        errors.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("Standard routine requirements cannot declare a receiver")),
+        "receiver-qualified required routines should fail at parse time, got: {errors:?}"
+    );
 }
 
 #[test]
-fn standards_m2_reject_capturing_required_routine_signatures_cleanly() {
-    let errors = typecheck_fixture_folder_errors(&[(
-        "main.fol",
+fn standards_m2_capturing_required_routine_signatures_removed_from_grammar() {
+    let errors = parse_standards_fixture_errors(
         "std geo: pro = {\n\
              fun area()[cache]: int;\n\
          };\n",
-    )]);
-
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
-            && error
-                .message()
-                .contains("capturing standard routine requirements are not yet supported in V2 Milestone 2")
-    }));
+    );
+    assert!(
+        errors.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("Standard routine requirements cannot declare captures")),
+        "capturing required routines should fail at parse time, got: {errors:?}"
+    );
 }
 
 #[test]

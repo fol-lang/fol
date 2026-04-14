@@ -180,7 +180,7 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::Pro)
             ) {
                 let member_anchor = self.peek_standard_member_anchor_token(tokens);
-                let member = self.parse_standard_routine_signature(tokens)?;
+                let member = self.parse_standard_requirement_signature(tokens)?;
                 self.consume_required_semicolon(tokens)?;
                 let key = self.standard_member_key(&member);
                 if !seen_members.insert(self.standard_member_comparison_key(&member)) {
@@ -361,7 +361,7 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::Pro)
             ) {
                 let member_anchor = self.peek_standard_member_anchor_token(tokens);
-                let member = self.parse_standard_routine_signature(tokens)?;
+                let member = self.parse_standard_requirement_signature(tokens)?;
                 self.consume_required_semicolon(tokens)?;
                 let key = self.standard_member_key(&member);
                 if !seen_members.insert(self.standard_member_comparison_key(&member)) {
@@ -470,7 +470,7 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::Pro)
             ) {
                 let member_anchor = self.peek_standard_member_anchor_token(tokens);
-                let member = self.parse_standard_routine_signature(tokens)?;
+                let member = self.parse_standard_requirement_signature(tokens)?;
                 self.consume_required_semicolon(tokens)?;
                 let key = self.standard_member_key(&member);
                 if !seen_members.insert(self.standard_member_comparison_key(&member)) {
@@ -596,6 +596,55 @@ impl AstParser {
             &anchor,
             "Standard body exceeded parser limit".to_string(),
         ))
+    }
+
+    pub(super) fn parse_standard_requirement_signature(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<AstNode, ParseError> {
+        let anchor_token = tokens.curr(false)?;
+        let member = self.parse_standard_routine_signature(tokens)?;
+        match &member {
+            AstNode::FunDecl {
+                generics,
+                receiver_type,
+                captures,
+                ..
+            }
+            | AstNode::ProDecl {
+                generics,
+                receiver_type,
+                captures,
+                ..
+            }
+            | AstNode::LogDecl {
+                generics,
+                receiver_type,
+                captures,
+                ..
+            } => {
+                if receiver_type.is_some() {
+                    return Err(ParseError::from_token(
+                        &anchor_token,
+                        "Standard routine requirements cannot declare a receiver; conformance is already tied to the conforming type".to_string(),
+                    ));
+                }
+                if !generics.is_empty() {
+                    return Err(ParseError::from_token(
+                        &anchor_token,
+                        "Standard routine requirements cannot declare their own generic parameters; parameterize the standard itself instead".to_string(),
+                    ));
+                }
+                if !captures.is_empty() {
+                    return Err(ParseError::from_token(
+                        &anchor_token,
+                        "Standard routine requirements cannot declare captures; capturing is an implementation detail of the conformer".to_string(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+        Ok(member)
     }
 
     pub(super) fn parse_standard_routine_signature(

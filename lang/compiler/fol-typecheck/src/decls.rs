@@ -667,21 +667,7 @@ fn lower_protocol_standard_member(
             inquiries,
             ..
         } => {
-            if !generics.is_empty() {
-                return Err(unsupported(
-                    "generic standard routine requirements are not yet supported in V2 Milestone 2",
-                ));
-            }
-            if receiver_type.is_some() {
-                return Err(unsupported(
-                    "receiver-qualified standard requirements are not yet supported in V2 Milestone 2",
-                ));
-            }
-            if !captures.is_empty() {
-                return Err(unsupported(
-                    "capturing standard routine requirements are not yet supported in V2 Milestone 2",
-                ));
-            }
+            let _ = (generics, receiver_type, captures);
             if !body.is_empty() || !inquiries.is_empty() {
                 return Err(unsupported(
                     "default standard routine implementations are not yet supported in V2 Milestone 2",

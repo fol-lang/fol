@@ -139,27 +139,21 @@ fn test_protocol_standard_accepts_constant_members() {
 }
 
 #[test]
-fn test_standard_routine_members_accept_capture_lists() {
+fn test_standard_routine_members_reject_capture_lists() {
     let mut file_stream = FileStream::from_file("test/parser/simple_std_protocol_captures.fol")
         .expect("Should read standard routine capture fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
-    let ast = parser
+    let errors = parser
         .parse(&mut lexer)
-        .expect("Parser should parse capture lists on standard routine members");
-
-    match ast {
-        AstNode::Program { declarations } => {
-            assert!(declarations.iter().any(|node| matches!(
-                node,
-                AstNode::StdDecl { name, kind: StandardKind::Protocol, body, .. }
-                if name == "geometry"
-                    && body.iter().any(|stmt| matches!(stmt, AstNode::FunDecl { name, captures, .. } if name == "area" && captures == &vec!["unit".to_string()]))
-            )));
-        }
-        _ => panic!("Expected program node"),
-    }
+        .expect_err("Parser should reject capture lists on standard routine members");
+    assert!(
+        errors.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("Standard routine requirements cannot declare captures")),
+        "capturing required routines should fail at parse time, got: {errors:?}"
+    );
 }
 
 #[test]
