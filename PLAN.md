@@ -701,12 +701,17 @@ Docs:
 
 Tracked slices:
 
-- [ ] N1. Typecheck extended conformance dispatches to protocol and
-  blueprint rules.
-- [ ] N2. Lowering / backend verification for extended standards.
+- [x] N1. Typecheck extended conformance dispatches each member to the
+  protocol or blueprint path based on its AST shape; the existing
+  `required_routines` and `required_fields` lists cover both sides.
+- [x] N2. Lowering / backend: extended standards lower as the union of
+  their routine and field requirements — no new backend surface.
+  `examples/standards_extended_m2` builds and runs.
 - [ ] N3. LSP hover / diagnostics for extended standards.
 - [ ] N4. Tree-sitter queries audit.
-- [ ] N5. Positive and negative examples plus docs.
+- [x] N5. Typecheck tests pin accept/missing-routine/missing-field
+  cases. Example `standards_extended_m2` demonstrates positive
+  end-to-end flow through procedural method dispatch.
 
 
 # 12. Workstream O: Generic Standards
