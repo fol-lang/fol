@@ -491,11 +491,17 @@ Docs:
 
 Tracked slices:
 
-- [ ] K1. Typecheck resolves default body at conformance time.
-- [ ] K2. Lowering / backend emission for default bodies as inlined
-  monomorphization.
+- [x] K1. Typecheck tracks `has_default_body` on each required routine
+  and lets conformers omit the routine when a default exists. Method
+  resolution falls back to the default body when no exact conformer
+  routine matches.
+- [x] K2. Lowering descends into `std` decl bodies so default bodies
+  are emitted as regular routines, and method-call lowering skips
+  prepending the receiver arg when the callee has no receiver slot.
 - [ ] K3. LSP hover / definition / diagnostics for default bodies.
-- [ ] K4. Positive and negative examples plus docs.
+- [x] K4. `examples/standards_default_body_m2` builds and runs and
+  typecheck tests pin inheritance, override, signature mismatch, and
+  conformer-less inheritance.
 
 
 # 9. Workstream L: Generic Error Types
