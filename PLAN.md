@@ -784,14 +784,26 @@ Docs:
 
 Tracked slices:
 
-- [ ] O1. Parser / AST for generic parameters on `std` declarations.
-- [ ] O2. Resolver binding and substitution at conformance-header and
-  constraint sites.
-- [ ] O3. Typecheck with substituted signatures and constrained generics.
-- [ ] O4. Lowering / backend emission with inlined substitution.
+- [x] O1. Parser / AST for generic parameters on `std` declarations:
+  `std Iterator(T): pro = { fun next(): T; }`. Uses the existing
+  type-generic-header parser; `lookahead_is_std_decl` skips the
+  generic header before the colon so the parser dispatches cleanly.
+- [x] O2. Resolver binding: the standard scope now inserts generic
+  parameter symbols so routine signatures inside the body can reference
+  them. Contract references like `Iterator[int]` split off the base
+  name before the standard-symbol lookup.
+- [x] O3. Typecheck substitutes each claim's type arguments into the
+  standard's routine and field requirements before running the
+  existing exact-match / blueprint-field rules. Arity-mismatch at the
+  conformance header produces a clean diagnostic.
+- [x] O4. Lowering / backend: generic standards use the existing
+  record + receiver-routine lowering path. The
+  `examples/standards_generic_m2` example builds and runs end to end.
 - [ ] O5. LSP hover / diagnostics for generic standards.
 - [ ] O6. Tree-sitter grammar / queries updates.
-- [ ] O7. Positive and negative examples plus docs.
+- [x] O7. Typecheck tests pin accept / wrong-return / arity-mismatch
+  cases. `examples/standards_generic_m2` demonstrates positive
+  end-to-end execution with a substituted concrete routine.
 
 
 # 13. Workstream P: Editor And Tree-Sitter Hardening (Cross-Cutting)
