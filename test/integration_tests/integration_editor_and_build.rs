@@ -814,6 +814,30 @@ fn test_fail_generic_standard_constraint_m1m2_example_rejects_cleanly() {
 }
 
 #[test]
+fn test_standards_blueprint_m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/standards_blueprint_m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "blueprint example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("blueprint example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "blueprint example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+#[test]
 fn test_standards_default_body_m2_example_builds_and_runs() {
     let root = temp_example_root("examples/standards_default_body_m2");
 
@@ -4827,6 +4851,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
     .map(|path| path.to_string())
     .collect::<std::collections::BTreeSet<_>>();
     let documented_standards = [
+        "examples/standards_blueprint_m2",
         "examples/standards_default_body_m2",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
