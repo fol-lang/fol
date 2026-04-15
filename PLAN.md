@@ -547,11 +547,17 @@ Docs:
 
 Tracked slices:
 
-- [ ] L1. Typecheck lift and generic substitution through error paths.
-- [ ] L2. Lowering / backend emission with generic error types.
+- [x] L1. Typecheck lift and generic substitution through error paths.
+  The routine signature lowers cleanly and call sites flow monomorphized
+  bindings through return and error types.
+- [x] L2. Lowering now pulls the call-site's recorded recoverable effect
+  for the error type on free function calls, so the emitted Rust
+  `FolRecover<T, E>` sees the substituted `T` and `E` instead of the
+  unsubstituted generic parameter.
 - [ ] L3. LSP hover / diagnostics audit.
 - [ ] L4. Tree-sitter queries audit.
-- [ ] L5. Positive and negative examples plus docs.
+- [x] L5. `examples/generic_error_m1m2` builds and runs the full
+  generic recoverable routine path through `check(...)`.
 
 
 # 10. Workstream M: Blueprint Standards As Static Field Contracts
