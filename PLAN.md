@@ -634,13 +634,23 @@ Docs:
 
 Tracked slices:
 
-- [ ] M1. Typecheck: blueprint conformance at type declaration time.
-- [ ] M2. Typecheck: blueprints as generic constraints with static field
-  access.
-- [ ] M3. Lowering / backend emission with inlined field access.
+- [x] M1. Typecheck: blueprint conformance at type declaration time.
+  Blueprint standards ship a new `required_fields` list on `TypedStandard`;
+  conformance checks walk the conformer's record fields and emit precise
+  missing-field / wrong-type / not-a-record diagnostics.
+- [x] M2. Blueprints work as generic constraints — a routine with
+  `fun measure(T: sized)(value: T)` accepts a conformer whose declared
+  record satisfies the field requirements. End-to-end build runs.
+- [x] M3. Lowering / backend: blueprints do not synthesize any runtime
+  surface, so conforming types pass through the existing record + generic
+  routine lowering path unchanged. The `standards_blueprint_m2` example
+  builds and runs end to end.
 - [ ] M4. LSP hover / completion / diagnostics for blueprints.
 - [ ] M5. Tree-sitter grammar / queries audit.
-- [ ] M6. Positive and negative examples plus docs.
+- [x] M6. Positive example (`examples/standards_blueprint_m2`),
+  negative example (`fail_standard_blueprint_m2` refitted to a
+  missing-field failure), and typecheck tests for matching/missing/
+  wrong-type conformer fields.
 
 
 # 11. Workstream N: Extended Standards
