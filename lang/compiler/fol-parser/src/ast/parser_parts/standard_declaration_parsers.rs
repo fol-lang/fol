@@ -46,10 +46,30 @@ impl AstParser {
             return false;
         }
 
-        matches!(
-            significant.next().map(|token| token.key().clone()),
-            Some(KEYWORD::Symbol(SYMBOL::Colon))
-        )
+        // Optional generic-parameter header after the name, e.g.
+        // `std Iterator(T): pro`.
+        let mut next = significant.next().map(|token| token.key().clone());
+        if matches!(next, Some(KEYWORD::Symbol(SYMBOL::RoundO))) {
+            let mut depth = 1usize;
+            loop {
+                let Some(token_key) = significant.next().map(|token| token.key().clone()) else {
+                    return false;
+                };
+                match token_key {
+                    KEYWORD::Symbol(SYMBOL::RoundO) => depth += 1,
+                    KEYWORD::Symbol(SYMBOL::RoundC) => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            next = significant.next().map(|token| token.key().clone());
+        }
+
+        matches!(next, Some(KEYWORD::Symbol(SYMBOL::Colon)))
     }
 
     pub(super) fn parse_std_decl(
@@ -74,6 +94,11 @@ impl AstParser {
         let _ = tokens.bump();
 
         self.skip_ignorable(tokens)?;
+        // Optional generic parameters after the standard name, e.g.
+        // `std Iterator(T): pro = { ... }`.
+        let generics = self.parse_type_generic_header(tokens)?;
+        self.skip_ignorable(tokens)?;
+
         let colon = tokens.curr(false)?;
         if !matches!(colon.key(), KEYWORD::Symbol(SYMBOL::Colon)) {
             return Err(ParseError::from_token(
@@ -139,6 +164,7 @@ impl AstParser {
             syntax_id: self.record_syntax_origin(&std_token),
             options,
             name,
+            generics,
             kind,
             kind_options,
             body,

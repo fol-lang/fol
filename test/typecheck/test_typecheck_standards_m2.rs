@@ -916,6 +916,72 @@ fn standards_m2_default_protocol_implementation_still_requires_signature_match_w
 }
 
 #[test]
+fn standards_o_generic_standard_with_int_type_arg_typechecks_cleanly() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std Iterator(T): pro = {\n\
+             fun next(): T;\n\
+         };\n\
+         typ IntIter()(Iterator[int]): rec = {\n\
+             var value: int;\n\
+         };\n\
+         fun (IntIter)next(): int = {\n\
+             return 1;\n\
+         };\n",
+    )]);
+
+    let (_iter_id, iter) = find_typed_symbol(&typed, "IntIter", SymbolKind::Type);
+    assert!(iter.declared_type.is_some());
+}
+
+#[test]
+fn standards_o_generic_standard_rejects_wrong_return_type_at_conformance() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std Iterator(T): pro = {\n\
+             fun next(): T;\n\
+         };\n\
+         typ IntIter()(Iterator[int]): rec = {\n\
+             var value: int;\n\
+         };\n\
+         fun (IntIter)next(): str = {\n\
+             return \"oops\";\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("routine 'next' has incompatible signature")
+            && error.message().contains("expected fun next(): int")),
+        "conformer with wrong substituted return type should fail: {errors:?}"
+    );
+}
+
+#[test]
+fn standards_o_generic_standard_rejects_arity_mismatch_in_conformance_header() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std Iterator(T): pro = {\n\
+             fun next(): T;\n\
+         };\n\
+         typ IntIter()(Iterator[int, str]): rec = {\n\
+             var value: int;\n\
+         };\n\
+         fun (IntIter)next(): int = {\n\
+             return 1;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("claims generic standard 'Iterator' with 2 type argument(s) but the standard expects 1")),
+        "arity mismatch in conformance header should fail: {errors:?}"
+    );
+}
+
+#[test]
 fn standards_m2_accept_extended_conformance_with_both_routine_and_field() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",

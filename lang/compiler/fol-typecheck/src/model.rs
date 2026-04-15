@@ -81,14 +81,32 @@ pub struct TypedStandard {
     pub symbol_id: SymbolId,
     pub scope_id: ScopeId,
     pub kind: StandardKind,
+    /// Generic parameters of the standard itself. Empty when the
+    /// standard is not parameterized. At each conformance site these
+    /// parameters are substituted with the types supplied in the
+    /// conformance header.
+    pub generic_params: Vec<SymbolId>,
     pub required_routines: Vec<TypedStandardRoutine>,
     pub required_fields: Vec<TypedStandardField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedConformanceClaim {
+    pub standard_symbol_id: SymbolId,
+    /// Type arguments supplied at the conformance header, e.g. the
+    /// `int` in `typ IntIter()(Iterator[int]): rec`. Empty when the
+    /// conformer claims a non-generic standard.
+    pub type_args: Vec<CheckedTypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedConformance {
     pub type_symbol_id: SymbolId,
     pub standard_symbol_ids: Vec<SymbolId>,
+    /// Claim-with-args list, parallel to `standard_symbol_ids` but
+    /// carrying the concrete type arguments supplied at each
+    /// conformance header.
+    pub claims: Vec<TypedConformanceClaim>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

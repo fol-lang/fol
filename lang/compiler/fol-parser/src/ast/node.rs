@@ -122,11 +122,14 @@ pub enum AstNode {
         body: Vec<AstNode>,
     },
 
-    /// Standard declaration: std name: pro|blu|ext = { body }
+    /// Standard declaration: std name[generics]: pro|blu|ext = { body }
     StdDecl {
         syntax_id: Option<SyntaxNodeId>,
         options: Vec<DeclOption>,
         name: String,
+        /// Optional generic parameters like `std Iterator(T): pro = { ... }`.
+        /// Empty when the standard is not parameterized.
+        generics: Vec<Generic>,
         kind: StandardKind,
         kind_options: Vec<DeclOption>,
         body: Vec<AstNode>,

@@ -833,11 +833,26 @@ pub fn traverse_node(
             types::resolve_type_definition(session, program, source_unit_id, type_scope, type_def)?;
         }
         AstNode::StdDecl {
-            syntax_id, body, ..
+            syntax_id,
+            generics,
+            body,
+            ..
         } => {
             let standard_scope =
                 program.add_scope(ScopeKind::StandardDeclaration, scope_id, source_unit_id);
             program.record_scope_for_syntax(*syntax_id, standard_scope);
+            insert_generic_symbols(program, source_unit_id, standard_scope, generics)?;
+            for generic in generics {
+                for constraint in &generic.constraints {
+                    types::resolve_type_reference(
+                        session,
+                        program,
+                        source_unit_id,
+                        standard_scope,
+                        constraint,
+                    )?;
+                }
+            }
             for member in body {
                 traverse_node(
                     session,

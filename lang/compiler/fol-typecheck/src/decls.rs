@@ -1,7 +1,7 @@
 use crate::{
     CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType, TypeTable, TypecheckError,
-    TypecheckErrorKind, TypecheckResult, TypedConformance, TypedProgram, TypedStandard,
-    TypedStandardField, TypedStandardRoutine,
+    TypecheckErrorKind, TypecheckResult, TypedConformance, TypedConformanceClaim, TypedProgram,
+    TypedStandard, TypedStandardField, TypedStandardRoutine,
 };
 use fol_parser::ast::{
     AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
@@ -216,19 +216,37 @@ fn lower_top_level_declaration(
             record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
             record_symbol_type(typed, symbol_id, type_id)?;
             if !explicit_contracts.is_empty() {
-                let standard_symbol_ids = explicit_contracts
-                    .iter()
-                    .map(|contract| lower_standard_symbol_for_contract(resolved, contract))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let mut standard_symbol_ids = Vec::new();
+                let mut claims = Vec::new();
+                for contract in explicit_contracts {
+                    let standard_symbol_id =
+                        lower_standard_symbol_for_contract(resolved, contract)?;
+                    standard_symbol_ids.push(standard_symbol_id);
+                    // Pull explicit type arguments out of
+                    // `Name[args]`-shaped contract references and lower
+                    // them in the type declaration scope.
+                    let type_args = extract_contract_type_args(
+                        typed,
+                        resolved,
+                        type_scope,
+                        contract,
+                    )?;
+                    claims.push(TypedConformanceClaim {
+                        standard_symbol_id,
+                        type_args,
+                    });
+                }
                 typed.record_typed_conformance(TypedConformance {
                     type_symbol_id: symbol_id,
                     standard_symbol_ids,
+                    claims,
                 });
             }
         }
         AstNode::StdDecl {
             syntax_id,
             name,
+            generics,
             kind,
             body,
             ..
@@ -246,6 +264,26 @@ fn lower_top_level_declaration(
                         node_origin(resolved, &item.node),
                     )
                 })?;
+            // Bind the standard's generic parameters as declared types in
+            // the standard scope so routine signatures inside the body
+            // see `T` as a proper generic parameter.
+            let mut generic_params: Vec<SymbolId> = Vec::new();
+            for generic in generics {
+                let symbol_id = find_symbol_id_in_scope(
+                    resolved,
+                    source_unit_id,
+                    standard_scope,
+                    &[SymbolKind::GenericParameter],
+                    &generic.name,
+                )?;
+                let generic_type = typed.type_table_mut().intern(CheckedType::Declared {
+                    symbol: symbol_id,
+                    name: generic.name.clone(),
+                    kind: DeclaredTypeKind::GenericParameter,
+                });
+                record_symbol_type(typed, symbol_id, generic_type)?;
+                generic_params.push(symbol_id);
+            }
             let mut required_routines = Vec::new();
             let mut required_fields = Vec::new();
             match kind {
@@ -324,6 +362,7 @@ fn lower_top_level_declaration(
                 symbol_id: standard_symbol_id,
                 scope_id: standard_scope,
                 kind: *kind,
+                generic_params,
                 required_routines,
                 required_fields,
             });
@@ -756,6 +795,35 @@ fn lower_protocol_standard_member(
     }
 }
 
+/// Given a type-contract reference like `Iterator[int]`, lower the
+/// inner type arguments into `CheckedTypeId`s for later substitution
+/// into the standard's required routine/field signatures. Returns an
+/// empty list when the contract has no explicit type arguments.
+fn extract_contract_type_args(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    contract: &FolType,
+) -> Result<Vec<CheckedTypeId>, TypecheckError> {
+    let raw_name = match contract {
+        FolType::Named { name, .. } => name.clone(),
+        _ => return Ok(Vec::new()),
+    };
+    let Some(open_index) = raw_name.find('[') else {
+        return Ok(Vec::new());
+    };
+    let Some(parsed) = parse_instantiated_type_args(&raw_name, type_origin(resolved, contract))?
+    else {
+        let _ = open_index;
+        return Ok(Vec::new());
+    };
+    let mut lowered = Vec::with_capacity(parsed.args.len());
+    for arg in parsed.args {
+        lowered.push(lower_type(typed, resolved, scope_id, &arg)?);
+    }
+    Ok(lowered)
+}
+
 fn lower_blueprint_standard_member(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -936,7 +1004,8 @@ fn check_standard_conformance(
                 ));
                 continue;
             };
-            for standard_symbol_id in conformance.standard_symbol_ids {
+            for claim in &conformance.claims {
+                let standard_symbol_id = claim.standard_symbol_id;
                 let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
                     let standard_name = resolved
                         .symbol(standard_symbol_id)
@@ -961,7 +1030,113 @@ fn check_standard_conformance(
                     });
                     continue;
                 };
-                for requirement in &standard.required_routines {
+
+                // Build the generic-parameter substitution table for this
+                // claim. For non-generic standards the map is empty and
+                // substitution is a no-op; for generic standards the
+                // table binds each parameter to the type arg supplied in
+                // the conformance header.
+                let bindings: BTreeMap<SymbolId, CheckedTypeId> = if standard
+                    .generic_params
+                    .is_empty()
+                {
+                    BTreeMap::new()
+                } else {
+                    if claim.type_args.len() != standard.generic_params.len() {
+                        let standard_name = resolved
+                            .symbol(standard_symbol_id)
+                            .map(|symbol| symbol.name.clone())
+                            .unwrap_or_else(|| format!("#{}", standard_symbol_id.0));
+                        errors.push(match node_origin(resolved, &item.node) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                format!(
+                                    "type '{}' claims generic standard '{}' with {} type argument(s) but the standard expects {}",
+                                    name,
+                                    standard_name,
+                                    claim.type_args.len(),
+                                    standard.generic_params.len(),
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::InvalidInput,
+                                format!(
+                                    "type '{}' claims generic standard '{}' with {} type argument(s) but the standard expects {}",
+                                    name,
+                                    standard_name,
+                                    claim.type_args.len(),
+                                    standard.generic_params.len(),
+                                ),
+                            ),
+                        });
+                        continue;
+                    }
+                    standard
+                        .generic_params
+                        .iter()
+                        .copied()
+                        .zip(claim.type_args.iter().copied())
+                        .collect()
+                };
+
+                // Substituted requirements: each routine/field has its
+                // declared types rewritten through `bindings`. For a
+                // non-generic standard this is a cheap clone.
+                let substituted_routines: Vec<TypedStandardRoutine> = standard
+                    .required_routines
+                    .iter()
+                    .map(|req| {
+                        let params = req
+                            .params
+                            .iter()
+                            .map(|type_id| {
+                                substitute_generic_checked_type(typed, *type_id, &bindings, None)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let return_type = req
+                            .return_type
+                            .map(|type_id| {
+                                substitute_generic_checked_type(typed, type_id, &bindings, None)
+                            })
+                            .transpose()?;
+                        let error_type = req
+                            .error_type
+                            .map(|type_id| {
+                                substitute_generic_checked_type(typed, type_id, &bindings, None)
+                            })
+                            .transpose()?;
+                        Ok::<_, TypecheckError>(TypedStandardRoutine {
+                            symbol_id: req.symbol_id,
+                            name: req.name.clone(),
+                            params,
+                            return_type,
+                            error_type,
+                            has_default_body: req.has_default_body,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_default();
+                let substituted_fields: Vec<TypedStandardField> = standard
+                    .required_fields
+                    .iter()
+                    .map(|req| {
+                        let field_type = substitute_generic_checked_type(
+                            typed,
+                            req.field_type,
+                            &bindings,
+                            None,
+                        )?;
+                        Ok::<_, TypecheckError>(TypedStandardField {
+                            symbol_id: req.symbol_id,
+                            name: req.name.clone(),
+                            field_type,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_default();
+
+                for requirement in &substituted_routines {
                     let candidates = typed
                         .all_typed_symbols()
                         .filter(|symbol| {
@@ -1125,7 +1300,7 @@ fn check_standard_conformance(
                         CheckedType::Record { fields } => Some(fields.clone()),
                         _ => None,
                     });
-                for requirement in &standard.required_fields {
+                for requirement in &substituted_fields {
                     let standard_name = resolved
                         .symbol(standard.symbol_id)
                         .map(|symbol| symbol.name.clone())
@@ -2670,11 +2845,7 @@ fn unsupported_v1_decl_with_origin(
         AstNode::SegDecl { .. } => {
             Some("segment declarations are planned for a future release")
         }
-        AstNode::StdDecl { kind, .. } => Some(match kind {
-            fol_parser::ast::StandardKind::Protocol => return None,
-            fol_parser::ast::StandardKind::Blueprint => return None,
-            fol_parser::ast::StandardKind::Extended => return None,
-        }),
+        AstNode::StdDecl { .. } => None,
         _ => None,
     }?;
 

@@ -124,11 +124,21 @@ pub fn resolve_contract_reference(
 ) -> Result<(), ResolverError> {
     match typ {
         FolType::Named { name, syntax_id } => {
+            // `Name[args]` generic-standard references land here as
+            // `FolType::Named { name: "Name[args]" }`. Split off the
+            // base name so the resolver can look it up against the
+            // standard symbol; the type args are consumed later by the
+            // typecheck pass when it substitutes them into the
+            // standard's routine and field requirements.
+            let base_name = match name.find('[') {
+                Some(open) => &name[..open],
+                None => name.as_str(),
+            };
             record_contract_reference(
                 program,
                 source_unit_id,
                 scope_id,
-                name,
+                base_name,
                 *syntax_id,
                 syntax_id
                     .and_then(|syntax_id| program.syntax_index().origin(syntax_id))

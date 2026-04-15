@@ -1,0 +1,18 @@
+use std: pkg = {"std"};
+
+std Iterator(T): pro = {
+    fun next(): T;
+};
+
+typ IntIter()(Iterator[int]): rec = {
+    var seed: int;
+};
+
+fun (IntIter)next(): int = {
+    return 42;
+};
+
+fun[] main(): int = {
+    var iter: IntIter = { seed = 0 };
+    return std::io::echo_int(iter.next());
+};
