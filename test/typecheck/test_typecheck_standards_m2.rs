@@ -759,8 +759,8 @@ fn standards_m2_reject_unsupported_protocol_member_shapes_cleanly() {
 }
 
 #[test]
-fn standards_m2_reject_default_protocol_implementations_cleanly() {
-    let errors = typecheck_fixture_folder_errors(&[(
+fn standards_m2_default_protocol_implementation_records_has_default_body() {
+    let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "std geo: pro = {\n\
              fun area(): int = {\n\
@@ -769,12 +769,111 @@ fn standards_m2_reject_default_protocol_implementations_cleanly() {
          };\n",
     )]);
 
+    let standard = typed
+        .all_typed_standards()
+        .next()
+        .expect("default-body fixture should record a typed standard");
+    assert_eq!(standard.required_routines.len(), 1);
+    assert!(
+        standard.required_routines[0].has_default_body,
+        "default body should flip has_default_body on the required routine"
+    );
+}
+
+#[test]
+fn standards_m2_default_protocol_implementation_inherited_when_conformer_skips_routine() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int = {\n\
+                 return 1;\n\
+             };\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n",
+    )]);
+
+    let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(
+        rect.declared_type.is_some(),
+        "conformer without its own area should inherit the standard default body"
+    );
+}
+
+#[test]
+fn standards_m2_default_protocol_implementation_overridden_by_exact_conformer_routine() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int = {\n\
+                 return 1;\n\
+             };\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 4;\n\
+         };\n",
+    )]);
+
+    let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
+fn standards_m2_default_protocol_implementation_dispatches_at_call_site() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int = {\n\
+                 return 1;\n\
+             };\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var r: Rect = { width = 2 };\n\
+             return r.area();\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        "calling a default-inherited routine should type through method resolution"
+    );
+}
+
+#[test]
+fn standards_m2_default_protocol_implementation_still_requires_signature_match_when_conformer_overrides() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int = {\n\
+                 return 1;\n\
+             };\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(scale: int): int = {\n\
+             return scale;\n\
+         };\n",
+    )]);
+
     assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
+        error.kind() == TypecheckErrorKind::IncompatibleType
             && error
                 .message()
-                .contains("default standard routine implementations are not yet supported in V2 Milestone 2")
-    }));
+                .contains("routine 'area' has incompatible signature")
+    }), "override with wrong signature should still fail: {errors:?}");
 }
 
 #[test]

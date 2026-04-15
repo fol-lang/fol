@@ -662,11 +662,7 @@ fn lower_protocol_standard_member(
             ..
         } => {
             let _ = (generics, receiver_type, captures);
-            if !body.is_empty() || !inquiries.is_empty() {
-                return Err(unsupported(
-                    "default standard routine implementations are not yet supported in V2 Milestone 2",
-                ));
-            }
+            let has_default_body = !body.is_empty() || !inquiries.is_empty();
 
             let symbol_id = find_routine_symbol_id_in_scope(
                 resolved,
@@ -711,6 +707,7 @@ fn lower_protocol_standard_member(
                 params: signature.params,
                 return_type: signature.return_type,
                 error_type: signature.error_type,
+                has_default_body,
             })
         }
         _ => Err(unsupported(
@@ -896,6 +893,13 @@ fn check_standard_conformance(
                     if exact_matches.len() == 1 {
                         continue;
                     }
+                    // When the standard ships a default body, missing the
+                    // routine on the conformer is fine — the default is
+                    // inherited. Multiple matches still fail as ambiguous,
+                    // and signature mismatches still fail as incompatible.
+                    if candidates.is_empty() && requirement.has_default_body {
+                        continue;
+                    }
 
                     let standard_name = resolved
                         .symbol(standard.symbol_id)
@@ -1069,7 +1073,7 @@ fn checked_type_satisfies_standard(
         .is_some_and(|conformance| conformance.standard_symbol_ids.contains(&standard_symbol_id))
 }
 
-fn conformance_subject_symbol(
+pub(crate) fn conformance_subject_symbol(
     typed: &TypedProgram,
     checked_type_id: CheckedTypeId,
 ) -> Option<SymbolId> {

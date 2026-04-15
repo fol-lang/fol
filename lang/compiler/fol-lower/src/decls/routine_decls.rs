@@ -28,6 +28,48 @@ pub fn lower_routine_signatures(
         }
         let source_unit_id = SourceUnitId(source_unit_index);
         for item in &source_unit.items {
+            if let AstNode::StdDecl { body, .. } = &item.node {
+                // Lower default-body routines inside standards so they are
+                // visible to method resolution as regular routine decls.
+                for member in body {
+                    let Some(name) = routine_name(member) else {
+                        continue;
+                    };
+                    let has_default_body = match member {
+                        AstNode::FunDecl { body, .. }
+                        | AstNode::ProDecl { body, .. }
+                        | AstNode::LogDecl { body, .. } => !body.is_empty(),
+                        _ => false,
+                    };
+                    if !has_default_body {
+                        continue;
+                    }
+                    let Some(symbol_id) =
+                        typed_package
+                            .program
+                            .resolved()
+                            .symbols
+                            .iter_with_ids()
+                            .find_map(|(candidate_id, symbol)| {
+                                (symbol.kind == SymbolKind::Routine
+                                    && symbol.name == name
+                                    && symbol.source_unit == source_unit_id)
+                                    .then_some(candidate_id)
+                            })
+                    else {
+                        continue;
+                    };
+                    match lower_symbol_signature(typed_package, lowered_package, symbol_id) {
+                        Ok(signature_type) => {
+                            lowered_package
+                                .routine_signatures
+                                .insert(symbol_id, signature_type);
+                        }
+                        Err(error) => errors.push(error),
+                    }
+                }
+                continue;
+            }
             let Some(name) = routine_name(&item.node) else {
                 continue;
             };
@@ -102,6 +144,74 @@ pub fn lower_routine_declarations(
                     params,
                     ..
                 } => (name.as_str(), *syntax_id, params.as_slice()),
+                AstNode::StdDecl { body, .. } => {
+                    // Standard default bodies: walk the inner routines and
+                    // lower them as regular routines so method resolution
+                    // can dispatch calls to their default implementations.
+                    for member in body {
+                        let (name, syntax_id, params, member_body) = match member {
+                            AstNode::FunDecl {
+                                name,
+                                syntax_id,
+                                params,
+                                body,
+                                ..
+                            }
+                            | AstNode::ProDecl {
+                                name,
+                                syntax_id,
+                                params,
+                                body,
+                                ..
+                            }
+                            | AstNode::LogDecl {
+                                name,
+                                syntax_id,
+                                params,
+                                body,
+                                ..
+                            } => (name.as_str(), *syntax_id, params.as_slice(), body.as_slice()),
+                            _ => continue,
+                        };
+                        if member_body.is_empty() {
+                            // Signature-only requirement — no default body
+                            // to lower.
+                            continue;
+                        }
+                        let Some(symbol_id) =
+                            typed_package
+                                .program
+                                .resolved()
+                                .symbols
+                                .iter_with_ids()
+                                .find_map(|(candidate_id, symbol)| {
+                                    (symbol.kind == SymbolKind::Routine
+                                        && symbol.name == name
+                                        && symbol.source_unit == source_unit_id)
+                                        .then_some(candidate_id)
+                                })
+                        else {
+                            continue;
+                        };
+                        match lower_routine_decl(
+                            typed_package,
+                            lowered_package,
+                            symbol_id,
+                            source_unit_id,
+                            name,
+                            syntax_id,
+                            params,
+                            next_routine_index,
+                        ) {
+                            Ok(routine) => {
+                                lowered_package.routines.push(routine.id);
+                                lowered_package.routine_decls.insert(routine.id, routine);
+                            }
+                            Err(error) => errors.push(error),
+                        }
+                    }
+                    continue;
+                }
                 _ => continue,
             };
 

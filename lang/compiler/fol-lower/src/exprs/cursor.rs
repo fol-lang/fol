@@ -61,6 +61,7 @@ pub(crate) struct WorkspaceDeclIndex {
     routine_params: BTreeMap<LoweredRoutineId, Vec<LoweredTypeId>>,
     routine_param_names: BTreeMap<LoweredRoutineId, Vec<String>>,
     routine_param_defaults: BTreeMap<LoweredRoutineId, RoutineDefaultLowering>,
+    routine_has_receiver: BTreeMap<LoweredRoutineId, bool>,
     entry_variants: BTreeMap<(PackageIdentity, SymbolId, String), EntryVariantLowering>,
 }
 
@@ -164,8 +165,17 @@ impl WorkspaceDeclIndex {
                 .collect::<Vec<_>>();
             self.routine_params.insert(routine.id, params);
             self.routine_param_names.insert(routine.id, param_names);
+            self.routine_has_receiver
+                .insert(routine.id, routine.receiver_type.is_some());
         }
         self.extend_entry_variants(typed_package, package);
+    }
+
+    pub(crate) fn routine_has_receiver(&self, routine_id: LoweredRoutineId) -> bool {
+        self.routine_has_receiver
+            .get(&routine_id)
+            .copied()
+            .unwrap_or(false)
     }
 
     pub(crate) fn global_id_for_symbol(

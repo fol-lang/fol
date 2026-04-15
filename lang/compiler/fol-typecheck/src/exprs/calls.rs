@@ -889,6 +889,49 @@ fn routine_signature_for_method(
         matches.push((symbol_id, instantiated));
     }
 
+    // Fallback: the conformer may inherit this method from a standard
+    // default body. We only look for defaults when no direct receiver
+    // routine was found, so explicit conformer overrides always win.
+    if matches.is_empty() {
+        if let Some(type_symbol_id) =
+            crate::decls::conformance_subject_symbol(typed, object_type)
+        {
+            if let Some(conformance) = typed.typed_conformance(type_symbol_id).cloned() {
+                for standard_symbol_id in conformance.standard_symbol_ids {
+                    let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
+                        continue;
+                    };
+                    for requirement in &standard.required_routines {
+                        if !requirement.has_default_body || requirement.name != method {
+                            continue;
+                        }
+                        // Surface the default body as a method signature.
+                        // FOL receiver routines keep the receiver separate
+                        // from the explicit `params` list, so we mirror
+                        // that shape: `params` stays exactly as declared
+                        // in the standard and the call-site receiver is
+                        // implicit.
+                        let param_names = (0..requirement.params.len())
+                            .map(|index| format!("arg{index}"))
+                            .collect::<Vec<_>>();
+                        let param_defaults = vec![None; requirement.params.len()];
+                        let signature = RoutineType {
+                            generic_params: Vec::new(),
+                            generic_constraints: BTreeMap::new(),
+                            param_names,
+                            param_defaults,
+                            variadic_index: None,
+                            params: requirement.params.clone(),
+                            return_type: requirement.return_type,
+                            error_type: requirement.error_type,
+                        };
+                        matches.push((requirement.symbol_id, signature));
+                    }
+                }
+            }
+        }
+    }
+
     match matches.len() {
         1 => {
             let (chosen_symbol, signature) = matches.remove(0);

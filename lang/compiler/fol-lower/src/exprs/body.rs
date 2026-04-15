@@ -36,7 +36,17 @@ pub(crate) fn lower_routine_bodies(
         }
         let source_unit_id = SourceUnitId(source_unit_index);
         for item in &source_unit.items {
-            let (name, syntax_id, body) = match &item.node {
+            // Collect routine bodies to lower. Most come from top-level
+            // routine decls, but standard default bodies are nested inside
+            // `std` decls and need the same treatment so method resolution
+            // can reach their bodies at call sites.
+            let member_iter: Vec<&AstNode> = if let AstNode::StdDecl { body, .. } = &item.node {
+                body.iter().collect()
+            } else {
+                vec![&item.node]
+            };
+            for member in member_iter {
+            let (name, syntax_id, body) = match member {
                 AstNode::FunDecl {
                     name,
                     syntax_id,
@@ -78,6 +88,12 @@ pub(crate) fn lower_routine_bodies(
                 },
                 _ => continue,
             };
+            if body.is_empty() {
+                // Signature-only members (e.g., bare protocol standard
+                // requirements with no default body) have nothing to
+                // lower into a routine body.
+                continue;
+            }
             let Some(symbol_id) = crate::decls::find_local_symbol_id(
                 &typed_package.program,
                 source_unit_id,
@@ -135,6 +151,7 @@ pub(crate) fn lower_routine_bodies(
                     }
                 }
                 Err(error) => errors.push(error),
+            }
             }
         }
     }

@@ -63,6 +63,10 @@ pub struct TypedStandardRoutine {
     pub params: Vec<CheckedTypeId>,
     pub return_type: Option<CheckedTypeId>,
     pub error_type: Option<CheckedTypeId>,
+    /// True when the required routine ships a default body that conformers
+    /// inherit if they do not provide their own receiver routine with the
+    /// exact signature.
+    pub has_default_body: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

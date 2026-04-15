@@ -1,0 +1,16 @@
+use std: pkg = {"std"};
+
+std geo: pro = {
+    fun area(): int = {
+        return 7;
+    };
+};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun[] main(): int = {
+    var r: Rect = { width = 2 };
+    return std::io::echo_int(r.area());
+};

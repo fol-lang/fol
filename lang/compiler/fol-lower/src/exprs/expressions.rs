@@ -352,7 +352,13 @@ pub(crate) fn lower_expression_observed(
             let error_type = typed_node
                 .and_then(|node| node.recoverable_effect)
                 .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
-            let mut lowered_args = vec![receiver.local_id];
+            let callee_has_receiver = decl_index.routine_has_receiver(callee);
+            let mut lowered_args = if callee_has_receiver {
+                vec![receiver.local_id]
+            } else {
+                Vec::new()
+            };
+            let receiver_skip: usize = if callee_has_receiver { 1 } else { 0 };
             let param_types = decl_index
                 .routine_param_types(callee)
                 .ok_or_else(|| {
@@ -381,9 +387,11 @@ pub(crate) fn lower_expression_observed(
                 })?;
             let ordered_args = super::calls::bind_lowered_call_arguments(
                 args,
-                param_names.get(1..).unwrap_or(&[]),
-                param_defaults.defaults.get(1..).unwrap_or(&[]),
-                param_defaults.variadic_index.map(|index| index.saturating_sub(1)),
+                param_names.get(receiver_skip..).unwrap_or(&[]),
+                param_defaults.defaults.get(receiver_skip..).unwrap_or(&[]),
+                param_defaults
+                    .variadic_index
+                    .map(|index| index.saturating_sub(receiver_skip)),
                 method,
             )?;
             lowered_args.extend(
@@ -391,7 +399,7 @@ pub(crate) fn lower_expression_observed(
                     .iter()
                     .enumerate()
                     .map(|(index, arg)| {
-                        let expected = param_types.get(index + 1).copied();
+                        let expected = param_types.get(index + receiver_skip).copied();
                         match arg {
                             super::calls::BoundLoweredCallArg::Explicit(arg) => {
                                 lower_expression_expected(
