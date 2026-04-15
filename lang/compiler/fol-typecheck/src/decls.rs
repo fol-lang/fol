@@ -580,12 +580,6 @@ fn lower_named_routine_signature(
         .as_ref()
         .map(|ty| lower_type(typed, resolved, signature_scope, ty))
         .transpose()?;
-    reject_generic_types_in_position(
-        typed,
-        lowered_error,
-        error_type.and_then(|ty| type_origin(resolved, ty)),
-        "generic error types are not yet supported in V2 Milestone 1",
-    )?;
     let routine_type = typed
         .type_table_mut()
         .intern(CheckedType::Routine(RoutineType {
@@ -1154,24 +1148,6 @@ fn lower_routine_generic_params(
     }
 
     Ok((generic_params, generic_constraints))
-}
-
-fn reject_generic_types_in_position(
-    typed: &TypedProgram,
-    type_id: Option<CheckedTypeId>,
-    origin: Option<SyntaxOrigin>,
-    message: &'static str,
-) -> Result<(), TypecheckError> {
-    let Some(type_id) = type_id else {
-        return Ok(());
-    };
-    if checked_type_contains_generic_param(typed, type_id) {
-        return Err(match origin {
-            Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
-            None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
-        });
-    }
-    Ok(())
 }
 
 pub(crate) fn checked_type_contains_generic_param(

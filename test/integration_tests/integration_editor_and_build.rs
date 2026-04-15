@@ -838,6 +838,30 @@ fn test_standards_default_body_m2_example_builds_and_runs() {
 }
 
 #[test]
+fn test_generic_error_m1m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_error_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic error type example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic error type example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic error type example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+#[test]
 fn test_generic_type_constrained_m1m2_example_builds_and_runs() {
     let root = temp_example_root("examples/generic_type_constrained_m1m2");
 
@@ -4786,6 +4810,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         .collect::<std::collections::BTreeSet<_>>();
 
     let documented_generics = [
+        "examples/generic_error_m1m2",
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",

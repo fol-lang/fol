@@ -361,24 +361,18 @@ fn v1_boundary_rejects_generic_routine_constraints_in_all_supported_header_kinds
 }
 
 #[test]
-fn v1_boundary_rejects_generic_error_types_for_m1() {
-    let errors = typecheck_fixture_folder_errors(&[(
+fn v1_boundary_accepts_generic_error_types() {
+    // Generic error types are now part of the shipped V2 contract.
+    // Confirm the routine lowers cleanly and retains a typed signature.
+    let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun pick(T)(value: T): int / T = {\n\
              report(value);\n\
              return 1;\n\
          };\n",
     )]);
-
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic error types are not yet supported in V2 Milestone 1")
-        }),
-        "Expected generic error types to stay outside V2 Milestone 1, got: {errors:?}"
-    );
+    let (_pick_id, pick_symbol) = find_typed_symbol(&typed, "pick", SymbolKind::Routine);
+    assert!(pick_symbol.declared_type.is_some());
 }
 
 #[test]

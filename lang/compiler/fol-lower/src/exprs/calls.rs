@@ -921,8 +921,15 @@ pub(crate) fn lower_function_call(
             .map(|value| value.local_id)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let call_error_type =
-        lowered_symbol_error_type(typed_package, checked_type_map, resolved_symbol.id);
+    // Prefer the call-site's recorded recoverable effect — this is the
+    // monomorphized error type, which matters when the routine has a
+    // generic error (e.g., `fun echo(T)(...): T / T`). Fall back to the
+    // declared error type when no effect is recorded.
+    let call_error_type = syntax_id
+        .and_then(|syntax_id| typed_package.program.typed_node(syntax_id))
+        .and_then(|node| node.recoverable_effect)
+        .and_then(|effect| checked_type_map.get(&effect.error_type).copied())
+        .or_else(|| lowered_symbol_error_type(typed_package, checked_type_map, resolved_symbol.id));
     let result_local = cursor.allocate_local(result_type, None);
     cursor.push_instr(
         Some(result_local),

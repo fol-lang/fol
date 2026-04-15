@@ -780,23 +780,23 @@ fn generic_routines_accept_standard_constraints_with_conforming_calls() {
 }
 
 #[test]
-fn generic_routines_reject_generic_error_shells_exhaustively() {
-    let errors = typecheck_fixture_folder_errors(&[(
+fn generic_routines_accept_generic_error_shells() {
+    // The routine declares its error type as the same generic T as the
+    // return value, exercising the full substitution path through
+    // error shells.
+    let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "fun pick(T)(value: T): T / T = {\n\
-             return value;\n\
+        "fun echo(T)(value: T, fail: bol): T / T = {\n\
+             when(fail) {\n\
+                 case(true) { report(value); }\n\
+                 * { return value; }\n\
+             }\n\
          };\n",
     )]);
 
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic error types are not yet supported in V2 Milestone 1")
-        }),
-        "Expected generic error shells to stay unsupported in M1, got: {errors:?}"
-    );
+    let (_echo_id, echo_symbol) = find_typed_symbol(&typed, "echo", SymbolKind::Routine);
+    assert!(echo_symbol.declared_type.is_some(),
+        "generic recoverable routine should lower to a typed signature");
 }
 
 #[test]
