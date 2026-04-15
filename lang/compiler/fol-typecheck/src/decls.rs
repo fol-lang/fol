@@ -233,20 +233,6 @@ fn lower_top_level_declaration(
             body,
             ..
         } => {
-            if *kind == StandardKind::Extended {
-                return Err(match node_origin(resolved, &item.node) {
-                    Some(origin) => TypecheckError::with_origin(
-                        TypecheckErrorKind::Unsupported,
-                        "extended standards are planned for a future release",
-                        origin,
-                    ),
-                    None => TypecheckError::new(
-                        TypecheckErrorKind::Unsupported,
-                        "extended standards are planned for a future release",
-                    ),
-                });
-            }
-
             let standard_symbol_id =
                 find_symbol_id(resolved, source_unit_id, &[SymbolKind::Standard], name)?;
             let standard_scope = syntax_id
@@ -287,7 +273,52 @@ fn lower_top_level_declaration(
                         required_fields.push(required);
                     }
                 }
-                StandardKind::Extended => unreachable!(),
+                StandardKind::Extended => {
+                    // Extended standards combine protocol and blueprint
+                    // requirements. Routine members lower through the
+                    // protocol path; field members lower through the
+                    // blueprint path. Each member is routed to the path
+                    // matching its AST shape.
+                    for member in body {
+                        match member {
+                            AstNode::FunDecl { .. }
+                            | AstNode::ProDecl { .. }
+                            | AstNode::LogDecl { .. } => {
+                                let required = lower_protocol_standard_member(
+                                    typed,
+                                    resolved,
+                                    source_unit_id,
+                                    standard_scope,
+                                    member,
+                                )?;
+                                required_routines.push(required);
+                            }
+                            AstNode::VarDecl { .. } => {
+                                let required = lower_blueprint_standard_member(
+                                    typed,
+                                    resolved,
+                                    source_unit_id,
+                                    standard_scope,
+                                    member,
+                                )?;
+                                required_fields.push(required);
+                            }
+                            _ => {
+                                return Err(match node_origin(resolved, member) {
+                                    Some(origin) => TypecheckError::with_origin(
+                                        TypecheckErrorKind::Unsupported,
+                                        "extended standards currently support only required routines and `var` field declarations",
+                                        origin,
+                                    ),
+                                    None => TypecheckError::new(
+                                        TypecheckErrorKind::Unsupported,
+                                        "extended standards currently support only required routines and `var` field declarations",
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
             }
             typed.record_typed_standard(TypedStandard {
                 symbol_id: standard_symbol_id,
@@ -2642,9 +2673,7 @@ fn unsupported_v1_decl_with_origin(
         AstNode::StdDecl { kind, .. } => Some(match kind {
             fol_parser::ast::StandardKind::Protocol => return None,
             fol_parser::ast::StandardKind::Blueprint => return None,
-            fol_parser::ast::StandardKind::Extended => {
-                "extended standards are planned for a future release"
-            }
+            fol_parser::ast::StandardKind::Extended => return None,
         }),
         _ => None,
     }?;

@@ -392,11 +392,11 @@ use super::*;
     }
 
     #[test]
-    fn test_cli_typecheck_rejects_unsupported_standard_kinds_for_m2() {
+    fn test_cli_typecheck_accepts_blueprint_and_extended_standards_for_m2() {
         use std::fs;
 
-        let temp_root = unique_temp_root("cli_unsupported_standard_kinds_m2");
-        fs::create_dir_all(&temp_root).expect("Should create temp unsupported standards root");
+        let temp_root = unique_temp_root("cli_extended_standards_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp extended standards root");
         fs::write(
             temp_root.join("main.fol"),
             "std shape: blu = {\n\
@@ -406,21 +406,18 @@ use super::*;
              fun draw(): int;\n\
          };\n",
         )
-        .expect("Should write unsupported standards fixture");
+        .expect("Should write extended standards fixture");
 
         let output = run_fol(&[temp_root
             .to_str()
-            .expect("CLI unsupported standards path should be utf-8")]);
+            .expect("CLI extended standards path should be utf-8")]);
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        assert!(!output.status.success(), "CLI should reject extended standards");
+        assert!(output.status.success(), "CLI should accept blueprint and extended standards");
         assert!(
-            stdout.contains("extended standards are planned for a future release"),
-            "CLI should preserve the extended-standard wording"
-        );
-        assert!(
-            !stdout.contains("blueprint standards are planned for a future release"),
-            "Blueprint standards are now supported end-to-end in V2"
+            !stdout.contains("blueprint standards are planned for a future release")
+                && !stdout.contains("extended standards are planned for a future release"),
+            "Blueprint and extended standards are now supported in V2"
         );
 
         fs::remove_dir_all(&temp_root).ok();

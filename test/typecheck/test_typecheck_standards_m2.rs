@@ -916,8 +916,76 @@ fn standards_m2_default_protocol_implementation_still_requires_signature_match_w
 }
 
 #[test]
-fn standards_m2_boundary_rejects_blueprint_and_extended_standards() {
+fn standards_m2_accept_extended_conformance_with_both_routine_and_field() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std drawable: ext = {\n\
+             fun draw(): int;\n\
+             var color: int;\n\
+         };\n\
+         typ Rect()(drawable): rec = {\n\
+             var color: int;\n\
+         };\n\
+         fun (Rect)draw(): int = {\n\
+             return 1;\n\
+         };\n",
+    )]);
+
+    let (_rect_id, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
+fn standards_m2_reject_extended_conformance_missing_routine_side() {
     let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std drawable: ext = {\n\
+             fun draw(): int;\n\
+             var color: int;\n\
+         };\n\
+         typ Rect()(drawable): rec = {\n\
+             var color: int;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("missing required routine 'draw'")),
+        "extended conformance missing routine should still fire routine diagnostic: {errors:?}"
+    );
+}
+
+#[test]
+fn standards_m2_reject_extended_conformance_missing_field_side() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std drawable: ext = {\n\
+             fun draw(): int;\n\
+             var color: int;\n\
+         };\n\
+         typ Rect()(drawable): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)draw(): int = {\n\
+             return 1;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("missing required field 'color: int'")),
+        "extended conformance missing field should still fire blueprint diagnostic: {errors:?}"
+    );
+}
+
+#[test]
+fn standards_m2_accept_blueprint_and_extended_standalone_declarations() {
+    // Blueprint and extended standards are now both part of the shipped
+    // V2 contract. Standalone declarations without conformers should
+    // typecheck cleanly.
+    let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "std shape: blu = {\n\
              var size: int;\n\
@@ -927,19 +995,5 @@ fn standards_m2_boundary_rejects_blueprint_and_extended_standards() {
              var color: int;\n\
          };\n",
     )]);
-
-    // Blueprint standards are now part of the shipped V2 contract, so the
-    // boundary only rejects extended standards here. The blueprint decl
-    // passes typecheck with zero conformance claims.
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
-            && error
-                .message()
-                .contains("extended standards are planned for a future release")
-    }));
-    assert!(!errors.iter().any(|error| {
-        error
-            .message()
-            .contains("blueprint standards are planned for a future release")
-    }));
+    assert_eq!(typed.all_typed_standards().count(), 2);
 }
