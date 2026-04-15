@@ -8,7 +8,6 @@ module.exports = grammar({
   ],
 
   conflicts: $ => [
-    [$.qualified_path, $.call_expr],
     [$.record_literal, $.block],
     [$.record_literal, $.container_literal],
     [$.block, $.stmt],
@@ -70,6 +69,7 @@ module.exports = grammar({
       'std',
       optional(field('modifiers', $.decl_modifiers)),
       field('name', $.identifier),
+      optional(field('generics', $.generic_params)),
       ':',
       field('kind', choice('pro', 'blu', 'ext')),
       '=',
@@ -114,7 +114,18 @@ module.exports = grammar({
 
     block: $ => seq('{', repeat($.stmt), optional($.expr), '}'),
     type_block: $ => seq('{', repeat(choice($.var_decl, $.typed_binding, ';', ',', $.comment, $.doc_comment)), '}'),
-    standard_block: $ => seq('{', repeat(choice($.standard_requirement, ';', ',', $.comment, $.doc_comment)), '}'),
+    standard_block: $ => seq(
+      '{',
+      repeat(choice(
+        $.standard_requirement,
+        $.standard_field_requirement,
+        ';',
+        ',',
+        $.comment,
+        $.doc_comment,
+      )),
+      '}',
+    ),
     standard_requirement: $ => seq(
       choice('fun', 'pro', 'log'),
       optional(field('modifiers', $.decl_modifiers)),
@@ -122,6 +133,16 @@ module.exports = grammar({
       $.params,
       optional($.return_type),
       optional($.error_type),
+      // Optional default body for protocol / extended standards.
+      optional(seq('=', $.block)),
+      ';',
+    ),
+    standard_field_requirement: $ => seq(
+      'var',
+      optional(field('modifiers', $.decl_modifiers)),
+      field('name', $.identifier),
+      ':',
+      field('type', $.type_expr),
       ';',
     ),
     stmt: $ => choice(
@@ -238,10 +259,14 @@ module.exports = grammar({
     routine_body_expr: $ => choice($.block, prec.right(seq('=>', choice($.block, $.stmt)))),
     call_expr: $ => prec.left(3, seq(
       field('callee', choice($.qualified_path, $.identifier, $.field_access)),
+      // Optional turbofish `::[T, U]` that selects explicit generic
+      // type arguments before the call argument list.
+      optional(field('type_args', $.turbofish_type_args)),
       '(',
       optional(commaSep($.expr)),
       ')',
     )),
+    turbofish_type_args: $ => seq('::', '[', commaSep1($.type_expr), ']'),
     check_expr: $ => seq('check', '(', $.expr, ')'),
     dot_intrinsic: $ => seq('.', field('name', $.identifier), '(', optional(commaSep($.expr)), ')'),
     field_access: $ => prec.left(4, seq(
@@ -254,7 +279,7 @@ module.exports = grammar({
     field_init: $ => seq(field('name', $.identifier), '=', field('value', $.expr)),
     container_literal: $ => seq('{', optional(commaSep($.expr)), '}'),
 
-    qualified_path: $ => seq(field('root', $.identifier), repeat1(seq('::', field('segment', $.identifier)))),
+    qualified_path: $ => prec.left(seq(field('root', $.identifier), repeat1(seq('::', field('segment', $.identifier))))),
     this_expr: _ => 'this',
     self_expr: _ => 'self',
     where_expr: _ => 'where',

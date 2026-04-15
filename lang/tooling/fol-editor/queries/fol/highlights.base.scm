@@ -10,6 +10,8 @@
 (def_decl "def" @keyword.type)
 (seg_decl "seg" @keyword.type)
 (std_decl "std" @keyword.type)
+(standard_field_requirement "var" @keyword)
+(turbofish_type_args "::" @operator "[" @punctuation.bracket "]" @punctuation.bracket)
 (if_stmt "if" @keyword.conditional)
 (if_expr "if" @keyword.conditional)
 (if_expr "else" @keyword.conditional)

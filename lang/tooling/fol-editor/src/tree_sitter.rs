@@ -240,10 +240,12 @@ mod tests {
             "std_decl",
             "standard_block",
             "standard_requirement",
+            "standard_field_requirement",
             "block",
             "generic_params",
             "generic_type_expr",
             "type_contract_claims",
+            "turbofish_type_args",
             "when_expr",
             "loop_expr",
             "if_stmt",
@@ -514,6 +516,8 @@ mod tests {
             "(def_decl \"def\" @keyword.type)",
             "(seg_decl \"seg\" @keyword.type)",
             "(std_decl \"std\" @keyword.type)",
+            "(standard_field_requirement \"var\" @keyword)",
+            "(turbofish_type_args \"::\" @operator \"[\" @punctuation.bracket \"]\" @punctuation.bracket)",
             "(if_stmt \"if\" @keyword.conditional)",
             "(if_expr \"if\" @keyword.conditional)",
             "(if_expr \"else\" @keyword.conditional)",
@@ -1544,6 +1548,34 @@ mod tests {
             (
                 repo_root().join("examples/fail_standard_import_ambiguity_m2/src/main.fol"),
                 ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_turbofish_m1/src/main.fol"),
+                ["keyword.import", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_type_constrained_m1m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_error_m1m2/src/main.fol"),
+                ["keyword.import", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_default_body_m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_blueprint_m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_extended_m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_generic_m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
             ),
             (
                 repo_root().join("examples/std_bundled_fmt/src/main.fol"),
