@@ -477,7 +477,46 @@ fn standards_m2_accept_multi_file_conformance_with_extra_unrelated_routines_and_
 }
 
 #[test]
-fn standards_m2_reject_claims_against_unsupported_standard_kinds_cleanly() {
+fn standards_m2_accept_blueprint_conformer_with_matching_field() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std shape: blu = {\n\
+             var size: int;\n\
+         };\n\
+         typ Rect()(shape): rec = {\n\
+             var size: int;\n\
+         };\n",
+    )]);
+
+    let (_rect_id, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
+    assert!(rect.declared_type.is_some());
+}
+
+#[test]
+fn standards_m2_reject_blueprint_conformer_with_wrong_field_type() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std shape: blu = {\n\
+             var size: int;\n\
+         };\n\
+         typ Rect()(shape): rec = {\n\
+             var size: bol;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::IncompatibleType
+            && error
+                .message()
+                .contains("field 'size' has incompatible type; expected int, found bol")
+    }));
+}
+
+#[test]
+fn standards_m2_reject_blueprint_conformer_missing_required_field() {
+    // Blueprint standards now ship in V2 — the conformer must declare
+    // a field with the required name and type. A conformer with only
+    // an unrelated field should fail conformance with a clean message.
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "std shape: blu = {\n\
@@ -489,9 +528,9 @@ fn standards_m2_reject_claims_against_unsupported_standard_kinds_cleanly() {
     )]);
 
     assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
+        error.kind() == TypecheckErrorKind::IncompatibleType
             && error.message().contains(
-                "type 'Rect' claims unsupported standard 'shape'; only protocol standards are supported in V2 Milestone 2",
+                "type 'Rect' does not satisfy blueprint standard 'shape': missing required field 'area: int'",
             )
     }));
 }
@@ -889,16 +928,18 @@ fn standards_m2_boundary_rejects_blueprint_and_extended_standards() {
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
-            && error
-                .message()
-                .contains("blueprint standards are planned for a future release")
-    }));
+    // Blueprint standards are now part of the shipped V2 contract, so the
+    // boundary only rejects extended standards here. The blueprint decl
+    // passes typecheck with zero conformance claims.
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::Unsupported
             && error
                 .message()
                 .contains("extended standards are planned for a future release")
+    }));
+    assert!(!errors.iter().any(|error| {
+        error
+            .message()
+            .contains("blueprint standards are planned for a future release")
     }));
 }

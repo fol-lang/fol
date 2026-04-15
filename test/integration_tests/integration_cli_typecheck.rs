@@ -413,11 +413,14 @@ use super::*;
             .expect("CLI unsupported standards path should be utf-8")]);
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        assert!(!output.status.success(), "CLI should reject unsupported standard kinds in M2");
+        assert!(!output.status.success(), "CLI should reject extended standards");
         assert!(
-            stdout.contains("blueprint standards are planned for a future release")
-                && stdout.contains("extended standards are planned for a future release"),
-            "CLI should preserve the explicit unsupported standard-kind wording"
+            stdout.contains("extended standards are planned for a future release"),
+            "CLI should preserve the extended-standard wording"
+        );
+        assert!(
+            !stdout.contains("blueprint standards are planned for a future release"),
+            "Blueprint standards are now supported end-to-end in V2"
         );
 
         fs::remove_dir_all(&temp_root).ok();

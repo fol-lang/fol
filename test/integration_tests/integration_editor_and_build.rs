@@ -754,9 +754,9 @@ fn test_fail_standard_blueprint_m2_example_rejects_cleanly() {
     );
     assert!(
         combined.contains(
-            "type 'Rect' claims unsupported standard 'shape'; only protocol standards are supported in V2 Milestone 2",
+            "type 'Rect' does not satisfy blueprint standard 'shape': missing required field 'size: int'",
         ),
-        "negative standards M2 example should keep the explicit unsupported-standard message: stdout=\n{}\nstderr=\n{}",
+        "fail_standard_blueprint_m2 should now surface the missing-field diagnostic: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );

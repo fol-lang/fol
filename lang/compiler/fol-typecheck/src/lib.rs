@@ -27,8 +27,8 @@ pub use editor::{
 pub use fol_parser::ast::ParsedSourceUnitKind;
 pub use model::{
     RecoverableCallEffect, TypedConformance, TypedExportMount, TypedNode, TypedPackage,
-    TypedProgram, TypedReference, TypedSourceUnit, TypedStandard, TypedStandardRoutine,
-    TypedSymbol, TypedWorkspace,
+    TypedProgram, TypedReference, TypedSourceUnit, TypedStandard, TypedStandardField,
+    TypedStandardRoutine, TypedSymbol, TypedWorkspace,
 };
 pub use types::{
     BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType, TypeTable,

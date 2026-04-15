@@ -1,7 +1,7 @@
 use crate::{
     CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType, TypeTable, TypecheckError,
     TypecheckErrorKind, TypecheckResult, TypedConformance, TypedProgram, TypedStandard,
-    TypedStandardRoutine,
+    TypedStandardField, TypedStandardRoutine,
 };
 use fol_parser::ast::{
     AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
@@ -233,21 +233,17 @@ fn lower_top_level_declaration(
             body,
             ..
         } => {
-            if *kind != StandardKind::Protocol {
-                let message = match kind {
-                    StandardKind::Protocol => unreachable!(),
-                    StandardKind::Blueprint => {
-                        "blueprint standards are planned for a future release"
-                    }
-                    StandardKind::Extended => {
-                        "extended standards are planned for a future release"
-                    }
-                };
+            if *kind == StandardKind::Extended {
                 return Err(match node_origin(resolved, &item.node) {
-                    Some(origin) => {
-                        TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
-                    }
-                    None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+                    Some(origin) => TypecheckError::with_origin(
+                        TypecheckErrorKind::Unsupported,
+                        "extended standards are planned for a future release",
+                        origin,
+                    ),
+                    None => TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "extended standards are planned for a future release",
+                    ),
                 });
             }
 
@@ -258,28 +254,47 @@ fn lower_top_level_declaration(
                 .ok_or_else(|| {
                     internal_error(
                         format!(
-                            "resolved standard scope disappeared for protocol standard '{}'",
+                            "resolved standard scope disappeared for standard '{}'",
                             name
                         ),
                         node_origin(resolved, &item.node),
                     )
                 })?;
             let mut required_routines = Vec::new();
-            for member in body {
-                let required = lower_protocol_standard_member(
-                    typed,
-                    resolved,
-                    source_unit_id,
-                    standard_scope,
-                    member,
-                )?;
-                required_routines.push(required);
+            let mut required_fields = Vec::new();
+            match kind {
+                StandardKind::Protocol => {
+                    for member in body {
+                        let required = lower_protocol_standard_member(
+                            typed,
+                            resolved,
+                            source_unit_id,
+                            standard_scope,
+                            member,
+                        )?;
+                        required_routines.push(required);
+                    }
+                }
+                StandardKind::Blueprint => {
+                    for member in body {
+                        let required = lower_blueprint_standard_member(
+                            typed,
+                            resolved,
+                            source_unit_id,
+                            standard_scope,
+                            member,
+                        )?;
+                        required_fields.push(required);
+                    }
+                }
+                StandardKind::Extended => unreachable!(),
             }
             typed.record_typed_standard(TypedStandard {
                 symbol_id: standard_symbol_id,
                 scope_id: standard_scope,
                 kind: *kind,
                 required_routines,
+                required_fields,
             });
         }
         AstNode::AliasDecl { name, target } => {
@@ -710,6 +725,69 @@ fn lower_protocol_standard_member(
     }
 }
 
+fn lower_blueprint_standard_member(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    standard_scope: ScopeId,
+    member: &AstNode,
+) -> Result<TypedStandardField, TypecheckError> {
+    let origin = node_origin(resolved, member);
+    let unsupported = |message: &'static str| match origin.clone() {
+        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+        None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+    };
+
+    let (name, type_hint, value) = match member {
+        AstNode::VarDecl {
+            name,
+            type_hint,
+            value,
+            ..
+        } => (name.as_str(), type_hint.clone(), value.clone()),
+        AstNode::LabDecl { .. } | AstNode::DestructureDecl { .. } => {
+            return Err(unsupported(
+                "blueprint standards currently support only required `var` field declarations",
+            ));
+        }
+        _ => {
+            return Err(unsupported(
+                "blueprint standards currently support only required `var` field declarations",
+            ));
+        }
+    };
+
+    // Required field declarations are static contracts — they must not
+    // carry an initializer at the standard site. The conformer declares
+    // its own initializer.
+    if value.is_some() {
+        return Err(unsupported(
+            "blueprint required fields must not provide an initializer; conformers supply the value",
+        ));
+    }
+    let Some(type_hint) = type_hint else {
+        return Err(unsupported(
+            "blueprint required fields must declare an explicit type",
+        ));
+    };
+
+    let symbol_id = find_symbol_id_in_scope(
+        resolved,
+        source_unit_id,
+        standard_scope,
+        &[SymbolKind::ValueBinding],
+        name,
+    )?;
+    let field_type = lower_type(typed, resolved, standard_scope, &type_hint)?;
+    record_symbol_type(typed, symbol_id, field_type)?;
+
+    Ok(TypedStandardField {
+        symbol_id,
+        name: name.to_string(),
+        field_type,
+    })
+}
+
 fn lower_standard_symbol_for_contract(
     resolved: &ResolvedProgram,
     contract: &FolType,
@@ -837,7 +915,7 @@ fn check_standard_conformance(
                         Some(origin) => TypecheckError::with_origin(
                             TypecheckErrorKind::Unsupported,
                             format!(
-                                "type '{}' claims unsupported standard '{}'; only protocol standards are supported in V2 Milestone 2",
+                                "type '{}' claims standard '{}' whose kind is not part of the shipped V2 contract",
                                 name, standard_name
                             ),
                             origin,
@@ -845,7 +923,7 @@ fn check_standard_conformance(
                         None => TypecheckError::new(
                             TypecheckErrorKind::Unsupported,
                             format!(
-                                "type '{}' claims unsupported standard '{}'; only protocol standards are supported in V2 Milestone 2",
+                                "type '{}' claims standard '{}' whose kind is not part of the shipped V2 contract",
                                 name, standard_name
                             ),
                         ),
@@ -999,6 +1077,92 @@ fn check_standard_conformance(
                         }
                     }
                     errors.push(error);
+                }
+
+                // Blueprint field checks: walk each blueprint requirement
+                // and match it against the conformer's declared record
+                // fields. The checks are purely structural — a matching
+                // name with a compatible type is enough.
+                // The conformer receiver type is a `Declared { kind: Type }`
+                // wrapper — resolve it through the typed symbol to the
+                // underlying record definition.
+                let conformer_record_fields = typed
+                    .typed_symbol(type_symbol_id)
+                    .and_then(|typed_symbol| typed_symbol.declared_type)
+                    .and_then(|type_id| typed.type_table().get(type_id))
+                    .and_then(|checked| match checked {
+                        CheckedType::Record { fields } => Some(fields.clone()),
+                        _ => None,
+                    });
+                for requirement in &standard.required_fields {
+                    let standard_name = resolved
+                        .symbol(standard.symbol_id)
+                        .map(|symbol| symbol.name.clone())
+                        .unwrap_or_else(|| format!("#{}", standard.symbol_id.0));
+                    let expected_type_name =
+                        typed.type_table().render_type(requirement.field_type);
+                    let Some(fields) = conformer_record_fields.as_ref() else {
+                        errors.push(match node_origin(resolved, &item.node) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy blueprint standard '{}': it is not a record type and cannot carry the required field '{}: {}'",
+                                    name, standard_name, requirement.name, expected_type_name
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy blueprint standard '{}': it is not a record type and cannot carry the required field '{}: {}'",
+                                    name, standard_name, requirement.name, expected_type_name
+                                ),
+                            ),
+                        });
+                        continue;
+                    };
+                    match fields.get(&requirement.name) {
+                        None => {
+                            errors.push(match node_origin(resolved, &item.node) {
+                                Some(origin) => TypecheckError::with_origin(
+                                    TypecheckErrorKind::IncompatibleType,
+                                    format!(
+                                        "type '{}' does not satisfy blueprint standard '{}': missing required field '{}: {}'",
+                                        name, standard_name, requirement.name, expected_type_name
+                                    ),
+                                    origin,
+                                ),
+                                None => TypecheckError::new(
+                                    TypecheckErrorKind::IncompatibleType,
+                                    format!(
+                                        "type '{}' does not satisfy blueprint standard '{}': missing required field '{}: {}'",
+                                        name, standard_name, requirement.name, expected_type_name
+                                    ),
+                                ),
+                            });
+                        }
+                        Some(actual_type) if *actual_type != requirement.field_type => {
+                            let actual_type_name = typed.type_table().render_type(*actual_type);
+                            errors.push(match node_origin(resolved, &item.node) {
+                                Some(origin) => TypecheckError::with_origin(
+                                    TypecheckErrorKind::IncompatibleType,
+                                    format!(
+                                        "type '{}' does not satisfy blueprint standard '{}': field '{}' has incompatible type; expected {}, found {}",
+                                        name, standard_name, requirement.name, expected_type_name, actual_type_name
+                                    ),
+                                    origin,
+                                ),
+                                None => TypecheckError::new(
+                                    TypecheckErrorKind::IncompatibleType,
+                                    format!(
+                                        "type '{}' does not satisfy blueprint standard '{}': field '{}' has incompatible type; expected {}, found {}",
+                                        name, standard_name, requirement.name, expected_type_name, actual_type_name
+                                    ),
+                                ),
+                            });
+                        }
+                        Some(_) => {}
+                    }
                 }
             }
         }
@@ -2477,9 +2641,7 @@ fn unsupported_v1_decl_with_origin(
         }
         AstNode::StdDecl { kind, .. } => Some(match kind {
             fol_parser::ast::StandardKind::Protocol => return None,
-            fol_parser::ast::StandardKind::Blueprint => {
-                "blueprint standards are planned for a future release"
-            }
+            fol_parser::ast::StandardKind::Blueprint => return None,
             fol_parser::ast::StandardKind::Extended => {
                 "extended standards are planned for a future release"
             }

@@ -70,11 +70,19 @@ pub struct TypedStandardRoutine {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandardField {
+    pub symbol_id: SymbolId,
+    pub name: String,
+    pub field_type: CheckedTypeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedStandard {
     pub symbol_id: SymbolId,
     pub scope_id: ScopeId,
     pub kind: StandardKind,
     pub required_routines: Vec<TypedStandardRoutine>,
+    pub required_fields: Vec<TypedStandardField>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

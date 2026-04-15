@@ -405,14 +405,15 @@ fn v1_boundary_keeps_protocol_conformance_while_rejecting_later_surfaces() {
         }),
         "Expected a type-extension boundary diagnostic, got: {errors:?}"
     );
+    // Blueprints are now part of the shipped V2 contract; the standalone
+    // `std geometry: blu` with no conformer should simply typecheck.
     assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("blueprint standards are planned for a future release")
+        !errors.iter().any(|error| {
+            error
+                .message()
+                .contains("blueprint standards are planned for a future release")
         }),
-        "Expected a blueprint-standard boundary diagnostic, got: {errors:?}"
+        "Blueprint standards should no longer surface a 'planned' diagnostic, got: {errors:?}"
     );
 }
 
