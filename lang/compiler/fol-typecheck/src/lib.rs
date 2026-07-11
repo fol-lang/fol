@@ -87,7 +87,9 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be monotonic enough for tmp names")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("fol_typecheck_lib_{stamp}.fol"));
+        let dir = std::env::temp_dir().join(format!("fol_typecheck_lib_{stamp}"));
+        fs::create_dir_all(&dir).expect("should create typecheck fixture dir");
+        let path = dir.join("main.fol");
         fs::write(&path, contents).expect("should write typecheck fixture");
         path
     }
@@ -178,7 +180,7 @@ mod tests {
     #[test]
     fn when_expressions_require_a_default_branch_before_lowering() {
         let errors = typecheck_fixture_errors(
-            "fun[] main(): int = {\n    return when 1 {\n        case 1 { 1 }\n    }\n}\n",
+            "fun[] main(): int = {\n    return when(1) {\n        is 1 -> 1\n    };\n};\n",
         );
 
         assert!(

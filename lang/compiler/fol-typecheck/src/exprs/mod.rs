@@ -18,6 +18,7 @@ use fol_parser::ast::{
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId};
 use std::collections::BTreeMap;
 
+pub(crate) use helpers::inline_body_block_scope;
 use helpers::{
     binding_kind_for, describe_type, ensure_assignable, ensure_assignable_target,
     internal_error, node_origin, origin_for, plain_value_expr,
@@ -453,11 +454,9 @@ pub(crate) fn type_node_with_expectation(
                 generic_constraints: BTreeMap::new(),
                 param_names: vec![String::new(); lowered_params.len()],
                 param_defaults: vec![None; lowered_params.len()],
-                variadic_index: params.iter().enumerate().find_map(|(index, param)| {
-                    (index + 1 == params.len()
-                        && matches!(param.param_type, FolType::Sequence { .. }))
-                    .then_some(index)
-                }),
+                variadic_index: params
+                    .iter()
+                    .position(|param| param.is_variadic),
                 params: lowered_params,
                 return_type: expected_return_type,
                 error_type: expected_error_type,
@@ -475,7 +474,13 @@ pub(crate) fn type_node_with_expectation(
             controlflow::type_loop(typed, resolved, context, condition, body)
         }
         AstNode::Assignment { target, value } => {
-            ensure_assignable_target(target)?;
+            ensure_assignable_target(
+                typed,
+                resolved,
+                context.source_unit_id,
+                context.scope_id,
+                target,
+            )?;
             let expected = type_node(typed, resolved, context, target)?.required_value(
                 "assignment target does not have a type",
             )?;
@@ -611,6 +616,14 @@ pub(crate) fn type_node_with_expectation(
                     "break is not allowed inside deferred blocks in V1",
                 ));
             }
+            // Deferred blocks replay at every exit; a diverging terminator
+            // inside one cannot be lowered against the surrounding exit.
+            if body_contains_panic(body) {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    "panic is not allowed inside deferred blocks in V1",
+                ));
+            }
             let _ = type_body(typed, resolved, context, body)?;
             Ok(TypedExpr::none())
         }
@@ -696,6 +709,23 @@ pub(crate) fn type_node_with_expectation(
 /// Check whether an AST body contains at least one `return` statement (non-recursive into nested routines).
 fn body_contains_return(nodes: &[AstNode]) -> bool {
     nodes.iter().any(|node| node_contains_return(node))
+}
+
+fn body_contains_panic(nodes: &[AstNode]) -> bool {
+    nodes.iter().any(|node| node_contains_panic(node))
+}
+
+fn node_contains_panic(node: &AstNode) -> bool {
+    match node {
+        AstNode::FunctionCall { name, .. } if name == "panic" => true,
+        AstNode::FunDecl { .. }
+        | AstNode::ProDecl { .. }
+        | AstNode::LogDecl { .. }
+        | AstNode::AnonymousFun { .. }
+        | AstNode::AnonymousPro { .. }
+        | AstNode::AnonymousLog { .. } => false,
+        _ => node.children().iter().any(|child| node_contains_panic(child)),
+    }
 }
 
 fn anonymous_routine_type_is_lowerable(typ: &FolType) -> bool {
@@ -852,16 +882,15 @@ mod tests {
     fn literal_typing_maps_v1_scalar_literals_to_builtin_types() {
         let mut typed = typed_fixture_program();
 
+        let int_type = type_literal_simple(&mut typed, &Literal::Integer(1), None).unwrap();
         assert_eq!(
-            typed
-                .type_table()
-                .get(type_literal_simple(&mut typed, &Literal::Integer(1), None).unwrap()),
+            typed.type_table().get(int_type),
             Some(&crate::CheckedType::Builtin(BuiltinType::Int))
         );
+        let str_type =
+            type_literal_simple(&mut typed, &Literal::String("ok".to_string()), None).unwrap();
         assert_eq!(
-            typed
-                .type_table()
-                .get(type_literal_simple(&mut typed, &Literal::String("ok".to_string()), None).unwrap()),
+            typed.type_table().get(str_type),
             Some(&crate::CheckedType::Builtin(BuiltinType::Str))
         );
     }

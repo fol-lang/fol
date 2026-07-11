@@ -385,7 +385,7 @@ fn lower_top_level_declaration(
                 required_fields,
             });
         }
-        AstNode::AliasDecl { name, target } => {
+        AstNode::AliasDecl { name, target, .. } => {
             let symbol_id = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Alias], name)?;
             let symbol_scope = resolved
                 .symbol(symbol_id)
@@ -609,6 +609,40 @@ fn lower_nested_declarations_in_node(
                 body,
             )?;
         }
+        AstNode::When { cases, default, .. } => {
+            // Case and default bodies live in their own resolver Block
+            // scopes; nested bindings must be lowered against those scopes.
+            let mut bodies: Vec<&[fol_parser::ast::AstNode]> = Vec::new();
+            for case in cases {
+                match case {
+                    fol_parser::ast::WhenCase::Case { body, .. }
+                    | fol_parser::ast::WhenCase::Is { body, .. }
+                    | fol_parser::ast::WhenCase::In { body, .. }
+                    | fol_parser::ast::WhenCase::Has { body, .. }
+                    | fol_parser::ast::WhenCase::On { body, .. }
+                    | fol_parser::ast::WhenCase::Of { body, .. } => bodies.push(body),
+                }
+            }
+            if let Some(default) = default {
+                bodies.push(default);
+            }
+            for body in bodies {
+                let body_scope = crate::exprs::inline_body_block_scope(
+                    resolved,
+                    source_unit_id,
+                    current_scope,
+                    body,
+                )
+                .unwrap_or(current_scope);
+                lower_nested_declarations_in_nodes(
+                    typed,
+                    resolved,
+                    source_unit_id,
+                    body_scope,
+                    body,
+                )?;
+            }
+        }
         AstNode::Commented { node, .. } => {
             lower_nested_declarations_in_node(
                 typed,
@@ -700,11 +734,9 @@ fn lower_named_routine_signature(
             generic_constraints: generic_constraints.clone(),
             param_names: params.iter().map(|param| param.name.clone()).collect(),
             param_defaults: params.iter().map(|param| param.default.clone()).collect(),
-            variadic_index: params.iter().enumerate().find_map(|(index, param)| {
-                (index + 1 == params.len()
-                    && matches!(param.param_type, FolType::Sequence { .. }))
-                .then_some(index)
-            }),
+            variadic_index: params
+                .iter()
+                .position(|param| param.is_variadic),
             params: lowered_params,
             return_type: lowered_return,
             error_type: lowered_error,
@@ -913,6 +945,43 @@ fn lower_blueprint_standard_member(
         name: name.to_string(),
         field_type,
     })
+}
+
+/// Using a *generic* standard as a generic-parameter constraint
+/// (`fun drive(T: Iterator[int])(...)`) is not yet supported: the constraint's
+/// required-routine signatures still mention the standard's own generic
+/// parameter, so a constraint call like `it.next()` would type as the raw
+/// standard parameter instead of the instantiation argument. Reject the form
+/// honestly here — this only fires on generic-parameter constraints, never on
+/// the (supported) generic-standard conformance headers, which lower through a
+/// different path.
+fn reject_generic_standard_constraint(
+    resolved: &ResolvedProgram,
+    constraint: &FolType,
+) -> Result<(), TypecheckError> {
+    let display_name = constraint
+        .named_text()
+        .unwrap_or_else(|| format!("{constraint:?}"));
+    if parse_instantiated_type_args(&display_name, type_origin(resolved, constraint))?.is_some() {
+        return Err(match type_origin(resolved, constraint) {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "generic standard '{display_name}' used as a generic-parameter constraint is not yet supported in V2; \
+                     use a non-generic protocol standard as the constraint"
+                ),
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "generic standard '{display_name}' used as a generic-parameter constraint is not yet supported in V2; \
+                     use a non-generic protocol standard as the constraint"
+                ),
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn lower_standard_symbol_for_contract(
@@ -1457,6 +1526,21 @@ fn checked_type_satisfies_standard(
     checked_type_id: CheckedTypeId,
     standard_symbol_id: SymbolId,
 ) -> bool {
+    // A generic parameter satisfies a standard when its own declared bound
+    // already includes that standard: passing `T` (bound by `geo`) into a
+    // `Box[T: geo]` slot is legal without a fresh conformance header.
+    if let Some(CheckedType::Declared {
+        symbol,
+        kind: DeclaredTypeKind::GenericParameter,
+        ..
+    }) = typed.type_table().get(checked_type_id)
+    {
+        return typed
+            .typed_symbol(*symbol)
+            .and_then(|param_symbol| param_symbol.generic_constraints.get(symbol))
+            .is_some_and(|standards| standards.contains(&standard_symbol_id));
+    }
+
     let Some(type_symbol_id) = conformance_subject_symbol(typed, checked_type_id) else {
         return false;
     };
@@ -1534,12 +1618,26 @@ fn lower_routine_generic_params(
             kind: DeclaredTypeKind::GenericParameter,
         });
         record_symbol_type(typed, symbol_id, generic_type)?;
+        for constraint in &generic.constraints {
+            reject_generic_standard_constraint(resolved, constraint)?;
+        }
         let lowered_constraints = generic
             .constraints
             .iter()
             .map(|constraint| lower_standard_symbol_for_contract(resolved, constraint))
             .collect::<Result<Vec<_>, _>>()?;
         if !lowered_constraints.is_empty() {
+            // Record the parameter's own bound on its own typed symbol (keyed by
+            // itself) so a later constraint-satisfaction check can answer "does
+            // generic parameter T carry standard geo?" directly. This must land
+            // before the routine's parameter types are lowered, since an
+            // instantiation like `Box[T]` in the parameter list is validated
+            // immediately.
+            if let Some(param_symbol) = typed.typed_symbol_mut(symbol_id) {
+                param_symbol
+                    .generic_constraints
+                    .insert(symbol_id, lowered_constraints.clone());
+            }
             generic_constraints.insert(symbol_id, lowered_constraints);
         }
         generic_params.push(symbol_id);
@@ -2781,6 +2879,9 @@ fn lower_generic_constraints_for_params(
 ) -> Result<BTreeMap<SymbolId, Vec<SymbolId>>, TypecheckError> {
     let mut generic_constraints = BTreeMap::new();
     for (generic, symbol_id) in generics.iter().zip(generic_params.iter().copied()) {
+        for constraint in &generic.constraints {
+            reject_generic_standard_constraint(resolved, constraint)?;
+        }
         let lowered_constraints = generic
             .constraints
             .iter()

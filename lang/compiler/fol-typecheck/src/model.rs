@@ -36,6 +36,9 @@ pub struct TypedSymbol {
     pub receiver_type: Option<CheckedTypeId>,
     pub generic_params: Vec<SymbolId>,
     pub generic_constraints: BTreeMap<SymbolId, Vec<SymbolId>>,
+    /// Mirrors the resolver's binding mutability (`var[mut]`/`lab[mut]`).
+    /// Drives field-assignment legality.
+    pub is_mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +126,7 @@ pub struct TypedProgram {
     conformances: BTreeMap<SymbolId, TypedConformance>,
     apparent_type_overrides: BTreeMap<CheckedTypeId, CheckedTypeId>,
     method_call_targets: BTreeMap<SyntaxNodeId, SymbolId>,
+    constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -249,6 +253,7 @@ impl TypedProgram {
                         receiver_type: None,
                         generic_params: Vec::new(),
                         generic_constraints: BTreeMap::new(),
+                        is_mutable: symbol.is_mutable,
                     },
                 )
             })
@@ -300,6 +305,7 @@ impl TypedProgram {
             conformances: BTreeMap::new(),
             apparent_type_overrides: BTreeMap::new(),
             method_call_targets: BTreeMap::new(),
+            constraint_call_sites: std::collections::BTreeSet::new(),
         }
     }
 
@@ -309,6 +315,17 @@ impl TypedProgram {
 
     pub fn method_call_target(&self, syntax_id: SyntaxNodeId) -> Option<SymbolId> {
         self.method_call_targets.get(&syntax_id).copied()
+    }
+
+    pub fn record_constraint_call_site(&mut self, syntax_id: SyntaxNodeId) {
+        self.constraint_call_sites.insert(syntax_id);
+    }
+
+    /// True when the method call at `syntax_id` targets a required routine of
+    /// a generic-parameter constraint; the concrete callee is only known
+    /// after monomorphization.
+    pub fn is_constraint_call_site(&self, syntax_id: SyntaxNodeId) -> bool {
+        self.constraint_call_sites.contains(&syntax_id)
     }
 
     pub fn method_call_targets(&self) -> impl Iterator<Item = (SyntaxNodeId, SymbolId)> + '_ {
@@ -504,9 +521,11 @@ impl TypedProgram {
 
 #[cfg(test)]
 mod tests {
-    use super::TypedWorkspace;
-    use crate::TypecheckCapabilityModel;
-    use fol_resolver::{PackageIdentity, PackageSourceKind};
+    use super::{TypedProgram, TypedWorkspace};
+    use crate::{BuiltinType, CheckedType, TypecheckCapabilityModel};
+    use fol_parser::ast::{AstParser, ParsedSourceUnitKind};
+    use fol_resolver::{resolve_package, PackageIdentity, PackageSourceKind};
+    use fol_stream::FileStream;
     use std::collections::BTreeMap;
 
     fn package_identity(name: &str) -> PackageIdentity {
@@ -543,15 +562,6 @@ mod tests {
 
         assert_eq!(program.capability_model(), TypecheckCapabilityModel::Std);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{TypedProgram, TypedWorkspace};
-    use crate::{BuiltinType, CheckedType};
-    use fol_parser::ast::{AstParser, ParsedSourceUnitKind};
-    use fol_resolver::resolve_package;
-    use fol_stream::FileStream;
 
     #[test]
     fn typed_program_shell_installs_builtin_types_for_resolved_programs() {
@@ -629,7 +639,7 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join("src")).expect("should create temp source dir");
         std::fs::write(root.join("build.fol"), "`build`\n").expect("should write build file");
-        std::fs::write(root.join("src/main.fol"), "var value: int = 1\n")
+        std::fs::write(root.join("src/main.fol"), "var value: int = 1;\n")
             .expect("should write ordinary source");
 
         let mut stream =

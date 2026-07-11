@@ -839,6 +839,14 @@ fn routine_signature_for_method(
     call_syntax_id: Option<SyntaxNodeId>,
 ) -> Result<RoutineType, TypecheckError> {
     let mut matches: Vec<(SymbolId, RoutineType)> = Vec::new();
+    // Candidates matched by unifying a *generic* receiver template against the
+    // concrete object. Two distinct generic types with the same structure
+    // (`Box(T){value:T}` and `Cup(T){value:T}`) instantiate to the identical
+    // structural record, so a value of that shape genuinely cannot say which
+    // base it came from — nominal identity of generic instantiations is not yet
+    // tracked. We detect that case below and gate it with an honest diagnostic
+    // rather than silently choosing one conformer.
+    let mut generic_receiver_matches = 0usize;
 
     let candidate_ids = typed
         .resolved()
@@ -887,6 +895,60 @@ fn routine_signature_for_method(
         let instantiated =
             instantiate_generic_signature(typed, &signature, &bindings, method, origin.clone())?;
         matches.push((symbol_id, instantiated));
+        generic_receiver_matches += 1;
+    }
+
+    // Constrained generic receivers: `fun measure(T: sized)(thing: T)` may
+    // call any routine the constraint standard requires. The concrete callee
+    // is only known after monomorphization, so record the call site as a
+    // deferred constraint call and type it from the requirement signature.
+    if matches.is_empty() {
+        if let Some(CheckedType::Declared {
+            kind: crate::DeclaredTypeKind::GenericParameter,
+            symbol: param_symbol,
+            ..
+        }) = typed.type_table().get(object_type).cloned()
+        {
+            // A generic parameter's bound can be recorded on more than one
+            // typed symbol (the declaring routine/type and the parameter's own
+            // self-entry), so dedupe before turning each standard into a
+            // constraint-call candidate; otherwise the same requirement would
+            // register twice and read as ambiguous.
+            let constraining_standards = typed
+                .all_typed_symbols()
+                .flat_map(|typed_symbol| typed_symbol.generic_constraints.get(&param_symbol))
+                .flatten()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
+            for standard_symbol_id in constraining_standards {
+                let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
+                    continue;
+                };
+                for requirement in &standard.required_routines {
+                    if requirement.name != method {
+                        continue;
+                    }
+                    let param_names = (0..requirement.params.len())
+                        .map(|index| format!("arg{index}"))
+                        .collect::<Vec<_>>();
+                    let param_defaults = vec![None; requirement.params.len()];
+                    let signature = RoutineType {
+                        generic_params: Vec::new(),
+                        generic_constraints: BTreeMap::new(),
+                        param_names,
+                        param_defaults,
+                        variadic_index: None,
+                        params: requirement.params.clone(),
+                        return_type: requirement.return_type,
+                        error_type: requirement.error_type,
+                    };
+                    if let Some(syntax_id) = call_syntax_id {
+                        typed.record_constraint_call_site(syntax_id);
+                    }
+                    matches.push((requirement.symbol_id, signature));
+                }
+            }
+        }
     }
 
     // Fallback: the conformer may inherit this method from a standard
@@ -955,21 +1017,23 @@ fn routine_signature_for_method(
                 )
             },
         )),
-        _ => Err(origin.map_or_else(
-            || {
-                TypecheckError::new(
-                    TypecheckErrorKind::InvalidInput,
-                    format!("method '{method}' is ambiguous for the receiver type"),
+        _ => {
+            let message = if generic_receiver_matches >= 2 {
+                format!(
+                    "method '{method}' resolves to several generic receiver types with identical structure; \
+                     distinguishing them requires nominal identity for generic type instantiations, which is not yet supported in V2 \
+                     — give the receiver types different field shapes or use distinct method names"
                 )
-            },
-            |origin| {
-                TypecheckError::with_origin(
-                    TypecheckErrorKind::InvalidInput,
-                    format!("method '{method}' is ambiguous for the receiver type"),
-                    origin,
-                )
-            },
-        )),
+            } else {
+                format!("method '{method}' is ambiguous for the receiver type")
+            };
+            Err(match origin {
+                Some(origin) => {
+                    TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+                }
+                None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+            })
+        }
     }
 }
 
@@ -1214,6 +1278,109 @@ fn infer_generic_bindings_from_argument(
             (None, None) => Ok(()),
             _ => ensure_assignable(typed, expected, actual_apparent, surface, origin),
         },
+        // An instantiated generic named type (`Box[T]`) is a structural
+        // record/entry: recurse field-by-field so the concrete argument
+        // (`Box[Rect]`) binds the routine's generic parameters. Without this the
+        // parameter type keeps its raw `T` and the call fails to type-check.
+        (
+            Some(CheckedType::Record {
+                fields: expected_fields,
+            }),
+            Some(CheckedType::Record {
+                fields: actual_fields,
+            }),
+        ) if expected_fields.len() == actual_fields.len() => {
+            let pairs = expected_fields
+                .iter()
+                .map(|(name, expected_field)| {
+                    actual_fields
+                        .get(name)
+                        .map(|actual_field| (*expected_field, *actual_field))
+                })
+                .collect::<Option<Vec<_>>>();
+            match pairs {
+                Some(pairs) => {
+                    for (expected_field, actual_field) in pairs {
+                        infer_generic_bindings_from_argument(
+                            typed,
+                            expected_field,
+                            actual_field,
+                            bindings,
+                            surface.clone(),
+                            origin.clone(),
+                        )?;
+                    }
+                    Ok(())
+                }
+                None => ensure_assignable(typed, expected, actual_apparent, surface, origin),
+            }
+        }
+        (
+            Some(CheckedType::Entry {
+                variants: expected_variants,
+            }),
+            Some(CheckedType::Entry {
+                variants: actual_variants,
+            }),
+        ) if expected_variants.len() == actual_variants.len() => {
+            let pairs = expected_variants
+                .iter()
+                .map(|(name, expected_payload)| {
+                    actual_variants
+                        .get(name)
+                        .map(|actual_payload| (*expected_payload, *actual_payload))
+                })
+                .collect::<Option<Vec<_>>>();
+            match pairs {
+                Some(pairs) => {
+                    for (expected_payload, actual_payload) in pairs {
+                        if let (Some(expected_payload), Some(actual_payload)) =
+                            (expected_payload, actual_payload)
+                        {
+                            infer_generic_bindings_from_argument(
+                                typed,
+                                expected_payload,
+                                actual_payload,
+                                bindings,
+                                surface.clone(),
+                                origin.clone(),
+                            )?;
+                        }
+                    }
+                    Ok(())
+                }
+                None => ensure_assignable(typed, expected, actual_apparent, surface, origin),
+            }
+        }
+        (
+            Some(CheckedType::Map {
+                key_type: expected_key,
+                value_type: expected_value,
+            }),
+            Some(CheckedType::Map {
+                key_type: actual_key,
+                value_type: actual_value,
+            }),
+        ) => {
+            let (expected_key, expected_value) = (*expected_key, *expected_value);
+            let (actual_key, actual_value) = (*actual_key, *actual_value);
+            infer_generic_bindings_from_argument(
+                typed,
+                expected_key,
+                actual_key,
+                bindings,
+                surface.clone(),
+                origin.clone(),
+            )?;
+            infer_generic_bindings_from_argument(
+                typed,
+                expected_value,
+                actual_value,
+                bindings,
+                surface,
+                origin,
+            )
+        }
         _ => ensure_assignable(typed, expected, actual_apparent, surface, origin),
     }
 }
@@ -1396,6 +1563,63 @@ fn substitute_generic_type(
                 .map(|inner| substitute_generic_type(typed, inner, bindings, callee, origin))
                 .transpose()?;
             Ok(typed.type_table_mut().intern(CheckedType::Error { inner }))
+        }
+        CheckedType::Set { member_types } => {
+            let member_types = member_types
+                .into_iter()
+                .map(|member_type| {
+                    substitute_generic_type(typed, member_type, bindings, callee, origin.clone())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Set { member_types }))
+        }
+        CheckedType::Map {
+            key_type,
+            value_type,
+        } => {
+            let key_type =
+                substitute_generic_type(typed, key_type, bindings, callee, origin.clone())?;
+            let value_type =
+                substitute_generic_type(typed, value_type, bindings, callee, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Map {
+                key_type,
+                value_type,
+            }))
+        }
+        // An instantiated generic named type (e.g. `Box[T]`) is a structural
+        // record/entry whose fields still mention the routine's generic
+        // parameters. Recurse so the concrete call binding replaces them; a
+        // missed field is exactly the P3 leak where a call to `wrap` returned
+        // `Box[T]` instead of `Box[int]`.
+        CheckedType::Record { fields } => {
+            let fields = fields
+                .into_iter()
+                .map(|(name, field_type)| {
+                    substitute_generic_type(typed, field_type, bindings, callee, origin.clone())
+                        .map(|field_type| (name, field_type))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Record { fields }))
+        }
+        CheckedType::Entry { variants } => {
+            let variants = variants
+                .into_iter()
+                .map(|(name, variant_type)| {
+                    variant_type
+                        .map(|variant_type| {
+                            substitute_generic_type(
+                                typed,
+                                variant_type,
+                                bindings,
+                                callee,
+                                origin.clone(),
+                            )
+                        })
+                        .transpose()
+                        .map(|variant_type| (name, variant_type))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Entry { variants }))
         }
         other => Ok(typed.type_table_mut().intern(other)),
     }

@@ -29,21 +29,34 @@ pub(crate) fn type_when(
 
     for case in cases {
         match case {
+            // Membership and channel arms are declared syntax, but their
+            // semantics (container membership, range matching, channels)
+            // are later-milestone surfaces; keep the boundary explicit
+            // instead of silently lowering them as equality checks.
+            WhenCase::Has { .. } => {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    expr,
+                    "membership when/has branches are not yet supported in V1",
+                ));
+            }
+            WhenCase::In { .. } => {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    expr,
+                    "range/set when/in branches are not yet supported in V1",
+                ));
+            }
+            WhenCase::On { .. } => {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    expr,
+                    "channel when/on branches are planned for a future release",
+                ));
+            }
             WhenCase::Case { condition, body }
             | WhenCase::Is {
                 value: condition,
-                body,
-            }
-            | WhenCase::In {
-                range: condition,
-                body,
-            }
-            | WhenCase::Has {
-                member: condition,
-                body,
-            }
-            | WhenCase::On {
-                channel: condition,
                 body,
             } => {
                 let condition_raw = type_node(typed, resolved, context, condition)?;
@@ -54,7 +67,17 @@ pub(crate) fn type_when(
                     node_origin(resolved, condition),
                     "when condition",
                 )?;
-                case_types.push(type_body(typed, resolved, context, body)?);
+                // Case bodies live in their own resolver Block scope.
+                let body_context = match super::helpers::inline_body_block_scope(
+                    resolved,
+                    context.source_unit_id,
+                    context.scope_id,
+                    body,
+                ) {
+                    Some(scope_id) => TypeContext { scope_id, ..context },
+                    None => context,
+                };
+                case_types.push(type_body(typed, resolved, body_context, body)?);
             }
             WhenCase::Of { .. } => {
                 return Err(unsupported_node_surface(
@@ -73,7 +96,16 @@ pub(crate) fn type_when(
             "when expressions require a default branch",
         ));
     };
-    let default_expr = type_body(typed, resolved, context, default)?;
+    let default_context = match super::helpers::inline_body_block_scope(
+        resolved,
+        context.source_unit_id,
+        context.scope_id,
+        default,
+    ) {
+        Some(scope_id) => TypeContext { scope_id, ..context },
+        None => context,
+    };
+    let default_expr = type_body(typed, resolved, default_context, default)?;
     let Some(expected) = default_expr.value_type else {
         return Ok(TypedExpr::none());
     };

@@ -90,7 +90,26 @@ pub(crate) fn type_index_access(
         node_origin(resolved, container),
         "index access receiver",
     )?;
-    let index_raw = type_node(typed, resolved, context, index)?;
+    let container_type =
+        container_expr.required_value("index access does not have a typed container")?;
+    let resolved_type = apparent_type_id(typed, container_type)?;
+    // Type the index against the container's key type so literals settle on
+    // the expected shape (a single-character string key must stay str).
+    let expected_index_type = match typed.type_table().get(resolved_type) {
+        Some(CheckedType::Map { key_type, .. }) => Some(*key_type),
+        Some(CheckedType::Array { .. })
+        | Some(CheckedType::Vector { .. })
+        | Some(CheckedType::Sequence { .. })
+        | Some(CheckedType::Set { .. }) => Some(typed.builtin_types().int),
+        _ => None,
+    };
+    let index_raw = super::type_node_with_expectation(
+        typed,
+        resolved,
+        context,
+        index,
+        expected_index_type,
+    )?;
     let index_expr = plain_value_expr(
         typed,
         context,
@@ -98,11 +117,8 @@ pub(crate) fn type_index_access(
         node_origin(resolved, index),
         "index expression",
     )?;
-    let container_type =
-        container_expr.required_value("index access does not have a typed container")?;
     let index_type =
         index_expr.required_value("index access does not have a typed index expression")?;
-    let resolved_type = apparent_type_id(typed, container_type)?;
     let merged_effect = merge_recoverable_effects(
         typed,
         node_origin(resolved, container).or_else(|| node_origin(resolved, index)),

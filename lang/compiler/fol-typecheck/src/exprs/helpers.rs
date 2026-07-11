@@ -183,6 +183,87 @@ pub(crate) fn origin_for(resolved: &ResolvedProgram, syntax_id: SyntaxNodeId) ->
     resolved.syntax_index().origin(syntax_id).cloned()
 }
 
+/// Recover the resolver-created Block scope for an inline statement body
+/// (a `when` case body or default body). The resolver creates these scopes
+/// anonymously, so they are located through the references recorded inside
+/// the body; bodies that declare bindings are found via the declared symbol's
+/// scope instead.
+pub(crate) fn inline_body_block_scope(
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    parent_scope_id: ScopeId,
+    body: &[AstNode],
+) -> Option<ScopeId> {
+    let mut syntax_ids = BTreeSet::new();
+    for node in body {
+        collect_syntax_ids(node, &mut syntax_ids);
+    }
+
+    let descends_from_parent = |mut scope_id: ScopeId| -> bool {
+        loop {
+            if scope_id == parent_scope_id {
+                return true;
+            }
+            match resolved.scope(scope_id).and_then(|scope| scope.parent) {
+                Some(parent) => scope_id = parent,
+                None => return false,
+            }
+        }
+    };
+
+    let mut candidate_scopes = BTreeSet::new();
+    for reference in resolved.references.iter() {
+        let Some(syntax_id) = reference.syntax_id else {
+            continue;
+        };
+        if !syntax_ids.contains(&syntax_id) {
+            continue;
+        }
+        let Some(symbol_id) = reference.resolved else {
+            continue;
+        };
+        let Some(symbol) = resolved.symbol(symbol_id) else {
+            continue;
+        };
+        if symbol.source_unit != source_unit_id {
+            continue;
+        }
+        let Some(scope) = resolved.scope(symbol.scope) else {
+            continue;
+        };
+        if scope.kind == fol_resolver::ScopeKind::Block
+            && symbol.scope != parent_scope_id
+            && descends_from_parent(symbol.scope)
+        {
+            candidate_scopes.insert(symbol.scope);
+        }
+    }
+
+    // A body's own bindings pin its scope even when nothing references them.
+    for node in body {
+        let (name, kind) = match node {
+            AstNode::VarDecl { name, .. } => (name.as_str(), SymbolKind::ValueBinding),
+            AstNode::LabDecl { name, .. } => (name.as_str(), SymbolKind::LabelBinding),
+            _ => continue,
+        };
+        for symbol in resolved.symbols.iter() {
+            if symbol.source_unit == source_unit_id
+                && symbol.kind == kind
+                && symbol.name == name
+                && symbol.scope != parent_scope_id
+                && resolved
+                    .scope(symbol.scope)
+                    .is_some_and(|scope| scope.kind == fol_resolver::ScopeKind::Block)
+                && descends_from_parent(symbol.scope)
+            {
+                candidate_scopes.insert(symbol.scope);
+            }
+        }
+    }
+
+    single_scope(candidate_scopes)
+}
+
 pub(crate) fn loop_binder_scope(
     resolved: &ResolvedProgram,
     source_unit_id: SourceUnitId,
@@ -415,14 +496,22 @@ pub(crate) fn is_v1_assignable(
 }
 
 pub(crate) fn describe_type(typed: &TypedProgram, type_id: CheckedTypeId) -> String {
-    format!(
-        "{:?}",
-        typed
-            .type_table()
-            .get(type_id)
-            .cloned()
-            .unwrap_or(crate::CheckedType::Builtin(crate::BuiltinType::Never))
-    )
+    // Named/structural shapes (`Record`, `Entry`, and any `Declared` type such
+    // as a generic parameter) used to leak their Rust `Debug` form into user
+    // diagnostics (`Record { fields: {..} }`, `Declared { symbol: .. }`). Route
+    // those through the shared renderer so they read as FOL surface syntax. The
+    // remaining scalar/container shapes keep their existing rendering.
+    match typed.type_table().get(type_id) {
+        Some(crate::CheckedType::Record { .. })
+        | Some(crate::CheckedType::Entry { .. })
+        | Some(crate::CheckedType::Declared { .. }) => typed.type_table().render_type(type_id),
+        other => format!(
+            "{:?}",
+            other
+                .cloned()
+                .unwrap_or(crate::CheckedType::Builtin(crate::BuiltinType::Never))
+        ),
+    }
 }
 
 pub(crate) fn is_equality_type(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
@@ -457,14 +546,102 @@ pub(crate) fn internal_error(
     }
 }
 
-pub(crate) fn ensure_assignable_target(target: &AstNode) -> Result<(), TypecheckError> {
-    match target {
-        AstNode::Identifier { .. } | AstNode::QualifiedIdentifier { .. } => Ok(()),
+pub(crate) fn ensure_assignable_target(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    target: &AstNode,
+) -> Result<(), TypecheckError> {
+    match strip_comments(target) {
+        AstNode::Identifier { name, .. } => {
+            ensure_binding_reassignable(typed, resolved, source_unit_id, scope_id, name)
+        }
+        AstNode::QualifiedIdentifier { path } => {
+            ensure_binding_reassignable(typed, resolved, source_unit_id, scope_id, &path.joined())
+        }
+        // Field assignment into a mutable record instance, e.g. `counter.total = 5`.
+        // The whole instance must be mutable; the book does not allow assigning
+        // into only some fields (structs chapter, "Accessing").
+        AstNode::FieldAccess { object, field } => {
+            let binding_name = match strip_comments(object) {
+                AstNode::Identifier { name, .. } => name.clone(),
+                AstNode::QualifiedIdentifier { path } => path.joined(),
+                // Nested field/index targets (`a.b.c = x`) are not documented as
+                // assignment targets in the current book contract.
+                _ => {
+                    return Err(TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        format!(
+                            "nested field assignment targets like '.{field}' are not supported; \
+                             assign into a field of a mutable binding directly"
+                        ),
+                    ))
+                }
+            };
+            if !binding_is_mutable_by_name(typed, resolved, source_unit_id, scope_id, &binding_name)
+            {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "cannot assign into field '{field}' of immutable binding '{binding_name}'; \
+                         declare the instance with 'var[mut]' to allow field assignment"
+                    ),
+                ));
+            }
+            Ok(())
+        }
         _ => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
-            "assignment targets must currently be plain or qualified identifiers",
+            "assignment targets must currently be plain identifiers, qualified identifiers, \
+             or a field of a mutable record binding",
         )),
     }
+}
+
+/// Reject whole-binding reassignment of immutable value/label bindings
+/// (`con`/`let`/`lab`). Targets that do not resolve to a value/label binding
+/// in the scope chain keep the previous permissive behavior.
+fn ensure_binding_reassignable(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    name: &str,
+) -> Result<(), TypecheckError> {
+    let known_immutable = [SymbolKind::ValueBinding, SymbolKind::LabelBinding]
+        .into_iter()
+        .find_map(|kind| {
+            find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind)
+        })
+        .and_then(|symbol_id| typed.typed_symbol(symbol_id))
+        .is_some_and(|symbol| !symbol.is_mutable);
+    if known_immutable {
+        return Err(TypecheckError::new(
+            TypecheckErrorKind::InvalidInput,
+            format!("cannot reassign immutable binding '{name}'"),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether the value/label binding reachable under `name` in the scope chain was
+/// declared mutable. Bindings are immutable by default (variables chapter).
+fn binding_is_mutable_by_name(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    name: &str,
+) -> bool {
+    [SymbolKind::ValueBinding, SymbolKind::LabelBinding]
+        .into_iter()
+        .find_map(|kind| {
+            find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind)
+        })
+        .and_then(|symbol_id| typed.typed_symbol(symbol_id))
+        .map(|symbol| symbol.is_mutable)
+        .unwrap_or(false)
 }
 
 pub(crate) fn strip_comments(node: &AstNode) -> &AstNode {

@@ -58,6 +58,7 @@ impl PartialEq for RoutineType {
     fn eq(&self, other: &Self) -> bool {
         self.generic_params == other.generic_params
             && self.generic_constraints == other.generic_constraints
+            && self.variadic_index == other.variadic_index
             && self.params == other.params
             && self.return_type == other.return_type
             && self.error_type == other.error_type
@@ -77,6 +78,7 @@ impl Ord for RoutineType {
         (
             &self.generic_params,
             &self.generic_constraints,
+            self.variadic_index,
             &self.params,
             self.return_type,
             self.error_type,
@@ -84,10 +86,11 @@ impl Ord for RoutineType {
             .cmp(&(
                 &other.generic_params,
                 &other.generic_constraints,
-            &other.params,
-            other.return_type,
-            other.error_type,
-        ))
+                other.variadic_index,
+                &other.params,
+                other.return_type,
+                other.error_type,
+            ))
     }
 }
 
@@ -95,6 +98,7 @@ impl Hash for RoutineType {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.generic_params.hash(state);
         self.generic_constraints.hash(state);
+        self.variadic_index.hash(state);
         self.params.hash(state);
         self.return_type.hash(state);
         self.error_type.hash(state);
@@ -234,7 +238,25 @@ impl TypeTable {
                     None => format!("fun({params}): {returns}"),
                 }
             }
-            Some(other) => format!("{other:?}"),
+            Some(CheckedType::Record { fields }) => {
+                let fields = fields
+                    .iter()
+                    .map(|(name, field_type)| format!("{name}: {}", self.render_type(*field_type)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("rec {{ {fields} }}")
+            }
+            Some(CheckedType::Entry { variants }) => {
+                let variants = variants
+                    .iter()
+                    .map(|(name, payload)| match payload {
+                        Some(payload) => format!("{name}: {}", self.render_type(*payload)),
+                        None => name.clone(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("ent {{ {variants} }}")
+            }
             None => "unknown".to_string(),
         }
     }

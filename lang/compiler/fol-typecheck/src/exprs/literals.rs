@@ -23,7 +23,17 @@ pub(crate) fn type_literal(
             reject_heap_backed_literal_in_core(typed, resolved, node, "string literals")?;
             typed.builtin_types().str_
         }
-        Literal::Character(_) => typed.builtin_types().char_,
+        Literal::Character(_) => {
+            // A double-quoted single element is width-classified as a
+            // character by the parser, but the book allows it as a
+            // single-element string too — the expected type decides.
+            if expected_type == Some(typed.builtin_types().str_) {
+                reject_heap_backed_literal_in_core(typed, resolved, node, "string literals")?;
+                typed.builtin_types().str_
+            } else {
+                typed.builtin_types().char_
+            }
+        }
         Literal::Boolean(_) => typed.builtin_types().bool_,
         Literal::Nil => {
             if let Some(shell_type) = expected_nil_shell_type(typed, expected_type)? {
@@ -216,6 +226,24 @@ pub(crate) fn type_linear_container_literal(
         _ => None,
     });
     let element_nodes = container_elements(elements);
+    // Fixed-size arrays must match their declared size exactly; letting a
+    // mismatch through leaks a raw rustc failure at emission.
+    if let Some(ExpectedContainerShape::Array {
+        size: Some(expected_size),
+        ..
+    }) = expected_container
+    {
+        if kind == ContainerType::Array && element_nodes.len() != *expected_size {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::IncompatibleType,
+                format!(
+                    "array literal has {} element(s) but the expected array size is {}",
+                    element_nodes.len(),
+                    expected_size
+                ),
+            ));
+        }
+    }
     if element_nodes.is_empty() {
         let Some(expected_container) = expected_container else {
             return Err(TypecheckError::new(

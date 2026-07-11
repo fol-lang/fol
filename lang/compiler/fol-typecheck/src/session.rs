@@ -352,7 +352,13 @@ impl TypecheckSession {
                 target_program.type_table_mut().intern_builtin(builtin)
             }
             CheckedType::Declared { symbol, name, kind } => {
-                if let Some(translated_symbol) = translated_symbol_id(
+                if kind == crate::DeclaredTypeKind::GenericParameter {
+                    // Generic parameters are opaque placeholders; expanding
+                    // their declared type would chase a self-reference.
+                    target_program
+                        .type_table_mut()
+                        .intern(CheckedType::Declared { symbol, name, kind })
+                } else if let Some(translated_symbol) = translated_symbol_id(
                     source_identity,
                     source_program,
                     symbol,
@@ -372,6 +378,10 @@ impl TypecheckSession {
                     let shell_type = target_program
                         .type_table_mut()
                         .intern(CheckedType::Declared { symbol, name, kind });
+                    // Guard against cyclic declared types: cache the shell
+                    // before expanding so re-entry terminates.
+                    imported_cache
+                        .insert((source_identity.clone(), source_type_id), shell_type);
                     let apparent_type = self.import_type_id(
                         target_program,
                         source_identity,

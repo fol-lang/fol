@@ -113,7 +113,6 @@ mod tests {
     };
     use crate::TypecheckCapabilityModel;
     use fol_intrinsics::{intrinsic_registry, IntrinsicStatus, IntrinsicSurface};
-    use std::collections::BTreeSet;
 
     #[test]
     fn editor_metadata_api_exposes_nonempty_language_facts() {
@@ -172,10 +171,9 @@ mod tests {
 
     #[test]
     fn editor_intrinsic_facts_match_implemented_registry_entries_exactly() {
-        let from_editor: BTreeSet<_> = editor_implemented_intrinsics()
-            .into_iter()
-            .collect();
-        let from_registry: BTreeSet<_> = intrinsic_registry()
+        let mut from_editor: Vec<_> = editor_implemented_intrinsics().into_iter().collect();
+        from_editor.sort_by_key(|info| (info.name, format!("{:?}", info.surface)));
+        let mut from_registry: Vec<_> = intrinsic_registry()
             .iter()
             .filter(|entry| entry.status == IntrinsicStatus::Implemented)
             .map(|entry| EditorIntrinsicInfo {
@@ -183,6 +181,7 @@ mod tests {
                 surface: entry.surface,
             })
             .collect();
+        from_registry.sort_by_key(|info| (info.name, format!("{:?}", info.surface)));
         assert_eq!(from_editor, from_registry);
     }
 
