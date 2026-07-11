@@ -64,6 +64,7 @@ fn fetch_round_trip_prepares_and_reports_local_workspace_packages() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let preparation = prepare_workspace_packages(&workspace).expect("preparation should succeed");
@@ -71,9 +72,15 @@ fn fetch_round_trip_prepares_and_reports_local_workspace_packages() {
 
     assert_eq!(preparation.packages.len(), 2);
     assert!(result.summary.contains("prepared 2 workspace package(s)"));
-    assert_eq!(result.artifacts.len(), 4);
-    assert_eq!(result.artifacts[2].path, Some(app));
-    assert_eq!(result.artifacts[3].path, Some(lib));
+    assert_eq!(result.artifacts.len(), 6);
+    assert!(result
+        .artifacts
+        .iter()
+        .any(|artifact| artifact.path == Some(app.clone())));
+    assert!(result
+        .artifacts
+        .iter()
+        .any(|artifact| artifact.path == Some(lib.clone())));
 
     fs::remove_dir_all(root).ok();
 }
@@ -138,6 +145,7 @@ fn fetch_summary_surfaces_dependency_modes_for_mixed_sources() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = fetch_workspace(&workspace).expect("fetch should succeed");
@@ -176,6 +184,7 @@ fn fetch_round_trip_prefers_frontend_config_store_root_in_artifacts() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
     let config = FrontendConfig {
         package_store_root_override: Some(root.join(".fol/config-pkg")),
@@ -186,7 +195,7 @@ fn fetch_round_trip_prefers_frontend_config_store_root_in_artifacts() {
 
     assert_eq!(result.artifacts[0].path, Some(root.join(".fol/config-pkg")));
     assert_eq!(result.artifacts[1].path, Some(root.join(".fol/cache")));
-    assert_eq!(result.artifacts[2].path, Some(app));
+    assert_eq!(result.artifacts[4].path, Some(app));
 
     fs::remove_dir_all(root).ok();
 }
@@ -206,6 +215,7 @@ fn fetch_locked_requires_existing_lockfile() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
     let config = FrontendConfig {
         locked_fetch: true,
@@ -275,7 +285,7 @@ fn update_workspace_refreshes_git_dependencies_through_public_api() {
     let app = root.join("app");
     let remote = root.join("remote-logtiny");
     create_git_package_repo(&remote, "logtiny", "0.1.0");
-    create_app_with_git_dep(&app, &remote);
+    create_app_with_git_dep_spec(&app, &remote, Some("branch:main"), None, None);
     let workspace = git_dep_workspace(&root, &app);
 
     fetch_workspace(&workspace).expect("initial fetch should succeed");
@@ -303,7 +313,7 @@ fn update_prunes_stale_workspace_local_git_materializations() {
     let app = root.join("app");
     let remote = root.join("remote-logtiny");
     create_git_package_repo(&remote, "logtiny", "0.1.0");
-    create_app_with_git_dep(&app, &remote);
+    create_app_with_git_dep_spec(&app, &remote, Some("branch:main"), None, None);
     let workspace = git_dep_workspace(&root, &app);
 
     fetch_workspace(&workspace).expect("initial fetch should succeed");
@@ -448,6 +458,7 @@ fn git_dep_workspace(root: &Path, app: &Path) -> FrontendWorkspace {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     }
 }
 
@@ -520,6 +531,7 @@ fn create_git_package_repo(root: &Path, name: &str, version: &str) {
     git(root, &["config", "user.email", "fol@example.com"]);
     git(root, &["add", "."]);
     git(root, &["commit", "-m", "init"]);
+    git(root, &["tag", &format!("v{version}")]);
 }
 
 fn git(root: &Path, args: &[&str]) {

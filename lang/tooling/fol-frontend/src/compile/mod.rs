@@ -33,12 +33,25 @@ pub(crate) fn effective_runtime_model_for_package(
     root: &std::path::Path,
     fol_model: fol_backend::BackendFolModel,
 ) -> fol_backend::BackendFolModel {
+    // The bundled std package IS the hosted substrate; its own units are
+    // the layer that legally reaches hosted intrinsics like `.echo`.
+    if is_bundled_std_root(root) {
+        return fol_backend::BackendFolModel::Std;
+    }
     match fol_model {
         fol_backend::BackendFolModel::Memo if package_declares_bundled_std(root) => {
             fol_backend::BackendFolModel::Std
         }
         other => other,
     }
+}
+
+fn is_bundled_std_root(root: &std::path::Path) -> bool {
+    fol_package::available_bundled_std_root()
+        .and_then(|std_root| std_root.canonicalize().ok())
+        .zip(root.canonicalize().ok())
+        .map(|(std_root, root)| std_root == root)
+        .unwrap_or(false)
 }
 
 fn declared_capability_model_for_package(root: &std::path::Path) -> fol_backend::BackendFolModel {
@@ -127,7 +140,13 @@ pub fn check_workspace_with_config(
         crate::fetch_workspace_with_config(workspace, config)?;
     }
     for member in &workspace.members {
-        compile_member_workspace(workspace, config, &member.root)?;
+        // Check under the member's declared capability model so core/memo
+        // legality surfaces at check time, not first at build time.
+        let fol_model = effective_runtime_model_for_package(
+            &member.root,
+            declared_capability_model_for_package(&member.root),
+        );
+        compile_member_workspace_for_model(workspace, config, &member.root, fol_model)?;
     }
 
     let mut result = FrontendCommandResult::new(

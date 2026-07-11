@@ -18,6 +18,7 @@ fn plan_member_execution(
         build_root: member.member_root.join(".fol/build"),
         cache_root: member.member_root.join(".fol/cache"),
         git_cache_root: member.member_root.join(".fol/cache/git"),
+        install_prefix: member.member_root.join(".fol/install"),
     };
     super::super::plan_member_execution(&workspace, member, config)
 }
@@ -62,6 +63,7 @@ pub(super) fn absorbed_build_workspace_fixture(label: &str) -> FrontendWorkspace
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     }
 }
 
@@ -314,6 +316,7 @@ fn semantic_member_planning_rejects_dependency_queries_for_missing_exports() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let error = super::super::plan_member_execution(
@@ -423,6 +426,7 @@ fn workspace_route_planner_accepts_only_semantic_members() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let route = plan_workspace_build_route(&workspace, "build").unwrap();
@@ -457,6 +461,7 @@ fn workspace_route_planner_rejects_old_build_members() {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         },
         "build",
     )
@@ -493,6 +498,7 @@ fn workspace_route_planner_rejects_broken_modern_builds() {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         },
         "build",
     )
@@ -522,8 +528,13 @@ fn modern_members_plan_custom_steps_from_semantic_builds() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    graph.step(\"docs\");\n",
-            "    return graph\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"modern\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"modern\", root = \"src/main.fol\" });\n",
+            "    graph.install(app);\n",
+            "    var docs = graph.step(\"docs\", \"Generate documentation\");\n",
+            "    return;\n",
             "};\n",
         ),
     )
@@ -543,6 +554,7 @@ fn modern_members_plan_custom_steps_from_semantic_builds() {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         },
         "docs",
     )
@@ -627,11 +639,11 @@ fn absorbed_build_executor_rejects_unknown_named_steps() {
     assert!(error.message().contains("known steps:"));
     assert!(error.message().contains("build [default:build]"));
     assert!(error.message().contains("run [default:run]"));
-    assert!(error.message().contains("[artifact:demo]"));
-    assert!(error.message().contains("[models:std]"));
+    assert!(error.message().contains("[artifact:app]"));
+    assert!(error.message().contains("[models:memo]"));
     assert!(error
         .message()
-        .contains("Run the default executable artifact"));
+        .contains("Build default executable artifacts"));
 
     fs::remove_dir_all(&workspace.root.root).ok();
 }
@@ -652,11 +664,21 @@ fn build_body_step_calls_flow_into_member_execution_plans() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    graph.step(\"docs\");\n",
-            "    graph.step(\"lint\");\n",
-            "    return graph\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+            "    graph.install(app);\n",
+            "    var docs = graph.step(\"docs\", \"Generate documentation\");\n",
+            "    var lint = graph.step(\"lint\", \"Lint the sources\");\n",
+            "    return;\n",
             "};\n",
         ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0\n};\n",
     )
     .unwrap();
 
@@ -692,11 +714,16 @@ fn build_body_step_dependencies_are_accepted_during_member_planning() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    graph.add_exe(\"app\", \"src/main.fol\");\n",
-            "    graph.step(\"gen\");\n",
-            "    graph.step(\"docs\", \"gen\");\n",
-            "    graph.add_run(\"run\", \"app\", \"docs\");\n",
-            "    return graph\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+            "    var gen = graph.step(\"gen\", \"Generate sources\");\n",
+            "    var docs = graph.step(\"docs\", \"Generate documentation\");\n",
+            "    docs.depend_on(gen);\n",
+            "    var run = graph.add_run(app);\n",
+            "    run.depend_on(docs);\n",
+            "    return;\n",
             "};\n",
         ),
     )
@@ -740,8 +767,11 @@ fn custom_build_steps_plan_as_build_execution() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    graph.step(\"docs\");\n",
-            "    return graph\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var docs = graph.step(\"docs\", \"Generate documentation\");\n",
+            "    return;\n",
             "};\n",
         ),
     )

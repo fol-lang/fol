@@ -54,6 +54,7 @@ fn check_workspace_runs_the_real_pipeline_for_workspace_members() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = check_workspace(&workspace).unwrap();
@@ -87,6 +88,7 @@ fn build_workspace_runs_the_backend_for_runnable_members() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = build_workspace(&workspace).unwrap();
@@ -229,6 +231,7 @@ fn build_workspace_uses_profile_specific_output_roots() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = build_workspace_for_profile_with_config(
@@ -269,6 +272,7 @@ fn run_workspace_executes_a_single_runnable_member() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = run_workspace(&workspace).unwrap();
@@ -308,6 +312,7 @@ fn run_workspace_passes_through_binary_arguments() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = run_workspace_with_args_and_config(
@@ -346,6 +351,7 @@ fn run_workspace_rejects_non_host_machine_targets_before_execution() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
     let config = crate::FrontendConfig {
         build_target_override: Some(non_host_machine_target()),
@@ -386,6 +392,7 @@ fn build_workspace_keeps_generated_crate_dirs_when_requested() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
     let config = crate::FrontendConfig {
         keep_build_dir: true,
@@ -422,6 +429,7 @@ fn test_workspace_runs_single_workspace_members() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = test_workspace(&workspace).unwrap();
@@ -462,6 +470,7 @@ fn test_package_selects_a_single_named_workspace_member() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = test_package(&workspace, "lib").unwrap();
@@ -499,6 +508,7 @@ fn test_workspace_rejects_non_host_machine_targets_before_execution() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
     let config = crate::FrontendConfig {
         build_target_override: Some(non_host_machine_target()),
@@ -537,6 +547,7 @@ fn emit_rust_materializes_generated_crates_for_workspace_members() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = emit_rust(&workspace).unwrap();
@@ -579,6 +590,7 @@ fn emit_lowered_materializes_rendered_workspace_snapshots() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = emit_lowered(&workspace).unwrap();

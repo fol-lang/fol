@@ -82,6 +82,7 @@ fn sample_workspace(root: &PathBuf) -> FrontendWorkspace {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     }
 }
 
@@ -114,6 +115,7 @@ fn locked_check_build_run_and_test_use_existing_lockfile() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     fol_frontend::fetch_workspace(&workspace).expect("initial fetch should succeed");
@@ -144,7 +146,7 @@ fn create_app_with_git_dep(app: &Path, remote: &Path) {
                 "    var app = graph.add_exe({{ name = \"app\", root = \"src/main.fol\" }});\n",
                 "    graph.install(app);\n",
                 "    graph.add_run(app);\n",
-                "    graph.add_test({ name = \"app_test\", root = \"src/main.fol\" });\n",
+                "    graph.add_test({{ name = \"app_test\", root = \"src/main.fol\" }});\n",
                 "}};\n",
             ),
             remote.display()
@@ -188,7 +190,14 @@ fn build_command_reports_emitted_crate_and_binary_through_public_api() {
     let root = temp_root("build");
     let workspace = sample_workspace(&root);
 
-    let result = build_workspace(&workspace).expect("build should succeed");
+    let result = build_workspace_with_config(
+        &workspace,
+        &FrontendConfig {
+            keep_build_dir: true,
+            ..FrontendConfig::default()
+        },
+    )
+    .expect("build should succeed");
 
     assert_eq!(result.command, "build");
     assert_eq!(result.artifacts.len(), 3);
@@ -240,7 +249,14 @@ fn build_command_summary_surfaces_install_prefix_and_outputs() {
     let root = temp_root("build_summary");
     let workspace = sample_workspace(&root);
 
-    let result = build_workspace(&workspace).expect("build should succeed");
+    let result = build_workspace_with_config(
+        &workspace,
+        &FrontendConfig {
+            keep_build_dir: true,
+            ..FrontendConfig::default()
+        },
+    )
+    .expect("build should succeed");
 
     assert!(result.summary.contains(&format!(
         "install_prefix={}",
@@ -319,7 +335,10 @@ fn test_command_traverses_all_runnable_workspace_members_through_public_api() {
     let result = test_workspace(&workspace).expect("workspace test should succeed");
 
     assert_eq!(result.command, "test");
-    assert_eq!(result.summary, "tested 2 workspace package(s)");
+    assert_eq!(
+        result.summary,
+        "tested 2 workspace package(s) (capability_mode=memo, bundled_std=0/1)"
+    );
     assert_eq!(result.artifacts.len(), 2);
     assert!(result
         .artifacts

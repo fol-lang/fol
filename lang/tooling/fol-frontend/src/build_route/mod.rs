@@ -465,14 +465,23 @@ pub(crate) fn plan_member_execution_from_graph(
 ) -> FrontendResult<FrontendMemberExecutionPlan> {
     let mut steps = fol_package::project_graph_steps(graph)
         .into_iter()
-        .map(|step| FrontendMemberPlannedStep {
-            selection: selection_for_step(member, evaluated, &step.name, step.default_kind),
-            ambiguous_selection: step_has_ambiguous_default_selection(evaluated, step.default_kind),
-            available_models: models_for_step(evaluated, &step.name, step.default_kind),
-            description: step.description,
-            default_kind: step.default_kind,
-            name: step.name,
-            execution: step.default_kind.and_then(step_execution_kind_from_default),
+        .map(|step| {
+            let selection = selection_for_step(member, evaluated, &step.name, step.default_kind);
+            // A step whose artifact binding already resolved (explicit
+            // graph binding or exact artifact name) is never ambiguous;
+            // the multi-artifact heuristic only applies to unresolved
+            // default selections.
+            let ambiguous_selection = selection.is_none()
+                && step_has_ambiguous_default_selection(evaluated, step.default_kind);
+            FrontendMemberPlannedStep {
+                selection,
+                ambiguous_selection,
+                available_models: models_for_step(evaluated, &step.name, step.default_kind),
+                description: step.description,
+                default_kind: step.default_kind,
+                name: step.name,
+                execution: step.default_kind.and_then(step_execution_kind_from_default),
+            }
         })
         .collect::<Vec<_>>();
     if synthesize_defaults {

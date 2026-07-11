@@ -20,6 +20,7 @@ fn plan_member_execution(
         build_root: member.member_root.join(".fol/build"),
         cache_root: member.member_root.join(".fol/cache"),
         git_cache_root: member.member_root.join(".fol/cache/git"),
+        install_prefix: member.member_root.join(".fol/install"),
     };
     super::super::plan_member_execution(&workspace, member, config)
 }
@@ -370,6 +371,7 @@ fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let error = execute_workspace_build_route(
@@ -674,6 +676,7 @@ fn execute_workspace_build_route_rejects_echo_for_mem_model_artifacts() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let error = execute_workspace_build_route(
@@ -742,6 +745,7 @@ fn execute_workspace_build_route_rejects_heap_backed_types_for_core_model_artifa
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let error = execute_workspace_build_route(
@@ -806,6 +810,7 @@ fn execute_workspace_build_route_rejects_dynamic_len_for_core_model_artifacts() 
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let error = execute_workspace_build_route(
@@ -874,6 +879,7 @@ fn execute_workspace_build_route_accepts_dynamic_len_for_mem_model_artifacts() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     execute_workspace_build_route(
@@ -932,6 +938,7 @@ fn execute_workspace_build_route_emits_core_runtime_module_imports() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = execute_workspace_build_route(
@@ -1000,6 +1007,7 @@ fn execute_workspace_build_route_emits_mem_runtime_module_imports() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = execute_workspace_build_route(
@@ -1071,7 +1079,10 @@ fn execute_workspace_build_route_emits_std_runtime_module_imports() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
+
+    crate::fetch_workspace(&workspace).expect("bundled std should materialize before build");
 
     let result = execute_workspace_build_route(
         &workspace,
@@ -1135,6 +1146,7 @@ fn execute_workspace_build_route_rejects_run_for_selected_core_model_artifacts()
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = execute_workspace_build_route(
@@ -1148,8 +1160,8 @@ fn execute_workspace_build_route_rejects_run_for_selected_core_model_artifacts()
     )
     .expect("core-model selected run should remain routable");
 
-    assert_eq!(result.steps.len(), 1);
-    assert!(result.summary.contains("executed"));
+    assert_eq!(result.artifacts.len(), 1);
+    assert!(result.summary.contains("ran"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1195,6 +1207,7 @@ fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts()
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = execute_workspace_build_route(
@@ -1208,8 +1221,8 @@ fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts()
     )
     .expect("memo-model selected test should remain routable");
 
-    assert_eq!(result.steps.len(), 1);
-    assert!(result.summary.contains("executed"));
+    assert_eq!(result.artifacts.len(), 1);
+    assert!(result.summary.contains("tested"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1224,19 +1237,39 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
             .expect("system time before epoch")
             .as_nanos()
     ));
-    fs::create_dir_all(root.join("app")).unwrap();
-    fs::create_dir_all(root.join("core")).unwrap();
+    // Capability models are declared per package, so a mixed-model route is
+    // a workspace of one hosted member and one core member; named run steps
+    // route to the member that defines them.
+    fs::create_dir_all(root.join("host/src")).unwrap();
+    fs::create_dir_all(root.join("blink/src")).unwrap();
     fs::write(
-        root.join("build.fol"),
+        root.join("host/build.fol"),
         concat!(
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
-            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
-            "    var graph = .graph();\n",
+            "    build.meta({ name = \"host\", version = \"0.1.0\" });\n",
             "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
-            "    var host = graph.add_exe({ name = \"host\", root = \"app/main.fol\", fol_model = \"memo\" });\n",
-            "    var blink = graph.add_exe({ name = \"blink\", root = \"core/main.fol\", fol_model = \"core\" });\n",
+            "    var graph = build.graph();\n",
+            "    var host = graph.add_exe({ name = \"host\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
             "    graph.add_run(\"host_run\", host);\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("host/src/main.fol"),
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    var shown: str = std::io::echo_str(\"ok\");\n    return .len(shown) - .len(shown);\n};\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("blink/build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"blink\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var blink = graph.add_exe({ name = \"blink\", root = \"src/main.fol\", fol_model = \"core\" });\n",
             "    graph.add_run(\"blink_run\", blink);\n",
             "    return;\n",
             "};\n",
@@ -1244,24 +1277,25 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
     )
     .unwrap();
     fs::write(
-        root.join("app/main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    var shown: str = std::io::echo_int(7);\n    return .len(shown);\n};\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("core/main.fol"),
+        root.join("blink/src/main.fol"),
         "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     let workspace = FrontendWorkspace {
         root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        members: vec![
+            PackageRoot::new(root.join("host")),
+            PackageRoot::new(root.join("blink")),
+        ],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
+
+    crate::fetch_workspace(&workspace).expect("bundled std should materialize before run");
 
     let result = execute_workspace_build_route(
         &workspace,
@@ -1274,8 +1308,22 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
     )
     .expect("non-hosted custom run steps should remain routable");
 
-    assert_eq!(result.steps.len(), 1);
-    assert!(result.summary.contains("executed"));
+    assert_eq!(result.artifacts.len(), 1);
+    assert!(result.summary.contains("ran"));
+
+    let hosted = execute_workspace_build_route(
+        &workspace,
+        &FrontendConfig::default(),
+        &FrontendWorkspaceBuildRequest {
+            requested_step: "host_run".to_string(),
+            profile: FrontendProfile::Debug,
+            run_args: Vec::new(),
+        },
+    )
+    .expect("hosted custom run steps should remain routable");
+
+    assert_eq!(hosted.artifacts.len(), 1);
+    assert!(hosted.summary.contains("ran"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1290,48 +1338,57 @@ fn execute_workspace_build_route_build_summary_lists_all_models_for_mixed_worksp
             .expect("system time before epoch")
             .as_nanos()
     ));
-    fs::create_dir_all(root.join("app")).unwrap();
-    fs::create_dir_all(root.join("core")).unwrap();
-    fs::create_dir_all(root.join("memo")).unwrap();
+    let core_pkg = root.join("core_pkg");
+    let memo_pkg = root.join("memo_pkg");
+    fs::create_dir_all(core_pkg.join("src")).unwrap();
+    fs::create_dir_all(memo_pkg.join("src")).unwrap();
     fs::write(
-        root.join("build.fol"),
+        core_pkg.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
-            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
-            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+            "    build.meta({ name = \"core_pkg\", version = \"0.1.0\" });\n",
             "    var graph = build.graph();\n",
-            "    graph.add_exe({ name = \"tool\", root = \"app/main.fol\", fol_model = \"memo\" });\n",
-            "    graph.add_static_lib({ name = \"blink\", root = \"core/lib.fol\", fol_model = \"core\" });\n",
-            "    graph.add_static_lib({ name = \"heap\", root = \"memo/lib.fol\", fol_model = \"memo\" });\n",
+            "    var app = graph.add_exe({ name = \"core_pkg\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+            "    graph.install(app);\n",
             "    return;\n",
             "};\n",
         ),
     )
     .unwrap();
     fs::write(
-        root.join("app/main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    var shown: str = std::io::echo_int(7);\n    return .len(shown);\n};\n",
+        core_pkg.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("core/lib.fol"),
-        "fun[] helper(): int = {\n    return 1;\n};\n",
+        memo_pkg.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"memo_pkg\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"memo_pkg\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+            "    graph.install(app);\n",
+            "    return;\n",
+            "};\n",
+        ),
     )
     .unwrap();
     fs::write(
-        root.join("memo/lib.fol"),
-        "fun[] helper(): int = {\n    var values: seq[int] = {1};\n    return .len(values);\n};\n",
+        memo_pkg.join("src/main.fol"),
+        "fun[] main(): int = {\n    var values: seq[int] = {1};\n    return .len(values) - .len(values);\n};\n",
     )
     .unwrap();
     let workspace = FrontendWorkspace {
         root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        members: vec![PackageRoot::new(core_pkg), PackageRoot::new(memo_pkg)],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     let result = execute_workspace_build_route(
@@ -1379,12 +1436,12 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
     .unwrap();
     fs::write(
         root.join("src/main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    var shown: str = std::io::echo_int(7);\n    return .len(shown);\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    var shown: str = std::io::echo_str(\"ok\");\n    return .len(shown) - .len(shown);\n};\n",
     )
     .unwrap();
     fs::write(
         root.join("src/tests.fol"),
-        "fun[] main(): int = {\n    return 0;\n};\n",
+        "fun[] verify_suite(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     let workspace = FrontendWorkspace {
@@ -1395,7 +1452,10 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
+
+    crate::fetch_workspace(&workspace).expect("bundled std should materialize before run");
 
     let result = execute_workspace_build_route(
         &workspace,

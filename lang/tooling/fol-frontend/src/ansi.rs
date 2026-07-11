@@ -167,9 +167,19 @@ impl Colored for &String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // The `ENABLED` flag these tests toggle is process-global, so they must not
+    // run concurrently or they race and observe each other's state.
+    static TEST_GUARD: Mutex<()> = Mutex::new(());
+
+    fn guard() -> std::sync::MutexGuard<'static, ()> {
+        TEST_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn trait_methods_emit_escape_sequences_when_enabled() {
+        let _guard = guard();
         set_enabled(true);
         assert_eq!(format!("{}", "hi".cyan()), "\x1b[36mhi\x1b[0m");
         assert_eq!(format!("{}", "err".red().bold()), "\x1b[31;1merr\x1b[0m");
@@ -178,6 +188,7 @@ mod tests {
 
     #[test]
     fn trait_methods_pass_through_when_disabled() {
+        let _guard = guard();
         set_enabled(false);
         assert_eq!(format!("{}", "hi".cyan()), "hi");
         assert_eq!(format!("{}", "err".red().bold()), "err");
@@ -186,6 +197,7 @@ mod tests {
 
     #[test]
     fn chained_modifiers_combine() {
+        let _guard = guard();
         set_enabled(true);
         let s = format!("{}", "warn".bold().yellow().underline());
         assert!(s.starts_with("\x1b[1;33;4m"));
@@ -195,6 +207,7 @@ mod tests {
 
     #[test]
     fn string_and_str_ref_both_work() {
+        let _guard = guard();
         set_enabled(true);
         let owned = String::from("owned");
         let from_owned = format!("{}", owned.red());
