@@ -118,7 +118,7 @@ __FOL_SHELL_TYPE_LINES__
 (ali_decl target: (type_expr (qualified_path) @type))
 (error_type "/" @operator)
 (param name: (identifier) @variable.parameter)
-(type_block (typed_binding name: (identifier) @property))
+(record_field (typed_binding name: (identifier) @property))
 (var_decl (typed_binding name: (identifier) @constant)
   (#match? @constant "^[A-Z][A-Z0-9_]*$"))
 (var_decl (typed_binding name: (identifier) @variable)

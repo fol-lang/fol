@@ -586,7 +586,7 @@ mod tests {
             "(param type: (type_expr (qualified_path) @type))",
             "(return_type (type_expr (qualified_path) @type))",
             "(error_type \"/\" @operator)",
-            "(type_block (typed_binding name: (identifier) @property))",
+            "(record_field (typed_binding name: (identifier) @property))",
             "(var_decl (typed_binding name: (identifier) @constant)",
             "(var_decl (typed_binding name: (identifier) @variable)",
             "(con_decl (typed_binding name: (identifier) @constant))",

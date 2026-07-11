@@ -114,8 +114,9 @@ module.exports = grammar({
     shell_type: $ => seq(choice('opt', 'err'), '[', $.type_expr, ']'),
 
     block: $ => seq('{', repeat(choice($.stmt, ';')), optional($.expr), '}'),
-    type_block: $ => seq('{', repeat(choice($.var_decl, $.field_decl, $.typed_binding, ';', ',', $.comment, $.doc_comment)), '}'),
+    type_block: $ => seq('{', repeat(choice($.var_decl, $.field_decl, $.record_field, ';', ',', $.comment, $.doc_comment)), '}'),
     field_decl: $ => seq('var', optional(field('modifiers', $.decl_modifiers)), $.typed_binding),
+    record_field: $ => prec.right(seq($.typed_binding, optional(seq('=', field('default', $.expr))))),
     standard_block: $ => seq(
       '{',
       repeat(choice(

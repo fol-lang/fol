@@ -1759,7 +1759,7 @@
               },
               {
                 "type": "SYMBOL",
-                "name": "typed_binding"
+                "name": "record_field"
               },
               {
                 "type": "STRING",
@@ -1814,6 +1814,44 @@
           "name": "typed_binding"
         }
       ]
+    },
+    "record_field": {
+      "type": "PREC_RIGHT",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "typed_binding"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": "="
+                  },
+                  {
+                    "type": "FIELD",
+                    "name": "default",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "expr"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          }
+        ]
+      }
     },
     "standard_block": {
       "type": "SEQ",
