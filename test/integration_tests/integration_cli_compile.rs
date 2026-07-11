@@ -2769,3 +2769,64 @@ use super::*;
 
         fs::remove_dir_all(&temp_root).ok();
     }
+
+    #[test]
+    fn test_code_run_forwards_program_output() {
+        use std::fs;
+
+        // `fol code run` must be transparent to the executed program's own
+        // stdout, not swallow it behind the run summary.
+        let temp_root = unique_temp_root("code_run_forwards_output");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create run-output fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"code_run_forwards_output\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"code_run_forwards_output\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write run-output build file");
+        // Echo a distinctive value that cannot collide with path hashes or
+        // the run summary text.
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var shown: int = std::io::echo_int(987654);\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write run-output source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let run = run_fol_in_dir(&temp_root, &["code", "run"]);
+        assert!(
+            run.status.success(),
+            "code run should succeed: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert!(
+            combined.contains("987654"),
+            "code run should forward the program's echoed value: {combined}"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }

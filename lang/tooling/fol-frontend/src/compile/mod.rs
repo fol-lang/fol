@@ -5,6 +5,22 @@ use crate::{
 use fol_build::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
 use std::{fs, path::Path};
 
+/// Write an executed program's captured stdout/stderr through to the
+/// frontend's own streams so `run` stays transparent to child output.
+fn forward_child_output(stdout: &[u8], stderr: &[u8]) {
+    use std::io::Write;
+    if !stdout.is_empty() {
+        let mut out = std::io::stdout();
+        let _ = out.write_all(stdout);
+        let _ = out.flush();
+    }
+    if !stderr.is_empty() {
+        let mut err = std::io::stderr();
+        let _ = err.write_all(stderr);
+        let _ = err.flush();
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -343,11 +359,11 @@ pub fn run_workspace_with_args_and_config(
         .output()
         .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
 
+    // Forward the executed program's own output; `run` should be
+    // transparent to the child's stdout/stderr, not swallow it.
+    forward_child_output(&output.stdout, &output.stderr);
+
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
-            eprint!("{stderr}");
-        }
         return Err(FrontendError::new(
             FrontendErrorKind::CommandFailed,
             format!(
@@ -424,11 +440,11 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
         .output()
         .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
 
+    // Forward the executed program's own output; `run` should be
+    // transparent to the child's stdout/stderr, not swallow it.
+    forward_child_output(&output.stdout, &output.stderr);
+
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
-            eprint!("{stderr}");
-        }
         return Err(FrontendError::new(
             FrontendErrorKind::CommandFailed,
             format!(
