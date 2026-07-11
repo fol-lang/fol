@@ -300,6 +300,9 @@ impl AstParser {
         match self.previous_significant_key(tokens) {
             None => true,
             Some(KEYWORD::Symbol(SYMBOL::CurlyO)) => true,
+            // Block-terminated statements (when/loop/for bodies) end at `}`
+            // with no `;`, so a following identifier starts a new statement.
+            Some(KEYWORD::Symbol(SYMBOL::CurlyC)) => true,
             Some(KEYWORD::Symbol(SYMBOL::Semi)) => true,
             Some(key) if key.is_terminal() => true,
             _ => false,
