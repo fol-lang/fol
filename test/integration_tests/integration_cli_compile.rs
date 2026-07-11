@@ -2414,6 +2414,197 @@ use super::*;
     }
 
     #[test]
+    fn test_statement_position_qualified_calls_resolve_and_run() {
+        use std::fs;
+
+        // Pins that a multi-segment qualified call used as a bare statement
+        // (`std::io::echo_int(7);`) resolves and executes exactly like the
+        // same call in expression position. Statement- and expression-position
+        // qualified calls must share one resolver path.
+        let temp_root = unique_temp_root("statement_qualified_calls");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create statement-qualified fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"statement_qualified_calls\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"statement_qualified_calls\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write statement-qualified build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    std::io::echo_int(7);\n",
+                "    var shown: int = std::io::echo_int(8);\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write statement-qualified source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            build.status.success(),
+            "statement-qualified fixture should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let bin_dir = temp_root.join(".fol/build/debug/bin/host");
+        let binary = fs::read_dir(&bin_dir)
+            .expect("Should list installed binaries")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .find(|path| path.is_file())
+            .expect("statement-qualified fixture should install a binary");
+        let run = std::process::Command::new(&binary)
+            .output()
+            .expect("installed binary should execute");
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(run.status.success(), "binary should exit cleanly: {stdout}");
+        let echoed = stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<i64>().ok())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            echoed,
+            vec![7, 8],
+            "statement- and expression-position qualified calls both run: stdout=\n{stdout}"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_hardening_round6_generics_and_loops_compute_correct_runtime_values() {
+        use std::fs;
+
+        // End-to-end pins for three silent-miscompile / hard-error fixes:
+        //  - a `var` declared inside a for-in loop body lowers into the loop
+        //    binder scope (previously T1099);
+        //  - a bare entry-variant access flows through argument-driven generic
+        //    inference as the entry type, and lowers to a constructed entry
+        //    value rather than a raw payload (previously a backend type
+        //    mismatch);
+        //  - a constrained generic routine that forwards its generic argument
+        //    to another constrained template monomorphizes correctly
+        //    (previously L1002).
+        let temp_root = unique_temp_root("hardening_round6_runtime");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create round6 fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"hardening_round6_runtime\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"hardening_round6_runtime\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write round6 build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "std geo: pro = {\n",
+                "    fun area(): int;\n",
+                "};\n",
+                "\n",
+                "typ Rect()(geo): rec = {\n",
+                "    var w: int;\n",
+                "};\n",
+                "\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 5;\n",
+                "};\n",
+                "\n",
+                "fun inner(T: geo)(v: T): int = {\n",
+                "    return v.area();\n",
+                "};\n",
+                "\n",
+                "fun outer(T: geo)(v: T): int = {\n",
+                "    return inner(v);\n",
+                "};\n",
+                "\n",
+                "typ Status: ent = {\n",
+                "    var OK: int = 1;\n",
+                "    var BAD: int = 2;\n",
+                "};\n",
+                "\n",
+                "fun pick(T)(v: T): T = {\n",
+                "    return v;\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var xs: seq[int] = {1, 2, 4};\n",
+                "    var total: int = 0;\n",
+                "    for (x in xs) {\n",
+                "        var extra: int = 1;\n",
+                "        total = total + x + extra;\n",
+                "    }\n",
+                "    var shown_total: int = std::io::echo_int(total);\n",
+                "    var s: Status = pick(Status.OK);\n",
+                "    var r: Rect = { w = 1 };\n",
+                "    var shown_area: int = std::io::echo_int(outer(r));\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write round6 source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            build.status.success(),
+            "round6 fixture should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let bin_dir = temp_root.join(".fol/build/debug/bin/host");
+        let binary = fs::read_dir(&bin_dir)
+            .expect("Should list installed binaries")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .find(|path| path.is_file())
+            .expect("round6 fixture should install a binary");
+        let run = std::process::Command::new(&binary)
+            .output()
+            .expect("installed binary should execute");
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(run.status.success(), "binary should exit cleanly: {stdout}");
+        let echoed = stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<i64>().ok())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            echoed,
+            vec![10, 5],
+            "loop-body sum (1+1 + 2+1 + 4+1 = 10) and two-level constrained area (5): stdout=\n{stdout}"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_record_defaults_and_positional_init_compute_correct_runtime_values() {
         use std::fs;
 

@@ -2359,3 +2359,101 @@ fn map_index_keys_follow_the_declared_key_type() {
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
+
+#[test]
+fn var_declarations_inside_for_loop_bodies_lower_into_the_binder_scope() {
+    // Regression: a `var` declared in a for-in loop body lives in the loop's
+    // dedicated binder scope, not the routine scope. The nested-declaration
+    // pre-pass must lower it against that scope, otherwise the binding is
+    // absent from typed lowering (T1099). An if/else or when-case body already
+    // worked; the loop-body arm mirrors that mechanism.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var xs: seq[int] = {1, 2, 4};\n\
+             var total: int = 0;\n\
+             for (x in xs) {\n\
+                 var extra: int = 1;\n\
+                 total = total + x + extra;\n\
+             }\n\
+             return total;\n\
+         };\n",
+    )]);
+    let (_extra_id, extra) = find_typed_symbol(&typed, "extra", SymbolKind::ValueBinding);
+    assert_eq!(
+        extra
+            .declared_type
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        "loop-body binding 'extra' should carry its declared type in typed lowering"
+    );
+}
+
+#[test]
+fn generic_call_infers_entry_type_from_a_bare_variant_argument() {
+    // Regression: a bare entry-variant access (`Status.OK`) with no concrete
+    // expectation denotes a value of the ENTRY type, not the variant payload.
+    // Argument-driven generic inference must therefore bind the type parameter
+    // to `Status`, so the `Status`-typed initializer matches (previously T
+    // bound to the payload `int`, producing a T1003 initializer mismatch).
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Status: ent = {\n\
+             var OK: int = 1;\n\
+             var BAD: int = 2;\n\
+         };\n\
+         fun pick(T)(v: T): T = {\n\
+             return v;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var s: Status = pick(Status.OK);\n\
+             return 0;\n\
+         };\n",
+    )]);
+    let (status_id, _status) = find_typed_symbol(&typed, "Status", SymbolKind::Type);
+    let (_s_id, s) = find_typed_symbol(&typed, "s", SymbolKind::ValueBinding);
+    assert_eq!(
+        s.declared_type
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Declared {
+            symbol: status_id,
+            name: "Status".to_string(),
+            kind: DeclaredTypeKind::Type,
+        }),
+        "the entry-typed binding 's' should keep its declared entry type"
+    );
+}
+
+#[test]
+fn statements_after_block_terminated_statements_parse_as_statements() {
+    // Block-terminated statements (`when`/`loop`) end at `}` without `;`;
+    // the following qualified call and assignment must start fresh
+    // statements instead of falling into expression parsing.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] seven(): int = {\n\
+             return 7;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var total: int = 0;\n\
+             loop(false) {\n\
+                 var extra: int = 1;\n\
+             }\n\
+             total = seven();\n\
+             when(true) {\n\
+                 case(true) { var a: int = 1; }\n\
+                 * { var b: int = 2; }\n\
+             }\n\
+             return total;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}

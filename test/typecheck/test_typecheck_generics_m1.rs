@@ -1248,3 +1248,43 @@ fn record_type_mismatch_messages_render_without_debug_formatting() {
         "record type mismatch message leaked Debug formatting: {errors:#?}"
     );
 }
+
+#[test]
+fn two_level_constrained_generic_forwarding_typechecks() {
+    // A constrained generic routine that forwards its generic argument to
+    // another constrained template must typecheck: `outer`'s `v: T` satisfies
+    // `inner`'s `T: geo` constraint by carrying the same constraint. The
+    // monomorphization-stage propagation of these bindings is pinned in the
+    // fol-lower mono tests (`two_level_constrained_templates_propagate_bindings`).
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var w: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 5;\n\
+         };\n\
+         fun inner(T: geo)(v: T): int = {\n\
+             return v.area();\n\
+         };\n\
+         fun outer(T: geo)(v: T): int = {\n\
+             return inner(v);\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var r: Rect = { w = 1 };\n\
+             return outer(r);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
