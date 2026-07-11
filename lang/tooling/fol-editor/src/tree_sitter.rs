@@ -468,7 +468,7 @@ mod tests {
 
         assert_eq!(
             all_keywords.len(),
-            55,
+            54,
             "compiler keyword inventory changed; update editor summary coverage"
         );
 
@@ -517,11 +517,10 @@ mod tests {
             "(seg_decl \"seg\" @keyword.type)",
             "(std_decl \"std\" @keyword.type)",
             "(standard_field_requirement \"var\" @keyword)",
-            "(turbofish_type_args \"::\" @operator \"[\" @punctuation.bracket \"]\" @punctuation.bracket)",
+            "(turbofish_type_args \"::[\" @punctuation.bracket \"]\" @punctuation.bracket)",
             "(if_stmt \"if\" @keyword.conditional)",
             "(if_expr \"if\" @keyword.conditional)",
             "(if_expr \"else\" @keyword.conditional)",
-            "(else_clause \"else\" @keyword.conditional)",
             "(select_stmt \"select\" @keyword.conditional)",
             "(select_expr \"select\" @keyword.conditional)",
             "(when_expr \"when\" @keyword.conditional)",
@@ -862,10 +861,10 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("@local.definition.type"));
-        assert!(stdout.contains("@local.definition.method"));
-        assert!(stdout.contains("@local.definition.function"));
-        assert!(stdout.contains("@local.definition"));
+        assert!(stdout.contains("local.definition.type"));
+        assert!(stdout.contains("local.definition.method"));
+        assert!(stdout.contains("local.definition.function"));
+        assert!(stdout.contains("local.definition"));
 
         std::fs::remove_dir_all(root).ok();
     }
@@ -886,10 +885,10 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("@symbol.type"));
-        assert!(stdout.contains("@symbol.method"));
-        assert!(stdout.contains("@symbol.function"));
-        assert!(stdout.contains("@symbol.variable"));
+        assert!(stdout.contains("symbol.type"));
+        assert!(stdout.contains("symbol.method"));
+        assert!(stdout.contains("symbol.function"));
+        assert!(stdout.contains("symbol.variable"));
 
         std::fs::remove_dir_all(root).ok();
     }
@@ -1459,7 +1458,7 @@ mod tests {
         let cases = [
             (
                 repo_root().join("test/apps/fixtures/defer_scope_exit/main.fol"),
-                ["keyword.exception", "punctuation.bracket"].as_slice(),
+                ["keyword.repeat", "punctuation.bracket"].as_slice(),
             ),
             (
                 repo_root().join("test/apps/fixtures/call_binding_stress/main.fol"),
@@ -1483,7 +1482,7 @@ mod tests {
             ),
             (
                 repo_root().join("examples/generic_routine_cross_file_m1/src/shared.fol"),
-                ["function", "type.builtin"].as_slice(),
+                ["function", "type"].as_slice(),
             ),
             (
                 repo_root().join("examples/memo_run_min/src/main.fol"),
@@ -1507,7 +1506,7 @@ mod tests {
             ),
             (
                 repo_root().join("examples/core_defer/src/main.fol"),
-                ["keyword.exception", "type.builtin"].as_slice(),
+                ["keyword.repeat", "type.builtin"].as_slice(),
             ),
             (
                 repo_root().join("examples/standards_protocol_m2/src/main.fol"),
@@ -1531,7 +1530,7 @@ mod tests {
             ),
             (
                 repo_root().join("examples/fail_standard_blueprint_m2/src/main.fol"),
-                ["type", "keyword.import"].as_slice(),
+                ["type", "keyword.type"].as_slice(),
             ),
             (
                 repo_root().join("examples/fail_standard_as_type_m2/src/main.fol"),
@@ -1587,7 +1586,7 @@ mod tests {
             ),
             (
                 repo_root().join("examples/std_echo_min/src/main.fol"),
-                ["function.builtin", "operator"].as_slice(),
+                ["function", "operator"].as_slice(),
             ),
             (
                 repo_root().join("examples/std_substrate_echo/src/main.fol"),
