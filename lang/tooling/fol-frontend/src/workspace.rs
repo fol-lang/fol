@@ -184,24 +184,29 @@ pub fn enumerate_member_packages(
     workspace_root: &WorkspaceRoot,
     member_paths: &[PathBuf],
 ) -> FrontendResult<Vec<PackageRoot>> {
-    member_paths
-        .iter()
-        .map(|member| {
-            let absolute = absolute_member_root(&workspace_root.root, member);
-            let control_file = absolute.join(crate::PACKAGE_FILE_NAME);
-            if !control_file.is_file() {
-                return Err(FrontendError::new(
-                    FrontendErrorKind::InvalidInput,
-                    format!(
-                        "workspace member '{}' is missing '{}'",
-                        absolute.display(),
-                        crate::PACKAGE_FILE_NAME
-                    ),
-                ));
-            }
-            Ok(PackageRoot::new(absolute))
-        })
-        .collect()
+    let mut seen = std::collections::BTreeSet::new();
+    let mut members = Vec::new();
+    for member in member_paths {
+        let absolute = absolute_member_root(&workspace_root.root, member);
+        // The same package root listed twice would be built/checked twice
+        // (and risk a double emit); collapse duplicates to one member.
+        if !seen.insert(absolute.clone()) {
+            continue;
+        }
+        let control_file = absolute.join(crate::PACKAGE_FILE_NAME);
+        if !control_file.is_file() {
+            return Err(FrontendError::new(
+                FrontendErrorKind::InvalidInput,
+                format!(
+                    "workspace member '{}' is missing '{}'",
+                    absolute.display(),
+                    crate::PACKAGE_FILE_NAME
+                ),
+            ));
+        }
+        members.push(PackageRoot::new(absolute));
+    }
+    Ok(members)
 }
 
 pub fn load_workspace_config(
@@ -220,6 +225,7 @@ pub fn load_workspace_config(
 
     let mut config = FrontendWorkspaceConfig::default();
     let mut in_members = false;
+    let mut declared_members = false;
 
     for line in raw.lines() {
         let trimmed = line.trim();
@@ -268,6 +274,7 @@ pub fn load_workspace_config(
                     ));
                 }
                 in_members = true;
+                declared_members = true;
             }
             "std_root" => config.std_root_override = Some(PathBuf::from(strip_quotes(value))),
             "package_store_root" => {
@@ -292,6 +299,16 @@ pub fn load_workspace_config(
                 ))
             }
         }
+    }
+
+    if declared_members && config.members.is_empty() {
+        return Err(FrontendError::new(
+            FrontendErrorKind::InvalidInput,
+            format!(
+                "workspace config '{}' declares 'members:' but lists none; add at least one member",
+                workspace_root.config_file.display()
+            ),
+        ));
     }
 
     Ok(config)

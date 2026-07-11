@@ -2830,3 +2830,58 @@ use super::*;
 
         fs::remove_dir_all(&temp_root).ok();
     }
+
+    #[test]
+    fn test_check_validates_artifact_roots_and_workspace_members() {
+        use std::fs;
+
+        // check must reject an artifact whose declared root names no source
+        // file, instead of reporting a false clean and deferring to build.
+        let temp_root = unique_temp_root("check_root_validation");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create root-validation fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"check_root_validation\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"check_root_validation\", root = \"src/missing.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write root-validation build file");
+        fs::write(
+            temp_root.join("src/other.fol"),
+            "fun[] main(): int = {\n    return 0;\n};\n",
+        )
+        .expect("Should write unrelated source");
+
+        let check = run_fol_in_dir(&temp_root, &["code", "check"]);
+        assert!(
+            !check.status.success(),
+            "check should reject a missing artifact root"
+        );
+        let stderr = String::from_utf8_lossy(&check.stderr);
+        assert!(
+            stderr.contains("no such source file exists"),
+            "check should surface the missing root: {stderr}"
+        );
+
+        // Pointing the root at the real file makes check clean.
+        let build = fs::read_to_string(temp_root.join("build.fol"))
+            .expect("reread build")
+            .replace("src/missing.fol", "src/other.fol");
+        fs::write(temp_root.join("build.fol"), build).expect("rewrite build");
+        let ok = run_fol_in_dir(&temp_root, &["code", "check"]);
+        assert!(
+            ok.status.success(),
+            "check should pass once the root exists: {}",
+            String::from_utf8_lossy(&ok.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }

@@ -105,6 +105,54 @@ fn declared_capability_model_for_package(root: &std::path::Path) -> fol_backend:
     }
 }
 
+/// Verify each declared artifact's `root` points at a real source file, so
+/// `check` surfaces a missing entry instead of reporting a false clean and
+/// deferring the failure to `build`.
+fn validate_declared_artifact_roots(root: &std::path::Path) -> FrontendResult<()> {
+    let build_path = root.join("build.fol");
+    let Some(source) = fs::read_to_string(&build_path).ok() else {
+        return Ok(());
+    };
+    let evaluated = evaluate_build_source(
+        &BuildEvaluationRequest {
+            package_root: root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: root.display().to_string(),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        },
+        &build_path,
+        &source,
+    )
+    .ok()
+    .flatten();
+    let Some(evaluated) = evaluated else {
+        return Ok(());
+    };
+
+    for artifact in &evaluated.evaluated.artifacts {
+        // Roots are folder-relative source-file selectors (e.g.
+        // "src/main.fol"); an entry root that names no file cannot build.
+        if artifact.root_module.trim().is_empty() {
+            continue;
+        }
+        let candidate = root.join(&artifact.root_module);
+        if !candidate.is_file() {
+            return Err(FrontendError::new(
+                FrontendErrorKind::InvalidInput,
+                format!(
+                    "artifact '{}' declares root '{}' but no such source file exists in package '{}'",
+                    artifact.name,
+                    artifact.root_module,
+                    root.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn summarize_capability_modes<I>(models: I) -> String
 where
     I: IntoIterator<Item = fol_backend::BackendFolModel>,
@@ -156,6 +204,9 @@ pub fn check_workspace_with_config(
         crate::fetch_workspace_with_config(workspace, config)?;
     }
     for member in &workspace.members {
+        // A declared entry root that names no file is a build-blocking error
+        // that check should surface, not defer.
+        validate_declared_artifact_roots(&member.root)?;
         // Check under the member's declared capability model so core/memo
         // legality surfaces at check time, not first at build time.
         let fol_model = effective_runtime_model_for_package(
