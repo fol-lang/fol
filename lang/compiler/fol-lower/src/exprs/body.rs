@@ -94,11 +94,11 @@ pub(crate) fn lower_routine_bodies(
                 // lower into a routine body.
                 continue;
             }
-            let Some(symbol_id) = crate::decls::find_local_symbol_id(
+            let Some(symbol_id) = crate::decls::find_routine_symbol_for_item(
                 &typed_package.program,
                 source_unit_id,
-                SymbolKind::Routine,
                 name,
+                syntax_id,
             ) else {
                 errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
@@ -550,6 +550,25 @@ pub(crate) fn lower_body_node(
             Ok(None)
         }
         AstNode::FunctionCall {
+            surface: fol_parser::ast::CallSurface::DotIntrinsic,
+            ..
+        } => {
+            // Statement-position dot intrinsics (`.echo(x);`) lower through
+            // the expression path — they never carry resolver references.
+            let _ = lower_expression(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                node,
+            )?;
+            Ok(None)
+        }
+        AstNode::FunctionCall {
             syntax_id,
             name,
             args,
@@ -697,6 +716,50 @@ pub(crate) fn lower_body_node(
                 scope_id,
                 object,
             )?;
+            // Constraint calls on generic parameters defer callee resolution
+            // to monomorphization; emit the placeholder instruction instead
+            // of resolving a concrete routine here.
+            if syntax_id
+                .is_some_and(|syntax_id| typed_package.program.is_constraint_call_site(syntax_id))
+            {
+                let typed_node =
+                    syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+                let result_type = typed_node
+                    .and_then(|node| node.inferred_type)
+                    .and_then(|checked_type| checked_type_map.get(&checked_type).copied());
+                let error_type = typed_node
+                    .and_then(|node| node.recoverable_effect)
+                    .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
+                let mut lowered_args = vec![receiver.local_id];
+                for arg in args {
+                    let value = lower_expression(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        arg,
+                    )?;
+                    lowered_args.push(value.local_id);
+                }
+                let result_local = result_type.map(|result_type| cursor.allocate_local(result_type, None));
+                cursor.push_instr(
+                    result_local,
+                    crate::control::LoweredInstrKind::ConstraintCall {
+                        method: method.clone(),
+                        args: lowered_args,
+                        error_type,
+                    },
+                )?;
+                return Ok(result_local.zip(result_type).map(|(local_id, type_id)| LoweredValue {
+                    local_id,
+                    type_id,
+                    recoverable_error_type: error_type,
+                }));
+            }
             let callee = resolve_method_target(
                 typed_package,
                 checked_type_map,

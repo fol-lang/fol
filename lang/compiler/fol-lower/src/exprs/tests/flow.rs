@@ -1,7 +1,5 @@
-use super::{
-    lower_fixture_error, lower_fixture_workspace, lower_folder_fixture_workspace,
-};
-use crate::{LoweredInstrKind, LoweredOperand, LoweredTerminator, LoweringErrorKind};
+use super::lower_fixture_workspace;
+use crate::{LoweredInstrKind, LoweredOperand, LoweredTerminator};
 use fol_parser::ast::AstParser;
 use fol_resolver::resolve_package_workspace;
 use fol_stream::FileStream;
@@ -19,6 +17,18 @@ fn collect_echoed_ints(routine: &crate::LoweredRoutine) -> Vec<i64> {
             LoweredInstrKind::Const(LoweredOperand::Int(value)) => {
                 if let Some(result) = instr.result {
                     local_ints.insert(result, *value);
+                }
+            }
+            LoweredInstrKind::StoreLocal { local, value } => {
+                if let Some(known) = local_ints.get(value).copied() {
+                    local_ints.insert(*local, known);
+                }
+            }
+            LoweredInstrKind::LoadLocal { local } => {
+                if let (Some(result), Some(known)) =
+                    (instr.result, local_ints.get(local).copied())
+                {
+                    local_ints.insert(result, known);
                 }
             }
             LoweredInstrKind::RuntimeHook { intrinsic, args } if *intrinsic == echo_id => {
@@ -52,12 +62,12 @@ fn expression_lowering_keeps_local_and_imported_value_call_parity() {
     fs::create_dir_all(&shared_dir).expect("should create shared dir");
     fs::write(
         app_dir.join("main.fol"),
-        "use shared: loc = {\"../shared\"}\nfun[] local_helper(): int = { 1 }\nfun[] main(): int = {\n    local_helper()\n    shared::twice(answer)\n}",
+        "use shared: loc = {\"../shared\"};\nfun[] local_helper(): int = { return 1; };\nfun[] main(): int = {\n    local_helper();\n    return shared::twice(answer);\n};",
     )
     .expect("should write app entry");
     fs::write(
         shared_dir.join("lib.fol"),
-        "var[exp] answer: int = 7\nfun[exp] twice(value: int): int = { value }",
+        "var[exp] answer: int = 7;\nfun[exp] twice(value: int): int = { return value; };",
     )
     .expect("should write shared library");
 
@@ -114,7 +124,7 @@ fn return_lowering_emits_explicit_return_terminators_and_skips_trailing_body_nod
             .expect("system clock should be monotonic enough for tmp names")
             .as_nanos()
     ));
-    std::fs::write(&fixture, "fun[] main(): int = {\n    return 1\n    2\n}")
+    std::fs::write(&fixture, "fun[] main(): int = {\n    return 1;\n    2;\n};")
         .expect("should write lowering return fixture");
 
     let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
@@ -167,9 +177,9 @@ fn return_lowering_emits_explicit_return_terminators_and_skips_trailing_body_nod
 fn defer_lowering_runs_registered_bodies_before_return_in_reverse_order() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer { .echo(1); };\n",
-        "    defer { .echo(2); };\n",
-        "    return 7\n",
+        "    defer { var first: int = .echo(1); };\n",
+        "    defer { var second: int = .echo(2); };\n",
+        "    return 7;\n",
         "};\n",
     ));
 
@@ -200,9 +210,9 @@ fn defer_lowering_keeps_local_bindings_inside_deferred_blocks() {
         "fun[] main(): int = {\n",
         "    defer {\n",
         "        var done: int = 1;\n",
-        "        .echo(done);\n",
+        "        var shown: int = .echo(done);\n",
         "    };\n",
-        "    return 7\n",
+        "    return 7;\n",
         "};\n",
     ));
 
@@ -224,12 +234,12 @@ fn defer_lowering_keeps_local_bindings_inside_deferred_blocks() {
 fn defer_lowering_runs_inner_scope_cleanup_before_outer_scope_cleanup() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer { .echo(1); };\n",
+        "    defer { var outer: int = .echo(1); };\n",
         "    {\n",
-        "        defer { .echo(2); };\n",
-        "        .echo(3);\n",
+        "        defer { var inner: int = .echo(2); };\n",
+        "        var body: int = .echo(3);\n",
         "    }\n",
-        "    return .echo(7)\n",
+        "    return .echo(7);\n",
         "};\n",
     ));
 
@@ -251,13 +261,13 @@ fn defer_lowering_runs_inner_scope_cleanup_before_outer_scope_cleanup() {
 fn defer_lowering_runs_loop_cleanup_before_break_and_outer_cleanup_before_return() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer { .echo(1); };\n",
+        "    defer { var outer: int = .echo(1); };\n",
         "    loop(true) {\n",
-        "        defer { .echo(2); };\n",
-        "        .echo(3);\n",
-        "        break\n",
+        "        defer { var inner: int = .echo(2); };\n",
+        "        var body: int = .echo(3);\n",
+        "        break;\n",
         "    }\n",
-        "    return .echo(7)\n",
+        "    return .echo(7);\n",
         "};\n",
     ));
 
@@ -279,8 +289,9 @@ fn defer_lowering_runs_loop_cleanup_before_break_and_outer_cleanup_before_return
 fn defer_lowering_runs_cleanup_before_report_terminators() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int / str = {\n",
-        "    defer { .echo(1); };\n",
-        "    report \"bad\"\n",
+        "    defer { var cleanup: int = .echo(1); };\n",
+        "    report \"bad\";\n",
+        "    return 7;\n",
         "};\n",
     ));
 
@@ -310,8 +321,8 @@ fn defer_lowering_runs_cleanup_before_report_terminators() {
 fn defer_lowering_runs_cleanup_before_panic_terminators() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer { .echo(1); };\n",
-        "    panic \"boom\"\n",
+        "    defer { var cleanup: int = .echo(1); };\n",
+        "    panic \"boom\";\n",
         "};\n",
     ));
 
@@ -348,7 +359,7 @@ fn report_lowering_emits_explicit_report_terminators_and_skips_trailing_body_nod
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol): int / bol = {\n    report flag\n    return 1\n}",
+        "fun[] main(flag: bol): int / bol = {\n    report flag;\n    return 1;\n};",
     )
     .expect("should write lowering report fixture");
 
@@ -411,7 +422,7 @@ fn when_statement_lowering_emits_branch_blocks_and_falls_through_afterward() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n    }\n    return 2\n}",
+        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n        * { 2 }\n    }\n    return 2;\n};",
     )
     .expect("should write lowering when fixture");
 
@@ -471,7 +482,7 @@ fn when_expression_lowering_stores_branch_values_into_one_join_local() {
     ));
     std::fs::write(
         &fixture,
-        "var yes: int = 1\nvar no: int = 2\nfun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n}",
+        "var yes: int = 1;\nvar no: int = 2;\nfun[] main(flag: bol): non = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n};",
     )
     .expect("should write lowering when-expression fixture");
 
@@ -529,7 +540,7 @@ fn when_expression_lowering_stores_branch_values_into_one_join_local() {
 }
 
 #[test]
-fn when_statement_lowering_keeps_a_three_block_shape_for_single_case_fallthrough() {
+fn when_statement_lowering_keeps_a_four_block_shape_for_case_default_fallthrough() {
     let fixture = super::safe_temp_dir().join(format!(
         "fol_lower_when_stmt_shape_{}.fol",
         std::time::SystemTime::now()
@@ -539,7 +550,7 @@ fn when_statement_lowering_keeps_a_three_block_shape_for_single_case_fallthrough
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n    }\n    return 2\n}",
+        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n        * { 2 }\n    }\n    return 2;\n};",
     )
     .expect("should write lowering when shape fixture");
 
@@ -565,25 +576,16 @@ fn when_statement_lowering_keeps_a_three_block_shape_for_single_case_fallthrough
         .find(|routine| routine.name == "main")
         .expect("main routine should exist");
 
-    assert_eq!(routine.blocks.len(), 3);
+    assert_eq!(routine.blocks.len(), 4);
     assert_eq!(
         routine
             .blocks
             .get(crate::LoweredBlockId(0))
             .and_then(|block| block.terminator.clone()),
         Some(LoweredTerminator::Branch {
-            condition: crate::LoweredLocalId(2),
-            then_block: crate::LoweredBlockId(1),
-            else_block: crate::LoweredBlockId(2),
-        })
-    );
-    assert_eq!(
-        routine
-            .blocks
-            .get(crate::LoweredBlockId(1))
-            .and_then(|block| block.terminator.clone()),
-        Some(LoweredTerminator::Jump {
-            target: crate::LoweredBlockId(2),
+            condition: crate::LoweredLocalId(3),
+            then_block: crate::LoweredBlockId(2),
+            else_block: crate::LoweredBlockId(3),
         })
     );
     assert_eq!(
@@ -591,8 +593,26 @@ fn when_statement_lowering_keeps_a_three_block_shape_for_single_case_fallthrough
             .blocks
             .get(crate::LoweredBlockId(2))
             .and_then(|block| block.terminator.clone()),
+        Some(LoweredTerminator::Jump {
+            target: crate::LoweredBlockId(1),
+        })
+    );
+    assert_eq!(
+        routine
+            .blocks
+            .get(crate::LoweredBlockId(3))
+            .and_then(|block| block.terminator.clone()),
+        Some(LoweredTerminator::Jump {
+            target: crate::LoweredBlockId(1),
+        })
+    );
+    assert_eq!(
+        routine
+            .blocks
+            .get(crate::LoweredBlockId(1))
+            .and_then(|block| block.terminator.clone()),
         Some(LoweredTerminator::Return {
-            value: Some(crate::LoweredLocalId(4)),
+            value: Some(crate::LoweredLocalId(7)),
         })
     );
 }
@@ -608,7 +628,7 @@ fn when_expression_lowering_keeps_branch_default_and_join_block_shape() {
     ));
     std::fs::write(
         &fixture,
-        "var yes: int = 1\nvar no: int = 2\nfun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n}",
+        "var yes: int = 1;\nvar no: int = 2;\nfun[] main(flag: bol): non = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n};",
     )
     .expect("should write lowering when-expression shape fixture");
 
@@ -641,7 +661,7 @@ fn when_expression_lowering_keeps_branch_default_and_join_block_shape() {
             .get(crate::LoweredBlockId(0))
             .and_then(|block| block.terminator.clone()),
         Some(LoweredTerminator::Branch {
-            condition: crate::LoweredLocalId(2),
+            condition: crate::LoweredLocalId(3),
             then_block: crate::LoweredBlockId(2),
             else_block: crate::LoweredBlockId(3),
         })
@@ -671,7 +691,7 @@ fn when_expression_lowering_keeps_branch_default_and_join_block_shape() {
             .and_then(|block| block.terminator.clone()),
         None
     );
-    assert_eq!(routine.body_result, Some(crate::LoweredLocalId(3)));
+    assert_eq!(routine.body_result, Some(crate::LoweredLocalId(5)));
 }
 
 #[test]
@@ -685,7 +705,7 @@ fn loop_condition_lowering_keeps_header_body_and_exit_blocks() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        var current: int = limit\n    }\n    return limit\n}",
+        "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        var current: int = limit;\n    }\n    return limit;\n};",
     )
     .expect("should write lowering loop shape fixture");
 
@@ -761,7 +781,7 @@ fn break_lowering_jumps_directly_to_the_loop_exit_block() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        break\n    }\n    return limit\n}",
+        "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        break;\n    }\n    return limit;\n};",
     )
     .expect("should write lowering break shape fixture");
 

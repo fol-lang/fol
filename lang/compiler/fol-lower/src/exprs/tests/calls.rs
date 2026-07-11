@@ -1,10 +1,7 @@
-use super::{
-    lower_fixture_error, lower_fixture_workspace, lower_folder_fixture_error,
-    lower_folder_fixture_workspace,
-};
-use crate::{LoweredInstrKind, LoweredOperand, LoweredTerminator, LoweringErrorKind};
+use super::lower_fixture_workspace;
+use crate::{LoweredInstrKind, LoweredOperand, LoweredTerminator};
 use fol_parser::ast::AstParser;
-use fol_resolver::{resolve_package_workspace, SymbolKind};
+use fol_resolver::resolve_package_workspace;
 use fol_stream::FileStream;
 use fol_typecheck::Typechecker;
 
@@ -41,7 +38,7 @@ fn routine_body_lowering_keeps_local_initializers_and_final_expression_results()
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(): int = {\n    var value: int = 1\n    value\n}",
+        "fun[] main(): non = {\n    var value: int = 1;\n    value;\n};",
     )
     .expect("should write lowering body fixture");
 
@@ -113,7 +110,7 @@ fn assignment_lowering_emits_local_and_global_store_instructions() {
     ));
     std::fs::write(
         &fixture,
-        "var count: int = 0\nfun[] main(): int = {\n    var value: int = 1\n    value = 2\n    count = value\n    value\n}",
+        "var count: int = 0;\nfun[] main(): int = {\n    var value: int = 1;\n    value = 2;\n    count = value;\n    return value;\n};",
     )
     .expect("should write lowering assignment fixture");
 
@@ -170,10 +167,10 @@ fn call_lowering_emits_direct_callee_calls_for_plain_and_qualified_forms() {
     fs::create_dir_all(&math_dir).expect("should create nested namespace dir");
     fs::write(
         app_dir.join("main.fol"),
-        "fun[] helper(): int = { 1 }\nfun[] main(): int = {\n    helper()\n    math::triple()\n}",
+        "fun[] helper(): int = { return 1; };\nfun[] main(): int = {\n    helper();\n    return math::triple();\n};",
     )
     .expect("should write entry file");
-    fs::write(math_dir.join("lib.fol"), "fun[exp] triple(): int = { 3 }\n")
+    fs::write(math_dir.join("lib.fol"), "fun[exp] triple(): int = { return 3; };\n")
         .expect("should write nested namespace file");
 
     let mut stream = FileStream::from_folder(app_dir.to_str().expect("utf8 temp path"))
@@ -217,7 +214,7 @@ fn method_call_lowering_rewrites_receivers_into_direct_call_arguments() {
     ));
     std::fs::write(
         &fixture,
-        "fun (int)double(): int = { 2 }\nfun[] main(): int = {\n    var value: int = 1\n    value.double()\n}",
+        "fun (int)double(): int = { return 2; };\nfun[] main(): int = {\n    var value: int = 1;\n    return value.double();\n};",
     )
     .expect("should write lowering method fixture");
 
@@ -644,10 +641,10 @@ fn errorful_call_lowering_retains_explicit_error_type_metadata() {
         "fun[] load(): int / str = {\n\
              report \"bad\";\n\
              return 1;\n\
-         }\n\
+         };\n\
          fun[] main(): int / str = {\n\
              return load() || report \"forwarded\";\n\
-         }\n",
+         };\n",
     );
 
     let routine = lowered
@@ -694,10 +691,10 @@ fn explicit_report_fallback_lowering_branches_and_reports_recoverable_calls() {
         "        case(true) { report \"bad\" }\n",
         "        * { return 7 }\n",
         "    }\n",
-        "}\n",
+        "};\n",
         "fun[] main(flag: bol): int / str = {\n",
-        "    return load(flag) || report \"forwarded\"\n",
-        "}\n",
+        "    return load(flag) || report \"forwarded\";\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -740,10 +737,10 @@ fn check_lowering_observes_recoverable_bindings_without_propagation() {
         "        case(true) { report \"bad\" }\n",
         "        * { return 7 }\n",
         "    }\n",
-        "}\n",
+        "};\n",
         "fun[] main(flag: bol): bol = {\n",
-        "    return check(load(flag))\n",
-        "}\n",
+        "    return check(load(flag));\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -770,10 +767,10 @@ fn pipe_or_default_lowering_branches_to_a_plain_fallback_value() {
         "        case(true) { report \"bad\" }\n",
         "        * { return 7 }\n",
         "    }\n",
-        "}\n",
+        "};\n",
         "fun[] main(flag: bol): int = {\n",
-        "    return load(flag) || 5\n",
-        "}\n",
+        "    return load(flag) || 5;\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -813,10 +810,10 @@ fn pipe_or_report_lowering_uses_error_branch_reports() {
         "        case(true) { report \"bad\" }\n",
         "        * { return 7 }\n",
         "    }\n",
-        "}\n",
+        "};\n",
         "fun[] main(flag: bol): int / str = {\n",
-        "    return load(flag) || report \"fallback\"\n",
-        "}\n",
+        "    return load(flag) || report \"fallback\";\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -840,10 +837,10 @@ fn pipe_or_panic_lowering_uses_error_branch_panics() {
         "        case(true) { report \"bad\" }\n",
         "        * { return 7 }\n",
         "    }\n",
-        "}\n",
+        "};\n",
         "fun[] main(flag: bol): int = {\n",
-        "    return load(flag) || panic \"fallback\"\n",
-        "}\n",
+        "    return load(flag) || panic \"fallback\";\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -863,8 +860,8 @@ fn pipe_or_panic_lowering_uses_error_branch_panics() {
 fn standalone_panic_lowering_uses_keyword_intrinsic_terminators() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    panic \"boom\"\n",
-        "}\n",
+        "    panic \"boom\";\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -891,7 +888,7 @@ fn field_access_lowering_emits_explicit_extraction_instructions() {
     ));
     std::fs::write(
         &fixture,
-        "typ Point: { x: int, y: int }\nfun[] main(point: Point): int = {\n    point.x\n}",
+        "typ Point: rec = { x: int, y: int };\nfun[] main(point: Point): int = {\n    return point.x;\n};",
     )
     .expect("should write lowering field fixture");
 
@@ -937,7 +934,7 @@ fn index_access_lowering_emits_explicit_container_access_instructions() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] head(values: vec[int]): int = {\n    values[0]\n}",
+        "fun[] head(values: vec[int]): int = {\n    return values[0];\n};",
     )
     .expect("should write lowering index fixture");
 

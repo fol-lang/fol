@@ -6,7 +6,7 @@ use fol_parser::ast::{AstNode, ParsedSourceUnitKind};
 use fol_resolver::{SourceUnitId, SymbolId, SymbolKind};
 use fol_typecheck::CheckedType;
 
-use super::symbol_lookup::{find_local_symbol_id, find_symbol_in_scope_or_descendants};
+use super::symbol_lookup::{find_routine_symbol_for_item, find_symbol_in_scope_or_descendants};
 use super::type_decls::lower_symbol_signature;
 
 pub fn lower_routine_signatures(
@@ -44,19 +44,12 @@ pub fn lower_routine_signatures(
                     if !has_default_body {
                         continue;
                     }
-                    let Some(symbol_id) =
-                        typed_package
-                            .program
-                            .resolved()
-                            .symbols
-                            .iter_with_ids()
-                            .find_map(|(candidate_id, symbol)| {
-                                (symbol.kind == SymbolKind::Routine
-                                    && symbol.name == name
-                                    && symbol.source_unit == source_unit_id)
-                                    .then_some(candidate_id)
-                            })
-                    else {
+                    let Some(symbol_id) = find_routine_symbol_for_item(
+                        &typed_package.program,
+                        source_unit_id,
+                        name,
+                        member.syntax_id(),
+                    ) else {
                         continue;
                     };
                     match lower_symbol_signature(typed_package, lowered_package, symbol_id) {
@@ -74,11 +67,11 @@ pub fn lower_routine_signatures(
                 continue;
             };
 
-            match find_local_symbol_id(
+            match find_routine_symbol_for_item(
                 &typed_package.program,
                 source_unit_id,
-                SymbolKind::Routine,
                 name,
+                item.node.syntax_id(),
             ) {
                 Some(symbol_id) => {
                     match lower_symbol_signature(typed_package, lowered_package, symbol_id) {
@@ -178,19 +171,12 @@ pub fn lower_routine_declarations(
                             // to lower.
                             continue;
                         }
-                        let Some(symbol_id) =
-                            typed_package
-                                .program
-                                .resolved()
-                                .symbols
-                                .iter_with_ids()
-                                .find_map(|(candidate_id, symbol)| {
-                                    (symbol.kind == SymbolKind::Routine
-                                        && symbol.name == name
-                                        && symbol.source_unit == source_unit_id)
-                                        .then_some(candidate_id)
-                                })
-                        else {
+                        let Some(symbol_id) = find_routine_symbol_for_item(
+                            &typed_package.program,
+                            source_unit_id,
+                            name,
+                            syntax_id,
+                        ) else {
                             continue;
                         };
                         match lower_routine_decl(
@@ -215,11 +201,11 @@ pub fn lower_routine_declarations(
                 _ => continue,
             };
 
-            match find_local_symbol_id(
+            match find_routine_symbol_for_item(
                 &typed_package.program,
                 source_unit_id,
-                SymbolKind::Routine,
                 name,
+                syntax_id,
             ) {
                 Some(symbol_id) => match lower_routine_decl(
                     typed_package,

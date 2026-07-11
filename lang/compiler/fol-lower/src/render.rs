@@ -297,7 +297,7 @@ mod tests {
     fn lowered_workspace_snapshot_is_stable_and_human_readable() {
         let fixture_path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../../test/parser/simple_var.fol"
+            "/../../../test/parser/simple_fun.fol"
         );
         let mut stream = FileStream::from_file(fixture_path).expect("Should open lowering fixture");
         let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
@@ -340,11 +340,11 @@ mod tests {
         std::fs::write(
             &fixture,
             concat!(
-                "fun[] main(flag: bol, items: seq[int]): bol = {\n",
-                "    .echo(.len(items))\n",
-                "    return .eq(flag, .not(false))\n",
-                "}\n",
-            ),
+        "fun[] main(flag: bol, items: seq[int]): bol = {\n",
+        "    var shown: int = .echo(.len(items));\n",
+        "    return .eq(flag, .not(false));\n",
+        "};\n",
+    ),
         )
         .expect("should write intrinsic render fixture");
 

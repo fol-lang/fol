@@ -9,7 +9,7 @@ pub use routine_decls::{
 };
 pub use standards::lower_standard_declarations;
 pub(crate) use symbol_lookup::{
-    find_local_symbol_id, find_symbol_in_scope_or_descendants,
+    find_local_symbol_id, find_routine_symbol_for_item, find_symbol_in_scope_or_descendants,
 };
 pub use type_decls::{
     lower_alias_declarations, lower_entry_declarations, lower_global_declarations,

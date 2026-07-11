@@ -107,7 +107,26 @@ pub(crate) fn lower_expression_observed(
                         "literal expression does not retain a lowering-owned type",
                     )
                 })?;
-            cursor.lower_literal(literal, type_id)
+            {
+                // A width-classified character literal may have been typed as
+                // a single-element string by the expected-type rule; lower it
+                // as the string it denotes.
+                let expected_is_str = expected_type.is_some_and(|expected| {
+                    type_table.get(expected).is_some_and(|ty| {
+                        matches!(
+                            ty,
+                            crate::LoweredType::Builtin(crate::LoweredBuiltinType::Str)
+                        )
+                    })
+                });
+                match literal {
+                    Literal::Character(value) if expected_is_str => cursor.lower_literal(
+                        &Literal::String(value.to_string()),
+                        expected_type.expect("expected str type is present"),
+                    ),
+                    _ => cursor.lower_literal(literal, type_id),
+                }
+            }
         }
         AstNode::UnaryOp {
             op: fol_parser::ast::UnaryOperator::Unwrap,
@@ -328,6 +347,57 @@ pub(crate) fn lower_expression_observed(
                 scope_id,
                 object,
             )?;
+            // Constraint calls on generic parameters defer callee resolution
+            // to monomorphization.
+            if syntax_id
+                .is_some_and(|syntax_id| typed_package.program.is_constraint_call_site(syntax_id))
+            {
+                let typed_node =
+                    syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+                let result_type = typed_node
+                    .and_then(|node| node.inferred_type)
+                    .and_then(|checked_type| checked_type_map.get(&checked_type).copied());
+                let error_type = typed_node
+                    .and_then(|node| node.recoverable_effect)
+                    .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
+                let mut lowered_args = vec![receiver.local_id];
+                for arg in args {
+                    let value = lower_expression(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        arg,
+                    )?;
+                    lowered_args.push(value.local_id);
+                }
+                let result_type = result_type.ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::Unsupported,
+                        format!(
+                            "constraint call '{method}' cannot be used as an expression without a result type"
+                        ),
+                    )
+                })?;
+                let result_local = cursor.allocate_local(result_type, None);
+                cursor.push_instr(
+                    Some(result_local),
+                    crate::control::LoweredInstrKind::ConstraintCall {
+                        method: method.clone(),
+                        args: lowered_args,
+                        error_type,
+                    },
+                )?;
+                return Ok(LoweredValue {
+                    local_id: result_local,
+                    type_id: result_type,
+                    recoverable_error_type: error_type,
+                });
+            }
             let callee = resolve_method_target(
                 typed_package,
                 checked_type_map,
@@ -537,7 +607,9 @@ pub(crate) fn lower_expression_observed(
                 scope_id,
                 container,
             )?;
-            let lowered_index = lower_expression(
+            let expected_index_type =
+                super::containers::index_key_type(type_table, lowered_container.type_id);
+            let lowered_index = lower_expression_observed(
                 typed_package,
                 type_table,
                 checked_type_map,
@@ -546,6 +618,7 @@ pub(crate) fn lower_expression_observed(
                 cursor,
                 source_unit_id,
                 scope_id,
+                expected_index_type,
                 index,
             )?;
             let Some(result_type) = index_access_type(type_table, lowered_container.type_id, index)

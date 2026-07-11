@@ -125,10 +125,32 @@ fn collect_templates(
     let mut templates = BTreeMap::new();
     for (identity, package) in packages {
         for routine in package.routine_decls.values() {
-            let Some(receiver_type) = routine.receiver_type else {
-                continue;
-            };
-            if type_contains_generic_parameter(type_table, receiver_type) {
+            let generic_receiver = routine
+                .receiver_type
+                .is_some_and(|receiver_type| {
+                    type_contains_generic_parameter(type_table, receiver_type)
+                });
+            // Routines that call required constraint routines on their
+            // generic parameters cannot ride Rust-generics emission either:
+            // the callee only exists after substitution.
+            let has_constraint_calls = routine
+                .instructions
+                .iter()
+                .any(|instr| matches!(instr.kind, LoweredInstrKind::ConstraintCall { .. }));
+            // A free generic routine that builds or returns a generic-parameterized
+            // record/entry (e.g. `Box[T]`) cannot ride the Rust-generics path: the
+            // structural type would need a generic Rust struct declaration, which the
+            // monomorphization model forbids. Template it so the structural type is
+            // concrete before backend emission.
+            let uses_generic_structural = routine
+                .locals
+                .iter()
+                .filter_map(|local| local.type_id)
+                .any(|type_id| type_table.contains_generic_structural_type(type_id))
+                || routine.signature.is_some_and(|signature| {
+                    type_table.contains_generic_structural_type(signature)
+                });
+            if generic_receiver || has_constraint_calls || uses_generic_structural {
                 templates.insert(
                     routine.id,
                     Template {
@@ -512,6 +534,7 @@ fn instantiate_template(
         }
     }
 
+    resolve_constraint_calls(packages, type_table, template, &mut routine)?;
     synthesize_missing_structural_decls(packages, type_table, template, &routine)?;
 
     let routine_id = routine.id;
@@ -645,6 +668,91 @@ fn substitute_type(
 
     memo.insert(type_id, substituted);
     Ok(substituted)
+}
+
+
+/// Rewrite every deferred constraint call in a freshly instantiated clone
+/// into an ordinary direct call: the receiver argument's substituted type is
+/// now concrete, so the conformer's receiver routine (or the standard's
+/// default body) can be looked up directly.
+fn resolve_constraint_calls(
+    packages: &BTreeMap<PackageIdentity, LoweredPackage>,
+    _type_table: &LoweredTypeTable,
+    template: &Template,
+    routine: &mut LoweredRoutine,
+) -> Result<(), LoweringError> {
+    let mut rewrites: Vec<(usize, LoweredRoutineId, Vec<crate::ids::LoweredLocalId>, Option<LoweredTypeId>)> = Vec::new();
+    for (index, instr) in routine.instructions.iter().enumerate() {
+        let LoweredInstrKind::ConstraintCall { method, args, error_type } = &instr.kind else {
+            continue;
+        };
+        let receiver_local = args.first().copied().ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "constraint call '{method}' in routine '{}' has no receiver argument",
+                    template.routine.name
+                ),
+            )
+        })?;
+        let receiver_type = routine
+            .locals
+            .get(receiver_local)
+            .and_then(|local| local.type_id)
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "constraint call '{method}' in routine '{}' has an untyped receiver",
+                        template.routine.name
+                    ),
+                )
+            })?;
+
+        // Explicit receiver routines on the concrete conformer win; the
+        // standard's default body (a receiver-less routine) is the fallback
+        // and takes the call without the receiver argument.
+        let mut explicit_target: Option<LoweredRoutineId> = None;
+        let mut default_target: Option<LoweredRoutineId> = None;
+        for package in packages.values() {
+            for candidate in package.routine_decls.values() {
+                if candidate.name != *method {
+                    continue;
+                }
+                match candidate.receiver_type {
+                    Some(candidate_receiver) if candidate_receiver == receiver_type => {
+                        explicit_target = Some(candidate.id);
+                    }
+                    None => {
+                        default_target.get_or_insert(candidate.id);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let (callee, call_args) = match (explicit_target, default_target) {
+            (Some(callee), _) => (callee, args.clone()),
+            (None, Some(callee)) => (callee, args[1..].to_vec()),
+            (None, None) => {
+                return Err(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "constraint call '{method}' in routine '{}' does not resolve to a conformer routine or standard default body after monomorphization",
+                        template.routine.name
+                    ),
+                ))
+            }
+        };
+        rewrites.push((index, callee, call_args, *error_type));
+    }
+
+    for (index, callee, args, error_type) in rewrites {
+        let instr_id = crate::ids::LoweredInstrId(index);
+        if let Some(instr) = routine.instructions.get_mut(instr_id) {
+            instr.kind = LoweredInstrKind::Call { callee, args, error_type };
+        }
+    }
+    Ok(())
 }
 
 /// Substitution can produce concrete record/entry shapes that no call site

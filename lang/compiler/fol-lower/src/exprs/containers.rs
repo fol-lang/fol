@@ -536,6 +536,18 @@ pub(crate) fn index_access_type(
     }
 }
 
+/// Expected type of an index expression for the given container: map keys
+/// carry the declared key type; positional containers index by int.
+pub(crate) fn index_key_type(
+    type_table: &crate::LoweredTypeTable,
+    container_type: LoweredTypeId,
+) -> Option<LoweredTypeId> {
+    match type_table.get(container_type) {
+        Some(crate::LoweredType::Map { key_type, .. }) => Some(*key_type),
+        _ => None,
+    }
+}
+
 fn expected_linear_element_type(
     type_table: &crate::LoweredTypeTable,
     expected_type: Option<LoweredTypeId>,

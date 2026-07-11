@@ -28,6 +28,15 @@ pub(super) fn verify_instruction(
     errors: &mut Vec<LoweringError>,
 ) {
     match &instr.kind {
+        crate::LoweredInstrKind::ConstraintCall { .. } => {
+            errors.push(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "constraint call in routine '{}' was not resolved during monomorphization",
+                    routine.name
+                ),
+            ));
+        }
         crate::LoweredInstrKind::Const(_) => {}
         crate::LoweredInstrKind::LoadGlobal { global } => {
             if !valid_global_ids.contains(global) {
@@ -50,6 +59,10 @@ pub(super) fn verify_instruction(
         crate::LoweredInstrKind::StoreLocal { local, value } => {
             verify_local_reference(routine, instr.id.0, "store target", *local, errors);
             verify_local_reference(routine, instr.id.0, "store value", *value, errors);
+        }
+        crate::LoweredInstrKind::StoreField { base, value, .. } => {
+            verify_local_reference(routine, instr.id.0, "field store base", *base, errors);
+            verify_local_reference(routine, instr.id.0, "field store value", *value, errors);
         }
         crate::LoweredInstrKind::StoreGlobal { global, value } => {
             if !valid_global_ids.contains(global) {
@@ -329,6 +342,15 @@ pub(super) fn verify_instruction(
     }
 
     match &instr.kind {
+        crate::LoweredInstrKind::ConstraintCall { .. } => {
+            errors.push(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "constraint call in routine '{}' was not resolved during monomorphization",
+                    routine.name
+                ),
+            ));
+        }
         crate::LoweredInstrKind::CheckRecoverable { operand }
         | crate::LoweredInstrKind::UnwrapRecoverable { operand }
         | crate::LoweredInstrKind::ExtractRecoverableError { operand } => {

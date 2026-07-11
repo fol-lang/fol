@@ -18,6 +18,28 @@ pub(crate) enum BoundLoweredCallArg<'a> {
     VariadicUnpack(&'a AstNode),
 }
 
+/// The variadic pack is built at the call site from the concrete argument
+/// expressions. When the callee is generic its declared variadic parameter
+/// type still mentions the routine's generic parameter (e.g. `seq[T]`). Using
+/// that as the pack's expected type would leak `T` into the caller's scope
+/// (`FolSeq<t>` with `t` unbound), which the backend cannot emit. When there
+/// are concrete elements to infer from, drop the generic expected type so the
+/// pack is typed from its actual elements instead.
+fn variadic_pack_expected(
+    type_table: &crate::LoweredTypeTable,
+    expected: Option<LoweredTypeId>,
+    has_elements: bool,
+) -> Option<LoweredTypeId> {
+    match expected {
+        Some(type_id)
+            if has_elements && type_table.contains_generic_parameter(type_id) =>
+        {
+            None
+        }
+        other => other,
+    }
+}
+
 pub(crate) fn bind_lowered_call_arguments<'a>(
     args: &'a [AstNode],
     param_names: &[String],
@@ -904,6 +926,8 @@ pub(crate) fn lower_function_call(
                         container_type: ContainerType::Sequence,
                         elements: args.iter().map(|arg| (*arg).clone()).collect(),
                     };
+                    let pack_expected =
+                        variadic_pack_expected(type_table, expected, !args.is_empty());
                     lower_expression_expected(
                         typed_package,
                         type_table,
@@ -913,7 +937,7 @@ pub(crate) fn lower_function_call(
                         cursor,
                         source_unit_id,
                         scope_id,
-                        expected,
+                        pack_expected,
                         &packed,
                     )
                 }
@@ -1052,6 +1076,8 @@ pub(crate) fn lower_statement_free_call(
                         container_type: ContainerType::Sequence,
                         elements: args.iter().map(|arg| (*arg).clone()).collect(),
                     };
+                    let pack_expected =
+                        variadic_pack_expected(type_table, expected, !args.is_empty());
                     lower_expression_expected(
                         typed_package,
                         type_table,
@@ -1061,7 +1087,7 @@ pub(crate) fn lower_statement_free_call(
                         cursor,
                         source_unit_id,
                         scope_id,
-                        expected,
+                        pack_expected,
                         &packed,
                     )
                 }

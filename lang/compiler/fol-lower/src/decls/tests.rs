@@ -29,7 +29,7 @@ mod tests {
                 .expect("system clock should be monotonic enough for tmp names")
                 .as_nanos()
         ));
-        std::fs::write(&fixture, "fun[] greet(count: int): str = { return \"ok\" }")
+        std::fs::write(&fixture, "fun[] greet(count: int): str = { return \"ok\"; };")
             .expect("should write lowering signature fixture");
 
         let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
@@ -93,7 +93,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "fun pick(T)(value: T): T = { return value }\nfun[] main(): int = { return pick(7) }",
+            "fun pick(T)(value: T): T = { return value; };\nfun[] main(): int = { return pick(7); };",
         )
         .expect("should write generic routine lowering fixture");
 
@@ -131,7 +131,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "fun pair(T)(left: T, right: T): T = { return right }\nfun[] main(): int = { return pair(1, 2) }",
+            "fun pair(T)(left: T, right: T): T = { return right; };\nfun[] main(): int = { return pair(1, 2); };",
         )
         .expect("should write generic pair lowering fixture");
 
@@ -172,7 +172,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "fun make(T)(): T = { panic(\"boom\") }\nfun[] main(): int = { return 0 }",
+            "fun make(T)(): T = { panic(\"boom\"); };\nfun[] main(): int = { return 0; };",
         )
         .expect("should write generic return-only lowering fixture");
 
@@ -204,7 +204,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "fun pick(T)(value: T, fallback: int = 1): T = { return value }\nfun[] main(): int = { return pick(7) }",
+            "fun pick(T)(value: T, fallback: int = 1): T = { return value; };\nfun[] main(): int = { return pick(7); };",
         )
         .expect("should write generic default-params lowering fixture");
 
@@ -237,19 +237,19 @@ mod tests {
         std::fs::write(
             &fixture,
             concat!(
-                "std geo: pro = {\n",
-                "    fun area(): int;\n",
-                "};\n",
-                "typ Rect()(geo): rec = {\n",
-                "    var width: int;\n",
-                "};\n",
-                "fun (Rect)area(): int = {\n",
-                "    return 1;\n",
-                "};\n",
-                "fun[] main(): int = {\n",
-                "    return 0;\n",
-                "}\n",
-            ),
+        "std geo: pro = {\n",
+        "    fun area(): int;\n",
+        "};\n",
+        "typ Rect()(geo): rec = {\n",
+        "    var width: int;\n",
+        "};\n",
+        "fun (Rect)area(): int = {\n",
+        "    return 1;\n",
+        "};\n",
+        "fun[] main(): int = {\n",
+        "    return 0;\n",
+        "};\n",
+    ),
         )
         .expect("should write standard lowering fixture");
 
@@ -293,7 +293,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "ali Counter: int\nfun[] main(value: Counter): Counter = { return value }",
+            "ali Counter: int;\nfun[] main(value: Counter): Counter = { return value; };",
         )
         .expect("should write lowering alias fixture");
 
@@ -349,7 +349,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "typ Point: { x: int, y: str }\nfun[] main(): int = { return 0 }",
+            "typ Point: rec = { x: int, y: str };\nfun[] main(): int = { return 0; };",
         )
         .expect("should write lowering record fixture");
 
@@ -430,7 +430,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "typ Outcome: ent = { var Ok: int; var Err: str }\nfun[] main(): int = { return 0 }",
+            "typ Outcome: ent = { var Ok: int; var Err: str };\nfun[] main(): int = { return 0; };",
         )
         .expect("should write lowering entry fixture");
 
@@ -518,7 +518,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "typ Box(T): rec = {\n    value: T\n};\nfun[] read(value: Box[int]): int = { return value.value }\nfun[] main(): int = { return 0 }",
+            "typ Box(T): rec = {\n    value: T\n};\nfun[] read(value: Box[int]): int = { return value.value; };\nfun[] main(): int = { return 0; };",
         )
         .expect("should write generic type lowering fixture");
 
@@ -587,7 +587,7 @@ mod tests {
                 .expect("system clock should be monotonic enough for tmp names")
                 .as_nanos()
         ));
-        std::fs::write(&fixture, "var count: int = 1\nlab label: str = \"ok\"")
+        std::fs::write(&fixture, "var count: int = 1;\nlab label: str = \"ok\";")
             .expect("should write lowering global fixture");
 
         let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
@@ -650,7 +650,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "fun[] add(left: int, right: int): int = { return left }",
+            "fun[] add(left: int, right: int): int = { return left; };",
         )
         .expect("should write lowering routine fixture");
 
@@ -710,7 +710,7 @@ mod tests {
                 .expect("system clock should be monotonic enough for tmp names")
                 .as_nanos()
         ));
-        std::fs::write(&fixture, "fun[] add(left: int): int = { return left }")
+        std::fs::write(&fixture, "fun[] add(left: int): int = { return left; };")
             .expect("should write lowering routine fixture");
 
         let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
@@ -768,6 +768,7 @@ mod tests {
                 param_type: FolType::Int { size: None, signed: true },
                 is_borrowable: false,
                 is_mutex: false,
+                is_variadic: false,
                 default: None,
             }],
             &mut next_routine_index,
@@ -799,12 +800,12 @@ mod tests {
         fs::create_dir_all(&shared_dir).expect("should create shared dir");
         fs::write(
             app_dir.join("main.fol"),
-            "use shared: loc = {\"../shared\"}\nfun[] main(): int = { return answer() }",
+            "use shared: loc = {\"../shared\"};\nfun[] main(): int = { return shared::answer(); };",
         )
         .expect("should write app entry");
         fs::write(
             shared_dir.join("lib.fol"),
-            "ali Counter: int\nvar[exp] base: Counter = 7\nfun[exp] answer(): Counter = { return base }",
+            "ali Counter: int;\nvar[exp] base: int = 7;\nfun[exp] answer(): int = { return base; };",
         )
         .expect("should write shared library");
 

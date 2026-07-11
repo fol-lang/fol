@@ -314,6 +314,19 @@ pub(crate) fn lower_assignment_target(
     target: &AstNode,
     lowered_value: LoweredValue,
 ) -> Result<LoweredValue, LoweringError> {
+    // Field assignment into a mutable record binding, e.g. `counter.total = 5`.
+    if let AstNode::FieldAccess { object, field } = target {
+        return lower_field_assignment_target(
+            typed_package,
+            current_identity,
+            decl_index,
+            cursor,
+            object,
+            field,
+            lowered_value,
+        );
+    }
+
     let resolved_symbol = match target {
         AstNode::Identifier { syntax_id, name } => resolve_reference_symbol(
             typed_package,
@@ -330,7 +343,8 @@ pub(crate) fn lower_assignment_target(
         _ => {
             return Err(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                "assignment targets must lower from plain or qualified identifiers",
+                "assignment targets must lower from plain or qualified identifiers, \
+                 or a field of a mutable record binding",
             ))
         }
     };
@@ -370,6 +384,63 @@ pub(crate) fn lower_assignment_target(
         None,
         LoweredInstrKind::StoreGlobal {
             global: global_id,
+            value: lowered_value.local_id,
+        },
+    )?;
+    Ok(lowered_value)
+}
+
+/// Lower `<binding>.<field> = <value>` into a `StoreField` against the binding's
+/// own local. Typecheck has already verified the binding is a mutable record.
+fn lower_field_assignment_target(
+    typed_package: &fol_typecheck::TypedPackage,
+    _current_identity: &PackageIdentity,
+    _decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    object: &AstNode,
+    field: &str,
+    lowered_value: LoweredValue,
+) -> Result<LoweredValue, LoweringError> {
+    let resolved_symbol = match object {
+        AstNode::Identifier { syntax_id, name } => {
+            resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::Identifier, name)?
+        }
+        AstNode::QualifiedIdentifier { path } => resolve_reference_symbol(
+            typed_package,
+            path.syntax_id(),
+            ReferenceKind::QualifiedIdentifier,
+            &path.joined(),
+        )?,
+        _ => {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "nested field assignment targets are not supported",
+            ))
+        }
+    };
+
+    let Some(local_id) = cursor
+        .routine
+        .local_symbols
+        .get(&resolved_symbol.id)
+        .copied()
+    else {
+        // Only local record bindings support field assignment for now; a global
+        // record field store would need a distinct lowered lvalue form.
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            format!(
+                "field assignment into non-local binding '{}' is not supported",
+                resolved_symbol.name
+            ),
+        ));
+    };
+
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::StoreField {
+            base: local_id,
+            field: field.to_string(),
             value: lowered_value.local_id,
         },
     )?;

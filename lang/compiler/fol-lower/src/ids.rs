@@ -88,6 +88,15 @@ impl<I: LoweringId, T> IdTable<I, T> {
     }
 }
 
+impl<'table, I: LoweringId, T> IntoIterator for &'table IdTable<I, T> {
+    type Item = &'table T;
+    type IntoIter = std::slice::Iter<'table, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

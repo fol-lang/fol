@@ -83,6 +83,14 @@ pub enum LoweredInstrKind {
         global: LoweredGlobalId,
         value: LoweredLocalId,
     },
+    /// Assign into a field of a mutable record local, e.g. `counter.total = 5`.
+    /// `base` is the record binding's own local (not a cloned copy) so the
+    /// store is observed by later reads.
+    StoreField {
+        base: LoweredLocalId,
+        field: String,
+        value: LoweredLocalId,
+    },
     Call {
         callee: LoweredRoutineId,
         args: Vec<LoweredLocalId>,
@@ -163,6 +171,14 @@ pub enum LoweredInstrKind {
     },
     CallIndirect {
         callee: LoweredLocalId,
+        args: Vec<LoweredLocalId>,
+        error_type: Option<LoweredTypeId>,
+    },
+    /// A method call on a constrained generic parameter. The concrete callee
+    /// is resolved during monomorphization (args[0] is the receiver); this
+    /// variant must never survive into backend emission.
+    ConstraintCall {
+        method: String,
         args: Vec<LoweredLocalId>,
         error_type: Option<LoweredTypeId>,
     },

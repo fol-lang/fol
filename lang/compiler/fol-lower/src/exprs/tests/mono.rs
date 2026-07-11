@@ -88,3 +88,67 @@ fn generic_receiver_routines_monomorphize_into_concrete_clones() {
         }
     }
 }
+
+#[test]
+fn same_named_receiver_routines_lower_with_their_own_selves() {
+    // Regression: routine symbol/body pairing was name-based, so two
+    // receiver routines sharing a name (method sugar on different types)
+    // lowered against the first symbol and lost the second `self` mapping.
+    let workspace = lower_fixture_workspace(
+        "typ Left: rec = {\n\
+             var value: int;\n\
+         };\n\
+         typ Right: rec = {\n\
+             var item: int;\n\
+         };\n\
+         fun (Left)take(): int = {\n\
+             return self.value;\n\
+         };\n\
+         fun (Right)take(): int = {\n\
+             return self.item;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var l: Left = { value = 1 };\n\
+             var r: Right = { item = 2 };\n\
+             return l.take() + r.take();\n\
+         };\n",
+    );
+    let package = workspace.entry_package();
+    let takes = package
+        .routine_decls
+        .values()
+        .filter(|routine| routine.name == "take")
+        .count();
+    assert_eq!(takes, 2, "both same-named receiver routines should lower");
+}
+
+#[test]
+fn same_named_generic_receiver_routines_monomorphize_independently() {
+    let workspace = lower_fixture_workspace(
+        "typ Left(T): rec = {\n\
+             value: T\n\
+         };\n\
+         typ Right(U): rec = {\n\
+             item: U\n\
+         };\n\
+         fun (Left[T])take(T)(): T = {\n\
+             return self.value;\n\
+         };\n\
+         fun (Right[U])take(U)(): U = {\n\
+             return self.item;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var l: Left[int] = { value = 1 };\n\
+             var r: Right[int] = { item = 2 };\n\
+             return l.take() + r.take();\n\
+         };\n",
+    );
+    let package = workspace.entry_package();
+    // Each template monomorphizes into its own concrete clone.
+    let takes = package
+        .routine_decls
+        .values()
+        .filter(|routine| routine.name == "take")
+        .count();
+    assert_eq!(takes, 2);
+}
