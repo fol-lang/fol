@@ -232,7 +232,19 @@ pub(crate) fn lower_entry_variant_access(
         ));
     };
 
-    if expected_type == Some(entry_variant.type_id) {
+    // Mirror the typecheck's entry-variant typing: a bare access denotes a
+    // value of the entry type and is constructed as such. It only coerces to
+    // its stored payload when an explicit *concrete non-entry* expectation
+    // asks for it (e.g. returning `Color.BLUE` as `str`). A generic-parameter
+    // expectation (or no expectation) leaves the value as the entry, matching
+    // how argument-driven generic inference bound the parameter to the entry
+    // type.
+    let construct_entry = match expected_type {
+        Some(expected) if expected == entry_variant.type_id => true,
+        None => true,
+        Some(expected) => type_table.contains_generic_parameter(expected),
+    };
+    if construct_entry {
         let payload = match (&entry_variant.payload_type, &entry_variant.default) {
             (Some(payload_type), Some(default)) => Some(
                 lower_expression_expected(

@@ -18,7 +18,7 @@ use fol_parser::ast::{
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId};
 use std::collections::BTreeMap;
 
-pub(crate) use helpers::inline_body_block_scope;
+pub(crate) use helpers::{inline_body_block_scope, loop_binder_scope};
 use helpers::{
     binding_kind_for, describe_type, ensure_assignable, ensure_assignable_target,
     internal_error, node_origin, origin_for, plain_value_expr,

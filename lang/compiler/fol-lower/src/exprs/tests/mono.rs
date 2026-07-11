@@ -152,3 +152,84 @@ fn same_named_generic_receiver_routines_monomorphize_independently() {
         .count();
     assert_eq!(takes, 2);
 }
+
+#[test]
+fn two_level_constrained_templates_propagate_bindings() {
+    // Regression: a constrained generic routine (`outer`) that forwards its
+    // generic argument to another constrained template (`inner`) must itself
+    // be templated and monomorphized first. Otherwise mono tried to
+    // instantiate `inner` while `outer`'s parameter was still the generic `T`,
+    // yielding empty bindings and an L1002 "not determined by the call
+    // arguments" failure even though the argument determines `T`.
+    let workspace = lower_fixture_workspace(
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var w: int;\n\
+         };\n\
+         fun (Rect)area(): int = {\n\
+             return 5;\n\
+         };\n\
+         fun inner(T: geo)(v: T): int = {\n\
+             return v.area();\n\
+         };\n\
+         fun outer(T: geo)(v: T): int = {\n\
+             return inner(v);\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var r: Rect = { w = 1 };\n\
+             return outer(r);\n\
+         };\n",
+    );
+    let package = workspace.entry_package();
+
+    // Both templates monomorphized: no surviving routine keeps a generic
+    // parameter in its signature or locals.
+    for routine in package.routine_decls.values() {
+        if let Some(signature) = routine.signature {
+            assert!(
+                !type_contains_generic(&workspace, signature),
+                "routine '{}' kept a generic signature after monomorphization",
+                routine.name
+            );
+        }
+        for local in routine.locals.iter() {
+            if let Some(type_id) = local.type_id {
+                assert!(
+                    !type_contains_generic(&workspace, type_id),
+                    "routine '{}' kept a generic local after monomorphization",
+                    routine.name
+                );
+            }
+        }
+    }
+
+    // Every call in every surviving routine targets a routine that still
+    // exists (the nested `inner(v)` was rewritten to the concrete clone).
+    for routine in package.routine_decls.values() {
+        for instr in routine.instructions.iter() {
+            if let LoweredInstrKind::Call { callee, .. } = &instr.kind {
+                assert!(
+                    package.routine_decls.contains_key(callee),
+                    "routine '{}' calls {callee:?} that no longer exists",
+                    routine.name
+                );
+            }
+        }
+    }
+
+    // Concrete clones of both constrained templates were synthesized.
+    let inner_clones = package
+        .routine_decls
+        .values()
+        .filter(|routine| routine.name == "inner")
+        .count();
+    let outer_clones = package
+        .routine_decls
+        .values()
+        .filter(|routine| routine.name == "outer")
+        .count();
+    assert_eq!(inner_clones, 1, "inner should monomorphize once for T=Rect");
+    assert_eq!(outer_clones, 1, "outer should monomorphize once for T=Rect");
+}

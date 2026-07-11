@@ -735,6 +735,69 @@ fn lower_nested_declarations_in_node(
                 )?;
             }
         }
+        AstNode::Loop { condition, body } => {
+            // A condition (while-like) loop keeps its body in the parent
+            // scope, but an iteration (for-like) loop resolves its body in a
+            // dedicated `LoopBinder` scope. Nested bindings must be lowered
+            // against whichever scope the resolver actually used, mirroring
+            // the When-case handling above.
+            match condition.as_ref() {
+                fol_parser::ast::LoopCondition::Condition(cond) => {
+                    lower_nested_declarations_in_node(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        current_scope,
+                        cond,
+                    )?;
+                    lower_nested_declarations_in_nodes(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        current_scope,
+                        body,
+                    )?;
+                }
+                fol_parser::ast::LoopCondition::Iteration {
+                    var,
+                    iterable,
+                    condition: guard,
+                    ..
+                } => {
+                    lower_nested_declarations_in_node(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        current_scope,
+                        iterable,
+                    )?;
+                    let binder_scope = crate::exprs::loop_binder_scope(
+                        resolved,
+                        source_unit_id,
+                        current_scope,
+                        var,
+                        guard,
+                        body,
+                    )?;
+                    if let Some(guard) = guard.as_deref() {
+                        lower_nested_declarations_in_node(
+                            typed,
+                            resolved,
+                            source_unit_id,
+                            binder_scope,
+                            guard,
+                        )?;
+                    }
+                    lower_nested_declarations_in_nodes(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        binder_scope,
+                        body,
+                    )?;
+                }
+            }
+        }
         AstNode::Commented { node, .. } => {
             lower_nested_declarations_in_node(
                 typed,

@@ -161,7 +161,65 @@ fn collect_templates(
             }
         }
     }
+
+    // Propagate templating across generic -> template call chains. A generic
+    // routine that calls a template routine cannot ride Rust-generics emission:
+    // the callee only exists as monomorphized copies once its own generic
+    // parameters are concrete, so the caller must itself be instantiated first
+    // to substitute those parameters before the nested template call is
+    // resolved. This fixpoint handles arbitrarily deep two-level (and beyond)
+    // constraint propagation.
+    loop {
+        let mut added = false;
+        for (identity, package) in packages {
+            for routine in package.routine_decls.values() {
+                if templates.contains_key(&routine.id) {
+                    continue;
+                }
+                if !routine_is_generic(type_table, routine) {
+                    continue;
+                }
+                let calls_template = routine.instructions.iter().any(|instr| {
+                    matches!(
+                        &instr.kind,
+                        LoweredInstrKind::Call { callee, .. } if templates.contains_key(callee)
+                    )
+                });
+                if calls_template {
+                    templates.insert(
+                        routine.id,
+                        Template {
+                            owner: identity.clone(),
+                            routine: routine.clone(),
+                        },
+                    );
+                    added = true;
+                }
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+
     templates
+}
+
+/// A routine is generic when any of its parameter/local types, its signature,
+/// or its receiver still mentions a generic parameter. Such routines can only
+/// be realized by monomorphization once their generic parameters are fixed.
+fn routine_is_generic(type_table: &LoweredTypeTable, routine: &LoweredRoutine) -> bool {
+    routine
+        .locals
+        .iter()
+        .filter_map(|local| local.type_id)
+        .any(|type_id| type_contains_generic_parameter(type_table, type_id))
+        || routine
+            .signature
+            .is_some_and(|signature| type_contains_generic_parameter(type_table, signature))
+        || routine
+            .receiver_type
+            .is_some_and(|receiver_type| type_contains_generic_parameter(type_table, receiver_type))
 }
 
 type TemplateCallSite = (LoweredInstrId, LoweredRoutineId, Vec<LoweredTypeId>);
@@ -574,7 +632,9 @@ fn substitute_type(
                 LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
                     format!(
-                        "generic parameter '{name}' is not determined by the call arguments"
+                        "generic parameter '{name}' could not be monomorphized: no concrete type \
+                         was inferred for it. It must be fixed by the call arguments (directly or \
+                         through a nested generic call whose arguments determine it)"
                     ),
                 )
             })?
