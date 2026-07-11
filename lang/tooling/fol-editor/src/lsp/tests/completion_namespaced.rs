@@ -1,4 +1,4 @@
-use super::helpers::{open_document, sample_package_root, temp_root};
+use super::helpers::{hosted_sample_package_root, open_document, sample_package_root, temp_root};
 use super::super::{
     EditorLspServer, JsonRpcId, JsonRpcRequest, LspCompletionContext, LspCompletionList,
     LspCompletionParams, LspPosition, LspTextDocumentIdentifier,
@@ -9,6 +9,22 @@ use std::fs;
 #[test]
 fn lsp_server_returns_supported_v1_dot_intrinsics() {
     let (root, uri) = sample_package_root("completion_dot_intrinsics");
+    // `.echo` is only a legal completion when the package declares the
+    // bundled internal std dependency (hosted capability).
+    fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+            "    var graph = build.graph();\n",
+            "    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
     fs::write(
         root.join("src/main.fol"),
         "fun[] main(): int = {\n    return .;\n};\n",
@@ -58,7 +74,7 @@ fn lsp_server_returns_supported_v1_dot_intrinsics() {
 
 #[test]
 fn lsp_server_uses_conservative_dot_fallback_for_incomplete_contexts() {
-    let (root, uri) = sample_package_root("completion_dot_fallback");
+    let (root, uri) = hosted_sample_package_root("completion_dot_fallback");
     fs::write(
         root.join("src/main.fol"),
         "fun[] main(): int = {\n    return .;\n};\n",
@@ -106,7 +122,7 @@ fn lsp_server_uses_conservative_dot_fallback_for_incomplete_contexts() {
 
 #[test]
 fn lsp_server_uses_lsp_dot_trigger_when_document_text_is_not_yet_synced() {
-    let (root, uri) = sample_package_root("completion_dot_lsp_context");
+    let (root, uri) = hosted_sample_package_root("completion_dot_lsp_context");
     fs::write(
         root.join("src/main.fol"),
         "fun[] main(): int = {\n    return \n};\n",
@@ -154,7 +170,7 @@ fn lsp_server_uses_lsp_dot_trigger_when_document_text_is_not_yet_synced() {
 
 #[test]
 fn lsp_server_locks_dot_intrinsic_completion_matrix() {
-    let (root, uri) = sample_package_root("completion_dot_matrix");
+    let (root, uri) = hosted_sample_package_root("completion_dot_matrix");
     fs::write(
         root.join("src/main.fol"),
         "fun[] main(): int = {\n    return .;\n};\n",
@@ -223,6 +239,7 @@ fn lsp_server_filters_echo_from_core_and_memo_without_and_with_std() {
                     concat!(
                         "pro[] build(): non = {{\n",
                         "    var build = .build();\n",
+                        "    build.meta({{ name = \"sample\", version = \"0.1.0\" }});\n",
                         "    build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }});\n",
                         "    var graph = build.graph();\n",
                         "    graph.add_exe({{ name = \"demo\", root = \"src/main.fol\", fol_model = \"{}\" }});\n",
@@ -234,7 +251,9 @@ fn lsp_server_filters_echo_from_core_and_memo_without_and_with_std() {
                 format!(
                     concat!(
                         "pro[] build(): non = {{\n",
-                        "    var graph = .build().graph();\n",
+                        "    var build = .build();\n",
+                        "    build.meta({{ name = \"sample\", version = \"0.1.0\" }});\n",
+                        "    var graph = build.graph();\n",
                         "    graph.add_exe({{ name = \"demo\", root = \"src/main.fol\", fol_model = \"{}\" }});\n",
                         "}};\n",
                     ),
@@ -305,7 +324,9 @@ fn lsp_server_keeps_model_completion_context_isolated_across_workspace_members()
         root.join("app/build.fol"),
             concat!(
                 "pro[] build(): non = {\n",
-                "    var graph = .build().graph();\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
                 "    graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"core\" });\n",
                 "};\n",
             ),
@@ -323,6 +344,7 @@ fn lsp_server_keeps_model_completion_context_isolated_across_workspace_members()
             concat!(
                 "pro[] build(): non = {\n",
                 "    var build = .build();\n",
+                "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
                 "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
                 "    var graph = build.graph();\n",
                 "    graph.add_exe({ name = \"tool\", root = \"src/main.fol\", fol_model = \"memo\" });\n",

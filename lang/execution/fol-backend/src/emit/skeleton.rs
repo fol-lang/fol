@@ -348,9 +348,13 @@ fn resolve_entry_callable(
             ),
         )
     })?;
+    // A namespace that owns child namespaces emits as `<dir>/mod.rs`, which
+    // in Rust IS the `<dir>` module — the `mod` file stem must not become a
+    // path segment.
     let namespace_path = namespace_plan
         .relative_file
         .trim_end_matches(".rs")
+        .trim_end_matches("/mod")
         .replace('/', "::");
     Ok(EntryCallable {
         rust_path: format!(

@@ -48,6 +48,8 @@ Shipped and honest narrow V2:
 
 - generic routines with argument-driven inference
 - generic types with explicit instantiation
+- generic receiver routines with FOL-side monomorphization and `self`
+  receiver access
 - protocol standards with procedural conformance
 - standards-as-constraints on generic routines
 
@@ -61,7 +63,6 @@ Parsed but explicitly rejected today (the current "deferred" surface):
 - capturing required routines inside a `std` body
 - generic required routines inside a `std` body
 - default-body standard routines
-- generic receiver types on routines
 - generic error types on routines
 - explicit generic-call syntax
 
@@ -230,8 +231,11 @@ Tracked slices:
 
 # 5. Workstream H: Generic Receiver Types
 
-Goal: `fun (Box[T])get(): T = { return self.value; }` becomes a real,
-executable, typed routine.
+Goal: generic receiver routines become real, executable, typed
+routines. Chosen shipped surface: the routine declares its generic
+parameters explicitly — `fun (Box[T])get(T)(): T = { return self.value; }`
+— keeping generic introduction visible at the declaration instead of
+inferring it from the receiver slot.
 
 Why it fits:
 
@@ -287,15 +291,32 @@ Tracked slices:
 - [x] H2. Method resolution unifies generic receiver templates against
   the call-site object type and records the chosen routine symbol so
   lowering can look it up directly.
-- [ ] H3. Lowering / backend emission for generic receiver routines —
-  the generic-bearing record that the routine's receiver lowers to
-  does not yet map to a backend type declaration. Needs either generic
-  Rust struct emission for Box-style templates, or per-call-site
-  monomorphization of generic receiver routines. Deferred as a
-  standalone backend slice.
-- [ ] H4. LSP hover / definition / diagnostics (blocked by H3).
-- [ ] H5. Tree-sitter grammar / queries audit and coverage.
-- [ ] H6. Positive and negative examples plus docs (blocked by H3).
+- [x] H3. Lowering / backend emission for generic receiver routines.
+  Chosen strategy: FOL-side monomorphization. A post-body lowering pass
+  (`fol-lower/src/mono.rs`) rewrites every call to a generic-receiver
+  template into a call to a synthesized concrete clone (types substituted
+  from the call-site argument types), then removes the templates, so the
+  backend only sees ordinary concrete routines. Includes `self` receiver
+  binding through resolver/typecheck/lowering, and a typecheck two-phase
+  declaration pass so cross-file generic type templates no longer depend
+  on source-unit ordering.
+- [x] H4. LSP coverage. `generic_receiver_m1` and
+  `generic_receiver_cross_file_m1` are in the LSP open/document-symbols
+  example lists; editor diagnostics flow through compiler-backed
+  typecheck.
+- [x] H5. Tree-sitter grammar / queries audit. Routine declarations
+  gained the `generics` slot (plain and method), `self` participates in
+  field access, and the grammar was parse-validated with the tree-sitter
+  CLI against every checked-in `.fol` source (examples, build files,
+  bundled std, showcases) with zero ERROR nodes. Corpus files rewritten
+  in real, compiler-verified syntax; highlight/locals/symbols queries now
+  compile against the generated parser.
+- [x] H6. Positive examples (`examples/generic_receiver_m1`,
+  `examples/generic_receiver_cross_file_m1`), negative example
+  (`examples/fail_generic_receiver_m1`, underconstrained routine
+  generic), docs updated in `docs/v2-generics-m1.md`,
+  `book/src/500_items/500_generics.md`, and the methods chapter now
+  documents `self`.
 
 
 # 6. Workstream I: Explicit Generic-Call Syntax
@@ -363,8 +384,12 @@ Tracked slices:
 - [x] I3. Lowering / backend verification — the turbofish form falls
   through the existing generic-routine monomorphization path; the
   `examples/generic_turbofish_m1` example builds and runs.
-- [ ] I4. LSP hover / completion / diagnostics.
-- [ ] I5. Tree-sitter grammar / queries with turbofish disambiguation.
+- [x] I4. LSP hover / completion / diagnostics. `generic_turbofish_m1`
+  is in the LSP open/document-symbols lists (verified by
+  `lsp_server_opens_real_model_example_packages_cleanly` and
+  `lsp_server_returns_document_symbols_for_real_example_roots`).
+- [x] I5. Tree-sitter grammar / queries with turbofish
+  disambiguation. Absorbed into P3.
 - [x] I6. Positive example (`examples/generic_turbofish_m1`) and
   parser/typecheck negative tests for arity and constraint failures.
 
@@ -427,8 +452,10 @@ Tracked slices:
 - [x] J2. Lowering / backend verified via the
   `examples/generic_type_constrained_m1m2` example which builds and
   runs end to end.
-- [ ] J3. LSP hover / completion / diagnostics.
-- [ ] J4. Tree-sitter queries audit.
+- [x] J3. LSP hover / completion / diagnostics.
+  `generic_type_constrained_m1m2` is in the LSP open/document-symbols
+  lists.
+- [x] J4. Tree-sitter queries audit. Absorbed into P4.
 - [x] J5. Positive example plus imported-constraint and nested-
   instantiation negative typecheck tests.
 
@@ -498,7 +525,9 @@ Tracked slices:
 - [x] K2. Lowering descends into `std` decl bodies so default bodies
   are emitted as regular routines, and method-call lowering skips
   prepending the receiver arg when the callee has no receiver slot.
-- [ ] K3. LSP hover / definition / diagnostics for default bodies.
+- [x] K3. LSP hover / definition / diagnostics for default bodies.
+  `standards_default_body_m2` is in the LSP open/document-symbols
+  lists.
 - [x] K4. `examples/standards_default_body_m2` builds and runs and
   typecheck tests pin inheritance, override, signature mismatch, and
   conformer-less inheritance.
@@ -554,8 +583,9 @@ Tracked slices:
   for the error type on free function calls, so the emitted Rust
   `FolRecover<T, E>` sees the substituted `T` and `E` instead of the
   unsubstituted generic parameter.
-- [ ] L3. LSP hover / diagnostics audit.
-- [ ] L4. Tree-sitter queries audit.
+- [x] L3. LSP hover / diagnostics audit. `generic_error_m1m2` is in
+  the LSP open/document-symbols lists.
+- [x] L4. Tree-sitter queries audit. Absorbed into P6.
 - [x] L5. `examples/generic_error_m1m2` builds and runs the full
   generic recoverable routine path through `check(...)`.
 
@@ -645,8 +675,13 @@ Tracked slices:
   surface, so conforming types pass through the existing record + generic
   routine lowering path unchanged. The `standards_blueprint_m2` example
   builds and runs end to end.
-- [ ] M4. LSP hover / completion / diagnostics for blueprints.
-- [ ] M5. Tree-sitter grammar / queries audit.
+- [x] M4. LSP hover / completion / diagnostics for blueprints.
+  `standards_blueprint_m2` is in the LSP open/document-symbols lists and
+  opens without editor diagnostics.
+- [x] M5. Tree-sitter grammar / queries audit. `standard_field_requirement`
+  covers blueprint `var` members; the blueprint example parses with zero
+  ERROR nodes under the CLI-validated grammar, and the highlight queries
+  compile against the generated parser.
 - [x] M6. Positive example (`examples/standards_blueprint_m2`),
   negative example (`fail_standard_blueprint_m2` refitted to a
   missing-field failure), and typecheck tests for matching/missing/
@@ -707,8 +742,12 @@ Tracked slices:
 - [x] N2. Lowering / backend: extended standards lower as the union of
   their routine and field requirements — no new backend surface.
   `examples/standards_extended_m2` builds and runs.
-- [ ] N3. LSP hover / diagnostics for extended standards.
-- [ ] N4. Tree-sitter queries audit.
+- [x] N3. LSP hover / diagnostics for extended standards.
+  `standards_extended_m2` is in the LSP open/document-symbols lists and
+  opens without editor diagnostics.
+- [x] N4. Tree-sitter queries audit. Extended standards reuse
+  `standard_requirement` plus `standard_field_requirement`; the extended
+  example parses with zero ERROR nodes under the CLI-validated grammar.
 - [x] N5. Typecheck tests pin accept/missing-routine/missing-field
   cases. Example `standards_extended_m2` demonstrates positive
   end-to-end flow through procedural method dispatch.
@@ -799,8 +838,12 @@ Tracked slices:
 - [x] O4. Lowering / backend: generic standards use the existing
   record + receiver-routine lowering path. The
   `examples/standards_generic_m2` example builds and runs end to end.
-- [ ] O5. LSP hover / diagnostics for generic standards.
-- [ ] O6. Tree-sitter grammar / queries updates.
+- [x] O5. LSP hover / diagnostics for generic standards.
+  `standards_generic_m2` is in the LSP open/document-symbols lists and
+  opens without editor diagnostics.
+- [x] O6. Tree-sitter grammar / queries updates. `std_decl` carries the
+  `generics` field; the generic-standard example parses with zero ERROR
+  nodes under the CLI-validated grammar.
 - [x] O7. Typecheck tests pin accept / wrong-return / arity-mismatch
   cases. `examples/standards_generic_m2` demonstrates positive
   end-to-end execution with a substituted concrete routine.
@@ -835,15 +878,33 @@ Primary files:
 
 Tracked slices:
 
-- [ ] P1. Editor / tree-sitter updates shipped alongside G.
-- [ ] P2. Editor / tree-sitter updates shipped alongside H.
-- [ ] P3. Editor / tree-sitter updates shipped alongside I.
-- [ ] P4. Editor / tree-sitter updates shipped alongside J.
-- [ ] P5. Editor / tree-sitter updates shipped alongside K.
-- [ ] P6. Editor / tree-sitter updates shipped alongside L.
-- [ ] P7. Editor / tree-sitter updates shipped alongside M.
-- [ ] P8. Editor / tree-sitter updates shipped alongside N.
-- [ ] P9. Editor / tree-sitter updates shipped alongside O.
+- [x] P1. Editor / tree-sitter updates shipped alongside G. Removed
+  `imp_decl` rule, receiver/capture slots inside `standard_requirement`.
+- [x] P2. Editor / tree-sitter updates shipped alongside H. Generic
+  receiver routines parse through the existing receiver rule.
+- [x] P3. Editor / tree-sitter updates shipped alongside I. Turbofish
+  `name::[T](args)` added as `turbofish_type_args` under `call_expr`,
+  with `qualified_path` marked `prec.left` to avoid `::`/turbofish
+  ambiguity.
+- [x] P4. Editor / tree-sitter updates shipped alongside J.
+  Constrained generic types parse through the existing `generic_param`
+  with `: constraint` shape.
+- [x] P5. Editor / tree-sitter updates shipped alongside K. Default
+  bodies on required routines parse through an optional `= block`
+  trailer on `standard_requirement`.
+- [x] P6. Editor / tree-sitter updates shipped alongside L. Generic
+  error types use the existing error-type rule with generic parameter
+  references.
+- [x] P7. Editor / tree-sitter updates shipped alongside M. Added
+  `standard_field_requirement` for blueprint `var` members inside
+  `standard_block`.
+- [x] P8. Editor / tree-sitter updates shipped alongside N. Extended
+  standards reuse `standard_requirement` and `standard_field_requirement`
+  inside the same block.
+- [x] P9. Editor / tree-sitter updates shipped alongside O. Added
+  `generics` field on `std_decl` plus tree-sitter query coverage for
+  all new V2 example roots. Refreshed pre-existing LSP example
+  fixtures to match the current V2 contract.
 
 Rule:
 

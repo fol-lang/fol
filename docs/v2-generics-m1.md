@@ -72,6 +72,12 @@ At the current repo state after the landed Milestone 1 semantic slices:
 - backend execution now works for the shipped positive Milestone 1 examples
 - receiver-qualified generic routines now lower and execute through method sugar
 - concrete instantiated generic-type receivers such as `Box[int]` now lower and execute too
+- generic receiver routines such as `fun (Box[T])get(T)(): T` now lower,
+  monomorphize into concrete per-instantiation clones, and execute
+- receiver-qualified routine bodies can read receiver state through `self`
+- generic type templates are recorded for every source unit before other
+  declarations lower, so cross-file generic instantiation no longer depends
+  on file ordering
 - default-argument generic routines are part of the current executable M1 subset
 - generic routines with concrete recoverable error types are part of the current executable M1 subset
 - full `V2` execution examples now also exist for:
@@ -144,12 +150,15 @@ Hardening examples that should remain in sync:
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
+  - `examples/generic_receiver_m1`
+  - `examples/generic_receiver_cross_file_m1`
   - `examples/generic_type_semantic_m1m2`
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
 - negative
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
+  - `examples/fail_generic_receiver_m1`
   - `examples/fail_generic_standard_constraint_m1m2`
 
 Current hardened example matrix:
@@ -158,6 +167,9 @@ Current hardened example matrix:
 - positive executable examples beyond the narrow M1 core
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
+- positive executable generic-receiver examples
+  - `examples/generic_receiver_m1`
+  - `examples/generic_receiver_cross_file_m1`
 - positive semantic-check or lowered examples
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
@@ -166,6 +178,7 @@ Current hardened example matrix:
 - negative semantic-boundary examples
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
+  - `examples/fail_generic_receiver_m1`
   - `examples/fail_generic_standard_constraint_m1m2`
 
 ## Second-pass hardening targets

@@ -46,7 +46,7 @@ impl AstParser {
         // different declaration, bail early pointing at the original keyword.
         self.guard_decl_boundary(&fun_token, tokens, decl_line, "Incomplete function declaration")?;
 
-        let (receiver_type, name) = self.parse_routine_name_with_optional_receiver(
+        let (receiver_type, name, name_token) = self.parse_routine_name_with_optional_receiver(
             tokens,
             "Expected function name after 'fun'",
         )?;
@@ -117,7 +117,7 @@ impl AstParser {
             )?;
 
             return Ok(AstNode::FunDecl {
-                syntax_id: self.record_syntax_origin(&fun_token),
+                syntax_id: self.record_syntax_origin(&name_token),
                 options,
                 generics: alt_generics,
                 name,
@@ -172,7 +172,7 @@ impl AstParser {
         )?;
 
         Ok(AstNode::FunDecl {
-            syntax_id: self.record_syntax_origin(&fun_token),
+            syntax_id: self.record_syntax_origin(&name_token),
             options,
             generics,
             name,
@@ -207,7 +207,7 @@ impl AstParser {
 
         self.guard_decl_boundary(&log_token, tokens, decl_line, "Incomplete logical declaration")?;
 
-        let (receiver_type, name) = self.parse_routine_name_with_optional_receiver(
+        let (receiver_type, name, name_token) = self.parse_routine_name_with_optional_receiver(
             tokens,
             "Expected logical name after 'log'",
         )?;
@@ -278,7 +278,7 @@ impl AstParser {
             )?;
 
             return Ok(AstNode::LogDecl {
-                syntax_id: self.record_syntax_origin(&log_token),
+                syntax_id: self.record_syntax_origin(&name_token),
                 options,
                 generics: alt_generics,
                 name,
@@ -333,7 +333,7 @@ impl AstParser {
         )?;
 
         Ok(AstNode::LogDecl {
-            syntax_id: self.record_syntax_origin(&log_token),
+            syntax_id: self.record_syntax_origin(&name_token),
             options,
             generics,
             name,
@@ -368,7 +368,7 @@ impl AstParser {
 
         self.guard_decl_boundary(&pro_token, tokens, decl_line, "Incomplete procedure declaration")?;
 
-        let (receiver_type, name) = self.parse_routine_name_with_optional_receiver(
+        let (receiver_type, name, name_token) = self.parse_routine_name_with_optional_receiver(
             tokens,
             "Expected procedure name after 'pro'",
         )?;
@@ -439,7 +439,7 @@ impl AstParser {
             )?;
 
             return Ok(AstNode::ProDecl {
-                syntax_id: self.record_syntax_origin(&pro_token),
+                syntax_id: self.record_syntax_origin(&name_token),
                 options,
                 generics: alt_generics,
                 name,
@@ -494,7 +494,7 @@ impl AstParser {
         )?;
 
         Ok(AstNode::ProDecl {
-            syntax_id: self.record_syntax_origin(&pro_token),
+            syntax_id: self.record_syntax_origin(&name_token),
             options,
             generics,
             name,

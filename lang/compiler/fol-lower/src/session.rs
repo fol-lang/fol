@@ -107,6 +107,12 @@ impl LoweringSession {
             exprs::lower_routine_bodies(package, &type_table, &decl_index, lowered, &mut next_routine_index)?;
         }
 
+        crate::mono::monomorphize_generic_receiver_routines(
+            &mut packages,
+            &mut type_table,
+            &mut next_routine_index,
+        )?;
+
         let source_map = build_workspace_source_map(&self.typed, &packages);
 
         let entry_candidates = packages

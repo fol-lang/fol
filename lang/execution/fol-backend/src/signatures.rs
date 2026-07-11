@@ -144,8 +144,32 @@ pub fn render_routine_signature(
 
     let mut params = Vec::new();
     if let Some(receiver_type) = routine.receiver_type {
+        let receiver_local_id = routine.params.first().copied().ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "receiver-qualified routine '{}' does not retain a receiver local slot",
+                    routine.name
+                ),
+            )
+        })?;
+        let receiver_local = routine.locals.get(receiver_local_id).ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "receiver-qualified routine '{}' is missing its receiver local",
+                    routine.name
+                ),
+            )
+        })?;
         params.push(format!(
-            "receiver: {}",
+            "{}: {}",
+            mangle_local_name(
+                package_identity,
+                routine.id,
+                receiver_local_id,
+                receiver_local.name.as_deref(),
+            ),
             render_rust_type_in_workspace(Some(workspace), type_table, receiver_type)?
         ));
     }

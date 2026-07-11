@@ -60,6 +60,8 @@ fn lsp_server_opens_real_model_example_packages_cleanly() {
         "examples/generic_type_constrained_m1m2",
         "examples/generic_type_exec_m1m2",
         "examples/generic_error_m1m2",
+        "examples/generic_receiver_m1",
+        "examples/generic_receiver_cross_file_m1",
         "examples/memo_defaults",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
@@ -97,6 +99,8 @@ fn lsp_server_returns_document_symbols_for_real_example_roots() {
         "examples/generic_type_constrained_m1m2",
         "examples/generic_type_exec_m1m2",
         "examples/generic_error_m1m2",
+        "examples/generic_receiver_m1",
+        "examples/generic_receiver_cross_file_m1",
         "examples/standards_protocol_m2",
         "examples/standards_protocol_pair_m2",
         "examples/standards_protocol_multi_m2",
@@ -571,6 +575,119 @@ fn lsp_server_returns_definitions_for_v2_generic_call_sites() {
         // assert that the definition lands inside the same package.
         assert!(definition.uri.starts_with("file://"));
         assert_eq!(definition.range.start.line, 0);
+
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_returns_hover_and_definition_for_generic_receiver_examples() {
+    // Same-file: hover and definition on the monomorphized method call
+    // sites in the generic receiver example.
+    let hover_cases = [
+        ("examples/generic_receiver_m1", "get(", 2, "get"),
+        ("examples/generic_receiver_m1", "swap(", 2, "swap"),
+    ];
+    for (example, needle, ordinal, expected) in hover_cases {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let hover = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1411),
+                method: "textDocument/hover".to_string(),
+                params: Some(
+                    serde_json::to_value(LspHoverParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position: find_nth_position(&text, needle, ordinal),
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+        let hover = hover.expect("generic receiver call-site hover should resolve");
+        assert!(
+            hover.contents.contains(expected),
+            "example '{example}' should surface hover for '{expected}', got: {hover:?}"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    // Same-file definition: the call resolves back to the generic receiver
+    // routine declaration line.
+    {
+        let (root, uri) = copied_example_package_root("examples/generic_receiver_m1");
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let decl_line = find_nth_position(&text, "fun (Box[T])get(T)(): T", 1).line;
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let definition = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1412),
+                method: "textDocument/definition".to_string(),
+                params: Some(
+                    serde_json::to_value(LspDefinitionParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position: find_nth_position(&text, "get(", 2),
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let definition: Option<LspLocation> =
+            serde_json::from_value(definition.result.unwrap()).unwrap();
+        let definition =
+            definition.expect("generic receiver call-site definition should resolve");
+        assert!(definition.uri.starts_with("file://"));
+        assert_eq!(
+            definition.range.start.line, decl_line,
+            "definition should land on the generic receiver routine declaration"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    // Cross-file: the method call in main.fol resolves into the sibling
+    // source unit that declares the generic receiver routine.
+    {
+        let (root, uri) =
+            copied_example_package_root("examples/generic_receiver_cross_file_m1");
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let definition = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(1413),
+                method: "textDocument/definition".to_string(),
+                params: Some(
+                    serde_json::to_value(LspDefinitionParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position: find_nth_position(&text, "get(", 1),
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let definition: Option<LspLocation> =
+            serde_json::from_value(definition.result.unwrap()).unwrap();
+        let definition =
+            definition.expect("cross-file generic receiver definition should resolve");
+        assert!(
+            definition.uri.ends_with("shared.fol"),
+            "cross-file definition should land in the declaring unit: {definition:?}"
+        );
 
         fs::remove_dir_all(root).ok();
     }

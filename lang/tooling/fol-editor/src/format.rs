@@ -32,6 +32,10 @@ pub fn format_document(text: &str) -> String {
 
     if lines.is_empty() {
         String::new()
+    } else if depth > 0 {
+        // The document is brace-unbalanced (for example mid-edit); keep the
+        // truncated tail as-is instead of appending a declaration terminator.
+        format!("{}\n", lines.join("\n"))
     } else {
         let mut joined = lines.join("\n");
         if joined.ends_with(';') {

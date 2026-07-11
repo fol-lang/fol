@@ -897,3 +897,117 @@ fn imported_generic_routine_calls_keep_underconstrained_cases_behind_the_same_wo
                 .contains("requires workspace-aware typechecking in V1")
     }));
 }
+
+#[test]
+fn receiver_routines_bind_self_to_the_receiver_type() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             var total: int;\n\
+         };\n\
+         fun (Counter)read(): int = {\n\
+             return self.total;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var counter: Counter = { total = 3 };\n\
+             return counter.read();\n\
+         };\n",
+    )]);
+
+    let (_self_id, self_symbol) = find_typed_symbol(&typed, "self", SymbolKind::Parameter);
+    let (_counter_id, counter_symbol) = find_typed_symbol(&typed, "Counter", SymbolKind::Type);
+    let self_type = self_symbol
+        .declared_type
+        .expect("self should be typed as the receiver");
+    match typed.type_table().get(self_type) {
+        Some(CheckedType::Declared { symbol, .. }) => {
+            assert_eq!(*symbol, counter_symbol.symbol_id)
+        }
+        other => panic!("self should keep the declared receiver type, got {other:?}"),
+    }
+}
+
+#[test]
+fn generic_receiver_routines_type_self_field_access_through_the_generic() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Box(T): rec = {\n\
+             value: T\n\
+         };\n\
+         fun (Box[T])get(T)(): T = {\n\
+             return self.value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var box: Box[int] = { value = 7 };\n\
+             return box.get();\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn generic_type_templates_lower_before_later_source_units_instantiate_them() {
+    // Regression: the template for `Box(T)` lives in a source unit that sorts
+    // AFTER the unit that instantiates `Box[int]`. Type declarations must be
+    // recorded for every source unit before any routine signature or eager
+    // binding hint is lowered.
+    let typed = typecheck_fixture_folder(&[
+        (
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var boxed: Box[int] = { value = 7 };\n\
+                 return boxed.get();\n\
+             };\n",
+        ),
+        (
+            "shared.fol",
+            "typ Box(T): rec = {\n\
+                 value: T\n\
+             };\n\
+             fun (Box[T])get(T)(): T = {\n\
+                 return self.value;\n\
+             };\n",
+        ),
+    ]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn generic_receiver_calls_reject_underconstrained_routine_generics() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Box(T): rec = {\n\
+             value: T\n\
+         };\n\
+         fun (Box[T])stash(T, U)(extra: T): U = {\n\
+             return extra;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var boxed: Box[int] = { value = 5 };\n\
+             return boxed.stash(1);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("underconstrained")),
+        "underconstrained generic receiver call should be rejected: {errors:#?}"
+    );
+}

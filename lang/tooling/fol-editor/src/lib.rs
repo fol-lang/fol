@@ -211,7 +211,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(root.join("build.fol"), "pro[] build(): non = {\n    return;\n};\n").unwrap();
+        std::fs::write(root.join("build.fol"), "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n").unwrap();
         let file = src.join("main.fol");
         let text = "fun[] main(): int = {\n    return 0;\n};\n";
         std::fs::write(&file, text).unwrap();
@@ -278,7 +278,7 @@ mod tests {
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
         std::fs::write(
             root.join("build.fol"),
-            "pro[] build(): non = {\n    return;\n};\n",
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
         )
         .unwrap();
         let file = src.join("main.fol");

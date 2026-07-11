@@ -76,6 +76,10 @@ impl<I: LoweringId, T> IdTable<I, T> {
         self.entries.iter()
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.entries.iter_mut()
+    }
+
     pub fn iter_with_ids(&self) -> impl Iterator<Item = (I, &T)> {
         self.entries
             .iter()

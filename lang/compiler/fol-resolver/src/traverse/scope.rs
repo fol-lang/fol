@@ -37,6 +37,26 @@ pub fn insert_local_symbol(
     kind: SymbolKind,
     duplicate_key: String,
 ) -> Result<SymbolId, ResolverError> {
+    insert_local_symbol_with_origin(
+        program,
+        source_unit_id,
+        scope_id,
+        name,
+        kind,
+        duplicate_key,
+        None,
+    )
+}
+
+pub fn insert_local_symbol_with_origin(
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    name: &str,
+    kind: SymbolKind,
+    duplicate_key: String,
+    origin: Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<SymbolId, ResolverError> {
     let canonical_name = fol_types::canonical_identifier_key(name);
     // Resolver contract: one scope cannot redefine the same binding shape, but
     // nested scopes may intentionally shadow names from parent scopes.
@@ -93,7 +113,7 @@ pub fn insert_local_symbol(
         kind,
         scope: scope_id,
         source_unit: source_unit_id,
-        origin: None,
+        origin,
         visibility: None,
         declaration_scope: None,
         mounted_from: None,

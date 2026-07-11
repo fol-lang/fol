@@ -982,6 +982,70 @@ fn test_generic_turbofish_m1_example_builds_and_runs() {
 }
 
 #[test]
+fn test_generic_receiver_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_receiver_m1");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic receiver example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic receiver example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic receiver example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") && stdout.contains("boxed"));
+}
+
+#[test]
+fn test_generic_receiver_cross_file_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_receiver_cross_file_m1");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "cross-file generic receiver example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("cross-file generic receiver example should run");
+    assert!(run.status.success());
+}
+
+#[test]
+fn test_fail_generic_receiver_m1_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_generic_receiver_m1");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        !check.status.success(),
+        "generic receiver misuse example should fail semantic checking: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        combined.contains("underconstrained"),
+        "generic receiver misuse should keep the argument-driven inference boundary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
 fn test_generic_type_exec_m1m2_example_builds_and_runs() {
     let root = temp_example_root("examples/generic_type_exec_m1m2");
 
@@ -4890,6 +4954,8 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
 
     let documented_generics = [
         "examples/generic_error_m1m2",
+        "examples/generic_receiver_m1",
+        "examples/generic_receiver_cross_file_m1",
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
@@ -4900,6 +4966,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         "examples/generic_type_semantic_m1m2",
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",
+        "examples/fail_generic_receiver_m1",
         "examples/fail_generic_standard_constraint_m1m2",
     ]
     .into_iter()

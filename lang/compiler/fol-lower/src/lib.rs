@@ -7,6 +7,7 @@ mod errors;
 pub mod exprs;
 pub mod ids;
 pub mod model;
+mod mono;
 pub mod render;
 pub mod session;
 pub mod types;

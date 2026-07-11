@@ -324,6 +324,17 @@ pub fn lower_routine_decl(
     let routine_scope_id = syntax_id
         .and_then(|syntax_id| typed_package.program.resolved().scope_for_syntax(syntax_id))
         .unwrap_or(typed_symbol.scope_id);
+    if routine.receiver_type.is_some() {
+        if let Some(self_symbol_id) = find_symbol_in_scope_or_descendants(
+            &typed_package.program,
+            source_unit_id,
+            routine_scope_id,
+            SymbolKind::Parameter,
+            "self",
+        ) {
+            routine.local_symbols.insert(self_symbol_id, routine.params[0]);
+        }
+    }
     let checked_signature = typed_symbol.declared_type.ok_or_else(|| {
         LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,

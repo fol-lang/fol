@@ -742,7 +742,7 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_name_message: &str,
-    ) -> Result<(Option<FolType>, String), ParseError> {
+    ) -> Result<(Option<FolType>, String, fol_lexer::lexer::stage3::element::Element), ParseError> {
         let mut receiver_type = None;
         let current = tokens.curr(false)?;
 
@@ -790,6 +790,6 @@ impl AstParser {
         let name_token = tokens.curr(false)?;
         let name = Self::expect_named_label(&name_token, missing_name_message)?;
         let _ = tokens.bump();
-        Ok((receiver_type, name))
+        Ok((receiver_type, name, name_token))
     }
 }

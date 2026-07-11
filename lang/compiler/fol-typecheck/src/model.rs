@@ -311,6 +311,12 @@ impl TypedProgram {
         self.method_call_targets.get(&syntax_id).copied()
     }
 
+    pub fn method_call_targets(&self) -> impl Iterator<Item = (SyntaxNodeId, SymbolId)> + '_ {
+        self.method_call_targets
+            .iter()
+            .map(|(syntax_id, symbol_id)| (*syntax_id, *symbol_id))
+    }
+
     pub fn package_name(&self) -> &str {
         self.resolved.package_name()
     }

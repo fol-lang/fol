@@ -35,7 +35,7 @@ fn serialize_result(value: &impl serde::Serialize) -> EditorResult<serde_json::V
         EditorError::new(EditorErrorKind::Internal, format!("LSP response serialization failed: {e}"))
     })
 }
-use analysis::{analyze_document_diagnostics, analyze_document_semantics};
+use analysis::analyze_document_semantics;
 use completion_helpers::completion_context_with_lsp;
 use std::fs;
 use std::sync::Arc;
@@ -385,7 +385,12 @@ impl EditorLspServer {
         let hit = snapshot
             .reference_at(position)
             .as_ref()
-            .and_then(|reference| snapshot.hover_for_reference(reference));
+            .and_then(|reference| snapshot.hover_for_reference(reference))
+            .or_else(|| {
+                snapshot
+                    .method_target_symbol_at(position)
+                    .and_then(|symbol_id| snapshot.hover_for_symbol(symbol_id))
+            });
         Ok(hit)
     }
 
@@ -399,7 +404,12 @@ impl EditorLspServer {
         Ok(snapshot
             .reference_at(position)
             .as_ref()
-            .and_then(|reference| snapshot.definition_for_reference(reference)))
+            .and_then(|reference| snapshot.definition_for_reference(reference))
+            .or_else(|| {
+                snapshot
+                    .method_target_symbol_at(position)
+                    .and_then(|symbol_id| snapshot.definition_for_symbol(symbol_id))
+            }))
     }
 
     pub fn signature_help(
@@ -665,8 +675,12 @@ impl EditorLspServer {
             }
         }
 
-        let mapping = self.document_mapping(document, uri)?;
-        let diagnostics = analyze_document_diagnostics(document, &mapping)?;
+        // Diagnostics come from the same compiler-backed analysis as every
+        // semantic request, so build (and cache) the shared semantic snapshot
+        // once and reuse it for both.
+        analysis::note_diagnostic_snapshot_build();
+        let snapshot = self.semantic_snapshot(uri, document)?;
+        let diagnostics = snapshot.diagnostics.clone();
         self.session.diagnostic_snapshots.insert(
             uri.as_str().to_string(),
             analysis::CachedDiagnosticSnapshot {

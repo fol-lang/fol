@@ -153,17 +153,20 @@ fn lsp_server_initialize_surface_stays_aligned_with_shipped_capabilities() {
 fn lsp_server_rejects_unimplemented_v1_methods_explicitly() {
     let mut server = EditorLspServer::new(EditorConfig::default());
 
-    let error = server
+    // Unknown methods answer with a JSON-RPC method-not-found error instead
+    // of killing the transport.
+    let response = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: JsonRpcId::Number(99),
             method: "textDocument/rangeFormatting".to_string(),
             params: Some(serde_json::json!({})),
         })
-        .expect_err("unimplemented requests should fail explicitly");
+        .expect("unimplemented requests should produce a response")
+        .expect("unimplemented requests should not be silent");
 
-    assert_eq!(error.kind, crate::EditorErrorKind::InvalidInput);
-    assert!(error.message.contains("unsupported LSP request"));
+    let error = response.error.expect("unimplemented requests should carry an error");
+    assert_eq!(error.code, -32601);
     assert!(error.message.contains("textDocument/rangeFormatting"));
 }
 
@@ -356,7 +359,7 @@ fn lsp_server_formatting_does_not_build_semantic_snapshots() {
     reset_analysis_stage_counts();
     open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
@@ -386,7 +389,7 @@ fn lsp_server_formatting_does_not_build_semantic_snapshots() {
     let second_edits: Vec<LspTextEdit> = serde_json::from_value(second.result.unwrap()).unwrap();
 
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
@@ -647,7 +650,9 @@ fn lsp_server_keeps_active_fol_model_in_semantic_snapshots() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"core\" });\n",
             "};\n",
         ),
@@ -702,7 +707,9 @@ fn assert_semantic_model_via_hover(build_model: &str, expected: fol_typecheck::T
         format!(
             concat!(
                 "pro[] build(): non = {{\n",
-                "    var graph = .build().graph();\n",
+                "    var build = .build();\n",
+                "    build.meta({{ name = \"sample\", version = \"0.1.0\" }});\n",
+                "    var graph = build.graph();\n",
                 "    graph.add_exe({{ name = \"demo\", root = \"src/main.fol\", fol_model = \"{}\" }});\n",
                 "}};\n",
             ),
@@ -760,7 +767,9 @@ fn lsp_server_defaults_omitted_build_model_to_memo_in_hover_semantics() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
             "};\n",
         ),
@@ -888,7 +897,7 @@ fn lsp_server_reuses_semantic_snapshots_for_unchanged_documents() {
     reset_analyze_document_diagnostics_call_count();
     let _open = open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
 
     let hover = server
         .handle_request(JsonRpcRequest {
@@ -910,7 +919,7 @@ fn lsp_server_reuses_semantic_snapshots_for_unchanged_documents() {
         .unwrap();
     let _hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 2);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
 
     let completion = server
         .handle_request(JsonRpcRequest {
@@ -978,7 +987,7 @@ fn lsp_server_reuses_semantic_snapshots_for_unchanged_documents() {
         .unwrap();
     assert_eq!(changed.len(), 1);
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
-    assert_eq!(analyze_document_semantics_call_count(), 1);
+    assert_eq!(analyze_document_semantics_call_count(), 2);
 
     let definition = server
         .handle_request(JsonRpcRequest {
@@ -1042,7 +1051,7 @@ fn lsp_server_reuses_semantic_snapshots_for_unchanged_workspace_symbol_requests(
         serde_json::from_value(second.result.unwrap()).unwrap();
 
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 1);
+    assert_eq!(analyze_document_semantics_call_count(), 2);
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
@@ -1061,7 +1070,7 @@ fn lsp_server_reuses_semantic_snapshots_for_unchanged_workspace_symbol_requests(
 }
 
 #[test]
-fn lsp_server_keeps_diagnostics_and_semantic_caches_separate() {
+fn lsp_server_shares_one_analysis_between_diagnostics_and_semantics() {
     let (root, uri) = sample_package_root("diagnostic_and_semantic_split");
     let text = "fun[] main(): int = {\n    var value: int = 7;\n    return value;\n};\n";
     fs::write(root.join("src/main.fol"), text).unwrap();
@@ -1072,9 +1081,11 @@ fn lsp_server_keeps_diagnostics_and_semantic_caches_separate() {
     reset_analysis_stage_counts();
     let _open = open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
+    // Diagnostics and semantic requests share one cached analysis per
+    // document version.
     assert!(server.session.diagnostic_snapshots.contains_key(uri.as_str()));
-    assert!(!server.session.semantic_snapshots.contains_key(uri.as_str()));
+    assert!(server.session.semantic_snapshots.contains_key(uri.as_str()));
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
@@ -1148,11 +1159,11 @@ fn lsp_server_keeps_diagnostics_and_semantic_caches_separate() {
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
-            materialize_overlay: 2,
-            parse_directory_diagnostics: 2,
-            load_directory_package: 2,
-            resolve_workspace: 2,
-            typecheck_workspace: 2,
+            materialize_overlay: 1,
+            parse_directory_diagnostics: 1,
+            load_directory_package: 1,
+            resolve_workspace: 1,
+            typecheck_workspace: 1,
         }
     );
 
@@ -1202,7 +1213,7 @@ fn lsp_server_reuses_changed_document_snapshot_after_diagnostics_refresh() {
         .unwrap();
     assert_eq!(changed.len(), 1);
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 2);
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
@@ -1249,7 +1260,7 @@ fn lsp_server_reuses_changed_document_snapshot_after_diagnostics_refresh() {
         .unwrap();
 
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
-    assert_eq!(analyze_document_semantics_call_count(), 1);
+    assert_eq!(analyze_document_semantics_call_count(), 2);
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
@@ -1280,7 +1291,7 @@ fn lsp_server_keeps_other_file_snapshots_after_a_neighbor_changes() {
     open_document(&mut server, uri.clone(), main_text);
     open_document(&mut server, second_uri.clone(), extra_text);
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 2);
 
     let hover = |server: &mut EditorLspServer, uri: String, line: u32, character: u32, id: i64| {
         server
@@ -1335,10 +1346,10 @@ fn lsp_server_keeps_other_file_snapshots_after_a_neighbor_changes() {
         .unwrap();
     assert_eq!(changed.len(), 1);
     assert_eq!(analyze_document_diagnostics_call_count(), 3);
-    assert_eq!(analyze_document_semantics_call_count(), 2);
+    assert_eq!(analyze_document_semantics_call_count(), 3);
 
     let _extra_hover_again = hover(&mut server, second_uri.clone(), 1, 11, 742);
-    assert_eq!(analyze_document_semantics_call_count(), 2);
+    assert_eq!(analyze_document_semantics_call_count(), 3);
 
     let _main_hover_again = hover(&mut server, uri.clone(), 1, 12, 743);
     assert_eq!(analyze_document_semantics_call_count(), 3);
@@ -1357,7 +1368,7 @@ fn lsp_server_handles_mixed_request_sequences_without_leaking_snapshots() {
     reset_analyze_document_diagnostics_call_count();
     open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
 
     let hover = server
         .handle_request(JsonRpcRequest {
@@ -1504,7 +1515,7 @@ fn lsp_server_did_close_clears_diagnostics_without_reanalysis() {
     reset_analysis_stage_counts();
     let _open = open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
 
     let closed = server
         .handle_notification(JsonRpcNotification {
@@ -1525,7 +1536,7 @@ fn lsp_server_did_close_clears_diagnostics_without_reanalysis() {
     assert_eq!(closed.len(), 1);
     assert!(closed[0].diagnostics.is_empty());
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
@@ -1552,7 +1563,7 @@ fn lsp_server_reuses_diagnostic_and_semantic_caches_independently() {
     reset_analysis_stage_counts();
     let _open = open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
 
     let parsed_uri = EditorDocumentUri::parse(&uri).unwrap();
     let _hover = server
@@ -1676,7 +1687,7 @@ fn lsp_server_reuses_snapshots_for_repeated_signature_help() {
     reset_analyze_document_diagnostics_call_count();
     open_document(&mut server, uri.clone(), &text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
 
     let request = || JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -1720,7 +1731,7 @@ fn lsp_server_reuses_snapshots_for_repeated_code_actions() {
     reset_analyze_document_diagnostics_call_count();
     open_document(&mut server, uri.clone(), &text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
 
     let request = || JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -1769,9 +1780,11 @@ fn lsp_server_drops_semantic_snapshots_when_documents_close_and_reopen() {
     reset_analyze_document_diagnostics_call_count();
     let _open = open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
-    assert_eq!(analyze_document_semantics_call_count(), 0);
+    assert_eq!(analyze_document_semantics_call_count(), 1);
+    // Diagnostics and semantic requests share one cached analysis per
+    // document version.
     assert!(server.session.diagnostic_snapshots.contains_key(uri.as_str()));
-    assert!(!server.session.semantic_snapshots.contains_key(uri.as_str()));
+    assert!(server.session.semantic_snapshots.contains_key(uri.as_str()));
 
     let closed = server
         .handle_notification(JsonRpcNotification {
@@ -1795,8 +1808,10 @@ fn lsp_server_drops_semantic_snapshots_when_documents_close_and_reopen() {
     let _reopened = open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
     assert_eq!(analyze_document_semantics_call_count(), 1);
+    // Diagnostics and semantic requests share one cached analysis per
+    // document version.
     assert!(server.session.diagnostic_snapshots.contains_key(uri.as_str()));
-    assert!(!server.session.semantic_snapshots.contains_key(uri.as_str()));
+    assert!(server.session.semantic_snapshots.contains_key(uri.as_str()));
 
     fs::remove_dir_all(root).ok();
 }
@@ -2667,7 +2682,7 @@ fn lsp_server_filters_build_file_diagnostics_out_of_source_buffers() {
     fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
     fs::write(
         root.join("build.fol"),
-        "pro[] build(): non = {\n    return;\n};\n",
+        "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
     )
     .unwrap();
     let file = src.join("main.fol");
@@ -2784,7 +2799,9 @@ fn lsp_server_surfaces_alloc_echo_model_diagnostics_from_open_documents() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
             "};\n",
         ),
@@ -2813,7 +2830,9 @@ fn lsp_server_surfaces_core_string_model_diagnostics_from_open_documents() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"core\" });\n",
             "};\n",
         ),
@@ -2842,7 +2861,9 @@ fn lsp_server_surfaces_core_heap_literal_boundary_from_open_documents() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"core\" });\n",
             "};\n",
         ),

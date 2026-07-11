@@ -15,15 +15,25 @@ pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult
     let syntax = resolved.syntax().clone();
     let mut errors = Vec::new();
 
-    for (source_unit_index, source_unit) in syntax.source_units.iter().enumerate() {
-        if source_unit.kind == ParsedSourceUnitKind::Build {
-            continue;
-        }
-        let source_unit_id = SourceUnitId(source_unit_index);
-        for item in &source_unit.items {
-            if let Err(error) = lower_top_level_declaration(typed, &resolved, source_unit_id, item)
-            {
-                errors.push(error);
+    // Type declarations are lowered for every source unit before any other
+    // declarations. Routine signatures and eager binding hints may instantiate
+    // generic type templates declared in a later-ordered source unit, so the
+    // templates must be recorded first regardless of unit ordering.
+    for type_decls_only in [true, false] {
+        for (source_unit_index, source_unit) in syntax.source_units.iter().enumerate() {
+            if source_unit.kind == ParsedSourceUnitKind::Build {
+                continue;
+            }
+            let source_unit_id = SourceUnitId(source_unit_index);
+            for item in &source_unit.items {
+                if is_type_decl_item(&item.node) != type_decls_only {
+                    continue;
+                }
+                if let Err(error) =
+                    lower_top_level_declaration(typed, &resolved, source_unit_id, item)
+                {
+                    errors.push(error);
+                }
             }
         }
     }
@@ -36,6 +46,14 @@ pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+fn is_type_decl_item(node: &AstNode) -> bool {
+    match node {
+        AstNode::TypeDecl { .. } => true,
+        AstNode::Commented { node, .. } => is_type_decl_item(node),
+        _ => false,
     }
 }
 
@@ -261,7 +279,7 @@ fn lower_top_level_declaration(
                             "resolved standard scope disappeared for standard '{}'",
                             name
                         ),
-                        node_origin(resolved, &item.node),
+                        node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
                     )
                 })?;
             // Bind the standard's generic parameters as declared types in
@@ -665,6 +683,16 @@ fn lower_named_routine_signature(
         .as_ref()
         .map(|ty| lower_type(typed, resolved, signature_scope, ty))
         .transpose()?;
+    if let Some(receiver_checked) = lowered_receiver {
+        let self_symbol_id = find_symbol_id_in_scope(
+            resolved,
+            source_unit_id,
+            signature_scope,
+            &[SymbolKind::Parameter],
+            "self",
+        )?;
+        record_symbol_type(typed, self_symbol_id, receiver_checked)?;
+    }
     let routine_type = typed
         .type_table_mut()
         .intern(CheckedType::Routine(RoutineType {
@@ -1000,7 +1028,7 @@ fn check_standard_conformance(
                         "typed conformance metadata disappeared for type '{}'",
                         name
                     ),
-                    node_origin(resolved, &item.node),
+                    node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
                 ));
                 continue;
             };
@@ -1011,7 +1039,7 @@ fn check_standard_conformance(
                         .symbol(standard_symbol_id)
                         .map(|symbol| symbol.name.clone())
                         .unwrap_or_else(|| format!("#{}", standard_symbol_id.0));
-                    errors.push(match node_origin(resolved, &item.node) {
+                    errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                         Some(origin) => TypecheckError::with_origin(
                             TypecheckErrorKind::Unsupported,
                             format!(
@@ -1047,7 +1075,7 @@ fn check_standard_conformance(
                             .symbol(standard_symbol_id)
                             .map(|symbol| symbol.name.clone())
                             .unwrap_or_else(|| format!("#{}", standard_symbol_id.0));
-                        errors.push(match node_origin(resolved, &item.node) {
+                        errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                             Some(origin) => TypecheckError::with_origin(
                                 TypecheckErrorKind::InvalidInput,
                                 format!(
@@ -1191,7 +1219,7 @@ fn check_standard_conformance(
                         requirement.error_type,
                     );
                     let mut error = if exact_matches.len() > 1 {
-                        match node_origin(resolved, &item.node) {
+                        match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                             Some(origin) => TypecheckError::with_origin(
                                 TypecheckErrorKind::InvalidInput,
                                 format!(
@@ -1209,7 +1237,7 @@ fn check_standard_conformance(
                             ),
                         }
                     } else if candidates.is_empty() {
-                        match node_origin(resolved, &item.node) {
+                        match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                             Some(origin) => TypecheckError::with_origin(
                                 TypecheckErrorKind::IncompatibleType,
                                 format!(
@@ -1240,7 +1268,7 @@ fn check_standard_conformance(
                             })
                             .collect::<Vec<_>>()
                             .join(", ");
-                        match node_origin(resolved, &item.node) {
+                        match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                             Some(origin) => TypecheckError::with_origin(
                                 TypecheckErrorKind::IncompatibleType,
                                 format!(
@@ -1308,7 +1336,7 @@ fn check_standard_conformance(
                     let expected_type_name =
                         typed.type_table().render_type(requirement.field_type);
                     let Some(fields) = conformer_record_fields.as_ref() else {
-                        errors.push(match node_origin(resolved, &item.node) {
+                        errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                             Some(origin) => TypecheckError::with_origin(
                                 TypecheckErrorKind::IncompatibleType,
                                 format!(
@@ -1329,7 +1357,7 @@ fn check_standard_conformance(
                     };
                     match fields.get(&requirement.name) {
                         None => {
-                            errors.push(match node_origin(resolved, &item.node) {
+                            errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                                 Some(origin) => TypecheckError::with_origin(
                                     TypecheckErrorKind::IncompatibleType,
                                     format!(
@@ -1349,7 +1377,7 @@ fn check_standard_conformance(
                         }
                         Some(actual_type) if *actual_type != requirement.field_type => {
                             let actual_type_name = typed.type_table().render_type(*actual_type);
-                            errors.push(match node_origin(resolved, &item.node) {
+                            errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                                 Some(origin) => TypecheckError::with_origin(
                                     TypecheckErrorKind::IncompatibleType,
                                     format!(

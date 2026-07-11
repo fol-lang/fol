@@ -257,3 +257,26 @@ fn generic_type_instantiations_reject_nonconforming_protocol_constraints() {
                 .contains("implement the required routines")
     }), "Expected constrained generic type instantiations to reject nonconforming types, got: {errors:?}");
 }
+
+#[test]
+fn generic_type_aliases_instantiate_through_their_target() {
+    // Book contract: generic aliases are part of full V2 —
+    // `typ Pair(T): seq[T]` instantiates structurally at use sites.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Pair(T): seq[T];\n\
+         fun[] main(): int = {\n\
+             var items: Pair[int] = {1, 2};\n\
+             return .len(items);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}

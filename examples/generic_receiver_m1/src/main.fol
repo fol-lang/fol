@@ -1,0 +1,23 @@
+use std: pkg = {"std"};
+
+typ Box(T): rec = {
+    value: T
+};
+
+fun (Box[T])get(T)(): T = {
+    return self.value;
+};
+
+fun (Box[T])swap(T)(next: T): T = {
+    var previous: T = self.value;
+    return previous;
+};
+
+fun[] main(): int = {
+    var numbers: Box[int] = { value = 42 };
+    var words: Box[str] = { value = "boxed" };
+    var shown: int = std::io::echo_int(numbers.get());
+    var text: str = std::io::echo_str(words.get());
+    var old: int = std::io::echo_int(numbers.swap(9));
+    return 0;
+};

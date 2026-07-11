@@ -326,6 +326,10 @@ fn typecheck_model_for_build_model(
     model: BuildArtifactFolModel,
     dependencies: &[BuildRuntimeDependency],
 ) -> TypecheckCapabilityModel {
+    // Mirrors the CLI: a memo artifact that declares the bundled internal
+    // `std` dependency typechecks at the effective hosted capability, which
+    // legalizes the low-level hosted substrate (`.echo`) exactly like
+    // `fol code check` does (see examples/std_substrate_echo).
     match model {
         BuildArtifactFolModel::Core => TypecheckCapabilityModel::Core,
         BuildArtifactFolModel::Memo => {
@@ -422,7 +426,9 @@ mod tests {
             root.join("build.fol"),
             concat!(
                 "pro[] build(): non = {\n",
-                "    var graph = .build().graph();\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
                 "    graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"core\" });\n",
                 "};\n",
             ),
@@ -451,7 +457,7 @@ mod tests {
             map_document_workspace(&document, &EditorConfig::default()).expect("mapping should succeed");
 
         assert_eq!(mapping.package_root, Some(root.clone()));
-        assert_eq!(mapping.active_fol_model, Some(TypecheckCapabilityModel::Memo));
+        assert_eq!(mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
 
         fs::remove_dir_all(root).ok();
     }
@@ -483,6 +489,7 @@ mod tests {
             concat!(
                 "pro[] build(): non = {\n",
                 "    var build = .build();\n",
+                "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
                 "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
                 "    var graph = build.graph();\n",
                 "    graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
@@ -510,7 +517,7 @@ mod tests {
         let build_mapping = map_document_workspace(&root.join("build.fol"), &EditorConfig::default())
             .expect("mapping should succeed");
 
-        assert_eq!(src_mapping.active_fol_model, Some(TypecheckCapabilityModel::Memo));
+        assert_eq!(src_mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
         assert_eq!(test_mapping.active_fol_model, Some(TypecheckCapabilityModel::Core));
         assert_eq!(build_mapping.active_fol_model, None);
 
@@ -527,9 +534,12 @@ mod tests {
         let memo_mapping =
             map_document_workspace(&root.join("memo/lib.fol"), &EditorConfig::default()).unwrap();
 
-        assert_eq!(app_mapping.active_fol_model, Some(TypecheckCapabilityModel::Memo));
+        // The workspace-level build.fol declares the bundled internal `std`
+        // dependency, so memo-model members typecheck at the effective hosted
+        // capability while the core member keeps its no-heap boundary.
+        assert_eq!(app_mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
         assert_eq!(core_mapping.active_fol_model, Some(TypecheckCapabilityModel::Core));
-        assert_eq!(memo_mapping.active_fol_model, Some(TypecheckCapabilityModel::Memo));
+        assert_eq!(memo_mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
 
         fs::remove_dir_all(root).ok();
     }
@@ -544,7 +554,9 @@ mod tests {
             root.join("build.fol"),
             concat!(
                 "pro[] build(): non = {\n",
-                "    var graph = .build().graph();\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
                 "    graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
                 "};\n",
             ),
@@ -581,6 +593,7 @@ mod tests {
             concat!(
                 "pro[] build(): non = {\n",
                 "    var build = .build();\n",
+                "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
                 "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
                 "    var graph = build.graph();\n",
                 "    graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
@@ -637,7 +650,7 @@ mod tests {
         fs::write(root.join("build.fol"), "name: app\nversion: 0.1.0\n").unwrap();
         fs::write(
             root.join("build.fol"),
-            "pro[] build(): non = {\n    return;\n};\n",
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
         )
         .unwrap();
         fs::write(
@@ -673,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_overlay_copies_only_the_current_package_subtree() {
+    fn workspace_overlay_copies_the_full_analysis_tree_for_sibling_imports() {
         let root = temp_root("workspace_overlay");
         let app_src = root.join("app/src");
         let shared_src = root.join("shared/src");
@@ -683,7 +696,7 @@ mod tests {
         fs::write(root.join("app/build.fol"), "name: app\nversion: 0.1.0\n").unwrap();
         fs::write(
             root.join("app/build.fol"),
-            "pro[] build(): non = {\n    return;\n};\n",
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
         )
         .unwrap();
         fs::write(
@@ -694,7 +707,7 @@ mod tests {
         fs::write(root.join("shared/build.fol"), "name: shared\nversion: 0.1.0\n").unwrap();
         fs::write(
             root.join("shared/build.fol"),
-            "pro[] build(): non = {\n    return;\n};\n",
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
         )
         .unwrap();
         fs::write(
@@ -715,11 +728,15 @@ mod tests {
         .unwrap();
         let overlay = materialize_analysis_overlay(&mapping, &document).unwrap();
 
-        assert_eq!(overlay.package_root(), Some(overlay.analysis_root()));
-        assert!(overlay.analysis_root().join("src/main.fol").is_file());
-        assert!(overlay.analysis_root().join("build.fol").is_file());
-        assert!(!overlay.analysis_root().join("shared").exists());
-        assert!(!overlay.analysis_root().join("fol.work.yaml").exists());
+        // The overlay keeps the whole analysis tree so sibling local-import
+        // targets (`use shared: loc = {"../shared"}`) stay resolvable.
+        assert_eq!(
+            overlay.package_root(),
+            Some(overlay.analysis_root().join("app").as_path()).map(|path| path.to_path_buf()).as_deref()
+        );
+        assert!(overlay.analysis_root().join("app/src/main.fol").is_file());
+        assert!(overlay.analysis_root().join("app/build.fol").is_file());
+        assert!(overlay.analysis_root().join("shared/src/lib.fol").is_file());
 
         fs::remove_dir_all(root).ok();
     }

@@ -10,12 +10,16 @@
 (def_decl "def" @keyword.type)
 (seg_decl "seg" @keyword.type)
 (std_decl "std" @keyword.type)
+(std_decl name: (identifier) @type.definition)
+(std_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))
+(standard_requirement (identifier) @function)
 (standard_field_requirement "var" @keyword)
-(turbofish_type_args "::" @operator "[" @punctuation.bracket "]" @punctuation.bracket)
+(standard_field_requirement name: (identifier) @property)
+(turbofish_type_args "::[" @punctuation.bracket "]" @punctuation.bracket)
 (if_stmt "if" @keyword.conditional)
 (if_expr "if" @keyword.conditional)
 (if_expr "else" @keyword.conditional)
-(else_clause "else" @keyword.conditional)
+"else" @keyword.conditional
 (select_stmt "select" @keyword.conditional)
 (select_expr "select" @keyword.conditional)
 (when_expr "when" @keyword.conditional)
@@ -163,5 +167,14 @@ __FOL_SHELL_TYPE_LINES__
 (boolean_literal) @boolean
 (string_literal) @string
 (integer_literal) @number
+(plain_fun_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))
+(plain_pro_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))
+(plain_log_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))
+(method_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))
+(generic_param name: (identifier) @type)
+(field_decl "var" @keyword)
+(field_decl (typed_binding name: (identifier) @property))
+(named_call_arg name: (identifier) @variable.parameter)
+(char_literal) @character
 (comment) @comment
 (doc_comment) @comment.documentation

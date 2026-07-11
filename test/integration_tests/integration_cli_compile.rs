@@ -1310,3 +1310,94 @@ use super::*;
 
         fs::remove_dir_all(&temp_root).ok();
     }
+
+    #[test]
+    fn test_entry_package_with_nested_source_namespaces_builds_and_runs() {
+        use std::fs;
+
+        // Regression: a source root that owns child namespaces emits its own
+        // code into `<dir>/mod.rs`; the entry call path must not gain a
+        // literal `mod` segment.
+        let temp_root = unique_temp_root("nested_namespace_entry");
+        fs::create_dir_all(temp_root.join("src/util"))
+            .expect("Should create nested namespace fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"nested_ns\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"nested_ns\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write nested namespace build file");
+        fs::write(
+            temp_root.join("src/util/lib.fol"),
+            "fun[exp] helper(): int = {\n    return 4;\n};\n",
+        )
+        .expect("Should write nested namespace helper");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            "fun[] main(): int = {\n    return 0;\n};\n",
+        )
+        .expect("Should write nested namespace entry");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "entry packages with nested source namespaces should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_source_namespaces_named_after_rust_keywords_build() {
+        use std::fs;
+
+        // Regression: FOL namespace directories may collide with Rust
+        // keywords (`impl`, `mod`, `type`); backend module names escape them.
+        let temp_root = unique_temp_root("keyword_namespace");
+        fs::create_dir_all(temp_root.join("src/impl"))
+            .expect("Should create keyword namespace fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"kw_ns\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"kw_ns\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write keyword namespace build file");
+        fs::write(
+            temp_root.join("src/impl/lib.fol"),
+            "fun[exp] helper(): int = {\n    return 5;\n};\n",
+        )
+        .expect("Should write keyword namespace helper");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            "fun[] main(): int = {\n    return 0;\n};\n",
+        )
+        .expect("Should write keyword namespace entry");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "keyword-named source namespaces should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }

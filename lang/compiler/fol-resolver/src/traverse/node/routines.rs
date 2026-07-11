@@ -4,7 +4,7 @@ use crate::{
 };
 use fol_parser::ast::{AstNode, FolType, Generic, Parameter, SyntaxNodeId};
 
-use super::super::scope::{insert_generic_symbols, insert_local_symbol};
+use super::super::scope::{insert_generic_symbols, insert_local_symbol, insert_local_symbol_with_origin};
 use super::types::resolve_type_reference;
 use super::RoutineContext;
 
@@ -28,6 +28,11 @@ pub fn traverse_named_routine(
         this_available: return_type.is_some(),
     });
     program.record_scope_for_syntax(*syntax_id, routine_scope);
+    // Parameters and the receiver binding are declared by the routine header,
+    // so they borrow its origin for editor navigation.
+    let header_origin = syntax_id
+        .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+        .cloned();
 
     insert_generic_symbols(program, source_unit_id, routine_scope, generics)?;
     for generic in generics {
@@ -88,8 +93,19 @@ pub fn traverse_named_routine(
             format!("symbol#{}", fol_types::canonical_identifier_key(capture)),
         )?;
     }
+    if receiver_type.is_some() {
+        insert_local_symbol_with_origin(
+            program,
+            source_unit_id,
+            routine_scope,
+            "self",
+            SymbolKind::Parameter,
+            format!("symbol#{}", fol_types::canonical_identifier_key("self")),
+            header_origin.clone(),
+        )?;
+    }
     for param in params {
-        insert_local_symbol(
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
@@ -99,6 +115,7 @@ pub fn traverse_named_routine(
                 "symbol#{}",
                 fol_types::canonical_identifier_key(&param.name)
             ),
+            header_origin.clone(),
         )?;
     }
 

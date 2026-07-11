@@ -56,7 +56,7 @@ std geometry: pro = {
 };
 ```
 
-The full planned forms are:
+The shipped forms are:
 
 - protocol `pro[]` for required routines
 - blueprint `blu[]` for required data

@@ -27,45 +27,36 @@ pub(crate) struct CachedDiagnosticSnapshot {
 }
 
 #[cfg(test)]
-static ANALYZE_DOCUMENT_SEMANTICS_CALLS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static ANALYZE_DOCUMENT_DIAGNOSTICS_CALLS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static MATERIALIZE_ANALYSIS_OVERLAY_CALLS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static PARSE_DIRECTORY_DIAGNOSTICS_CALLS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static LOAD_DIRECTORY_PACKAGE_CALLS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static RESOLVE_WORKSPACE_CALLS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static TYPECHECK_WORKSPACE_CALLS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    // Analysis is synchronous on the calling thread and every test drives its
+    // own server, so thread-local counters keep parallel tests isolated.
+    static ANALYZE_DOCUMENT_SEMANTICS_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static ANALYZE_DOCUMENT_DIAGNOSTICS_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static MATERIALIZE_ANALYSIS_OVERLAY_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PARSE_DIRECTORY_DIAGNOSTICS_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static LOAD_DIRECTORY_PACKAGE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static RESOLVE_WORKSPACE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static TYPECHECK_WORKSPACE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 #[cfg(test)]
 pub(crate) fn reset_analyze_document_semantics_call_count() {
-    ANALYZE_DOCUMENT_SEMANTICS_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
+    ANALYZE_DOCUMENT_SEMANTICS_CALLS.with(|cell| cell.set(0));
 }
 
 #[cfg(test)]
 pub(crate) fn analyze_document_semantics_call_count() -> usize {
-    ANALYZE_DOCUMENT_SEMANTICS_CALLS.load(std::sync::atomic::Ordering::Relaxed)
+    ANALYZE_DOCUMENT_SEMANTICS_CALLS.with(|cell| cell.get())
 }
 
 #[cfg(test)]
 pub(crate) fn reset_analyze_document_diagnostics_call_count() {
-    ANALYZE_DOCUMENT_DIAGNOSTICS_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
+    ANALYZE_DOCUMENT_DIAGNOSTICS_CALLS.with(|cell| cell.set(0));
 }
 
 #[cfg(test)]
 pub(crate) fn analyze_document_diagnostics_call_count() -> usize {
-    ANALYZE_DOCUMENT_DIAGNOSTICS_CALLS.load(std::sync::atomic::Ordering::Relaxed)
+    ANALYZE_DOCUMENT_DIAGNOSTICS_CALLS.with(|cell| cell.get())
 }
 
 #[cfg(test)]
@@ -80,26 +71,26 @@ pub(crate) struct AnalysisStageCounts {
 
 #[cfg(test)]
 pub(crate) fn reset_analysis_stage_counts() {
-    MATERIALIZE_ANALYSIS_OVERLAY_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
-    PARSE_DIRECTORY_DIAGNOSTICS_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
-    LOAD_DIRECTORY_PACKAGE_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
-    RESOLVE_WORKSPACE_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
-    TYPECHECK_WORKSPACE_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
+    MATERIALIZE_ANALYSIS_OVERLAY_CALLS.with(|cell| cell.set(0));
+    PARSE_DIRECTORY_DIAGNOSTICS_CALLS.with(|cell| cell.set(0));
+    LOAD_DIRECTORY_PACKAGE_CALLS.with(|cell| cell.set(0));
+    RESOLVE_WORKSPACE_CALLS.with(|cell| cell.set(0));
+    TYPECHECK_WORKSPACE_CALLS.with(|cell| cell.set(0));
 }
 
 #[cfg(test)]
 pub(crate) fn analysis_stage_counts() -> AnalysisStageCounts {
     AnalysisStageCounts {
         materialize_overlay: MATERIALIZE_ANALYSIS_OVERLAY_CALLS
-            .load(std::sync::atomic::Ordering::Relaxed),
+            .with(|cell| cell.get()),
         parse_directory_diagnostics: PARSE_DIRECTORY_DIAGNOSTICS_CALLS
-            .load(std::sync::atomic::Ordering::Relaxed),
+            .with(|cell| cell.get()),
         load_directory_package: LOAD_DIRECTORY_PACKAGE_CALLS
-            .load(std::sync::atomic::Ordering::Relaxed),
+            .with(|cell| cell.get()),
         resolve_workspace: RESOLVE_WORKSPACE_CALLS
-            .load(std::sync::atomic::Ordering::Relaxed),
+            .with(|cell| cell.get()),
         typecheck_workspace: TYPECHECK_WORKSPACE_CALLS
-            .load(std::sync::atomic::Ordering::Relaxed),
+            .with(|cell| cell.get()),
     }
 }
 
@@ -108,10 +99,10 @@ pub(super) fn analyze_document_semantics(
     mapping: &EditorWorkspaceMapping,
 ) -> EditorResult<SemanticSnapshot> {
     #[cfg(test)]
-    ANALYZE_DOCUMENT_SEMANTICS_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ANALYZE_DOCUMENT_SEMANTICS_CALLS.with(|cell| cell.set(cell.get() + 1));
 
     #[cfg(test)]
-    MATERIALIZE_ANALYSIS_OVERLAY_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    MATERIALIZE_ANALYSIS_OVERLAY_CALLS.with(|cell| cell.set(cell.get() + 1));
     let overlay = materialize_analysis_overlay(mapping, document)?;
     if let Some(package_root) = overlay.package_root() {
         let parser_diags = parse_directory_diagnostics(package_root)?
@@ -147,7 +138,7 @@ pub(super) fn analyze_document_semantics(
             PackageSession::new()
         };
         #[cfg(test)]
-        LOAD_DIRECTORY_PACKAGE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        LOAD_DIRECTORY_PACKAGE_CALLS.with(|cell| cell.set(cell.get() + 1));
         let prepared =
             match package_session.load_directory_package(package_root, PackageSourceKind::Entry) {
                 Ok(prepared) => prepared,
@@ -182,7 +173,7 @@ pub(super) fn analyze_document_semantics(
         let package_store_root = package_root.join(".fol/pkg");
         let mut resolver = Resolver::new();
         #[cfg(test)]
-        RESOLVE_WORKSPACE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        RESOLVE_WORKSPACE_CALLS.with(|cell| cell.set(cell.get() + 1));
         let resolved = match resolver.resolve_prepared_workspace_with_config(
             prepared,
             ResolverConfig {
@@ -224,7 +215,7 @@ pub(super) fn analyze_document_semantics(
             capability_model: mapping.active_fol_model.unwrap_or_default(),
         });
         #[cfg(test)]
-        TYPECHECK_WORKSPACE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        TYPECHECK_WORKSPACE_CALLS.with(|cell| cell.set(cell.get() + 1));
         match typechecker.check_resolved_workspace(resolved.clone()) {
             Ok(typed_workspace) => Ok(SemanticSnapshot {
                 source_analysis_root: mapping.analysis_root.clone(),
@@ -287,14 +278,9 @@ pub(super) fn analyze_document_semantics(
     }
 }
 
-pub(super) fn analyze_document_diagnostics(
-    document: &EditorDocument,
-    mapping: &EditorWorkspaceMapping,
-) -> EditorResult<Vec<crate::LspDiagnostic>> {
+pub(super) fn note_diagnostic_snapshot_build() {
     #[cfg(test)]
-    ANALYZE_DOCUMENT_DIAGNOSTICS_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let snapshot = analyze_document_semantics(document, mapping)?;
-    Ok(snapshot.diagnostics)
+    ANALYZE_DOCUMENT_DIAGNOSTICS_CALLS.with(|cell| cell.set(cell.get() + 1));
 }
 
 pub(super) fn diagnostic_targets_path(diagnostic: &Diagnostic, path: &Path) -> bool {
@@ -350,7 +336,7 @@ pub(super) fn parse_single_file_diagnostics(
 
 pub(super) fn parse_directory_diagnostics(root: &Path) -> EditorResult<Vec<Diagnostic>> {
     #[cfg(test)]
-    PARSE_DIRECTORY_DIAGNOSTICS_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    PARSE_DIRECTORY_DIAGNOSTICS_CALLS.with(|cell| cell.set(cell.get() + 1));
     let root_str = root.to_str().ok_or_else(|| {
         EditorError::new(
             EditorErrorKind::InvalidDocumentPath,

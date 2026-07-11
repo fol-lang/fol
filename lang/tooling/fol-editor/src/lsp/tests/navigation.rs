@@ -63,7 +63,7 @@ fn lsp_server_reports_missing_required_standard_routines_with_current_m2_wording
 }
 
 #[test]
-fn lsp_server_reports_unsupported_standard_kinds_with_current_m2_wording() {
+fn lsp_server_reports_blueprint_conformance_failures_with_current_wording() {
     let (root, uri) = sample_package_root("standards_m2_editor_unsupported_kind");
     let text = "std shape: blu = {\n    var size: int;\n};\n\
                 typ Rect()(shape): rec = {\n    var width: int;\n};\n";
@@ -79,10 +79,10 @@ fn lsp_server_reports_unsupported_standard_kinds_with_current_m2_wording() {
     assert!(
         messages.iter().any(|message| {
             message.contains(
-                "type 'Rect' claims unsupported standard 'shape'; only protocol standards are supported in V2 Milestone 2",
+                "type 'Rect' does not satisfy blueprint standard 'shape': missing required field 'size: int'",
             )
         }),
-        "editor path should surface the concrete unsupported-standard wording: {messages:?}"
+        "editor path should surface the concrete blueprint conformance wording: {messages:?}"
     );
 
     fs::remove_dir_all(root).ok();
@@ -478,7 +478,9 @@ fn lsp_server_maps_current_v1_diagnostic_classes_stably() {
                 root.join("build.fol"),
                 concat!(
                     "pro[] build(): non = {\n",
-                    "    var graph = .build().graph();\n",
+                    "    var build = .build();\n",
+                    "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+                    "    var graph = build.graph();\n",
                     "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"core\" });\n",
                     "};\n",
                 ),
@@ -1143,7 +1145,9 @@ fn lsp_server_keeps_missing_std_dependency_without_quick_fix_for_now() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
             "};\n",
         ),
@@ -1288,7 +1292,9 @@ fn lsp_server_fails_navigation_cleanly_without_bundled_std_dependency() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
             "};\n",
         ),

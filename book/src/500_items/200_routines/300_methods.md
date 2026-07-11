@@ -102,11 +102,29 @@ fun[] run(current: Counter, extras: seq[int]): int = {
 `current.shift(extras[0] = 1, ...extras)`. That spelling looks like assignment,
 not call binding, so the language keeps variadic binding explicit and simple.
 
+Inside a receiver-qualified routine body, the receiver value is available
+through `self`. `self` is typed as the receiver type and is lowered as the
+routine's ordinary first argument; it does not introduce an object model.
+
+```fol
+typ Counter: rec = {
+    var total: int;
+};
+
+fun (Counter)read(): int = {
+    return self.total;
+}
+```
+
+Generic receiver types participate too: `fun (Box[T])get(T)(): T` can return
+`self.value`, and each concrete call site monomorphizes the routine.
+
 For record-focused V1 code, the intended reading is:
 
 - records hold data
 - routines stay separate
-- the receiver clause only enables `value.method(...)` spelling
+- the receiver clause enables `value.method(...)` spelling and gives the body
+  procedural access to the receiver through `self`
 
 Custom error routines also support reporting method call results when receiver-qualified signatures are available:
 

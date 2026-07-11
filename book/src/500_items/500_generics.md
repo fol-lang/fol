@@ -19,18 +19,27 @@ Current milestone note:
   - `examples/generic_routine_m1`
   - `examples/generic_routine_pair_m1`
   - `examples/generic_routine_cross_file_m1`
+  - `examples/generic_receiver_m1`
+  - `examples/generic_receiver_cross_file_m1`
   - `examples/generic_type_semantic_m1m2`
     - positive semantic-check fixture for generic type declarations
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
+  - `examples/fail_generic_receiver_m1`
   - `examples/fail_generic_standard_constraint_m1m2`
 - generic routine lowering now succeeds for the shipped Milestone 1 example set
 - generic routine backend execution now works for the shipped positive Milestone 1 examples
 - receiver-qualified generic routines, matching default arguments, and
   concrete instantiated generic-type receivers and concrete recoverable error
   types are now part of the executable Milestone 1 subset
+- generic receiver routines are now current contract: a routine such as
+  `fun (Box[T])get(T)(): T` declares its generic parameters explicitly,
+  binds them through the receiver and ordinary arguments at each call site,
+  and monomorphizes into one concrete routine per instantiation
+- receiver-qualified routine bodies read receiver state through `self`,
+  which is typed as the receiver and lowered as the routine's first argument
 - generic type execution and constrained generic execution now have checked-in
   example packages too
 - nested generic-type composition now works for the checked nested-record

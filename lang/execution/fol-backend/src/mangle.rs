@@ -27,10 +27,21 @@ pub fn sanitize_backend_ident(raw: &str) -> String {
         "_".to_string()
     } else if output.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
         format!("_{output}")
+    } else if RUST_KEYWORDS.contains(&output.as_str()) {
+        // Namespace/module segments become Rust identifiers verbatim, so a
+        // FOL name that collides with a Rust keyword must be escaped.
+        format!("{output}_kw")
     } else {
         output
     }
 }
+
+const RUST_KEYWORDS: &[&str] = &[
+    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+    "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+    "mut", "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "type",
+    "union", "unsafe", "use", "where", "while", "yield",
+];
 
 pub fn mangle_package_module_name(identity: &PackageIdentity) -> String {
     format!(
@@ -159,5 +170,18 @@ mod tests {
             ),
             "l__pkg__entry__shared__r0__l1__tmp"
         );
+    }
+}
+
+#[cfg(test)]
+mod keyword_tests {
+    use super::sanitize_backend_ident;
+
+    #[test]
+    fn sanitize_escapes_rust_keywords() {
+        assert_eq!(sanitize_backend_ident("mod"), "mod_kw");
+        assert_eq!(sanitize_backend_ident("impl"), "impl_kw");
+        assert_eq!(sanitize_backend_ident("type"), "type_kw");
+        assert_eq!(sanitize_backend_ident("helper"), "helper");
     }
 }

@@ -66,8 +66,12 @@ impl AstParser {
         token: &fol_lexer::lexer::stage3::element::Element,
         node: AstNode,
     ) {
-        let node_id = self
-            .record_syntax_origin(token)
+        // Prefer the node's own syntax anchor (declaration parsers record it
+        // at the declared name) so symbols and editor tokens point at names
+        // instead of leading keywords.
+        let node_id = node
+            .syntax_id()
+            .or_else(|| self.record_syntax_origin(token))
             .expect("top-level parsing should have active syntax tracking");
         entries.push(ParsedTopLevel {
             node_id,
