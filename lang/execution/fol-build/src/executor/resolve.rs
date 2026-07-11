@@ -58,6 +58,9 @@ impl BuildBodyExecutor {
     pub(super) fn resolve_string(&self, node: &AstNode) -> Option<String> {
         match node {
             AstNode::Literal(Literal::String(s)) => Some(s.clone()),
+            // Single-element double-quoted literals width-classify as
+            // characters; in string positions they are one-char strings.
+            AstNode::Literal(Literal::Character(c)) => Some(c.to_string()),
             AstNode::Identifier { name, .. } => match self.scope.get(name.as_str()) {
                 Some(ExecValue::Target(s)) => Some(s.clone()),
                 Some(ExecValue::Optimize(s)) => Some(s.clone()),
@@ -86,6 +89,9 @@ impl BuildBodyExecutor {
     ) -> Option<ExecConfigValue> {
         match node {
             AstNode::Literal(Literal::String(s)) => Some(ExecConfigValue::Literal(s.clone())),
+            AstNode::Literal(Literal::Character(c)) => {
+                Some(ExecConfigValue::Literal(c.to_string()))
+            }
             AstNode::Identifier { name, .. } => match self.scope.get(name.as_str()) {
                 Some(ExecValue::Target(option_name))
                 | Some(ExecValue::Optimize(option_name))
@@ -101,6 +107,13 @@ impl BuildBodyExecutor {
 
     pub(super) fn resolve_artifact_ref(&self, node: &AstNode) -> Option<ExecArtifact> {
         match node {
+            AstNode::Literal(Literal::Character(c)) => Some(ExecArtifact {
+                name: c.to_string(),
+                root_module: ExecConfigValue::Literal(String::new()),
+                fol_model: BuildArtifactFolModel::Memo,
+                target: None,
+                optimize: None,
+            }),
             AstNode::Literal(Literal::String(s)) => Some(ExecArtifact {
                 name: s.clone(),
                 root_module: ExecConfigValue::Literal(String::new()),
@@ -119,6 +132,9 @@ impl BuildBodyExecutor {
     pub(super) fn resolve_step_ref(&self, node: &AstNode) -> Option<String> {
         match node {
             AstNode::Literal(Literal::String(s)) => Some(s.clone()),
+            // Single-element double-quoted literals width-classify as
+            // characters; in string positions they are one-char strings.
+            AstNode::Literal(Literal::Character(c)) => Some(c.to_string()),
             AstNode::Identifier { name, .. } => match self.scope.get(name.as_str()) {
                 Some(ExecValue::Step { name }) => Some(name.clone()),
                 Some(ExecValue::Run { name }) => Some(name.clone()),
@@ -150,6 +166,15 @@ impl BuildBodyExecutor {
         };
         let mut args = BTreeMap::new();
         for field in arg_fields {
+            // Integer args are matched syntactically: the expression
+            // evaluator has no integer value class of its own.
+            if let AstNode::Literal(Literal::Integer(value)) = &field.value {
+                args.insert(
+                    field.name.clone(),
+                    crate::api::DependencyArgValue::Int(*value),
+                );
+                continue;
+            }
             let value = match self.eval_expr(&field.value)? {
                 Some(ExecValue::Bool(value)) => crate::api::DependencyArgValue::Bool(value),
                 Some(ExecValue::Str(value)) => crate::api::DependencyArgValue::String(value),
@@ -158,20 +183,15 @@ impl BuildBodyExecutor {
                 | Some(ExecValue::OptionRef(option_name)) => {
                     crate::api::DependencyArgValue::OptionRef(option_name)
                 }
-                Some(_) | None => match &field.value {
-                    AstNode::Literal(Literal::Integer(value)) => {
-                        crate::api::DependencyArgValue::Int(*value)
-                    }
-                    _ => {
-                        return Err(crate::eval::BuildEvaluationError::new(
-                            crate::eval::BuildEvaluationErrorKind::InvalidInput,
-                            format!(
-                                "build.add_dep config is invalid: dependency arg '{}' must evaluate to bool, int, str, or an option handle",
-                                field.name
-                            ),
-                        ))
-                    }
-                },
+                Some(_) | None => {
+                    return Err(crate::eval::BuildEvaluationError::new(
+                        crate::eval::BuildEvaluationErrorKind::InvalidInput,
+                        format!(
+                            "build.add_dep config is invalid: dependency arg '{}' must evaluate to bool, int, str, or an option handle",
+                            field.name
+                        ),
+                    ))
+                }
             };
             args.insert(field.name.clone(), value);
         }

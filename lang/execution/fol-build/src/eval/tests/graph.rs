@@ -1,6 +1,7 @@
 use super::super::{
-    evaluate_build_source, BuildBodyExecutor, BuildEvaluationInputs, BuildEvaluationRequest,
+    evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest,
 };
+use crate::executor::BuildBodyExecutor;
 use crate::option::BuildOptimizeMode;
 use std::{
     fs,
@@ -28,7 +29,7 @@ fn build_source_evaluator_records_add_module_in_graph() {
         "    var graph = .build().graph();\n",
         "    var m = graph.add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -55,7 +56,7 @@ fn build_source_evaluator_supports_ambient_build_without_graph_work() {
         "pro[] build(): non = {\n",
         "    var build = .build();\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (_package_root, build_path) = temp_build_package(source);
 
@@ -74,8 +75,8 @@ fn build_source_evaluator_supports_inferred_build_locals_before_graph_work() {
     let source = concat!(
         "pro[] build(): non = {\n",
         "    var build = .build();\n",
-        "    .build().graph().add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
-        "}\n",
+        "    var utils = .build().graph().add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -100,8 +101,8 @@ fn build_source_evaluator_supports_inferred_build_locals_before_graph_work() {
 fn build_source_evaluator_routes_build_graph_method_to_graph_handle() {
     let source = concat!(
         "pro[] build(): non = {\n",
-        "    .build().graph().add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
-        "}\n",
+        "    var utils = .build().graph().add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -129,7 +130,7 @@ fn build_source_evaluator_supports_inferred_build_and_graph_locals() {
         "    var build = .build();\n",
         "    var graph = build.graph();\n",
         "    graph.add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -155,7 +156,7 @@ fn build_source_evaluator_rejects_build_intrinsic_arguments() {
     let source = concat!(
         "pro[] build(): non = {\n",
         "    .build(\"oops\");\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -180,7 +181,7 @@ fn build_source_evaluator_rejects_build_graph_arguments() {
         "pro[] build(): non = {\n",
         "    var build = .build();\n",
         "    build.graph(\"oops\");\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -203,8 +204,8 @@ fn build_source_evaluator_rejects_build_graph_arguments() {
 fn build_source_evaluator_supports_direct_build_graph_calls() {
     let source = concat!(
         "pro[] build(): non = {\n",
-        "    .build().graph().add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
-        "}\n",
+        "    var utils = .build().graph().add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -231,7 +232,7 @@ fn build_source_evaluator_supports_inferred_graph_locals() {
         "pro[] build(): non = {\n",
         "    var graph = .build().graph();\n",
         "    graph.add_module({ name = \"utils\", root = \"src/utils.fol\" });\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -261,7 +262,7 @@ fn build_source_evaluator_rejects_public_graph_type_annotations() {
         "pro[] build(): non = {\n",
         "    var graph: Graph = .build().graph();\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -291,8 +292,8 @@ fn build_source_evaluator_helpers_use_ambient_graph_without_graph_params() {
         "};\n",
         "pro[] build(): non = {\n",
         "    var lib = make_lib(\"core\", \"src/core.fol\");\n",
-        "    .build().graph().install(lib);\n",
-        "}\n",
+        "    var installed = .build().graph().install(lib);\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -322,7 +323,7 @@ fn build_source_evaluator_records_artifact_link_in_graph() {
         "    var lib = graph.add_static_lib({ name = \"core\", root = \"src/core.fol\" });\n",
         "    app.link(lib);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -354,7 +355,7 @@ fn build_source_evaluator_records_artifact_import_in_graph() {
         "    var app = graph.add_exe({ name = \"app\", root = \"src/app.fol\" });\n",
         "    app.import(m);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -391,7 +392,7 @@ fn build_source_evaluator_records_run_add_arg_in_graph() {
         "    var r = graph.add_run(app);\n",
         "    r.add_arg(\"--release\");\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -427,7 +428,7 @@ fn build_source_evaluator_records_run_capture_stdout_in_graph() {
         "    var r = graph.add_run(app);\n",
         "    var out = r.capture_stdout();\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -462,7 +463,7 @@ fn build_source_evaluator_records_run_set_env_in_graph() {
         "    var r = graph.add_run(app);\n",
         "    r.set_env(\"LOG_LEVEL\", \"debug\");\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -497,7 +498,7 @@ fn build_source_evaluator_records_step_attach_in_graph() {
         "    var compile = graph.step(\"compile\");\n",
         "    compile.attach(header);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -532,7 +533,7 @@ fn build_source_evaluator_records_artifact_add_generated_in_graph() {
         "    var app = graph.add_exe({ name = \"app\", root = \"src/app.fol\" });\n",
         "    app.add_generated(gen);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -573,7 +574,7 @@ fn build_source_evaluator_records_install_file_from_generated_handles() {
         "    var cfg = graph.write_file({ name = \"cfg\", path = \"config/generated.toml\", contents = \"ok\" });\n",
         "    graph.install_file({ name = \"install-cfg\", source = cfg });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -612,7 +613,7 @@ fn build_source_evaluator_executes_when_condition_conditionally() {
         "        }\n",
         "    };\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request_release = BuildEvaluationRequest {
@@ -649,12 +650,12 @@ fn build_source_evaluator_executes_helper_routine_called_from_build_entry() {
     let source = concat!(
         "fun[] make_lib(root: str): Artifact = {\n",
         "    return .build().graph().add_static_lib({ name = root, root = root });\n",
-        "}\n",
+        "};\n",
         "pro[] build(): non = {\n",
         "    var core = make_lib(\"core\");\n",
         "    var io   = make_lib(\"io\");\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -684,7 +685,7 @@ fn build_source_evaluator_executes_loop_over_string_list() {
         "        graph.add_static_lib({ name = name, root = name });\n",
         "    };\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -712,7 +713,7 @@ fn build_source_evaluator_rejects_unknown_expression_nodes_in_build_bodies() {
         "pro[] build(): non = {\n",
         "    var keep = 1 + 2;\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -740,7 +741,7 @@ fn build_source_evaluator_rejects_while_like_loops_in_build_bodies() {
         "        return;\n",
         "    };\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -770,7 +771,7 @@ fn build_source_evaluator_rejects_unknown_condition_nodes_in_when_clauses() {
         "        }\n",
         "    };\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {

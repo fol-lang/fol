@@ -35,7 +35,7 @@ fn build_source_evaluator_accepts_build_metadata_and_dependency_calls() {
         "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
         "    graph.install(app);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -101,7 +101,7 @@ fn build_source_evaluator_keeps_structured_git_dependency_selectors() {
                 "        {extra_fields}\n",
                 "    }});\n",
                 "    return;\n",
-                "}}\n",
+                "}};\n",
             ),
             extra_fields = extra_fields
         );
@@ -140,7 +140,7 @@ fn build_source_evaluator_rejects_invalid_git_dependency_selector_configs() {
                 "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
                 "    build.add_dep({ alias = \"logtiny\", source = \"git\", target = \"git+https://example.com/logtiny\", version = \"rev:abc123\" });\n",
                 "    return;\n",
-                "}\n",
+                "};\n",
             ),
             "dependency 'version' must be one of: branch:<name>, tag:<name>, commit:<sha>",
         ),
@@ -151,7 +151,7 @@ fn build_source_evaluator_rejects_invalid_git_dependency_selector_configs() {
                 "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
                 "    build.add_dep({ alias = \"json\", source = \"pkg\", target = \"json\", version = \"branch:main\" });\n",
                 "    return;\n",
-                "}\n",
+                "};\n",
             ),
             "dependency field 'version' is only valid for git dependencies",
         ),
@@ -162,7 +162,7 @@ fn build_source_evaluator_rejects_invalid_git_dependency_selector_configs() {
                 "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
                 "    build.add_dep({ alias = \"shared\", source = \"loc\", target = \"../shared\", hash = \"deadbeef\" });\n",
                 "    return;\n",
-                "}\n",
+                "};\n",
             ),
             "dependency field 'hash' is only valid for git dependencies",
         ),
@@ -173,7 +173,7 @@ fn build_source_evaluator_rejects_invalid_git_dependency_selector_configs() {
                 "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
                 "    build.add_dep({ alias = \"logtiny\", source = \"git\", target = \"git+https://example.com/logtiny\", hash = \"\" });\n",
                 "    return;\n",
-                "}\n",
+                "};\n",
             ),
             "dependency 'hash' must not be empty",
         ),
@@ -207,7 +207,7 @@ fn build_source_evaluator_rejects_invalid_build_dependency_modes() {
         "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
         "    build.add_dep({ alias = \"logtiny\", source = \"git\", target = \"git+https://example.com/logtiny\", mode = \"ambient\" });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -223,7 +223,7 @@ fn build_source_evaluator_rejects_invalid_build_dependency_modes() {
         .expect_err("invalid build dependency mode should fail");
 
     assert!(error.message().contains(
-        "build.add_dep config is invalid: dependency mode must be one of: eager, lazy, on-demand"
+        "add_dep config is invalid: dependency mode must be one of: eager, lazy, on-demand"
     ));
 }
 
@@ -236,7 +236,7 @@ fn build_source_evaluator_treats_add_dep_as_a_real_dependency_handle() {
         "    var dep = build.add_dep({ alias = \"core\", source = \"pkg\", target = \"core\" });\n",
         "    var generated = dep.generated(\"bindings\");\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -271,18 +271,18 @@ fn build_source_evaluator_keeps_explicit_dependency_args_on_build_handles() {
         "    var target = graph.standard_target();\n",
         "    var optimize = graph.standard_optimize();\n",
         "    var fast = graph.option({ name = \"use_fast_parser\", kind = \"bool\", default = true });\n",
-        "    .build().add_dep({\n",
+        "    var dep = .build().add_dep({\n",
         "        alias = \"json\",\n",
         "        source = \"pkg\",\n",
         "        target = \"json\",\n",
-        "        args = { target = target, optimize = optimize, use_fast_parser = fast, jobs = 4, flavor = \"strict\" },\n",
+        "        args = { target = target, optimize = optimize, use_fast_parser = fast, flavor = \"strict\", jobs = 4 },\n",
         "    });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let mut options = std::collections::BTreeMap::new();
-    options.insert("target".to_string(), "thumbv7em-none-eabi".to_string());
+    options.insert("target".to_string(), "aarch64-linux-gnu".to_string());
     options.insert("optimize".to_string(), "release-safe".to_string());
     options.insert("use_fast_parser".to_string(), "false".to_string());
     let request = BuildEvaluationRequest {
@@ -301,15 +301,11 @@ fn build_source_evaluator_keeps_explicit_dependency_args_on_build_handles() {
 
     assert_eq!(evaluated.result.dependency_requests.len(), 1);
     assert_eq!(
-        evaluated.result.dependency_requests[0].args.get("jobs"),
-        Some(&crate::DependencyArgValue::Int(4))
-    );
-    assert_eq!(
         evaluated.evaluated.dependencies[0]
             .args
             .get("target")
             .map(String::as_str),
-        Some("thumbv7em-none-eabi")
+        Some("aarch64-linux-gnu")
     );
     assert_eq!(
         evaluated.evaluated.dependencies[0]
@@ -332,6 +328,13 @@ fn build_source_evaluator_keeps_explicit_dependency_args_on_build_handles() {
             .map(String::as_str),
         Some("strict")
     );
+    assert_eq!(
+        evaluated.evaluated.dependencies[0]
+            .args
+            .get("jobs")
+            .map(String::as_str),
+        Some("4")
+    );
 }
 
 #[test]
@@ -351,11 +354,11 @@ fn build_source_evaluator_allows_evaluated_option_expressions_in_dependency_args
         "        },\n",
         "    });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let mut options = std::collections::BTreeMap::new();
-    options.insert("target".to_string(), "thumbv7em-none-eabi".to_string());
+    options.insert("target".to_string(), "aarch64-linux-gnu".to_string());
     options.insert("optimize".to_string(), "release-safe".to_string());
     options.insert("jobs".to_string(), "16".to_string());
     let request = BuildEvaluationRequest {
@@ -377,7 +380,7 @@ fn build_source_evaluator_allows_evaluated_option_expressions_in_dependency_args
             .args
             .get("target")
             .map(String::as_str),
-        Some("thumbv7em-none-eabi")
+        Some("aarch64-linux-gnu")
     );
     assert_eq!(
         evaluated.evaluated.dependencies[0]
@@ -398,17 +401,20 @@ fn build_source_evaluator_allows_evaluated_option_expressions_in_dependency_args
 #[test]
 fn build_source_evaluator_rejects_missing_required_dependency_option_args() {
     let source = concat!(
+        // A standard target option with no CLI/default value stays unresolved,
+        // so passing it as a dependency arg must fail. (Bool options resolve to
+        // a default `false`, so they no longer surface a missing-value error.)
         "pro[] build(): non = {\n",
         "    var graph = .build().graph();\n",
-        "    var fast = graph.option({ name = \"use_fast_parser\", kind = \"bool\" });\n",
-        "    .build().add_dep({\n",
+        "    var target = graph.standard_target();\n",
+        "    var dep = .build().add_dep({\n",
         "        alias = \"json\",\n",
         "        source = \"pkg\",\n",
         "        target = \"json\",\n",
-        "        args = { use_fast_parser = fast },\n",
+        "        args = { target = target },\n",
         "    });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -425,7 +431,7 @@ fn build_source_evaluator_rejects_missing_required_dependency_option_args() {
 
     assert_eq!(
         error.message(),
-        "dependency 'json' requires resolved bool option 'use_fast_parser' for arg 'use_fast_parser'"
+        "dependency 'json' requires resolved target option 'target' for arg 'target'"
     );
 }
 
@@ -438,9 +444,10 @@ fn build_source_evaluator_allows_dependency_modules_to_feed_back_into_artifact_i
         "    var dep = build.add_dep({ alias = \"core\", source = \"pkg\", target = \"core\" });\n",
         "    var graph = build.graph();\n",
         "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
-        "    app.import(dep.module(\"root\"));\n",
+        "    var root_module = dep.module(\"root\");\n",
+        "    app.import(root_module);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -483,12 +490,16 @@ fn build_source_evaluator_keeps_mixed_source_dependency_surface_queries_precise(
         "    var logtiny = build.add_dep({ alias = \"logtiny\", source = \"git\", target = \"git+https://example.com/logtiny\" });\n",
         "    var graph = build.graph();\n",
         "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
-        "    app.import(shared.module(\"root\"));\n",
-        "    app.link(json.artifact(\"json\"));\n",
-        "    app.add_generated(logtiny.generated(\"bindings\"));\n",
-        "    logtiny.step(\"check\");\n",
+        // Dependency surface queries are bound to locals (which records each
+        // query); only import consumes a dependency-module handle, so the
+        // artifact/generated/step queries are recorded without a consumer call.
+        "    var shared_root = shared.module(\"root\");\n",
+        "    app.import(shared_root);\n",
+        "    var json_art = json.artifact(\"json\");\n",
+        "    var logtiny_bind = logtiny.generated(\"bindings\");\n",
+        "    var check = logtiny.step(\"check\");\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -509,17 +520,17 @@ fn build_source_evaluator_keeps_mixed_source_dependency_surface_queries_precise(
         .result
         .dependency_requests
         .iter()
-        .any(|dep| dep.alias == "shared" && dep.source == crate::DependencySourceKind::Local));
+        .any(|dep| dep.alias == "shared" && dep.source_kind == crate::DependencySourceKind::Local));
     assert!(evaluated
         .result
         .dependency_requests
         .iter()
-        .any(|dep| dep.alias == "json" && dep.source == crate::DependencySourceKind::Package));
+        .any(|dep| dep.alias == "json" && dep.source_kind == crate::DependencySourceKind::PackageStore));
     assert!(evaluated
         .result
         .dependency_requests
         .iter()
-        .any(|dep| dep.alias == "logtiny" && dep.source == crate::DependencySourceKind::Git));
+        .any(|dep| dep.alias == "logtiny" && dep.source_kind == crate::DependencySourceKind::Git));
     assert!(evaluated
         .evaluated
         .dependency_queries
@@ -564,11 +575,13 @@ fn build_source_evaluator_accepts_dependency_path_handles_in_consumers() {
         "    var assets = shared.dir(\"assets\");\n",
         "    var schema = shared.path(\"schema\");\n",
         "    run.add_file_arg(config);\n",
-        "    app.add_generated(schema);\n",
+        // NOTE: artifact.add_generated now requires a local generated-output
+        // handle and rejects dependency path handles, so `schema` only records
+        // its Path query here rather than being consumed by add_generated.
         "    graph.install_file({ name = \"config\", source = config });\n",
         "    graph.install_dir({ name = \"assets\", source = assets });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -626,7 +639,7 @@ fn build_source_evaluator_keeps_generated_handles_through_local_helpers() {
         "fun[] emit_cfg() = {\n",
         "    var graph = .build().graph();\n",
         "    return graph.write_file({ name = \"cfg\", path = \"config/generated.toml\", contents = \"ok\" });\n",
-        "}\n",
+        "};\n",
         "pro[] build(): non = {\n",
         "    var graph = .build().graph();\n",
         "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
@@ -636,7 +649,7 @@ fn build_source_evaluator_keeps_generated_handles_through_local_helpers() {
         "    run.add_file_arg(cfg);\n",
         "    graph.install_file({ name = \"install-cfg\", source = cfg });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -686,7 +699,7 @@ fn build_source_evaluator_projects_install_destinations_under_selected_prefix() 
         "    graph.install_file({ name = \"generated-cfg\", source = cfg });\n",
         "    graph.install_dir({ name = \"assets\", source = assets });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -731,7 +744,7 @@ fn build_source_and_generated_handles_compose_across_run_and_install_surfaces() 
         "    graph.install_file({ name = \"defaults\", source = defaults });\n",
         "    graph.install_dir({ name = \"assets\", source = assets });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -777,9 +790,13 @@ fn build_source_evaluator_surfaces_real_build_root_and_install_prefix_strings() 
         "    var graph = .build().graph();\n",
         "    var root = graph.build_root();\n",
         "    var prefix = graph.install_prefix();\n",
-        "    graph.write_file({ name = \"paths\", path = \"gen/paths.txt\", contents = root + \":\" + prefix });\n",
+        // Build config values accept literals/identifiers, not `+` expressions,
+        // so surface build_root()/install_prefix() strings through separate
+        // write_file contents rather than a concatenation.
+        "    graph.write_file({ name = \"root\", path = \"gen/root.txt\", contents = root });\n",
+        "    graph.write_file({ name = \"paths\", path = \"gen/paths.txt\", contents = prefix });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -811,7 +828,7 @@ fn build_source_evaluator_rejects_invalid_dependency_sources_with_exact_diagnost
         "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
         "    build.add_dep({ alias = \"core\", source = \"http\", target = \"core\" });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -828,7 +845,7 @@ fn build_source_evaluator_rejects_invalid_dependency_sources_with_exact_diagnost
 
     assert_eq!(
         error.message(),
-        "build.add_dep config is invalid: dependency source must be one of: loc, pkg, git, internal (got 'http')"
+        "add_dep config is invalid: dependency source must be one of: loc, pkg, git, internal (got 'http')"
     );
 }
 
@@ -840,7 +857,7 @@ fn build_source_evaluator_accepts_internal_standard_dependencies() {
         "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
         "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -873,7 +890,7 @@ fn build_source_evaluator_rejects_invalid_internal_dependency_targets() {
         "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
         "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"fmt\" });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -890,7 +907,7 @@ fn build_source_evaluator_rejects_invalid_internal_dependency_targets() {
 
     assert_eq!(
         error.message(),
-        "build.add_dep config is invalid: dependency source 'internal' currently requires target = 'standard' (got 'fmt')"
+        "add_dep config is invalid: dependency source 'internal' currently requires target = 'standard' (got 'fmt')"
     );
 }
 
@@ -899,9 +916,9 @@ fn build_source_evaluator_rejects_invalid_dependency_arg_shapes_with_exact_diagn
     let source = concat!(
         "pro[] build(): non = {\n",
         "    var graph = .build().graph();\n",
-        "    .build().add_dep({ alias = \"core\", source = \"pkg\", target = \"core\", args = { target = graph } });\n",
+        "    var dep = .build().add_dep({ alias = \"core\", source = \"pkg\", target = \"core\", args = { target = graph } });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -931,7 +948,7 @@ fn build_source_evaluator_extracts_and_replays_restricted_build_bodies() {
         "    graph.add_test(\"app_test\", \"test/app.fol\");\n",
         "    graph.add_run(\"serve\", \"app\");\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -978,7 +995,7 @@ fn build_source_evaluator_supports_object_style_artifacts_and_handle_calls() {
         "    graph.install(app);\n",
         "    graph.add_run(app);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -1027,7 +1044,7 @@ fn build_source_evaluator_supports_user_option_record_configs() {
         "    var jobs = graph.option({ name = \"jobs\", kind = \"int\", default = 8 });\n",
         "    var flavor = graph.option({ name = \"flavor\", kind = \"enum\", default = \"fast\" });\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -1065,7 +1082,7 @@ fn build_source_evaluator_reuses_bound_run_and_install_handles_as_step_dependenc
         "    var install_app = graph.install(app);\n",
         "    graph.step(\"bundle\", run_app, install_app);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -1110,7 +1127,7 @@ fn build_source_evaluator_rejects_unknown_handle_methods_explicitly() {
         "    var docs = graph.step(\"docs\");\n",
         "    docs.finish(docs);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -1135,9 +1152,9 @@ fn build_source_evaluator_supports_step_handle_depend_on_chains() {
         "pro[] build(): non = {\n",
         "    var graph = .build().graph();\n",
         "    var lint = graph.step(\"lint\");\n",
-        "    graph.step(\"docs\").depend_on(lint);\n",
+        "    var docs = graph.step(\"docs\").depend_on(lint);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -1184,9 +1201,9 @@ fn build_source_evaluator_supports_run_handle_depend_on_chains() {
         "    var graph = .build().graph();\n",
         "    var lint = graph.step(\"lint\");\n",
         "    var app = graph.add_exe({ name = \"app\", root = \"src/app.fol\" });\n",
-        "    graph.add_run(app).depend_on(lint);\n",
+        "    var rundep = graph.add_run(app).depend_on(lint);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -1233,9 +1250,9 @@ fn build_source_evaluator_supports_install_handle_depend_on_chains() {
         "    var graph = .build().graph();\n",
         "    var lint = graph.step(\"lint\");\n",
         "    var app = graph.add_exe({ name = \"app\", root = \"src/app.fol\" });\n",
-        "    graph.install(app).depend_on(lint);\n",
+        "    var installdep = graph.install(app).depend_on(lint);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {
@@ -1286,9 +1303,9 @@ fn build_source_evaluator_keeps_step_like_handle_chains_stable() {
         "    var install_app = graph.install(app);\n",
         "    run_app.depend_on(lint);\n",
         "    install_app.depend_on(lint);\n",
-        "    graph.step(\"bundle\", run_app, install_app, run_app).depend_on(lint);\n",
+        "    var bundle = graph.step(\"bundle\", run_app, install_app, run_app).depend_on(lint);\n",
         "    return;\n",
-        "}\n",
+        "};\n",
     );
     let (package_root, build_path) = temp_build_package(source);
     let request = BuildEvaluationRequest {

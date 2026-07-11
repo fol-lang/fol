@@ -106,6 +106,9 @@ impl BuildBodyExecutor {
     pub(super) fn eval_value_str(&self, node: &AstNode) -> Option<String> {
         match node {
             AstNode::Literal(Literal::String(s)) => Some(s.clone()),
+            // Single-element double-quoted literals width-classify as
+            // characters; in string positions they are one-char strings.
+            AstNode::Literal(Literal::Character(c)) => Some(c.to_string()),
             AstNode::Literal(Literal::Boolean(b)) => Some(b.to_string()),
             AstNode::Identifier { name, .. } => {
                 match self.scope.get(name.as_str()) {
@@ -226,6 +229,7 @@ impl BuildBodyExecutor {
             }
 
             AstNode::Literal(Literal::String(s)) => Ok(Some(ExecValue::Str(s.clone()))),
+            AstNode::Literal(Literal::Character(c)) => Ok(Some(ExecValue::Str(c.to_string()))),
             AstNode::Literal(Literal::Boolean(b)) => Ok(Some(ExecValue::Bool(*b))),
 
             other => Err(BuildEvaluationError::new(

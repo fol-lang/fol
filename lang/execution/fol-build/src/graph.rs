@@ -584,6 +584,29 @@ impl BuildGraph {
                         });
                     }
                 }
+                (BuildInstallKind::Directory, Some(BuildInstallTarget::GeneratedFile(generated))) => {
+                    match self.generated_files.get(generated.index()) {
+                        None => {
+                            errors.push(BuildGraphValidationError {
+                                kind: BuildGraphValidationErrorKind::InvalidInstallTarget,
+                                message: format!(
+                                    "install {} references unknown generated file {}",
+                                    install.id, generated
+                                ),
+                            });
+                        }
+                        Some(file) if file.kind != BuildGeneratedFileKind::GeneratedDir => {
+                            errors.push(BuildGraphValidationError {
+                                kind: BuildGraphValidationErrorKind::InvalidInstallTarget,
+                                message: format!(
+                                    "install {} directory target {} is not a generated directory",
+                                    install.id, generated
+                                ),
+                            });
+                        }
+                        Some(_) => {}
+                    }
+                }
                 (BuildInstallKind::Directory, Some(BuildInstallTarget::DirectoryPath(path))) => {
                     if path.is_empty() {
                         errors.push(BuildGraphValidationError {
@@ -945,11 +968,13 @@ mod tests {
             BuildInstallKind::Artifact,
             "install-wrong-shape",
             Some(BuildInstallTarget::DirectoryPath("bin".to_string())),
+            String::new(),
         );
         graph.add_install_with_target(
             BuildInstallKind::File,
             "install-unknown-generated",
             Some(BuildInstallTarget::GeneratedFile(BuildGeneratedFileId(44))),
+            String::new(),
         );
 
         let errors = graph.validate();
@@ -958,6 +983,42 @@ mod tests {
         assert!(errors
             .iter()
             .all(|error| error.kind == BuildGraphValidationErrorKind::InvalidInstallTarget));
+    }
+
+    #[test]
+    fn build_graph_validation_accepts_generated_directory_installs() {
+        let mut graph = BuildGraph::new();
+        let generated_dir = graph.add_generated_file(
+            BuildGeneratedFileKind::GeneratedDir,
+            "assets",
+        );
+        graph.add_install_with_target(
+            BuildInstallKind::Directory,
+            "install-generated-dir",
+            Some(BuildInstallTarget::GeneratedFile(generated_dir)),
+            "assets".to_string(),
+        );
+
+        assert!(graph.validate().is_empty());
+
+        // A directory install pointing at a plain generated FILE is invalid.
+        let generated_file = graph.add_generated_file(
+            BuildGeneratedFileKind::Write,
+            "notes.txt",
+        );
+        graph.add_install_with_target(
+            BuildInstallKind::Directory,
+            "install-generated-file-as-dir",
+            Some(BuildInstallTarget::GeneratedFile(generated_file)),
+            "notes.txt".to_string(),
+        );
+
+        let errors = graph.validate();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].kind,
+            BuildGraphValidationErrorKind::InvalidInstallTarget
+        );
     }
 }
 use crate::native::{NativeLibraryPath, NativeLinkDirective, NativeSearchPathOrigin};

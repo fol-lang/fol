@@ -55,6 +55,7 @@ fn build_evaluation_input_determinism_key_is_stable_for_sorted_inputs() {
     environment.insert("AR".to_string(), "llvm-ar".to_string());
     let inputs = BuildEvaluationInputs {
         working_directory: "/work/app".to_string(),
+        install_prefix: String::new(),
         target: BuildTargetTriple::parse("x86_64-linux-gnu"),
         optimize: BuildOptimizeMode::parse("debug"),
         options,
@@ -64,7 +65,7 @@ fn build_evaluation_input_determinism_key_is_stable_for_sorted_inputs() {
 
     assert_eq!(
         inputs.determinism_key(),
-        "cwd=/work/app;target=x86_64-linux-gnu;optimize=debug;options=[optimize=debug,target=native];declared_env=[AR,CC];env=[AR=llvm-ar,CC=clang]"
+        "cwd=/work/app;prefix=;target=x86_64-linux-gnu;optimize=debug;options=[optimize=debug,target=native];declared_env=[AR,CC];env=[AR=llvm-ar,CC=clang]"
     );
 }
 
@@ -84,7 +85,7 @@ fn build_evaluation_request_determinism_key_includes_root_and_inputs() {
 
     assert_eq!(
         request.determinism_key(),
-        "root=/pkg;cwd=;target=aarch64-macos-gnu;optimize=release-fast;options=[target=native];declared_env=[];env=[];ops=0"
+        "root=/pkg;cwd=;prefix=;target=aarch64-macos-gnu;optimize=release-fast;options=[target=native];declared_env=[];env=[];ops=0"
     );
 }
 
@@ -103,7 +104,7 @@ fn build_evaluation_request_determinism_key_counts_operations() {
 
     assert_eq!(
         request.determinism_key(),
-        "root=/pkg;cwd=;target=;optimize=;options=[];declared_env=[];env=[];ops=1"
+        "root=/pkg;cwd=;prefix=;target=;optimize=;options=[];declared_env=[];env=[];ops=1"
     );
 }
 
@@ -111,6 +112,7 @@ fn build_evaluation_request_determinism_key_counts_operations() {
 fn explicit_input_envelope_filters_ambient_environment_before_keying() {
     let inputs = BuildEvaluationInputs {
         working_directory: "/pkg".to_string(),
+        install_prefix: String::new(),
         target: BuildTargetTriple::parse("x86_64-linux-gnu"),
         optimize: BuildOptimizeMode::parse("release-safe"),
         options: BTreeMap::from([("strip".to_string(), "true".to_string())]),
@@ -127,6 +129,7 @@ fn explicit_input_envelope_filters_ambient_environment_before_keying() {
         envelope,
         BuildEvaluationInputEnvelope {
             working_directory: "/pkg".to_string(),
+            install_prefix: String::new(),
             target: BuildTargetTriple::parse("x86_64-linux-gnu"),
             optimize: BuildOptimizeMode::parse("release-safe"),
             options: BTreeMap::from([("strip".to_string(), "true".to_string())]),
@@ -136,7 +139,7 @@ fn explicit_input_envelope_filters_ambient_environment_before_keying() {
     );
     assert_eq!(
         envelope.determinism_key(),
-        "cwd=/pkg;target=x86_64-linux-gnu;optimize=release-safe;options=[strip=true];declared_env=[CC];env=[CC=clang]"
+        "cwd=/pkg;prefix=;target=x86_64-linux-gnu;optimize=release-safe;options=[strip=true];declared_env=[CC];env=[CC=clang]"
     );
 }
 
