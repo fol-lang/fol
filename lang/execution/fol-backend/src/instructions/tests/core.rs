@@ -59,9 +59,9 @@ fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes()
         render_core_instruction(&package_identity, &table, &routine, &store_local)
             .expect("store");
 
-    assert!(const_rendered.contains("let l__pkg__entry__app__r0__l0__value = 7_i64;"));
+    assert!(const_rendered.contains("l__pkg__entry__app__r0__l0__value = 7_i64;"));
     assert!(load_local_rendered.contains(
-        "let l__pkg__entry__app__r0__l1__other = l__pkg__entry__app__r0__l0__value.clone();"
+        "l__pkg__entry__app__r0__l1__other = l__pkg__entry__app__r0__l0__value.clone();"
     ));
     assert!(store_local_rendered.contains(
         "l__pkg__entry__app__r0__l0__value = l__pkg__entry__app__r0__l1__other.clone();"
@@ -127,7 +127,7 @@ fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_site
     .expect("call");
 
     assert!(rendered.contains(
-        "let l__pkg__entry__app__r3__l1__result = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r9__callee("
+        "l__pkg__entry__app__r3__l1__result = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r9__callee("
     ));
     assert!(rendered.contains("l__pkg__entry__app__r3__l0__value"));
 }
@@ -162,7 +162,7 @@ fn core_instruction_rendering_emits_record_field_accesses_as_native_member_reads
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r4__l1__age = l__pkg__entry__app__r4__l0__user.age.clone();"
+        "l__pkg__entry__app__r4__l1__age = l__pkg__entry__app__r4__l0__user.age.clone();"
     );
 }
 
@@ -222,11 +222,11 @@ fn core_instruction_rendering_emits_scalar_intrinsics_as_native_rust_ops() {
 
     assert_eq!(
         eq_rendered,
-        "let l__pkg__entry__app__r5__l3__same = l__pkg__entry__app__r5__l0__lhs == l__pkg__entry__app__r5__l1__rhs;"
+        "l__pkg__entry__app__r5__l3__same = l__pkg__entry__app__r5__l0__lhs == l__pkg__entry__app__r5__l1__rhs;"
     );
     assert_eq!(
         not_rendered,
-        "let l__pkg__entry__app__r5__l4__flipped = !l__pkg__entry__app__r5__l2__flag;"
+        "l__pkg__entry__app__r5__l4__flipped = !l__pkg__entry__app__r5__l2__flag;"
     );
 }
 
@@ -436,13 +436,13 @@ fn combined_core_instruction_snapshot_stays_stable() {
     assert_eq!(
         rendered,
         concat!(
-            "let l__pkg__entry__app__r6__l3__tmp = 7_i64;\n",
-            "let l__pkg__entry__app__r6__l0__lhs = l__pkg__entry__app__r6__l3__tmp.clone();\n",
+            "l__pkg__entry__app__r6__l3__tmp = 7_i64;\n",
+            "l__pkg__entry__app__r6__l0__lhs = l__pkg__entry__app__r6__l3__tmp.clone();\n",
             "l__pkg__entry__app__r6__l1__rhs = l__pkg__entry__app__r6__l0__lhs.clone();\n",
-            "let l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs, l__pkg__entry__app__r6__l1__rhs);\n",
-            "let l__pkg__entry__app__r6__l4__same = l__pkg__entry__app__r6__l0__lhs == l__pkg__entry__app__r6__l1__rhs;\n",
-            "let l__pkg__entry__app__r6__l4__same = !l__pkg__entry__app__r6__l2__flag;\n",
-            "let l__pkg__entry__app__r6__l3__tmp = l__pkg__entry__app__r6__l1__rhs.count.clone();"
+            "l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs, l__pkg__entry__app__r6__l1__rhs);\n",
+            "l__pkg__entry__app__r6__l4__same = l__pkg__entry__app__r6__l0__lhs == l__pkg__entry__app__r6__l1__rhs;\n",
+            "l__pkg__entry__app__r6__l4__same = !l__pkg__entry__app__r6__l2__flag;\n",
+            "l__pkg__entry__app__r6__l3__tmp = l__pkg__entry__app__r6__l1__rhs.count.clone();"
         )
     );
 }
@@ -551,7 +551,7 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r12__l2__out = l__pkg__entry__app__r12__l0__callback(l__pkg__entry__app__r12__l1__arg);"
+        "l__pkg__entry__app__r12__l2__out = l__pkg__entry__app__r12__l0__callback(l__pkg__entry__app__r12__l1__arg);"
     );
 
     let void_indirect = LoweredInstr {

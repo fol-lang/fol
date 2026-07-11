@@ -51,7 +51,7 @@ fn aggregate_and_container_rendering_emits_native_array_literals() {
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r16__l2__arr = [l__pkg__entry__app__r16__l0__a.clone(), l__pkg__entry__app__r16__l1__b.clone()];"
+        "l__pkg__entry__app__r16__l2__arr = [l__pkg__entry__app__r16__l0__a.clone(), l__pkg__entry__app__r16__l1__b.clone()];"
     );
 }
 
@@ -113,11 +113,11 @@ fn aggregate_and_container_rendering_emits_vector_and_sequence_runtime_construct
 
     assert_eq!(
         vec_rendered,
-        "let l__pkg__entry__app__r17__l2__vec = rt_model::FolVec::from_items(vec![l__pkg__entry__app__r17__l0__a.clone(), l__pkg__entry__app__r17__l1__b.clone()]);"
+        "l__pkg__entry__app__r17__l2__vec = rt_model::FolVec::from_items(vec![l__pkg__entry__app__r17__l0__a.clone(), l__pkg__entry__app__r17__l1__b.clone()]);"
     );
     assert_eq!(
         seq_rendered,
-        "let l__pkg__entry__app__r17__l3__seq = rt_model::FolSeq::from_items(vec![l__pkg__entry__app__r17__l0__a.clone(), l__pkg__entry__app__r17__l1__b.clone()]);"
+        "l__pkg__entry__app__r17__l3__seq = rt_model::FolSeq::from_items(vec![l__pkg__entry__app__r17__l0__a.clone(), l__pkg__entry__app__r17__l1__b.clone()]);"
     );
 }
 
@@ -178,11 +178,11 @@ fn aggregate_and_container_rendering_emits_set_and_map_runtime_constructors() {
 
     assert_eq!(
         set_rendered,
-        "let l__pkg__entry__app__r18__l2__set = rt_model::FolSet::from_items(vec![l__pkg__entry__app__r18__l0__a.clone(), l__pkg__entry__app__r18__l1__b.clone()]);"
+        "l__pkg__entry__app__r18__l2__set = rt_model::FolSet::from_items(vec![l__pkg__entry__app__r18__l0__a.clone(), l__pkg__entry__app__r18__l1__b.clone()]);"
     );
     assert_eq!(
         map_rendered,
-        "let l__pkg__entry__app__r18__l3__map = rt_model::FolMap::from_pairs(vec![(l__pkg__entry__app__r18__l0__a.clone(), l__pkg__entry__app__r18__l1__b.clone()), (l__pkg__entry__app__r18__l1__b.clone(), l__pkg__entry__app__r18__l0__a.clone())]);"
+        "l__pkg__entry__app__r18__l3__map = rt_model::FolMap::from_pairs(vec![(l__pkg__entry__app__r18__l0__a.clone(), l__pkg__entry__app__r18__l1__b.clone()), (l__pkg__entry__app__r18__l1__b.clone(), l__pkg__entry__app__r18__l0__a.clone())]);"
     );
 }
 
@@ -295,19 +295,19 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
 
     assert_eq!(
         rendered[0],
-        "let l__pkg__entry__app__r19__l5__a = rt::index_array(&l__pkg__entry__app__r19__l0__arr, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
+        "l__pkg__entry__app__r19__l5__a = rt::index_array(&l__pkg__entry__app__r19__l0__arr, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
     );
     assert_eq!(
         rendered[1],
-        "let l__pkg__entry__app__r19__l6__b = rt::index_vec(&l__pkg__entry__app__r19__l1__vec, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
+        "l__pkg__entry__app__r19__l6__b = rt::index_vec(&l__pkg__entry__app__r19__l1__vec, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
     );
     assert_eq!(
         rendered[2],
-        "let l__pkg__entry__app__r19__l7__c = rt::index_seq(&l__pkg__entry__app__r19__l2__seq, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
+        "l__pkg__entry__app__r19__l7__c = rt::index_seq(&l__pkg__entry__app__r19__l2__seq, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
     );
     assert_eq!(
         rendered[3],
-        "let l__pkg__entry__app__r19__l8__d = rt::lookup_map(&l__pkg__entry__app__r19__l3__map, &l__pkg__entry__app__r19__l4__index).unwrap().clone();"
+        "l__pkg__entry__app__r19__l8__d = rt::lookup_map(&l__pkg__entry__app__r19__l3__map, &l__pkg__entry__app__r19__l4__index).unwrap().clone();"
     );
 }
 
@@ -422,11 +422,11 @@ fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
 
     assert_eq!(
         record_rendered,
-        "let l__pkg__entry__app__r30__l1__record = crate::packages::pkg__entry__app::root::ty__pkg__entry__app__t2__counter { count: l__pkg__entry__app__r30__l0__value.clone() };"
+        "l__pkg__entry__app__r30__l1__record = crate::packages::pkg__entry__app::root::ty__pkg__entry__app__t2__counter { count: l__pkg__entry__app__r30__l0__value.clone() };"
     );
     assert_eq!(
         entry_rendered,
-        "let l__pkg__entry__app__r30__l2__entry = crate::packages::pkg__entry__app::root::ty__pkg__entry__app__t3__status::Ok(l__pkg__entry__app__r30__l0__value.clone());"
+        "l__pkg__entry__app__r30__l2__entry = crate::packages::pkg__entry__app::root::ty__pkg__entry__app__t3__status::Ok(l__pkg__entry__app__r30__l0__value.clone());"
     );
 }
 
@@ -558,12 +558,12 @@ fn aggregate_and_container_snapshot_stays_stable() {
     assert_eq!(
         rendered,
         concat!(
-            "let l__pkg__entry__app__r20__l2__arr = [l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()];\n",
-            "let l__pkg__entry__app__r20__l3__vec = rt_model::FolVec::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
-            "let l__pkg__entry__app__r20__l4__seq = rt_model::FolSeq::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
-            "let l__pkg__entry__app__r20__l5__set = rt_model::FolSet::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
-            "let l__pkg__entry__app__r20__l6__map = rt_model::FolMap::from_pairs(vec![(l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone())]);\n",
-            "let l__pkg__entry__app__r20__l7__out = rt::index_vec(&l__pkg__entry__app__r20__l3__vec, l__pkg__entry__app__r20__l0__a.clone()).unwrap().clone();"
+            "l__pkg__entry__app__r20__l2__arr = [l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()];\n",
+            "l__pkg__entry__app__r20__l3__vec = rt_model::FolVec::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
+            "l__pkg__entry__app__r20__l4__seq = rt_model::FolSeq::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
+            "l__pkg__entry__app__r20__l5__set = rt_model::FolSet::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
+            "l__pkg__entry__app__r20__l6__map = rt_model::FolMap::from_pairs(vec![(l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone())]);\n",
+            "l__pkg__entry__app__r20__l7__out = rt::index_vec(&l__pkg__entry__app__r20__l3__vec, l__pkg__entry__app__r20__l0__a.clone()).unwrap().clone();"
         )
     );
 }
