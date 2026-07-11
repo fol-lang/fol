@@ -2689,3 +2689,83 @@ use super::*;
 
         fs::remove_dir_all(&temp_root).ok();
     }
+
+    #[test]
+    fn test_chained_fallbacks_compute_correct_runtime_values() {
+        use std::fs;
+
+        // Chained `a || b || c` joins a still-wrapped recoverable arm; both
+        // the failure chain and the first-success path must compute real
+        // values (lowering, verifier, and backend carrier all follow the
+        // store edges).
+        let temp_root = unique_temp_root("chained_fallbacks");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create chained-fallback fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"chained_fallbacks\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"chained_fallbacks\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write chained-fallback build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "fun[] parse(v: int, bad: bol): int / str = {\n",
+                "    when(bad) {\n",
+                "        case(true) { report \"bad\"; }\n",
+                "        * { return v; }\n",
+                "    }\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var a: int = parse(1, true) || parse(2, true) || 9;\n",
+                "    std::io::echo_int(a);\n",
+                "    var b: int = parse(7, false) || parse(2, true) || 9;\n",
+                "    std::io::echo_int(b);\n",
+                "    var c: int = parse(1, true) || parse(4, false) || 9;\n",
+                "    std::io::echo_int(c);\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write chained-fallback source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            build.status.success(),
+            "chained fallbacks should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let bin_dir = temp_root.join(".fol/build/debug/bin/host");
+        let binary = fs::read_dir(&bin_dir)
+            .expect("Should list installed binaries")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .find(|path| path.is_file())
+            .expect("chained-fallback fixture should install a binary");
+        let run = std::process::Command::new(&binary)
+            .output()
+            .expect("installed binary should execute");
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        let echoed = stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<i64>().ok())
+            .collect::<Vec<_>>();
+        assert_eq!(echoed, vec![9, 7, 4], "chained fallback values: {stdout}");
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
