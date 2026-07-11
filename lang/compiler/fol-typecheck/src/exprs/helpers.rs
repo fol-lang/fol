@@ -581,6 +581,18 @@ pub(crate) fn ensure_assignable_target(
             };
             if !binding_is_mutable_by_name(typed, resolved, source_unit_id, scope_id, &binding_name)
             {
+                // Receivers are immutable views in V1; mutating through
+                // `self` is later ownership work, so point at the boundary
+                // instead of suggesting an impossible declaration change.
+                if binding_name == "self" {
+                    return Err(TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        format!(
+                            "cannot assign into field '{field}' of the method receiver; \
+                             receiver mutation is not part of the current V1 surface"
+                        ),
+                    ));
+                }
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
                     format!(
