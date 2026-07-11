@@ -2457,3 +2457,21 @@ fn statements_after_block_terminated_statements_parse_as_statements() {
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
+
+#[test]
+fn inline_container_literals_are_iterable() {
+    // Bare array literals intern with their actual length so loop lowering
+    // can resolve the sized container shape.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var total: int = 0;\n\
+             for (i in {1, 2}) {\n\
+                 total = total + i;\n\
+             }\n\
+             return total;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}

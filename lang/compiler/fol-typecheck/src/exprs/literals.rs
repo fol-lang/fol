@@ -404,6 +404,7 @@ pub(crate) fn type_linear_container_literal(
         )));
     }
 
+    let element_count = element_nodes.len();
     for element in element_nodes {
         let actual_raw =
             type_node_with_expectation(typed, resolved, context, element, inferred_element)?;
@@ -442,6 +443,9 @@ pub(crate) fn type_linear_container_literal(
     })?;
     let array_size = match expected_container {
         Some(ExpectedContainerShape::Array { size, .. }) => *size,
+        // Bare array literals carry their own length; lowering resolves the
+        // container against the sized shape, so intern it sized here.
+        _ if kind == ContainerType::Array => Some(element_count),
         _ => None,
     };
     Ok(Some(intern_linear_container_shape(
