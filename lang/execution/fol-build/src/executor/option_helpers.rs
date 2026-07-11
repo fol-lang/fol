@@ -21,7 +21,7 @@ pub(super) fn parse_option_kind(raw: &str) -> Option<OptionKind> {
         "optimize" => Some(OptionKind::Optimize),
         "bool" => Some(OptionKind::Bool),
         "int" => Some(OptionKind::Int),
-        "string" => Some(OptionKind::String),
+        "str" => Some(OptionKind::String),
         "enum" => Some(OptionKind::Enum),
         "path" => Some(OptionKind::Path),
         _ => None,
