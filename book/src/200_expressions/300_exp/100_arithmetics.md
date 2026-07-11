@@ -53,6 +53,11 @@ Current integer semantics:
 
 - division truncates toward zero (`-7 / 2` is `-3`)
 - remainder takes the sign of the dividend (`-7 % 2` is `-1`)
+- integers are 64-bit two's-complement; overflow panics at runtime (debug)
+  rather than wrapping, and division/modulo by zero panics
+- declared widths such as `int[8]` currently share the 64-bit runtime
+  representation and are not range-enforced yet
+- floats follow IEEE-754: `1.0 / 0.0` is infinity, `0.0 / 0.0` is NaN (no panic)
 
 ```
 ```
@@ -94,6 +99,13 @@ assert((true and false), (false and true));
 assert((true or false), true)
 assert((not true), false)
 ```
+
+Current evaluation note:
+
+- `and`/`or` evaluate both operands eagerly; they do NOT short-circuit, so
+  the right operand runs even when the left already decides the result
+  (`(false) and (1/0 > 0)` still evaluates `1/0`). Guard side-effecting or
+  fallible right operands explicitly.
 
 
 
