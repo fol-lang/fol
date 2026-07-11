@@ -2885,3 +2885,76 @@ use super::*;
 
         fs::remove_dir_all(&temp_root).ok();
     }
+
+    #[test]
+    fn test_default_arguments_survive_package_imports() {
+        use std::fs;
+
+        // A local routine's default argument must still apply when a package
+        // (std) is imported. Interning must not collapse the local
+        // routine-with-default into a same-shaped std routine without one:
+        // RoutineType identity includes the defaultedness pattern.
+        let temp_root = unique_temp_root("defaults_with_imports");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create defaults-import fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"defaults_with_imports\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"defaults_with_imports\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write defaults-import build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "fun addup(a: int, b: int = 10): int = {\n",
+                "    return a + b;\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    std::io::echo_int(addup(5));\n",
+                "    std::io::echo_int(addup(5, 20));\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write defaults-import source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            build.status.success(),
+            "defaulted call under a std import should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let bin_dir = temp_root.join(".fol/build/debug/bin/host");
+        let binary = fs::read_dir(&bin_dir)
+            .expect("Should list installed binaries")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .find(|path| path.is_file())
+            .expect("defaults-import fixture should install a binary");
+        let run = std::process::Command::new(&binary)
+            .output()
+            .expect("installed binary should execute");
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        let echoed = stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<i64>().ok())
+            .collect::<Vec<_>>();
+        assert_eq!(echoed, vec![15, 25], "default fill then explicit: {stdout}");
+
+        fs::remove_dir_all(&temp_root).ok();
+    }

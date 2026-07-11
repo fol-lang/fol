@@ -54,11 +54,27 @@ pub struct RoutineType {
     pub error_type: Option<CheckedTypeId>,
 }
 
+impl RoutineType {
+    /// Which parameters carry a default. Part of the routine's callable
+    /// identity: a routine with defaults is a distinct type from one with
+    /// the same parameter types but no defaults, so interning must not
+    /// collapse them (that silently drops the defaults). The default
+    /// *expressions* are not hashable (`AstNode` is `PartialEq`-only), but
+    /// the defaultedness pattern is what call-arity binding depends on.
+    fn default_flags(&self) -> Vec<bool> {
+        self.param_defaults
+            .iter()
+            .map(|default| default.is_some())
+            .collect()
+    }
+}
+
 impl PartialEq for RoutineType {
     fn eq(&self, other: &Self) -> bool {
         self.generic_params == other.generic_params
             && self.generic_constraints == other.generic_constraints
             && self.variadic_index == other.variadic_index
+            && self.default_flags() == other.default_flags()
             && self.params == other.params
             && self.return_type == other.return_type
             && self.error_type == other.error_type
@@ -79,6 +95,7 @@ impl Ord for RoutineType {
             &self.generic_params,
             &self.generic_constraints,
             self.variadic_index,
+            self.default_flags(),
             &self.params,
             self.return_type,
             self.error_type,
@@ -87,6 +104,7 @@ impl Ord for RoutineType {
                 &other.generic_params,
                 &other.generic_constraints,
                 other.variadic_index,
+                other.default_flags(),
                 &other.params,
                 other.return_type,
                 other.error_type,
@@ -99,6 +117,7 @@ impl Hash for RoutineType {
         self.generic_params.hash(state);
         self.generic_constraints.hash(state);
         self.variadic_index.hash(state);
+        self.default_flags().hash(state);
         self.params.hash(state);
         self.return_type.hash(state);
         self.error_type.hash(state);
