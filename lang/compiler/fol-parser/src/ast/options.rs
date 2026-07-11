@@ -164,6 +164,7 @@ pub enum TypeOption {
     Get,       // get
     Nothing,   // nothing
     Extension, // ext
+    Alias,     // ali — the book's typ[ali] aliasing marker
 }
 
 /// Use declaration options

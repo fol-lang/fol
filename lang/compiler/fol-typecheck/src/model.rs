@@ -1,6 +1,6 @@
 use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
-use fol_parser::ast::{ParsedSourceUnitKind, StandardKind, SyntaxNodeId};
+use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::BTreeMap;
 
@@ -112,6 +112,18 @@ pub struct TypedConformance {
     pub claims: Vec<TypedConformanceClaim>,
 }
 
+/// One field of a record type, in source declaration order, carrying the
+/// optional default initializer expression. Records store their fields in
+/// order-losing maps for identity; this side table preserves declaration
+/// order and defaults so record initialization (positional binding and
+/// default filling) can be checked and lowered.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordFieldLayout {
+    pub name: String,
+    pub type_id: CheckedTypeId,
+    pub default: Option<AstNode>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
     capability_model: TypecheckCapabilityModel,
@@ -127,6 +139,7 @@ pub struct TypedProgram {
     apparent_type_overrides: BTreeMap<CheckedTypeId, CheckedTypeId>,
     method_call_targets: BTreeMap<SyntaxNodeId, SymbolId>,
     constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
+    record_layouts: BTreeMap<CheckedTypeId, Vec<RecordFieldLayout>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -306,7 +319,24 @@ impl TypedProgram {
             apparent_type_overrides: BTreeMap::new(),
             method_call_targets: BTreeMap::new(),
             constraint_call_sites: std::collections::BTreeSet::new(),
+            record_layouts: BTreeMap::new(),
         }
+    }
+
+    /// Store the ordered field layout (with defaults) for a record type. Keyed
+    /// by the interned record `CheckedTypeId` so record-initializer checking and
+    /// lowering can recover declaration order and per-field defaults.
+    pub(crate) fn set_record_layout(
+        &mut self,
+        type_id: CheckedTypeId,
+        layout: Vec<RecordFieldLayout>,
+    ) {
+        self.record_layouts.insert(type_id, layout);
+    }
+
+    /// The ordered field layout for a record type, if one was recorded.
+    pub fn record_layout(&self, type_id: CheckedTypeId) -> Option<&[RecordFieldLayout]> {
+        self.record_layouts.get(&type_id).map(|fields| fields.as_slice())
     }
 
     pub fn record_method_call_target(&mut self, syntax_id: SyntaxNodeId, symbol_id: SymbolId) {

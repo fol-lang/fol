@@ -7,7 +7,7 @@ use crate::{
 };
 use fol_parser::ast::{AstNode, ContainerType, Literal};
 use fol_resolver::{PackageIdentity, ScopeId, SourceUnitId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) fn lower_record_initializer(
     typed_package: &fol_typecheck::TypedPackage,
@@ -37,6 +37,7 @@ pub(crate) fn lower_record_initializer(
         ));
     };
 
+    let expected_fields = expected_fields.clone();
     let mut lowered_fields = Vec::with_capacity(fields.len());
     for field in fields {
         let Some(field_type) = expected_fields.get(&field.name).copied() else {
@@ -59,6 +60,139 @@ pub(crate) fn lower_record_initializer(
             scope_id,
             Some(field_type),
             &field.value,
+        )?;
+        lowered_fields.push((field.name.clone(), lowered_value.local_id));
+    }
+
+    // Fields omitted from a named initializer are filled from their declared
+    // defaults, so the constructed record always carries a complete field set.
+    let provided: BTreeSet<&str> = fields.iter().map(|field| field.name.as_str()).collect();
+    if let Some(layout) = checked_record_layout(typed_package, checked_type_map, type_id) {
+        for field in layout {
+            if provided.contains(field.name.as_str()) {
+                continue;
+            }
+            let Some(default_expr) = field.default.clone() else {
+                continue;
+            };
+            let Some(field_type) = expected_fields.get(&field.name).copied() else {
+                continue;
+            };
+            let lowered_value = lower_expression_expected(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                Some(field_type),
+                &default_expr,
+            )?;
+            lowered_fields.push((field.name.clone(), lowered_value.local_id));
+        }
+    }
+
+    let result_local = cursor.allocate_local(type_id, None);
+    cursor.push_instr(
+        Some(result_local),
+        LoweredInstrKind::ConstructRecord {
+            type_id,
+            fields: lowered_fields,
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id,
+        recoverable_error_type: None,
+    })
+}
+
+/// Recover the ordered record field layout (declaration order plus defaults)
+/// for a lowered record type by reversing the checked-to-lowered type map.
+fn checked_record_layout<'a>(
+    typed_package: &'a fol_typecheck::TypedPackage,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    lowered_type_id: LoweredTypeId,
+) -> Option<&'a [fol_typecheck::RecordFieldLayout]> {
+    checked_type_map
+        .iter()
+        .filter(|(_, lowered_id)| **lowered_id == lowered_type_id)
+        .find_map(|(checked_id, _)| typed_package.program.record_layout(*checked_id))
+}
+
+/// Lower positional (ordered) record initialization `{ v0, v1, ... }`. Values
+/// bind to fields in declaration order; fields uncovered by a positional value
+/// are filled from their declared defaults. Typecheck has already validated
+/// arity and default coverage.
+#[allow(clippy::too_many_arguments)]
+fn lower_positional_record_literal(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    type_id: LoweredTypeId,
+    elements: &[AstNode],
+) -> Result<LoweredValue, LoweringError> {
+    let Some(crate::LoweredType::Record {
+        fields: expected_fields,
+    }) = type_table.get(type_id)
+    else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            "positional record initializer does not map to a lowered record runtime type",
+        ));
+    };
+    let expected_fields = expected_fields.clone();
+    let Some(layout) = checked_record_layout(typed_package, checked_type_map, type_id) else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            "positional record initialization requires a named record type",
+        ));
+    };
+    let layout = layout.to_vec();
+
+    let element_nodes = container_elements(elements);
+    let mut lowered_fields = Vec::with_capacity(layout.len());
+    for (index, field) in layout.iter().enumerate() {
+        let Some(field_type) = expected_fields.get(&field.name).copied() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "record field '{}' does not map to a lowered record layout",
+                    field.name
+                ),
+            ));
+        };
+        let value_node = if let Some(node) = element_nodes.get(index) {
+            *node
+        } else if let Some(default_expr) = &field.default {
+            default_expr
+        } else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "positional record initializer is missing a value for field '{}'",
+                    field.name
+                ),
+            ));
+        };
+        let lowered_value = lower_expression_expected(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            Some(field_type),
+            value_node,
         )?;
         lowered_fields.push((field.name.clone(), lowered_value.local_id));
     }
@@ -183,6 +317,25 @@ pub(crate) fn lower_container_literal(
     expected_type: Option<LoweredTypeId>,
     elements: &[AstNode],
 ) -> Result<LoweredValue, LoweringError> {
+    // A brace literal with an expected record type is positional record
+    // initialization; values bind to fields in declaration order.
+    if let Some(type_id) = expected_type {
+        if matches!(type_table.get(type_id), Some(crate::LoweredType::Record { .. })) {
+            return lower_positional_record_literal(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                type_id,
+                elements,
+            );
+        }
+    }
+
     let container_kind =
         expected_container_kind(type_table, expected_type).unwrap_or(container_type);
     match container_kind {

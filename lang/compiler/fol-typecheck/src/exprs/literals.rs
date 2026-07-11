@@ -3,8 +3,8 @@ use fol_parser::ast::{AstNode, ContainerType, Literal};
 use fol_resolver::ResolvedProgram;
 
 use super::helpers::{
-    apparent_type_id, ensure_assignable, expected_nil_shell_type, node_origin, plain_value_expr,
-    strip_comments, with_node_origin,
+    apparent_type_id, ensure_assignable, expected_nil_shell_type, merge_recoverable_effects,
+    node_origin, plain_value_expr, strip_comments, with_node_origin,
 };
 use super::{TypeContext, TypedExpr};
 use super::type_node_with_expectation;
@@ -121,6 +121,19 @@ pub(crate) fn type_container_literal(
     elements: &[AstNode],
     expected_type: Option<CheckedTypeId>,
 ) -> Result<TypedExpr, TypecheckError> {
+    // A brace literal whose expected type is a record is positional (ordered)
+    // record initialization: `{ v0, v1, ... }` binds values to fields in
+    // declaration order. This is distinct from named `{ field = value }`
+    // record initializers, which the parser routes to `RecordInit`.
+    if let Some(expected) = expected_type {
+        let apparent = apparent_type_id(typed, expected)?;
+        if matches!(typed.type_table().get(apparent), Some(CheckedType::Record { .. })) {
+            return type_positional_record_init(
+                typed, resolved, context, elements, expected, apparent,
+            );
+        }
+    }
+
     let expected_container = expected_type
         .map(|expected| expected_container_shape(typed, expected))
         .transpose()?
@@ -162,6 +175,135 @@ pub(crate) fn type_container_literal(
             )?))
         }
     }
+}
+
+/// Positional (ordered) record initialization: `{ v0, v1, ... }` where the
+/// expected type is a record. Values bind to fields in declaration order.
+/// Fields left uncovered by positional values must carry a declared default,
+/// otherwise they are reported as missing.
+fn type_positional_record_init(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    elements: &[AstNode],
+    expected_type: CheckedTypeId,
+    apparent: CheckedTypeId,
+) -> Result<TypedExpr, TypecheckError> {
+    let element_nodes = container_elements(elements);
+    let origin = element_nodes
+        .first()
+        .and_then(|node| node_origin(resolved, node));
+
+    let Some(layout) = typed.record_layout(apparent) else {
+        return Err(origin.map_or_else(
+            || {
+                TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    "positional record initialization requires a named record type",
+                )
+            },
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    "positional record initialization requires a named record type",
+                    origin,
+                )
+            },
+        ));
+    };
+    let layout = layout.to_vec();
+
+    if element_nodes.len() > layout.len() {
+        return Err(origin.map_or_else(
+            || {
+                TypecheckError::new(
+                    TypecheckErrorKind::IncompatibleType,
+                    format!(
+                        "positional record initializer has {} value(s) but the record has {} field(s)",
+                        element_nodes.len(),
+                        layout.len()
+                    ),
+                )
+            },
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::IncompatibleType,
+                    format!(
+                        "positional record initializer has {} value(s) but the record has {} field(s)",
+                        element_nodes.len(),
+                        layout.len()
+                    ),
+                    origin,
+                )
+            },
+        ));
+    }
+
+    let mut field_effects = Vec::new();
+    for (element, field) in element_nodes.iter().zip(layout.iter()) {
+        let field_origin = node_origin(resolved, element);
+        let actual_expr =
+            type_node_with_expectation(typed, resolved, context, element, Some(field.type_id))
+                .map_err(|error| {
+                    field_origin
+                        .clone()
+                        .map_or(error.clone(), |o| error.with_fallback_origin(o))
+                })?;
+        let actual_expr = plain_value_expr(
+            typed,
+            context,
+            actual_expr,
+            field_origin.clone(),
+            format!("record field '{}'", field.name),
+        )?;
+        field_effects.push(actual_expr.recoverable_effect);
+        let actual = actual_expr.required_value(format!(
+            "positional record field '{}' does not have a type",
+            field.name
+        ))?;
+        ensure_assignable(
+            typed,
+            field.type_id,
+            actual,
+            format!("record field '{}'", field.name),
+            field_origin,
+        )?;
+    }
+
+    // Fields not covered by a positional value must have a default.
+    let missing = layout
+        .iter()
+        .skip(element_nodes.len())
+        .filter(|field| field.default.is_none())
+        .map(|field| field.name.clone())
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(origin.clone().map_or_else(
+            || {
+                TypecheckError::new(
+                    TypecheckErrorKind::IncompatibleType,
+                    format!(
+                        "record initializer is missing required fields: {}",
+                        missing.join(", ")
+                    ),
+                )
+            },
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::IncompatibleType,
+                    format!(
+                        "record initializer is missing required fields: {}",
+                        missing.join(", ")
+                    ),
+                    origin,
+                )
+            },
+        ));
+    }
+
+    let merged =
+        merge_recoverable_effects(typed, origin, "record initializer", field_effects)?;
+    Ok(TypedExpr::value(expected_type).with_optional_effect(merged))
 }
 
 fn reject_heap_backed_literal_in_core(

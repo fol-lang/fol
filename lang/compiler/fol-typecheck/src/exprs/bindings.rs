@@ -273,9 +273,21 @@ pub(crate) fn type_record_init(
         )?;
     }
 
+    // Fields carrying a declared default may be omitted; the default fills
+    // them during lowering. Only fields without a default stay required.
+    let defaulted: BTreeSet<String> = typed
+        .record_layout(apparent)
+        .map(|layout| {
+            layout
+                .iter()
+                .filter(|field| field.default.is_some())
+                .map(|field| field.name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
     let missing = expected_fields
         .keys()
-        .filter(|name| !seen.contains(*name))
+        .filter(|name| !seen.contains(*name) && !defaulted.contains(*name))
         .cloned()
         .collect::<Vec<_>>();
     if !missing.is_empty() {

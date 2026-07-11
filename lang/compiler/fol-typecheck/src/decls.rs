@@ -5,10 +5,11 @@ use crate::{
 };
 use fol_parser::ast::{
     AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
-    StandardKind, SyntaxNodeId, SyntaxOrigin, TypeDefinition, TypeOption, VarOption,
+    RecordFieldMeta, StandardKind, SyntaxNodeId, SyntaxOrigin, TypeDefinition, TypeOption,
+    VarOption,
 };
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult<()> {
     let resolved = typed.resolved().clone();
@@ -55,6 +56,78 @@ fn is_type_decl_item(node: &AstNode) -> bool {
         AstNode::Commented { node, .. } => is_type_decl_item(node),
         _ => false,
     }
+}
+
+/// Record the ordered field layout (declaration order plus per-field default
+/// initializers) for a record type and validate that each default expression
+/// is assignable to its field's declared type.
+#[allow(clippy::too_many_arguments)]
+fn lower_record_field_layout(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    type_scope: ScopeId,
+    record_type_id: CheckedTypeId,
+    fields: &HashMap<String, FolType>,
+    field_meta: &HashMap<String, RecordFieldMeta>,
+    field_order: &[String],
+    decl_origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    use crate::model::RecordFieldLayout;
+
+    let mut layout = Vec::with_capacity(field_order.len());
+    for field_name in field_order {
+        let Some(field_type) = fields.get(field_name) else {
+            continue;
+        };
+        let field_type_id = lower_type(typed, resolved, type_scope, field_type)?;
+        let default = field_meta
+            .get(field_name)
+            .and_then(|meta| meta.default.clone());
+
+        // A field default must be assignable to the field's declared type;
+        // reject a mismatch at the declaration with a located diagnostic.
+        if let Some(default_expr) = &default {
+            let default_origin =
+                node_origin(resolved, default_expr).or_else(|| decl_origin.clone());
+            let context = crate::exprs::TypeContext {
+                source_unit_id,
+                scope_id: type_scope,
+                routine_return_type: None,
+                routine_error_type: None,
+                error_call_mode: crate::exprs::ErrorCallMode::Propagate,
+            };
+            let typed_default = crate::exprs::type_node_with_expectation(
+                typed,
+                resolved,
+                context,
+                default_expr,
+                Some(field_type_id),
+            )
+            .map_err(|error| {
+                default_origin
+                    .clone()
+                    .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
+            })?;
+            if let Some(actual) = typed_default.value_type {
+                crate::exprs::helpers::ensure_assignable(
+                    typed,
+                    field_type_id,
+                    actual,
+                    format!("default for record field '{field_name}'"),
+                    default_origin,
+                )?;
+            }
+        }
+
+        layout.push(RecordFieldLayout {
+            name: field_name.clone(),
+            type_id: field_type_id,
+            default,
+        });
+    }
+    typed.set_record_layout(record_type_id, layout);
+    Ok(())
 }
 
 fn lower_top_level_declaration(
@@ -202,7 +275,12 @@ fn lower_top_level_declaration(
                 TypeDefinition::Alias { target } => {
                     lower_type(typed, resolved, type_scope, target)?
                 }
-                TypeDefinition::Record { fields, .. } => {
+                TypeDefinition::Record {
+                    fields,
+                    field_meta,
+                    field_order,
+                    ..
+                } => {
                     let mut lowered = BTreeMap::new();
                     for (field_name, field_type) in fields {
                         lowered.insert(
@@ -210,9 +288,23 @@ fn lower_top_level_declaration(
                             lower_type(typed, resolved, type_scope, field_type)?,
                         );
                     }
-                    typed
+                    let record_type_id = typed
                         .type_table_mut()
-                        .intern(CheckedType::Record { fields: lowered })
+                        .intern(CheckedType::Record { fields: lowered });
+                    let decl_origin = node_origin(resolved, &item.node)
+                        .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                    lower_record_field_layout(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        type_scope,
+                        record_type_id,
+                        fields,
+                        field_meta,
+                        field_order,
+                        decl_origin,
+                    )?;
+                    record_type_id
                 }
                 TypeDefinition::Entry { variants, .. } => {
                     let mut lowered = BTreeMap::new();

@@ -366,6 +366,7 @@ impl AstParser {
                 return Ok(TypeDefinition::Record {
                     fields: HashMap::new(),
                     field_meta: HashMap::new(),
+                    field_order: Vec::new(),
                     members: Vec::new(),
                 });
             }
@@ -561,6 +562,7 @@ impl AstParser {
                 "get" => TypeOption::Get,
                 "nothing" | "non" => TypeOption::Nothing,
                 "ext" => TypeOption::Extension,
+                "ali" => TypeOption::Alias,
                 _ => {
                     return Err(ParseError::from_token(
                         &token,

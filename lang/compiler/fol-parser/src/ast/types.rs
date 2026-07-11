@@ -283,6 +283,10 @@ pub enum TypeDefinition {
     Record {
         fields: HashMap<String, FolType>,
         field_meta: HashMap<String, RecordFieldMeta>,
+        /// Field names in source declaration order. `fields`/`field_meta` are
+        /// keyed maps that lose ordering; positional record initialization
+        /// binds values to fields using this declaration order.
+        field_order: Vec<String>,
         members: Vec<AstNode>,
     },
     Entry {
