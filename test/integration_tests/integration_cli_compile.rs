@@ -1401,3 +1401,867 @@ use super::*;
 
         fs::remove_dir_all(&temp_root).ok();
     }
+
+    #[test]
+    fn test_constraint_calls_dispatch_per_instantiation_end_to_end() {
+        use std::fs;
+
+        // Standards-as-constraints: `measure(T: sized)` calls `thing.size()`
+        // and each instantiation dispatches to its own conformer routine.
+        let temp_root = unique_temp_root("constraint_dispatch");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create constraint dispatch fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"constraint_dispatch\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"constraint_dispatch\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write constraint dispatch build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "std sized: pro = {\n",
+                "    fun size(): int;\n",
+                "};\n",
+                "typ A()(sized): rec = {\n",
+                "    var a: int;\n",
+                "};\n",
+                "typ B()(sized): rec = {\n",
+                "    var b: int;\n",
+                "};\n",
+                "fun (A)size(): int = {\n",
+                "    return self.a;\n",
+                "};\n",
+                "fun (B)size(): int = {\n",
+                "    return self.b;\n",
+                "};\n",
+                "fun measure(T: sized)(thing: T): int = {\n",
+                "    return thing.size();\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    var x: A = { a = 11 };\n",
+                "    var y: B = { b = 31 };\n",
+                "    return measure(x) + measure(y);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write constraint dispatch source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "constraint calls should build and monomorphize per instantiation: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_constraint_calls_reach_standard_default_bodies_end_to_end() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("constraint_default_body");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create constraint default fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"constraint_default_body\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"constraint_default_body\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write constraint default build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "std greet: pro = {\n",
+                "    fun hello(): int = {\n",
+                "        return 40;\n",
+                "    };\n",
+                "};\n",
+                "typ A()(greet): rec = {\n",
+                "    var x: int;\n",
+                "};\n",
+                "fun salute(T: greet)(thing: T): int = {\n",
+                "    return thing.hello();\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    var a: A = { x = 0 };\n",
+                "    return salute(a);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write constraint default source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "constraint calls should reach standard default bodies: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_same_named_receiver_routines_build_end_to_end() {
+        use std::fs;
+
+        // Regression: two receiver routines sharing a name (on different
+        // types) previously collided during lowering symbol/body pairing.
+        let temp_root = unique_temp_root("same_named_receivers");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create same-named receiver fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"same_named_receivers\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"same_named_receivers\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write same-named receiver build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "typ Left: rec = {\n",
+                "    var value: int;\n",
+                "};\n",
+                "typ Right: rec = {\n",
+                "    var item: int;\n",
+                "};\n",
+                "fun (Left)take(): int = {\n",
+                "    return self.value;\n",
+                "};\n",
+                "fun (Right)take(): int = {\n",
+                "    return self.item;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    var l: Left = { value = 1 };\n",
+                "    var r: Right = { item = 2 };\n",
+                "    return l.take() + r.take();\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write same-named receiver source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "same-named receiver routines should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_default_body_with_conformer_override_builds_end_to_end() {
+        use std::fs;
+
+        // Regression: a standard default body plus a same-named conformer
+        // override previously double-lowered into one routine.
+        let temp_root = unique_temp_root("default_body_override");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create default override fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"default_body_override\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"default_body_override\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write default override build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "std greet: pro = {\n",
+                "    fun hello(): int = {\n",
+                "        return 1;\n",
+                "    };\n",
+                "};\n",
+                "typ A()(greet): rec = {\n",
+                "    var x: int;\n",
+                "};\n",
+                "typ B()(greet): rec = {\n",
+                "    var y: int;\n",
+                "};\n",
+                "fun (B)hello(): int = {\n",
+                "    return 2;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    var a: A = { x = 0 };\n",
+                "    var b: B = { y = 0 };\n",
+                "    return a.hello() + b.hello();\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write default override source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "default body plus conformer override should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_nested_loc_import_of_generic_receiver_builds_and_runs() {
+        use std::fs;
+
+        // Regression chain: importing a generic receiver routine through a
+        // `loc` target nested inside the package's own source tree used to
+        // (a) stack-overflow typecheck import hydration on the generic
+        // parameter's self-referential declared type, and then (b) emit a
+        // module tree where the namespace unit's `mod.rs` lost its child
+        // `pub mod` declarations.
+        let temp_root = unique_temp_root("nested_loc_generic_receiver");
+        fs::create_dir_all(temp_root.join("src/shared"))
+            .expect("Should create nested loc fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"nested_loc_generic_receiver\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"nested_loc_generic_receiver\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write nested loc build file");
+        fs::write(
+            temp_root.join("src/shared/lib.fol"),
+            concat!(
+                "typ[exp] Box(T): rec = {\n",
+                "    value: T\n",
+                "};\n",
+                "fun[exp] (Box[T])get(T)(): T = {\n",
+                "    return self.value;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write nested loc shared source");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use shared: loc = {\"shared\"};\n",
+                "fun[] main(): int = {\n",
+                "    var b: shared::Box[int] = { value = 5 };\n",
+                "    return b.get();\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write nested loc entry source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "nested loc generic receiver imports should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_nil_error_shell_bindings_build_end_to_end() {
+        use std::fs;
+
+        // Regression: `var maybe: err[int] = nil;` typechecked but emitted
+        // `FolError::new(())`, pinning the payload to `()` instead of
+        // leaving it to inference like `FolOption::nil()` does.
+        let temp_root = unique_temp_root("nil_error_shell");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create nil error fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"nil_error_shell\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"nil_error_shell\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write nil error build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            "fun[] main(): int = {\n    var maybe: err[int] = nil;\n    return 0;\n};\n",
+        )
+        .expect("Should write nil error source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "nil error shells should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_hardening_round_fixes_build_end_to_end() {
+        use std::fs;
+
+        // Pins four probe-found fixes in one fixture:
+        //  - var declarations inside when case bodies (block-scope recovery)
+        //  - statement-position dot intrinsics (`.echo(x);`)
+        //  - single-char metadata strings (name = "m")
+        //  - exact-size array literals still working after arity checking
+        let temp_root = unique_temp_root("hardening_round_fixes");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create hardening fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"m\", version = \"2\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"hardening_round_fixes\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write hardening build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    var values: arr[int, 3] = {1, 2, 3};\n",
+                "    .echo(.len(values));\n",
+                "    when(true) {\n",
+                "        case(true) {\n",
+                "            var local: int = 3;\n",
+                "            return local;\n",
+                "        }\n",
+                "        * { return 0; }\n",
+                "    }\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write hardening source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "hardening fixture should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_exported_alias_and_intra_package_loc_import_build_end_to_end() {
+        use std::fs;
+
+        // Pins two fixes together:
+        //  - `ali[exp]` parses and exports the alias across packages
+        //  - a loc import pointing back inside the package resolves to the
+        //    existing namespace instead of double-loading the directory
+        //    (double-loading emitted two units into one backend file)
+        let temp_root = unique_temp_root("exported_alias_intra_loc");
+        fs::create_dir_all(temp_root.join("src")).expect("Should create alias fixture src dir");
+        fs::create_dir_all(temp_root.join("units")).expect("Should create alias fixture units dir");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"exported_alias_intra_loc\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"exported_alias_intra_loc\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write alias fixture build file");
+        fs::write(
+            temp_root.join("units/lib.fol"),
+            concat!(
+                "ali[exp] Meters: int;\n",
+                "\n",
+                "fun[exp] double(value: Meters): Meters = {\n",
+                "    return value + value;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write alias fixture library");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use units: loc = {\"../units\"};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var distance: units::Meters = 21;\n",
+                "    return units::double(distance);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write alias fixture entry");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "exported alias through an intra-package loc import should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Across a real package boundary (loc target outside the package
+        // root) the alias is only reachable when exported.
+        let outside_root = unique_temp_root("exported_alias_outside_loc");
+        fs::create_dir_all(outside_root.join("app/src"))
+            .expect("Should create outside-alias fixture app dir");
+        fs::create_dir_all(outside_root.join("units"))
+            .expect("Should create outside-alias fixture units dir");
+        fs::write(
+            outside_root.join("app/build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"exported_alias_outside\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"exported_alias_outside\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write outside-alias fixture build file");
+        fs::write(
+            outside_root.join("app/src/main.fol"),
+            concat!(
+                "use units: loc = {\"../../units\"};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var distance: units::Meters = 21;\n",
+                "    return units::double(distance);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write outside-alias fixture entry");
+        fs::write(
+            outside_root.join("units/lib.fol"),
+            concat!(
+                "ali[exp] Meters: int;\n",
+                "\n",
+                "fun[exp] double(value: Meters): Meters = {\n",
+                "    return value + value;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write outside-alias fixture library");
+
+        let exported = run_fol_in_dir(&outside_root.join("app"), &["code", "check"]);
+        assert!(
+            exported.status.success(),
+            "exported aliases should resolve across package boundaries: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&exported.stdout),
+            String::from_utf8_lossy(&exported.stderr)
+        );
+
+        fs::write(
+            outside_root.join("units/lib.fol"),
+            concat!(
+                "ali Meters: int;\n",
+                "\n",
+                "fun[exp] double(value: Meters): Meters = {\n",
+                "    return value + value;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should rewrite outside-alias fixture library without export");
+        let hidden = run_fol_in_dir(&outside_root.join("app"), &["code", "check"]);
+        assert!(
+            !hidden.status.success(),
+            "non-exported aliases should not resolve across package boundaries"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+        fs::remove_dir_all(&outside_root).ok();
+    }
+
+    #[test]
+    fn test_check_enforces_declared_capability_model() {
+        use std::fs;
+
+        // `fol code check` must typecheck under the member's declared
+        // capability model, not silently under the hosted model — a core
+        // package using `str` has to fail at check time, not first at build.
+        let temp_root = unique_temp_root("check_capability_model");
+        fs::create_dir_all(temp_root.join("src")).expect("Should create check-model fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"check_capability_model\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"check_capability_model\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write check-model build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    var name: str = \"hello\";\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write check-model source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "check"]);
+        assert!(
+            !output.status.success(),
+            "core packages using str should fail check"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("str requires heap support"),
+            "check should surface the capability diagnostic: {stderr}"
+        );
+
+        // The same source under memo checks clean.
+        let build = fs::read_to_string(temp_root.join("build.fol"))
+            .expect("Should reread check-model build file")
+            .replace("fol_model = \"core\"", "fol_model = \"memo\"");
+        fs::write(temp_root.join("build.fol"), build)
+            .expect("Should rewrite check-model build file");
+        let output = run_fol_in_dir(&temp_root, &["code", "check"]);
+        assert!(
+            output.status.success(),
+            "memo packages using str should check clean: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_variadic_marker_and_real_seq_params_stay_distinct() {
+        use std::fs;
+
+        // Variadic collection is only the explicit `... T` marker; a trailing
+        // `seq[T]` parameter takes a real sequence value. Both forms must
+        // build side by side in one package.
+        let temp_root = unique_temp_root("variadic_vs_seq_params");
+        fs::create_dir_all(temp_root.join("src")).expect("Should create variadic fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"variadic_vs_seq_params\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"variadic_vs_seq_params\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write variadic fixture build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "fun[] take(values: seq[int]): int = {\n",
+                "    return .len(values);\n",
+                "};\n",
+                "\n",
+                "fun[] spread(extras: ... int): int = {\n",
+                "    return .len(extras);\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var items: seq[int] = {1, 2, 3};\n",
+                "    var a: int = take(items);\n",
+                "    var b: int = spread(1, 2, 3);\n",
+                "    return a + b;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write variadic fixture source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "variadic marker and seq params should coexist: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Passing loose values to a real seq parameter must fail.
+        let source = fs::read_to_string(temp_root.join("src/main.fol"))
+            .expect("Should reread variadic fixture source")
+            .replace("take(items)", "take(1, 2)");
+        fs::write(temp_root.join("src/main.fol"), source)
+            .expect("Should rewrite variadic fixture source");
+        let output = run_fol_in_dir(&temp_root, &["code", "check"]);
+        assert!(
+            !output.status.success(),
+            "loose arguments to a seq parameter should fail typecheck"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_field_assignment_into_mutable_record_builds() {
+        use std::fs;
+
+        // Book contract (structs chapter, "Accessing"): assigning into a field of
+        // a mutable record instance must typecheck, lower, and build end to end.
+        let temp_root = unique_temp_root("field_assignment");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create field-assignment fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"field_assign\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"field_assign\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write field-assignment build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "typ Counter: rec = {\n",
+                "    total: int\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var[mut] counter: Counter = { total = 1 };\n",
+                "    counter.total = 5;\n",
+                "    return counter.total;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write field-assignment entry");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "field assignment into a mutable record should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_records_with_container_fields_build_and_run() {
+        use std::fs;
+
+        // Record fields render through FolEchoFormat, so container-typed
+        // fields (which have no Display impl) must not break emission.
+        let temp_root = unique_temp_root("record_container_fields");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create container-field fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"record_container_fields\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"record_container_fields\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write container-field build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "typ Bag: rec = {\n",
+                "    items: seq[int];\n",
+                "    labels: map[str, int]\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var bag: Bag = { items = {1, 2, 3}, labels = {{\"a\", 1}} };\n",
+                "    return std::io::echo_int(.len(bag.items));\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write container-field source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "records with container fields should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_generic_variadic_routine_call_builds_end_to_end() {
+        use std::fs;
+
+        // P1 regression (hardening round 5): a generic routine with a variadic
+        // parameter (`collect(T)(head: T, extras: ... T): T`) used to leak its
+        // generic parameter into the caller's variadic pack (`FolSeq<t>` with
+        // `t` unbound), so `code check` passed but `code build` emitted broken
+        // Rust (E0425). The pack is now typed from its concrete elements.
+        let temp_root = unique_temp_root("generic_variadic_build");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create generic variadic fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"gv\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"gv\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write generic variadic build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "fun collect(T)(head: T, extras: ... T): T = { return head; };\n",
+                "fun[] main(): int = { return std::io::echo_int(collect(1, 2, 3)); };\n",
+            ),
+        )
+        .expect("Should write generic variadic source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "generic variadic routine should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_generic_type_on_own_type_param_builds_end_to_end() {
+        use std::fs;
+
+        // P2 regression (hardening round 5): a generic routine that instantiates
+        // a generic named type on its own type parameter (`var b: Box[T]` inside
+        // `wrap(T)`) used to pass `code check` but fail `code build` with
+        // "named lowered runtime type ... does not map to any lowered type
+        // declaration". The routine is now monomorphized so `Box[int]` is
+        // concrete and its structural decl is synthesized before backend.
+        let temp_root = unique_temp_root("generic_type_own_param_build");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create generic type param fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"gt\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"gt\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write generic type param build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "typ Box(T): rec = { value: T };\n",
+                "fun wrap(T)(v: T): T = {\n",
+                "    var b: Box[T] = { value = v };\n",
+                "    return b.value;\n",
+                "};\n",
+                "fun[] main(): int = { return wrap(7); };\n",
+            ),
+        )
+        .expect("Should write generic type param source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "generic type on own type param should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+

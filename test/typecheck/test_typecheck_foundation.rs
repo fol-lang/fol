@@ -1874,3 +1874,330 @@ fn self_referential_record_type_does_not_panic_during_typecheck() {
         "Self-referential record types should typecheck via Declared reference indirection"
     );
 }
+
+#[test]
+fn single_element_double_quoted_literals_follow_the_expected_type() {
+    // The book allows a double-quoted single element as BOTH a character and
+    // a single-element string; the expected type decides.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var s: str = \"l\";\n\
+             var c: chr = \"z\";\n\
+             var s2: str = \"many\";\n\
+             return .len(s) + .len(s2);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn casting_surfaces_fail_with_the_explicit_boundary_not_resolver_noise() {
+    // The book: casting parses but is not part of supported V1 semantics;
+    // the failure must be the explicit typecheck boundary, not an
+    // "unresolved name" resolver error for the target type.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var n: int = 3 as int;\n\
+             return n;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("'as' is not yet supported")),
+        "casting should fail with the explicit unsupported-operator boundary: {errors:#?}"
+    );
+    assert!(
+        !errors
+            .iter()
+            .any(|error| error.message().contains("could not resolve name 'int'")),
+        "the cast target must not be misreported as an unresolved value name: {errors:#?}"
+    );
+}
+
+#[test]
+fn array_literals_must_match_the_declared_size() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var values: arr[int, 2] = {1, 2, 3};\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("array literal has 3 element(s)")),
+        "array size mismatches should fail typecheck cleanly: {errors:#?}"
+    );
+}
+
+#[test]
+fn var_declarations_inside_when_case_bodies_typecheck() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             when(true) {\n\
+                 case(true) {\n\
+                     var local: int = 3;\n\
+                     return local;\n\
+                 }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn field_assignment_into_mutable_record_binding_typechecks() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+             var[mut] counter: Counter = { total = 1 };\n\
+             counter.total = 5;\n\
+             return counter.total;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        "field assignment into a mutable record should keep the routine's return type",
+    );
+}
+
+#[test]
+fn field_assignment_into_immutable_record_binding_is_rejected() {
+    // `con` binds an immutable constant (plain `var` is mutable by default in
+    // the current parser model); assigning into its field must be rejected.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+             con counter: Counter = { total = 1 };\n\
+             counter.total = 5;\n\
+             return counter.total;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error.message().contains("immutable binding 'counter'")
+                && error.message().contains("var[mut]")
+        }),
+        "Expected immutable field-assignment rejection, got: {errors:?}"
+    );
+}
+
+#[test]
+fn field_assignment_to_unknown_field_is_rejected() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+             var[mut] counter: Counter = { total = 1 };\n\
+             counter.missing = 5;\n\
+             return counter.total;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error
+                .message()
+                .contains("does not expose a field named 'missing'")
+        }),
+        "Expected unknown-field rejection, got: {errors:?}"
+    );
+}
+
+#[test]
+fn field_assignment_type_mismatch_is_rejected() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+             var[mut] counter: Counter = { total = 1 };\n\
+             counter.total = true;\n\
+             return counter.total;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::IncompatibleType }),
+        "Expected field-assignment type mismatch rejection, got: {errors:?}"
+    );
+}
+
+#[test]
+fn when_membership_arms_stay_on_the_explicit_v1_boundary() {
+    // `has`/`in`/`on` when-arms are declared syntax whose semantics are
+    // later-milestone; they must be rejected cleanly instead of silently
+    // lowering as equality checks against the subject.
+    let has_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var values: arr[int, 3] = {1, 2, 3};\n\
+             when(values) {\n\
+                 has(2) { return 1; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    assert!(
+        has_errors
+            .iter()
+            .any(|error| error.message().contains("when/has branches are not yet supported")),
+        "has arms should hit the explicit boundary: {has_errors:#?}"
+    );
+
+    let in_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             when(5) {\n\
+                 in(3) { return 1; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    assert!(
+        in_errors
+            .iter()
+            .any(|error| error.message().contains("when/in branches are not yet supported")),
+        "in arms should hit the explicit boundary: {in_errors:#?}"
+    );
+
+    // Equality arms stay fully supported in both spellings.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var picked: int = when(3) {\n\
+                 is 3 -> 7;\n\
+                 * -> 0;\n\
+             };\n\
+             when(picked) {\n\
+                 is (7) { return picked; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn immutable_bindings_reject_whole_binding_reassignment() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             con locked: int = 5;\n\
+             locked = 6;\n\
+             return locked;\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("cannot reassign immutable binding 'locked'")),
+        "con bindings should refuse reassignment: {errors:#?}"
+    );
+}
+
+#[test]
+fn panic_terminates_when_arms_and_stays_out_of_defer() {
+    // A when arm that panics terminates like return/report.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             when(true) {\n\
+                 case(true) { panic \"boom\"; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+
+    // Deferred blocks replay at every exit; panic cannot lower there.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             defer { panic \"cleanup\"; };\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("panic is not allowed inside deferred blocks")),
+        "defer should keep an explicit panic boundary: {errors:#?}"
+    );
+}
+
+#[test]
+fn map_index_keys_follow_the_declared_key_type() {
+    // Single-character double-quoted literals width-classify as chr in the
+    // parser; index expressions must adopt the container's key type.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var m: map[str, int] = {{\"x\", 5}};\n\
+             return m[\"x\"];\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}

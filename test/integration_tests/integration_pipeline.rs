@@ -252,9 +252,9 @@ fn test_runtime_model_modules_compile_through_root_integration_graph() {
                     .target_scope
                     .and_then(|scope_id| resolved.scope(scope_id))
                     .map(|scope| &scope.kind),
-                Some(fol_resolver::ScopeKind::ProgramRoot { package }) if package == "http"
+                Some(fol_resolver::ScopeKind::NamespaceRoot { namespace }) if namespace.ends_with("http")
             ),
-            "Cross-file full pipeline runs should mount exact loc directories as imported root scopes"
+            "Cross-file full pipeline runs should resolve intra-package loc imports to the existing namespace scope"
         );
 
         fs::remove_dir_all(&temp_root).ok();

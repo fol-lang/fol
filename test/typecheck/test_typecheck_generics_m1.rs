@@ -386,7 +386,10 @@ fn generic_routine_calls_typecheck_across_optional_and_vec_signature_shapes() {
 
 #[test]
 fn generic_routine_calls_keep_seq_signature_shapes_on_the_current_boundary() {
-    let errors = typecheck_fixture_folder_errors(&[(
+    // A `seq[T]` parameter is an ordinary sequence parameter: passing a real
+    // sequence value unifies `T` directly (variadic collection is only the
+    // explicit `... T` marker).
+    let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun keep_seq(T)(items: seq[T]): seq[T] = {\n\
              return items;\n\
@@ -394,14 +397,19 @@ fn generic_routine_calls_keep_seq_signature_shapes_on_the_current_boundary() {
          fun[] main(): int = {\n\
              var numbers: seq[int] = {4, 5};\n\
              var kept_numbers: seq[int] = keep_seq(numbers);\n\
-             return kept_numbers.len();\n\
+             return .len(kept_numbers);\n\
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::IncompatibleType
-            && error.message().contains("initializer for 'kept_numbers' expects")
-    }), "Expected seq[T] generic signature use to stay on the current explicit boundary, got: {errors:?}");
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        "Generic seq[T] parameters should accept real sequence arguments"
+    );
 }
 
 #[test]
@@ -1009,5 +1017,234 @@ fn generic_receiver_calls_reject_underconstrained_routine_generics() {
             .iter()
             .any(|error| error.message().contains("underconstrained")),
         "underconstrained generic receiver call should be rejected: {errors:#?}"
+    );
+}
+
+#[test]
+fn constraint_required_routines_are_callable_on_constrained_generic_params() {
+    // Standards-as-constraints: a constrained generic routine may call any
+    // routine its constraint standard requires; the callee is resolved per
+    // instantiation during monomorphization.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std sized: pro = {\n\
+             fun size(): int;\n\
+         };\n\
+         typ Item()(sized): rec = {\n\
+             var weight: int;\n\
+         };\n\
+         fun (Item)size(): int = {\n\
+             return self.weight;\n\
+         };\n\
+         fun measure(T: sized)(thing: T): int = {\n\
+             return thing.size();\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var it: Item = { weight = 3 };\n\
+             return measure(it);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn constraint_calls_reject_routines_the_standard_does_not_require() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std sized: pro = {\n\
+             fun size(): int;\n\
+         };\n\
+         typ Item()(sized): rec = {\n\
+             var weight: int;\n\
+         };\n\
+         fun (Item)size(): int = {\n\
+             return self.weight;\n\
+         };\n\
+         fun measure(T: sized)(thing: T): int = {\n\
+             return thing.volume();\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var it: Item = { weight = 3 };\n\
+             return measure(it);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("not available")),
+        "calling a routine the constraint does not require should fail: {errors:#?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Hardening round 5 regressions: generic composition bugs in typecheck.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generic_routine_calls_substitute_instantiated_named_return_types() {
+    // P3 regression: `wrap(T)(v: T): Box[T]` returns Box[int] at `wrap(7)`.
+    // Before the fix the return type kept the raw `T` inside `Box`, so the
+    // initializer `var r: Box[int] = wrap(7)` failed with a T1003 mismatch.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Box(T): rec = { value: T };\n\
+         fun wrap(T)(v: T): Box[T] = {\n\
+             var b: Box[T] = { value = v };\n\
+             return b;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var r: Box[int] = wrap(7);\n\
+             return r.value;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn generic_type_instantiation_accepts_constrained_generic_parameter() {
+    // P4 regression: `Box(T: geo)` instantiated as `Box[T]` inside a routine
+    // whose own `T` is also bound by `geo` must satisfy the bound without a
+    // fresh conformance header on `T`.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = { fun area(): int; };\n\
+         typ Rect()(geo): rec = { w: int };\n\
+         fun (Rect)area(): int = { return 5; };\n\
+         typ Box(T: geo): rec = { item: T };\n\
+         fun measure(T: geo)(b: Box[T]): int = { return b.item.area(); };\n\
+         fun[] main(): int = { return 0; };\n",
+    )]);
+
+    // The routine survives signature typechecking (no T1003 constraint error).
+    let _ = find_named_routine_syntax_id(&typed, "measure");
+}
+
+#[test]
+fn generic_routine_calls_infer_bindings_through_instantiated_record_arguments() {
+    // P4 end-to-end: `measure(b)` where `b: Box[Rect]` must bind `T = Rect`
+    // by recursing into the structural record parameter `Box[T]`.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std geo: pro = { fun area(): int; };\n\
+         typ Rect()(geo): rec = { w: int };\n\
+         fun (Rect)area(): int = { return 5; };\n\
+         typ Box(T: geo): rec = { item: T };\n\
+         fun measure(T: geo)(b: Box[T]): int = { return b.item.area(); };\n\
+         fun[] main(): int = {\n\
+             var r: Rect = { w = 1 };\n\
+             var b: Box[Rect] = { item = r };\n\
+             return measure(b);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn generic_receiver_method_ambiguity_is_gated_with_an_honest_diagnostic() {
+    // P5 gate: two generic types with identical structure and the same method
+    // name collapse to the same structural record, so a value cannot say which
+    // base it came from. Rather than silently choosing one conformer, the check
+    // rejects with an honest limitation message.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Box(T): rec = { value: T };\n\
+         typ Cup(T): rec = { value: T };\n\
+         fun (Box[T])get(T)(): T = { return self.value; };\n\
+         fun (Cup[T])get(T)(): T = { return self.value; };\n\
+         fun[] main(): int = {\n\
+             var b: Box[int] = { value = 3 };\n\
+             var c: Cup[int] = { value = 4 };\n\
+             return b.get() + c.get();\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error
+                .message()
+                .contains("nominal identity for generic type instantiations")
+        }),
+        "expected an honest generic-receiver ambiguity gate, got: {errors:#?}"
+    );
+}
+
+#[test]
+fn generic_standard_used_as_generic_parameter_constraint_is_gated_honestly() {
+    // P6 gate: a generic standard used as a generic-*parameter* constraint
+    // (`drive(T: Iterator[int])`) would need the standard's own generic
+    // parameters substituted before its required routines are meaningful, so a
+    // constraint call like `it.next()` types as the raw standard parameter.
+    // That path is rejected honestly. Generic-standard *conformance* headers
+    // (`typ IntIter()(Iterator[int])`) stay supported and are exercised by the
+    // standards_m2 suite.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std Iterator(T): pro = { fun next(): T; };\n\
+         typ IntIter()(Iterator[int]): rec = { seed: int };\n\
+         fun (IntIter)next(): int = { return 42; };\n\
+         fun drive(T: Iterator[int])(it: T): int = { return it.next(); };\n\
+         fun[] main(): int = { return 0; };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error
+                .message()
+                .contains("used as a generic-parameter constraint is not yet supported")
+        }),
+        "expected an honest generic-standard constraint gate, got: {errors:#?}"
+    );
+}
+
+#[test]
+fn record_type_mismatch_messages_render_without_debug_formatting() {
+    // P7 regression: named/structural types must render through the shared
+    // renderer instead of leaking Rust `Debug` shapes such as
+    // `Record { fields: {..} }`. Passing `Box[bol]` where `Box[int]` is expected
+    // produces a record-vs-record mismatch whose message must read cleanly.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Box(T): rec = { value: T };\n\
+         fun take(v: Box[int]): int = { return v.value; };\n\
+         fun[] main(): int = {\n\
+             var b: Box[bol] = { value = true };\n\
+             return take(b);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            let message = error.message();
+            message.contains("expects")
+                && message.contains("rec {")
+                && !message.contains("Record {")
+                && !message.contains("Declared {")
+        }),
+        "record type mismatch message leaked Debug formatting: {errors:#?}"
     );
 }

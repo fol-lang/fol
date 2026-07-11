@@ -16,7 +16,7 @@ fn test_keyword_named_alias_and_type_declarations_parse() {
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::AliasDecl { name, target }
+                    AstNode::AliasDecl { name, target, .. }
                     if name == "log"
                         && matches!(target, FolType::Int { size: None, signed: true })
                 )

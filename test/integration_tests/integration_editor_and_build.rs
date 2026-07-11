@@ -4736,7 +4736,7 @@ fn test_standards_book_keeps_standards_as_constraints_in_current_v2_contract() {
 }
 
 #[test]
-fn test_v2_contract_keeps_blueprint_standards_out_of_scope() {
+fn test_v2_contract_ships_blueprint_standards() {
     let contract =
         std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
             .expect("full V2 contract note should load");
@@ -4746,14 +4746,14 @@ fn test_v2_contract_keeps_blueprint_standards_out_of_scope() {
     let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
         .expect("V2 plan should load");
 
-    assert!(contract.contains("Blueprint standards are not part of the full `V2` target."));
-    assert!(contract.contains("semantic, lowering, backend, and editor claims should not treat blueprint"));
-    assert!(standards_book.contains("blueprint and extended standards remain"));
+    assert!(contract.contains("Blueprint standards are part of the shipped full `V2` contract"));
+    assert!(contract.contains("examples/standards_blueprint_m2"));
+    assert!(standards_book.contains("blueprint standards (`std X: blu`) as static field contracts"));
     assert!(plan.contains("If any workstream above starts to require one of these, it stops"));
 }
 
 #[test]
-fn test_v2_contract_keeps_extended_standards_out_of_scope() {
+fn test_v2_contract_ships_extended_standards() {
     let contract =
         std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
             .expect("full V2 contract note should load");
@@ -4763,9 +4763,9 @@ fn test_v2_contract_keeps_extended_standards_out_of_scope() {
     let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
         .expect("V2 plan should load");
 
-    assert!(contract.contains("Extended standards are not part of the full `V2` target."));
-    assert!(contract.contains("semantic, lowering, backend, and editor claims should not treat extended"));
-    assert!(standards_book.contains("blueprint and extended standards remain"));
+    assert!(contract.contains("Extended standards are part of the shipped full `V2` contract"));
+    assert!(contract.contains("examples/standards_extended_m2"));
+    assert!(standards_book.contains("extended standards (`std X: ext`) combining required routines and fields"));
     assert!(plan.contains("If any workstream above starts to require one of these, it stops"));
 }
 

@@ -136,8 +136,7 @@ fn test_parser_name_and_path_ast_shapes_stay_distinct_by_surface() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target
-                    } if name == "ResultAlias"
+                        target, .. } if name == "ResultAlias"
                         && fol_type_has_qualified_segments(target, &["pkg", "result", "Value"])
                 )
             }));

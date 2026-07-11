@@ -19,8 +19,7 @@ fn test_quoted_type_references_parse_in_declaration_targets() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target: FolType::Named { name: target , ..},
-                    } if name == "Alias" && target == "Target"
+                        target: FolType::Named { name: target , ..}, .. } if name == "Alias" && target == "Target"
                 )
             }));
         }
@@ -48,8 +47,7 @@ fn test_single_quoted_type_references_parse_in_declaration_targets() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target: FolType::Named { name: target , ..},
-                    } if name == "Alias" && target == "Target"
+                        target: FolType::Named { name: target , ..}, .. } if name == "Alias" && target == "Target"
                 )
             }));
         }

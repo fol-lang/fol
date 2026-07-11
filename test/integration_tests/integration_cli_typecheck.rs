@@ -555,7 +555,7 @@ use super::*;
             concat!(
                 "fun[] main(): int = {\n",
                 "    return when(1) {\n",
-                "        in {1} -> 1;\n",
+                "        is 1 -> 1;\n",
                 "    };\n",
                 "};\n",
             ),
