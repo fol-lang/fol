@@ -7,6 +7,9 @@ use super::syntax::SyntaxNodeId;
 pub struct QualifiedPath {
     pub segments: Vec<String>,
     pub syntax_id: Option<SyntaxNodeId>,
+    /// Syntax anchor of the final path segment (the segment that names the
+    /// referenced symbol); `syntax_id` anchors the root segment.
+    pub final_syntax_id: Option<SyntaxNodeId>,
 }
 
 impl QualifiedPath {
@@ -14,6 +17,7 @@ impl QualifiedPath {
         Self {
             segments,
             syntax_id: None,
+            final_syntax_id: None,
         }
     }
 
@@ -21,6 +25,19 @@ impl QualifiedPath {
         Self {
             segments,
             syntax_id,
+            final_syntax_id: None,
+        }
+    }
+
+    pub fn with_segment_syntax_ids(
+        segments: Vec<String>,
+        syntax_id: Option<SyntaxNodeId>,
+        final_syntax_id: Option<SyntaxNodeId>,
+    ) -> Self {
+        Self {
+            segments,
+            syntax_id,
+            final_syntax_id,
         }
     }
 
@@ -31,11 +48,16 @@ impl QualifiedPath {
                 .map(|segment| segment.to_string())
                 .collect(),
             syntax_id: None,
+            final_syntax_id: None,
         }
     }
 
     pub fn syntax_id(&self) -> Option<SyntaxNodeId> {
         self.syntax_id
+    }
+
+    pub fn final_syntax_id(&self) -> Option<SyntaxNodeId> {
+        self.final_syntax_id
     }
 
     pub fn is_qualified(&self) -> bool {
@@ -229,6 +251,10 @@ pub struct Parameter {
     pub param_type: FolType,
     pub is_borrowable: bool, // ALL_CAPS names are borrowable
     pub is_mutex: bool,
+    /// Declared with the explicit `... T` variadic marker. The parameter's
+    /// `param_type` is the collected `seq[T]`; a plain trailing `seq[T]`
+    /// parameter is NOT variadic.
+    pub is_variadic: bool,
     pub default: Option<AstNode>,
 }
 

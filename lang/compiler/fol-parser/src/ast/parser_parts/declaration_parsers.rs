@@ -173,6 +173,18 @@ impl AstParser {
 
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
+        let options = self.parse_type_options(tokens)?;
+        if options
+            .iter()
+            .any(|option| !matches!(option, TypeOption::Export))
+        {
+            let token = tokens.curr(false)?;
+            return Err(ParseError::from_token(
+                &token,
+                "Alias declarations support only the export option".to_string(),
+            ));
+        }
+        self.skip_ignorable(tokens)?;
 
         let name_token = tokens.curr(false)?;
         let name = Self::expect_named_label(&name_token, "Expected alias declaration name")?;
@@ -191,7 +203,11 @@ impl AstParser {
         self.skip_ignorable(tokens)?;
         let target = self.parse_type_reference_tokens(tokens)?;
 
-        Ok(AstNode::AliasDecl { name, target })
+        Ok(AstNode::AliasDecl {
+            options,
+            name,
+            target,
+        })
     }
 
     pub(super) fn parse_type_decl(

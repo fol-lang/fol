@@ -101,6 +101,7 @@ pub enum AstNode {
 
     /// Alias declaration: ali name: target_type
     AliasDecl {
+        options: Vec<super::options::TypeOption>,
         name: String,
         target: FolType,
     },
@@ -431,7 +432,7 @@ impl AstNode {
             AstNode::DefDecl { options, .. }
             | AstNode::SegDecl { options, .. }
             | AstNode::StdDecl { options, .. } => Some(decl_visibility(options)),
-            AstNode::AliasDecl { .. } => Some(ParsedDeclVisibility::Normal),
+            AstNode::AliasDecl { options, .. } => Some(type_decl_visibility(options)),
             AstNode::Commented { node, .. } => node.declaration_visibility(),
             _ => None,
         }

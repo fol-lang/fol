@@ -116,6 +116,7 @@ impl AstParser {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: function_type,
+                    is_variadic: false,
                     is_borrowable: param_name.chars().all(|ch| {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),
@@ -224,6 +225,7 @@ impl AstParser {
                 params.push(Parameter {
                     name: name.clone(),
                     param_type: param_type.clone(),
+                    is_variadic,
                     is_borrowable: name.chars().all(|ch| {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),
@@ -576,6 +578,7 @@ impl AstParser {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: function_type,
+                    is_variadic: false,
                     is_borrowable: param_name.chars().all(|ch| {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),
@@ -687,6 +690,7 @@ impl AstParser {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: param_type.clone(),
+                    is_variadic,
                     is_borrowable: param_name.chars().all(|ch| {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),

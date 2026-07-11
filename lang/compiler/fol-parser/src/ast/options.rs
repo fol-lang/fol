@@ -190,6 +190,14 @@ pub fn decl_visibility(options: &[DeclOption]) -> ParsedDeclVisibility {
     }
 }
 
+/// Whether a `var`/`lab` binding was declared mutable (`var[mut]` / `var[~]`).
+/// Bindings are immutable by default per the variables chapter of the book.
+pub fn binding_is_mutable(options: &[VarOption]) -> bool {
+    options
+        .iter()
+        .any(|option| matches!(option, VarOption::Mutable))
+}
+
 pub fn var_decl_visibility(options: &[VarOption]) -> ParsedDeclVisibility {
     if options
         .iter()

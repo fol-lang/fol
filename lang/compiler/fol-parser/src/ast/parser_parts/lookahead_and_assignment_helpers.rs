@@ -421,7 +421,7 @@ impl AstParser {
                     if key.is_eof() {
                         break;
                     }
-                    // is_assign() covers Use, Def, Seg, Var, Fun, Pro, Typ, Ali, Imp, Lab, Con.
+                    // is_assign() covers Use, Def, Seg, Var, Fun, Pro, Typ, Ali, Lab, Con.
                     // Also stop on Std, Log, and Let which are declaration starters
                     // not covered by is_assign().
                     if key.is_assign()
