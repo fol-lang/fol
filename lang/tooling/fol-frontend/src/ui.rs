@@ -90,32 +90,35 @@ impl FrontendOutput {
         }))
     }
 
-    pub fn render_json_error(&self, error: &FrontendError) -> Result<String, serde_json::Error> {
+    /// Build a diagnostic report from a frontend error. When the error
+    /// carries real diagnostics it is a wrapper (e.g. "compilation failed
+    /// with N error(s)") whose own message just summarizes those
+    /// diagnostics; including it would double-count. Render only the real
+    /// diagnostics in that case, and fall back to the error's own diagnostic
+    /// when it carries none.
+    fn report_for_error(error: &FrontendError) -> DiagnosticReport {
         let mut report = DiagnosticReport::new();
-        report.add_diagnostic(error.to_diagnostic());
-        for d in error.diagnostics() {
-            report.add_diagnostic(d.clone());
+        if error.diagnostics().is_empty() {
+            report.add_diagnostic(error.to_diagnostic());
+        } else {
+            for d in error.diagnostics() {
+                report.add_diagnostic(d.clone());
+            }
         }
-        Ok(report.output(OutputFormat::Json))
+        report
+    }
+
+    pub fn render_json_error(&self, error: &FrontendError) -> Result<String, serde_json::Error> {
+        Ok(Self::report_for_error(error).output(OutputFormat::Json))
     }
 
     pub fn render_human_error(&self, error: &FrontendError) -> String {
-        let mut report = DiagnosticReport::new();
-        report.add_diagnostic(error.to_diagnostic());
-        for d in error.diagnostics() {
-            report.add_diagnostic(d.clone());
-        }
-        let plain = report.output(OutputFormat::Human);
+        let plain = Self::report_for_error(error).output(OutputFormat::Human);
         crate::colorize::colorize_diagnostics(&plain)
     }
 
     pub fn render_plain_error(&self, error: &FrontendError) -> String {
-        let mut report = DiagnosticReport::new();
-        report.add_diagnostic(error.to_diagnostic());
-        for d in error.diagnostics() {
-            report.add_diagnostic(d.clone());
-        }
-        report.output(OutputFormat::Human)
+        Self::report_for_error(error).output(OutputFormat::Human)
     }
 
     pub fn render_command_summary(
