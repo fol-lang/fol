@@ -279,7 +279,15 @@ fn normalize_git_repository_identity(raw: &str) -> String {
         .or_else(|| trimmed.strip_prefix("http://"))
         .or_else(|| trimmed.strip_prefix("ssh://"))
     {
-        rest.to_string()
+        // Scheme URLs may still embed a user (ssh://git@host/...); the
+        // user is transport detail, not repository identity.
+        match rest.split_once('/') {
+            Some((authority, path)) => {
+                let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+                format!("{host}/{path}")
+            }
+            None => rest.rsplit_once('@').map_or(rest, |(_, host)| host).to_string(),
+        }
     } else if let Some(rest) = trimmed.strip_prefix("git@") {
         rest.replace(':', "/")
     } else {
@@ -336,7 +344,10 @@ mod tests {
 
     #[test]
     fn package_locator_reports_remote_git_forms_as_explicit_placeholders() {
-        let error = parse_package_locator("git@github.com:follang/json.git").expect_err(
+        // The `git@host:owner/repo.git` and `git+ssh://...` forms are now
+        // supported transports. Raw `ssh://...` remote locators remain
+        // unsupported and must still surface an explicit placeholder diagnostic.
+        let error = parse_package_locator("ssh://github.com/follang/json.git").expect_err(
             "Remote git-like locators should fail with an explicit placeholder diagnostic",
         );
 
@@ -530,6 +541,8 @@ mod tests {
             ssh.normalized_git_identity().as_deref(),
             Some("github.com/follang/json")
         );
+        // Every transport spelling of the same repository normalizes to one
+        // identity; embedded users are transport detail, not identity.
         assert_eq!(
             git.normalized_git_identity().as_deref(),
             Some("github.com/follang/json")

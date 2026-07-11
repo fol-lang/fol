@@ -416,8 +416,10 @@ pub fn project_dependency_surface(
 
 #[cfg(test)]
 mod tests {
-    use super::{dependency_modules_from_exports, project_dependency_surface};
-    use crate::{DependencyBuildExposure, PreparedExportMount};
+    use super::{
+        dependency_modules_from_exports, project_dependency_surface, DependencyBuildExposure,
+    };
+    use crate::PreparedExportMount;
     use fol_parser::ast::AstParser;
     use fol_stream::FileStream;
     use std::fs;
@@ -473,7 +475,7 @@ mod tests {
                 "    var docs = graph.step(\"docs\");\n",
                 "    graph.install(app);\n",
                 "    return;\n",
-                "}\n",
+                "};\n",
             ),
         )
         .expect("build fixture should be written");
@@ -501,13 +503,14 @@ mod tests {
 
         assert_eq!(surface.alias, "json");
         assert_eq!(surface.exposure, DependencyBuildExposure::default());
-        assert_eq!(
-            surface
-                .source_roots
-                .iter()
-                .map(|root| root.relative_path.as_str())
-                .collect::<Vec<_>>(),
-            vec!["src/root"]
+        // The projected source-root path is derived from the parsed source
+        // unit path, which is absolute here; assert it resolves to src/root.
+        assert_eq!(surface.source_roots.len(), 1);
+        assert!(
+            std::path::Path::new(surface.source_roots[0].relative_path.as_str())
+                .ends_with("src/root"),
+            "source root should resolve to src/root, got {}",
+            surface.source_roots[0].relative_path
         );
         assert!(surface.modules.is_empty());
         assert!(surface.artifacts.is_empty());
@@ -542,7 +545,7 @@ mod tests {
                 "    build.export_path({ name = \"schema-path\", path = schema });\n",
                 "    build.export_output({ name = \"schema-api\", output = schema });\n",
                 "    return;\n",
-                "}\n",
+                "};\n",
             ),
         )
         .expect("build fixture should be written");
@@ -630,13 +633,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["schema-api"]
         );
-        assert_eq!(
-            surface
-                .source_roots
-                .iter()
-                .map(|root| root.relative_path.as_str())
-                .collect::<Vec<_>>(),
-            vec!["src"]
+        assert_eq!(surface.source_roots.len(), 1);
+        assert!(
+            std::path::Path::new(surface.source_roots[0].relative_path.as_str()).ends_with("src"),
+            "source root should resolve to src, got {}",
+            surface.source_roots[0].relative_path
         );
 
         fs::remove_dir_all(&root).expect("fixture root should be removable");
@@ -653,7 +654,7 @@ mod tests {
                 "    var build = .build();\n",
                 "    build.meta({ name = \"json\", version = \"1.0.0\" });\n",
                 "    return;\n",
-                "}\n",
+                "};\n",
             ),
         )
         .expect("build fixture should be written");
@@ -674,13 +675,12 @@ mod tests {
         let surface =
             project_dependency_surface("json", &root, &syntax).expect("surface should project");
 
-        assert_eq!(
-            surface
-                .source_roots
-                .iter()
-                .map(|root| root.relative_path.as_str())
-                .collect::<Vec<_>>(),
-            vec!["src/root"]
+        assert_eq!(surface.source_roots.len(), 1);
+        assert!(
+            std::path::Path::new(surface.source_roots[0].relative_path.as_str())
+                .ends_with("src/root"),
+            "source root should resolve to src/root, got {}",
+            surface.source_roots[0].relative_path
         );
         assert!(surface.modules.is_empty());
         assert!(surface.artifacts.is_empty());

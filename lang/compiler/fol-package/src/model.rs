@@ -190,6 +190,8 @@ mod tests {
                     source_kind: PackageDependencySourceKind::PackageStore,
                     target: "core".to_string(),
                     evaluation_mode: fol_build::DependencyBuildEvaluationMode::Eager,
+                    git_version: None,
+                    git_hash: None,
                 }],
             },
             PackageBuildDefinition {
@@ -272,16 +274,7 @@ mod tests {
                         name: "build".to_string(),
                         receiver_type: None,
                         captures: Vec::new(),
-                        params: vec![fol_parser::ast::Parameter {
-                            name: "graph".to_string(),
-                            param_type: fol_parser::ast::FolType::Named {
-                                syntax_id: None,
-                                name: "Graph".to_string(),
-                            },
-                            is_borrowable: false,
-                            is_mutex: false,
-                            default: None,
-                        }],
+                        params: Vec::new(),
                         return_type: Some(fol_parser::ast::FolType::None),
                         error_type: None,
                         body: Vec::new(),
