@@ -49,6 +49,14 @@ assert((14 / 3), 4);
 assert((100 % 7), 2);
 ```
 
+Current integer semantics:
+
+- division truncates toward zero (`-7 / 2` is `-3`)
+- remainder takes the sign of the dividend (`-7 % 2` is `-1`)
+
+```
+```
+
 
 ## Comparisons
 
