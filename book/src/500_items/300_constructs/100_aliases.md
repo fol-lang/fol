@@ -38,6 +38,25 @@ Receiver-qualified routines remain procedural. If a value is written as
 `value.method(arg)`, read that as call-site sugar for `method(value, arg)`.
 The routine is still separate from the data declaration.
 
+### Standalone alias declarations
+
+The standalone `ali` declaration is the short form of the same aliasing
+surface:
+
+```fol
+ali Meters: int;
+```
+
+Like other declarations, an alias is package-visible by default. Exporting it
+across package boundaries uses the same option surface as `typ`, `fun`, and
+`var`:
+
+```fol
+ali[exp] Meters: int;
+```
+
+`exp` is the only option an alias declaration accepts.
+
 Current milestone note:
 
 - aliasing and extension over current `V1` built-in and declared types are part

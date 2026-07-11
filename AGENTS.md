@@ -79,7 +79,8 @@ Expected surface:
 - `map[...]`
 - dynamic/string `.len(...)`
 
-Still forbidden:
+Still forbidden (unless the bundled internal `standard` dependency is
+declared, which upgrades the effective tier to hosted):
 
 - `.echo(...)`
 - host-executed `run` / `test` assumptions

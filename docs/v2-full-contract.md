@@ -68,25 +68,31 @@ Still outside this constraint contract:
 
 ## Blueprint Standards
 
-Blueprint standards are not part of the full `V2` target.
+Blueprint standards are part of the shipped full `V2` contract
+(workstream M).
 
 Decision:
 
-- blueprint standards remain outside full `V2`
-- parser support may remain as a future-facing syntax surface
-- semantic, lowering, backend, and editor claims should not treat blueprint
-  standards as shipped `V2`
+- `std X: blu` declares required data fields as a static contract
+- conformance is checked at type declaration time against the conformer's
+  record fields
+- there is no data inheritance and no runtime component; blueprints stay
+  purely compile-time field-shape checks
+- `examples/standards_blueprint_m2` is the canonical positive example and
+  `examples/fail_standard_blueprint_m2` pins the rejection wording
 
 ## Extended Standards
 
-Extended standards are not part of the full `V2` target.
+Extended standards are part of the shipped full `V2` contract
+(workstream N).
 
 Decision:
 
-- extended standards remain outside full `V2`
-- parser support may remain as a future-facing syntax surface
-- semantic, lowering, backend, and editor claims should not treat extended
-  standards as shipped `V2`
+- `std X: ext` combines required routines and required fields in one
+  standard
+- conformance checks both halves with the same static machinery as
+  protocol and blueprint standards
+- `examples/standards_extended_m2` is the canonical positive example
 
 ## Dispatch And Inference
 

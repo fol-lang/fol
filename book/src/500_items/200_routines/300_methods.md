@@ -79,6 +79,8 @@ Method calls use the same `V1` call-binding rules as free routine calls:
 - named arguments bind by declared parameter name
 - defaulted parameters may be omitted
 - a final variadic parameter may collect trailing arguments
+- variadic collection comes only from the explicit `... T` marker; a plain
+  `seq[T]` parameter takes one sequence value
 - `...sequence` may appear after named arguments when it feeds that final
   variadic parameter
 

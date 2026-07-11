@@ -35,10 +35,13 @@ Part of the current shipped full-`V2` contract:
 - standards-as-constraints through protocol standards
 - procedural constrained-generic call binding
 - static conformance checking for those constraints
-
-For the current full `V2` target, blueprint and extended standards remain
-outside the shipped contract even if parser syntax continues to exist for
-future work.
+- calling a constraint's required routines on the constrained generic
+  parameter itself: `fun measure(T: sized)(thing: T): int = { return
+  thing.size(); };` monomorphizes per instantiation, dispatching to each
+  conformer's own receiver routine (or the standard's default body) at
+  compile time
+- blueprint standards (`std X: blu`) as static field contracts
+- extended standards (`std X: ext`) combining required routines and fields
 
 The intent of standards is procedural and data-oriented. They are not class
 hierarchies, inheritance trees, or object systems.

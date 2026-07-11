@@ -27,11 +27,23 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the compiler pipeline, crate map, and
 
 ## Runtime Models
 
-FOL artifacts now declare `fol_model` in `build.fol`:
+Every FOL artifact declares a capability mode (`fol_model`) in `build.fol`:
 
 - `core`: no heap, no hosted runtime services
-- `alloc`: heap-enabled, still no hosted runtime services
-- `std`: hosted runtime services on top of `alloc`
+- `memo`: heap-enabled (`str`, `vec`, `seq`, `set`, `map`), still no hosted
+  runtime services
 
-Use the smallest model that matches the artifact contract. The practical guide
-and examples are in [docs/runtime-models.md](docs/runtime-models.md).
+There is no third model. Hosted capability comes from declaring the bundled
+standard-library dependency on a `memo` artifact:
+
+```fol
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+which upgrades the artifact's effective runtime tier to hosted and makes the
+shipped `std` package importable (`use std: pkg = {"std"};`).
+
+Use the smallest mode that matches the artifact contract. The full matrix,
+the effective-tier derivation, and examples are in
+[docs/runtime-models.md](docs/runtime-models.md) and
+[docs/bundled-std.md](docs/bundled-std.md).
