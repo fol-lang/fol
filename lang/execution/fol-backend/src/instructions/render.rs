@@ -31,6 +31,14 @@ pub fn render_core_instruction_in_workspace(
     instruction: &LoweredInstr,
 ) -> BackendResult<String> {
     match &instruction.kind {
+        LoweredInstrKind::ConstraintCall { method, .. } => {
+            return Err(BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "constraint call '{method}' reached backend emission without being monomorphized"
+                ),
+            ))
+        }
         LoweredInstrKind::Const(operand) => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             Ok(format!("let {result} = {};", render_operand(operand)?))
@@ -44,6 +52,11 @@ pub fn render_core_instruction_in_workspace(
             let target = render_local_name(package_identity, routine, *local)?;
             let value = render_local_name(package_identity, routine, *value)?;
             Ok(format!("{target} = {value}.clone();"))
+        }
+        LoweredInstrKind::StoreField { base, field, value } => {
+            let base = render_local_name(package_identity, routine, *base)?;
+            let value = render_local_name(package_identity, routine, *value)?;
+            Ok(format!("{base}.{field} = {value}.clone();"))
         }
         LoweredInstrKind::LoadGlobal { global } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -213,7 +226,9 @@ pub fn render_core_instruction_in_workspace(
                     let value = render_local_name(package_identity, routine, *value)?;
                     format!("rt::FolError::new({value}.clone())")
                 }
-                None => "rt::FolError::new(())".to_string(),
+                // Leave the payload type to inference from the assignment
+                // target, exactly like FolOption::nil().
+                None => "rt::FolError::default()".to_string(),
             };
             Ok(format!("let {result} = {expression};"))
         }

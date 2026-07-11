@@ -82,10 +82,14 @@ pub fn emit_package_module_shells(session: &BackendSession) -> Vec<EmittedRustFi
             continue;
         }
         let root_child = module_name_from_relative_part(&relative_parts[0]);
-        direct_modules_by_path
-            .entry(format!("src/packages/{package_module}/mod.rs"))
-            .or_default()
-            .push(root_child);
+        // `mod.rs` IS its parent directory's module — never declare it as a
+        // child.
+        if root_child != "mod" {
+            direct_modules_by_path
+                .entry(format!("src/packages/{package_module}/mod.rs"))
+                .or_default()
+                .push(root_child);
+        }
 
         if relative_parts.len() <= 1 {
             continue;
@@ -101,10 +105,12 @@ pub fn emit_package_module_shells(session: &BackendSession) -> Vec<EmittedRustFi
                 )
             };
             let child = module_name_from_relative_part(&relative_parts[index + 1]);
-            direct_modules_by_path
-                .entry(format!("{parent_dir}/mod.rs"))
-                .or_default()
-                .push(child);
+            if child != "mod" {
+                direct_modules_by_path
+                    .entry(format!("{parent_dir}/mod.rs"))
+                    .or_default()
+                    .push(child);
+            }
         }
     }
 
@@ -212,6 +218,27 @@ pub fn emit_generated_crate_skeleton_for_config(
     files.push(emit_main_rs_for_config(session, config)?);
     files.extend(emit_package_module_shells(session));
     files.extend(emit_namespace_module_shells_for_config(session, config)?);
+    // A namespace that owns child namespaces emits its own code at
+    // `<dir>/mod.rs` while the shell pass emits child `pub mod ...;`
+    // declarations at the same path — merge them (declarations first)
+    // instead of letting one overwrite the other.
+    let mut merged: Vec<EmittedRustFile> = Vec::new();
+    for file in files {
+        if let Some(existing) = merged.iter_mut().find(|existing| existing.path == file.path) {
+            let (decls, body) = if file.contents.lines().all(|line| {
+                line.trim().is_empty() || line.trim_start().starts_with("pub mod ")
+            }) {
+                (file.contents.clone(), existing.contents.clone())
+            } else {
+                (existing.contents.clone(), file.contents.clone())
+            };
+            existing.contents = format!("{}
+{}", decls.trim_end(), body);
+        } else {
+            merged.push(file);
+        }
+    }
+    let mut files = merged;
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
     Ok(BackendArtifact::RustSourceCrate {

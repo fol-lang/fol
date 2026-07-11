@@ -267,30 +267,24 @@ mod tests {
         fs::write(
             app_root.join("main.fol"),
             concat!(
-                "use fmt: loc = {\"fmt\"};\n",
                 "fun[] main(): int = {\n",
-                "    return fmt::answer();\n",
+                "    return fmt::answer() + fmt::math::answer();\n",
                 "};\n",
             ),
         )
         .expect("app source");
         fs::write(
             app_root.join("fmt/root.fol"),
-            concat!(
-                "use math: loc = {\"math\"};\n",
-                "fun[exp] answer(): int = {\n",
-                "    return math::answer();\n",
-                "};\n",
-            ),
+            "fun[] answer(): int = {\n    return 7;\n};\n",
         )
         .expect("fmt root");
         fs::write(
             app_root.join("fmt/math/lib.fol"),
-            "fun[exp] answer(): int = {\n    return 7;\n};\n",
+            "fun[] answer(): int = {\n    return 9;\n};\n",
         )
         .expect("fmt child");
 
-        let lowered = crate::testing::lowered_workspace_from_entry_path(&app_root.join("main.fol"));
+        let lowered = crate::testing::lowered_workspace_from_entry_path(&app_root);
         let plans = plan_namespace_layouts(&BackendSession::new(lowered));
 
         assert!(plans

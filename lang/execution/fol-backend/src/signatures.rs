@@ -584,7 +584,7 @@ mod tests {
         assert!(plain_rendered.contains("pub fn r__pkg__entry__app__r0__main("));
         assert!(plain_rendered.contains("l__pkg__entry__app__r0__l0__flag: rt::FolBool"));
         assert!(plain_rendered.ends_with(" -> rt::FolInt"));
-        assert!(method_rendered.contains("receiver: rt::FolInt"));
+        assert!(method_rendered.contains("l__pkg__entry__app__r1__l0__self_kw: rt::FolInt"));
         assert!(method_rendered.contains("l__pkg__entry__app__r1__l1__flag: rt::FolBool"));
     }
 

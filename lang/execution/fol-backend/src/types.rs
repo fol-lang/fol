@@ -151,8 +151,10 @@ pub fn render_record_trait_impl(
     let rendered_fields = fields
         .iter()
         .map(|field| {
+            // Render through FolEchoFormat: containers (seq/vec/set/map) have
+            // no Display impl, but every runtime value type formats for echo.
             format!(
-                "            rt::FolNamedValue::new(\"{}\", self.{}.to_string()),",
+                "            rt::FolNamedValue::new(\"{}\", rt::FolEchoFormat::fol_echo_format(&self.{})),",
                 field.name, field.name
             )
         })
@@ -359,7 +361,7 @@ fn render_entry_trait_match_arm(variant: &LoweredVariantLayout) -> String {
 fn render_entry_field_match_arm(variant: &LoweredVariantLayout) -> String {
     match variant.payload_type {
         Some(_) => format!(
-            "            Self::{}(payload) => vec![rt::FolNamedValue::new(\"payload\", payload.to_string())],",
+            "            Self::{}(payload) => vec![rt::FolNamedValue::new(\"payload\", rt::FolEchoFormat::fol_echo_format(payload))],",
             variant.name
         ),
         None => format!("            Self::{} => Vec::new(),", variant.name),
@@ -477,11 +479,11 @@ mod tests {
         );
         assert_eq!(
             render_rust_type(&table, option_id),
-            Ok("rt::FolOption<rt::FolStr>".to_string())
+            Ok("rt::FolOption<rt_model::FolStr>".to_string())
         );
         assert_eq!(
             render_rust_type(&table, error_id),
-            Ok("rt::FolError<rt::FolStr>".to_string())
+            Ok("rt::FolError<rt_model::FolStr>".to_string())
         );
     }
 
@@ -563,7 +565,9 @@ mod tests {
         assert!(rendered.contains("impl rt::FolRecord for ty__pkg__entry__app__t"));
         assert!(rendered.contains("fn fol_record_name(&self) -> &'static str"));
         assert!(rendered.contains("\"User\""));
-        assert!(rendered.contains("rt::FolNamedValue::new(\"name\", self.name.to_string())"));
+        assert!(rendered.contains(
+            "rt::FolNamedValue::new(\"name\", rt::FolEchoFormat::fol_echo_format(&self.name))"
+        ));
         assert!(rendered.contains("impl rt::FolEchoFormat for ty__pkg__entry__app__t"));
         assert!(rendered.contains("rt::render_record(self)"));
     }
@@ -659,7 +663,7 @@ mod tests {
         assert!(rendered.contains("\"Status\""));
         assert!(rendered.contains("Self::Ok(..) => \"Ok\""));
         assert!(rendered.contains(
-            "Self::Err(payload) => vec![rt::FolNamedValue::new(\"payload\", payload.to_string())]"
+            "Self::Err(payload) => vec![rt::FolNamedValue::new(\"payload\", rt::FolEchoFormat::fol_echo_format(payload))]"
         ));
         assert!(rendered.contains("Self::Empty => Vec::new()"));
         assert!(rendered.contains("impl rt::FolEchoFormat for ty__pkg__entry__app__t"));
