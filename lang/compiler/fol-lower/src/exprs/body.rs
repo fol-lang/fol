@@ -673,6 +673,9 @@ pub(crate) fn lower_body_node(
                 .terminate_current_block(crate::LoweredTerminator::Jump { target: exit_block })?;
             Ok(None)
         }
+        // Routine-local imports bind an alias during resolution; they have
+        // no runtime effect, so lowering skips them.
+        AstNode::UseDecl { .. } => Ok(None),
         AstNode::Defer { syntax_id, body } => {
             let deferred_scope_id =
                 nested_scope_for_syntax(typed_package, *syntax_id, scope_id, "defer block")?;
