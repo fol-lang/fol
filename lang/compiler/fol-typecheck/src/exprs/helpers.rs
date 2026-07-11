@@ -496,22 +496,10 @@ pub(crate) fn is_v1_assignable(
 }
 
 pub(crate) fn describe_type(typed: &TypedProgram, type_id: CheckedTypeId) -> String {
-    // Named/structural shapes (`Record`, `Entry`, and any `Declared` type such
-    // as a generic parameter) used to leak their Rust `Debug` form into user
-    // diagnostics (`Record { fields: {..} }`, `Declared { symbol: .. }`). Route
-    // those through the shared renderer so they read as FOL surface syntax. The
-    // remaining scalar/container shapes keep their existing rendering.
-    match typed.type_table().get(type_id) {
-        Some(crate::CheckedType::Record { .. })
-        | Some(crate::CheckedType::Entry { .. })
-        | Some(crate::CheckedType::Declared { .. }) => typed.type_table().render_type(type_id),
-        other => format!(
-            "{:?}",
-            other
-                .cloned()
-                .unwrap_or(crate::CheckedType::Builtin(crate::BuiltinType::Never))
-        ),
-    }
+    // Render every type through the shared renderer so diagnostics read as
+    // FOL surface syntax (`int`, `bol`, `vec[int]`, `Point`) rather than the
+    // internal Rust `Debug` form (`Builtin(Int)`, `Vector { element_type: .. }`).
+    typed.type_table().render_type(type_id)
 }
 
 pub(crate) fn is_equality_type(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {

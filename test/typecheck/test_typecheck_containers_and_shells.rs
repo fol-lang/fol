@@ -515,7 +515,7 @@ fn intrinsic_boolean_typing_rejects_wrong_arity_and_non_boolean_operands() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains(".not(...) expects one boolean operand but got 'Builtin(Int)'")
+                    .contains(".not(...) expects one boolean operand but got 'int'")
         }),
         "Expected non-boolean .not diagnostic, got: {errors:?}"
     );
@@ -571,7 +571,7 @@ fn intrinsic_query_typing_rejects_wrong_arity_and_non_length_operands() {
                 && error.message().contains(
                     ".len(...) expects one string, array, vector, sequence, set, or map operand",
                 )
-                && error.message().contains("'Builtin(Int)'")
+                && error.message().contains("'int'")
         }),
         "Expected non-length .len diagnostic, got: {errors:?}"
     );

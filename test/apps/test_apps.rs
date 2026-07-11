@@ -1366,8 +1366,8 @@ fn fail_unpack_non_sequence_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_unpack_non_sequence");
     let output = compile_app_expect_failure(&fixture);
     assert_output_contains(&output, "call to 'sum' expects");
-    assert_output_contains(&output, "Sequence");
-    assert_output_contains(&output, "Builtin(Int)");
+    assert_output_contains(&output, "seq[");
+    assert_output_contains(&output, "int");
 }
 
 #[test]
@@ -1382,8 +1382,8 @@ fn fail_variadic_method_type_mismatch_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_variadic_method_type_mismatch");
     let output = compile_app_expect_failure(&fixture);
     assert_output_contains(&output, "call to 'shift' expects");
-    assert_output_contains(&output, "Builtin(Int)");
-    assert_output_contains(&output, "Builtin(Str)");
+    assert_output_contains(&output, "int");
+    assert_output_contains(&output, "str");
 }
 
 #[test]

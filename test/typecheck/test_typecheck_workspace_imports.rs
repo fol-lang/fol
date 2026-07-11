@@ -31,7 +31,7 @@ fn workspace_expression_typing_rejects_plain_imported_call_argument_mismatches()
             error.kind() == TypecheckErrorKind::IncompatibleType
                 && error
                     .message()
-                    .contains("call to 'emit' expects 'Builtin(Int)'")
+                    .contains("call to 'emit' expects 'int'")
         }),
         "Expected imported-call argument mismatch diagnostic, got: {errors:?}"
     );

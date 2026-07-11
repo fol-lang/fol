@@ -2475,3 +2475,24 @@ fn inline_container_literals_are_iterable() {
     let main = find_named_routine_syntax_id(&typed, "main");
     assert!(typed.typed_node(main).is_some());
 }
+
+#[test]
+fn type_mismatch_diagnostics_render_fol_surface_syntax() {
+    // User-facing type mismatches must read as FOL syntax (int, bol,
+    // vec[int]) rather than the internal Rust Debug form (Builtin(Int),
+    // Vector { element_type: CheckedTypeId(0) }).
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var v: vec[int] = 5;\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            let m = error.message();
+            m.contains("vec[int]") && m.contains("int") && !m.contains("Builtin(") && !m.contains("Vector {")
+        }),
+        "mismatch should render FOL surface types: {errors:#?}"
+    );
+}
