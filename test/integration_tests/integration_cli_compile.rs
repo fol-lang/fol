@@ -2265,3 +2265,236 @@ use super::*;
         fs::remove_dir_all(&temp_root).ok();
     }
 
+
+    #[test]
+    fn test_routine_local_use_and_typ_ali_build_end_to_end() {
+        use std::fs;
+
+        // Pins two round-6 fixes: routine-local `use` declarations lower as
+        // no-ops (they only bind an alias during resolution), and the book's
+        // `typ[ali]` aliasing marker parses.
+        let temp_root = unique_temp_root("local_use_typ_ali");
+        fs::create_dir_all(temp_root.join("src")).expect("Should create local-use fixture dirs");
+        fs::create_dir_all(temp_root.join("helpers"))
+            .expect("Should create local-use helper dir");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"local_use_typ_ali\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"local_use_typ_ali\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write local-use build file");
+        fs::write(
+            temp_root.join("helpers/lib.fol"),
+            "fun[exp] seven(): int = {\n    return 7;\n};\n",
+        )
+        .expect("Should write local-use helper");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "typ[ali] I3: arr[int, 3];\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    use lib: loc = {\"../helpers\"};\n",
+                "    var triple: I3 = { 1, 2, 3 };\n",
+                "    return lib::seven() + .len(triple);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write local-use entry");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "routine-local use and typ[ali] should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_loops_and_fallbacks_compute_correct_runtime_values() {
+        use std::fs;
+
+        // Pins two silent-miscompile fixes: instruction results are emitted
+        // as assignments to the hoisted locals, not block-scoped `let`
+        // shadows. Before the fix, for-in-seq loops ran zero iterations and
+        // `expr || fallback` returned the hoisted default on the success
+        // path — both checked and built cleanly while computing wrong values.
+        let temp_root = unique_temp_root("runtime_value_truth");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create runtime-value fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"runtime_value_truth\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"runtime_value_truth\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write runtime-value build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "fun[] parse(v: int, bad: bol): int / str = {\n",
+                "    when(bad) {\n",
+                "        case(true) { report \"bad\"; }\n",
+                "        * { return v; }\n",
+                "    }\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var xs: seq[int] = {1, 2, 4};\n",
+                "    var total: int = 0;\n",
+                "    for (x in xs) {\n",
+                "        total = total + x;\n",
+                "    }\n",
+                "    var shown: int = std::io::echo_int(total);\n",
+                "    var ok: int = parse(7, false) || 100;\n",
+                "    var shown2: int = std::io::echo_int(ok);\n",
+                "    var fallback: int = parse(7, true) || 100;\n",
+                "    var shown3: int = std::io::echo_int(fallback);\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write runtime-value source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            build.status.success(),
+            "runtime-value fixture should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        // Execute the installed binary directly; `fol code run` reports a
+        // summary and does not forward the program's own output.
+        let bin_dir = temp_root.join(".fol/build/debug/bin/host");
+        let binary = fs::read_dir(&bin_dir)
+            .expect("Should list installed binaries")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .find(|path| path.is_file())
+            .expect("runtime-value fixture should install a binary");
+        let run = std::process::Command::new(&binary)
+            .output()
+            .expect("installed binary should execute");
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(run.status.success(), "binary should exit cleanly: {stdout}");
+        let echoed = stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<i64>().ok())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            echoed,
+            vec![7, 7, 100],
+            "loop sum, fallback success, and fallback failure values: stdout=\n{stdout}"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_record_defaults_and_positional_init_compute_correct_runtime_values() {
+        use std::fs;
+
+        // Pins the two record-initialization features end to end:
+        //  - a field with a declared default may be omitted from a named
+        //    initializer; the default fills it
+        //  - a brace literal with positional values binds fields in
+        //    declaration order, and trailing defaulted fields may be omitted
+        let temp_root = unique_temp_root("record_init_truth");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create record-init fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"record_init_truth\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"record_init_truth\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write record-init build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "typ Counter: rec = {\n",
+                "    total: int;\n",
+                "    step: int = 2\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var named: Counter = { total = 3 };\n",
+                "    var shown: int = std::io::echo_int(named.total + named.step);\n",
+                "    var positional: Counter = { 3, 4 };\n",
+                "    var shown2: int = std::io::echo_int(positional.total + positional.step);\n",
+                "    var partial: Counter = { 5 };\n",
+                "    var shown3: int = std::io::echo_int(partial.total + partial.step);\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write record-init source");
+
+        let fetch = run_fol_in_dir(&temp_root, &["pack", "fetch"]);
+        assert!(fetch.status.success(), "std fetch should succeed");
+        let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            build.status.success(),
+            "record-init fixture should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        // Execute the installed binary directly; `fol code run` reports a
+        // summary and does not forward the program's own output.
+        let bin_dir = temp_root.join(".fol/build/debug/bin/host");
+        let binary = fs::read_dir(&bin_dir)
+            .expect("Should list installed binaries")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .find(|path| path.is_file())
+            .expect("record-init fixture should install a binary");
+        let run = std::process::Command::new(&binary)
+            .output()
+            .expect("installed binary should execute");
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(run.status.success(), "binary should exit cleanly: {stdout}");
+        let echoed = stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<i64>().ok())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            echoed,
+            vec![5, 7, 7],
+            "named default fill, positional order, and partial positional + default: stdout=\n{stdout}"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }

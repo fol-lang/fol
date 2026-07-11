@@ -1505,6 +1505,164 @@ fn expression_typing_rejects_field_access_on_non_records() {
 }
 
 #[test]
+fn record_initializer_omits_fields_that_declare_a_default() {
+    // A field with a declared default may be omitted from a named
+    // initializer; the default supplies its value.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int = 2\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { total = 3 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn record_initializer_rejects_missing_field_without_default() {
+    // Fields without a default stay required.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { total = 3 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.message().contains("missing required fields: step")
+        }),
+        "Expected a missing-required-field diagnostic for the non-default field, got: {errors:?}"
+    );
+}
+
+#[test]
+fn record_initializer_rejects_default_type_mismatch() {
+    // A default whose expression mismatches the field type is rejected with a
+    // located diagnostic at the declaration.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             flag: bol = 7\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { total = 3 };\n\
+             return c.total;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("default for record field 'flag'")
+        }),
+        "Expected a default-type-mismatch diagnostic, got: {errors:?}"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic_location().is_some()),
+        "Default-type-mismatch diagnostic should be located, got: {errors:?}"
+    );
+}
+
+#[test]
+fn positional_record_initializer_binds_fields_in_declaration_order() {
+    // `{ v0, v1 }` binds values to fields in declaration order when the
+    // expected type is a record.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { 3, 4 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn positional_record_initializer_fills_trailing_defaults() {
+    // Fields uncovered by positional values fall back to their defaults.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int = 2\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { 5 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn positional_record_initializer_rejects_too_many_values() {
+    // Supplying more positional values than the record has fields is a clean
+    // located arity diagnostic.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { 3, 4, 5 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.message().contains("positional record initializer has 3 value(s)")
+                && error.message().contains("2 field(s)")
+        }),
+        "Expected a positional arity diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
 fn expression_typing_expands_alias_record_shells_for_field_access() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
