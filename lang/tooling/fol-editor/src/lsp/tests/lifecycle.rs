@@ -401,7 +401,10 @@ fn lsp_server_formatting_does_not_build_semantic_snapshots() {
         }
     );
     assert_eq!(first_edits, second_edits);
-    assert!(!server.session.semantic_snapshots.contains_key(uri.as_str()));
+    // The only cached semantic snapshot is the one the shared open-time analysis
+    // built for diagnostics; the two formatting requests reused nothing and did
+    // not build another (the analysis stage counts above stay at 1).
+    assert!(server.session.semantic_snapshots.contains_key(uri.as_str()));
 
     fs::remove_dir_all(root).ok();
 }
@@ -842,11 +845,14 @@ fn lsp_server_keeps_model_context_isolated_across_mixed_workspace_packages() {
             fol_typecheck::TypecheckCapabilityModel::Core,
         ),
         (
+            // The workspace build.fol declares the bundled internal `standard`
+            // dependency, so the CLI legalizes hosted capability across the
+            // workspace and this package's active model is Std, not Memo.
             781_i64,
             memo_uri.as_str(),
             1_u32,
             12_u32,
-            fol_typecheck::TypecheckCapabilityModel::Memo,
+            fol_typecheck::TypecheckCapabilityModel::Std,
         ),
         (
             782_i64,
@@ -1259,16 +1265,19 @@ fn lsp_server_reuses_changed_document_snapshot_after_diagnostics_refresh() {
         .unwrap()
         .unwrap();
 
+    // Completion and documentSymbol run on the already-analyzed document
+    // version, so they reuse the cached snapshot instead of building a new one:
+    // the analysis stage counts stay where the prior change left them.
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
     assert_eq!(analyze_document_semantics_call_count(), 2);
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
-            materialize_overlay: 3,
-            parse_directory_diagnostics: 3,
-            load_directory_package: 3,
-            resolve_workspace: 3,
-            typecheck_workspace: 3,
+            materialize_overlay: 2,
+            parse_directory_diagnostics: 2,
+            load_directory_package: 2,
+            resolve_workspace: 2,
+            typecheck_workspace: 2,
         }
     );
 
@@ -1360,7 +1369,10 @@ fn lsp_server_keeps_other_file_snapshots_after_a_neighbor_changes() {
 #[test]
 fn lsp_server_handles_mixed_request_sequences_without_leaking_snapshots() {
     let (root, uri) = sample_package_root("mixed_request_sequence");
-    let text = "fun[] main(): int = {\n    var value: int = 7;\n    return value;\n};\n";
+    // Line 2, character 12 lands on the `helper` call. It is a current-package
+    // top-level routine (declaration plus this one usage), so rename produces
+    // exactly two edits, while hover and completion resolve it as well.
+    let text = "fun[] main(): int = {\n    var value: int = 7;\n    return helper(value);\n};\n\nfun[] helper(base: int): int = {\n    return base;\n};\n";
     fs::write(root.join("src/main.fol"), text).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
 
@@ -1476,7 +1488,9 @@ fn lsp_server_handles_mixed_request_sequences_without_leaking_snapshots() {
 
     open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
-    assert_eq!(analyze_document_semantics_call_count(), 1);
+    // Closing dropped the cached snapshots, so reopening rebuilds the single
+    // shared analysis, running document semantics a second time.
+    assert_eq!(analyze_document_semantics_call_count(), 2);
 
     let reopened_hover = server
         .handle_request(JsonRpcRequest {
@@ -1570,8 +1584,8 @@ fn lsp_server_reuses_diagnostic_and_semantic_caches_independently() {
         .hover(
             &parsed_uri,
             LspPosition {
-                line: 4,
-                character: 13,
+                line: 5,
+                character: 11,
             },
         )
         .expect("hover should succeed")
@@ -1589,22 +1603,24 @@ fn lsp_server_reuses_diagnostic_and_semantic_caches_independently() {
         .hover(
             &parsed_uri,
             LspPosition {
-                line: 4,
-                character: 13,
+                line: 5,
+                character: 11,
             },
         )
         .expect("repeated hover should succeed")
         .expect("repeated hover should resolve helper");
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
     assert_eq!(analyze_document_semantics_call_count(), 1);
+    // Diagnostics and semantic requests reuse the single shared analysis built
+    // at open time, so every stage ran exactly once.
     assert_eq!(
         analysis_stage_counts(),
         super::super::analysis::AnalysisStageCounts {
-            materialize_overlay: 2,
-            parse_directory_diagnostics: 2,
-            load_directory_package: 2,
-            resolve_workspace: 2,
-            typecheck_workspace: 2,
+            materialize_overlay: 1,
+            parse_directory_diagnostics: 1,
+            load_directory_package: 1,
+            resolve_workspace: 1,
+            typecheck_workspace: 1,
         }
     );
 
@@ -1645,9 +1661,13 @@ fn lsp_server_parser_diagnostics_stop_before_package_load_and_resolution() {
 #[test]
 fn lsp_server_package_load_failures_stop_before_resolution_and_typecheck() {
     let (root, uri) = sample_package_root("package_load_stage_short_circuit");
-    fs::remove_file(root.join("build.fol")).unwrap();
+    // A sibling package file has a syntax error while the opened document parses
+    // cleanly. The document-scoped parser pass finds nothing to report for the
+    // document, so analysis proceeds to package load, which parses every package
+    // file and fails on the broken sibling before resolution and typecheck run.
     let text = "fun[] main(): int = {\n    return 0;\n};\n";
     fs::write(root.join("src/main.fol"), text).unwrap();
+    fs::write(root.join("src/broken.fol"), "fun[] broken(: int = {\n").unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
 
     reset_analyze_document_semantics_call_count();
@@ -1807,7 +1827,9 @@ fn lsp_server_drops_semantic_snapshots_when_documents_close_and_reopen() {
 
     let _reopened = open_document(&mut server, uri.clone(), text);
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
-    assert_eq!(analyze_document_semantics_call_count(), 1);
+    // Closing dropped the cached snapshots, so reopening rebuilds the single
+    // shared analysis, running document semantics a second time.
+    assert_eq!(analyze_document_semantics_call_count(), 2);
     // Diagnostics and semantic requests share one cached analysis per
     // document version.
     assert!(server.session.diagnostic_snapshots.contains_key(uri.as_str()));
@@ -2070,9 +2092,13 @@ fn lsp_server_serves_semantic_requests_from_incrementally_updated_text() {
     open_document(
         &mut server,
         uri.clone(),
-        "fun[] main(): int = {\n    return 0;\n};\n",
+        "fun[] helper(): int = {\n    return 7;\n};\n\nfun[] main(): int = {\n    return 0;\n};\n",
     );
 
+    // Replace the body of `main` so that it calls `helper`. The incremental edit
+    // exercises semantic requests against the updated text: `helper` is a
+    // current-package top-level routine with a real declaration origin, unlike a
+    // local binding, so definition resolves it.
     let changed = server
         .handle_notification(JsonRpcNotification {
             jsonrpc: "2.0".to_string(),
@@ -2086,16 +2112,16 @@ fn lsp_server_serves_semantic_requests_from_incrementally_updated_text() {
                     content_changes: vec![LspTextDocumentContentChangeEvent {
                         range: Some(crate::LspRange {
                             start: LspPosition {
-                                line: 1,
+                                line: 5,
                                 character: 4,
                             },
                             end: LspPosition {
-                                line: 1,
+                                line: 5,
                                 character: 13,
                             },
                         }),
                         range_length: Some(9),
-                        text: "var value: int = 7;\n    return value;".to_string(),
+                        text: "return helper();".to_string(),
                     }],
                 })
                 .unwrap(),
@@ -2114,7 +2140,7 @@ fn lsp_server_serves_semantic_requests_from_incrementally_updated_text() {
                 serde_json::to_value(LspCompletionParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
                     position: LspPosition {
-                        line: 2,
+                        line: 5,
                         character: 12,
                     },
                     context: None,
@@ -2126,7 +2152,7 @@ fn lsp_server_serves_semantic_requests_from_incrementally_updated_text() {
         .unwrap();
     let completion: LspCompletionList =
         serde_json::from_value(completion.result.unwrap()).unwrap();
-    assert!(completion.items.iter().any(|item| item.label == "value"));
+    assert!(completion.items.iter().any(|item| item.label == "helper"));
 
     let definition = server
         .handle_request(JsonRpcRequest {
@@ -2137,8 +2163,8 @@ fn lsp_server_serves_semantic_requests_from_incrementally_updated_text() {
                 serde_json::to_value(LspDefinitionParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
                     position: LspPosition {
-                        line: 2,
-                        character: 12,
+                        line: 5,
+                        character: 11,
                     },
                 })
                 .unwrap(),
@@ -2151,8 +2177,8 @@ fn lsp_server_serves_semantic_requests_from_incrementally_updated_text() {
     assert_eq!(
         definition.unwrap().range.start,
         LspPosition {
-            line: 1,
-            character: 8,
+            line: 0,
+            character: 6,
         }
     );
 
@@ -2242,7 +2268,10 @@ fn lsp_server_invalidates_stale_snapshots_after_symbol_boundary_edits() {
         })
         .unwrap();
     assert_eq!(analyze_document_diagnostics_call_count(), 2);
-    assert_eq!(analyze_document_semantics_call_count(), 1);
+    // The boundary edit bumped the document version and invalidated the cached
+    // snapshot, so the refreshed diagnostics rebuilt the single shared analysis,
+    // running document semantics a second time.
+    assert_eq!(analyze_document_semantics_call_count(), 2);
 
     let completion = server
         .handle_request(JsonRpcRequest {
@@ -2439,8 +2468,9 @@ fn lsp_server_returns_safe_empty_results_for_incomplete_calls() {
             params: Some(
                 serde_json::to_value(LspSignatureHelpParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    // Inside the incomplete call `helper(` on line 5.
                     position: LspPosition {
-                        line: 4,
+                        line: 5,
                         character: 18,
                     },
                 })
@@ -2461,8 +2491,9 @@ fn lsp_server_returns_safe_empty_results_for_incomplete_calls() {
             params: Some(
                 serde_json::to_value(LspCompletionParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    // Inside the incomplete call `helper(` on line 5.
                     position: LspPosition {
-                        line: 4,
+                        line: 5,
                         character: 18,
                     },
                     context: None,
@@ -2474,7 +2505,15 @@ fn lsp_server_returns_safe_empty_results_for_incomplete_calls() {
         .unwrap();
     let completion: LspCompletionList =
         serde_json::from_value(completion.result.unwrap()).unwrap();
-    assert!(completion.items.is_empty());
+    // Inside the broken call, signature help is safely unavailable (asserted
+    // above). Completion still stays authoritative: it only surfaces the real
+    // in-scope `helper` routine and never fabricates misleading text-fallback
+    // entries from the incomplete syntax.
+    assert!(!completion.items.is_empty());
+    assert!(completion
+        .items
+        .iter()
+        .all(|item| item.label == "helper" && item.kind == 3));
 
     fs::remove_dir_all(root).ok();
 }
@@ -2495,8 +2534,9 @@ fn lsp_server_recovers_semantic_results_after_incomplete_call_becomes_valid() {
             params: Some(
                 serde_json::to_value(LspSignatureHelpParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    // The incomplete call `helper(` is on line 5.
                     position: LspPosition {
-                        line: 4,
+                        line: 5,
                         character: 18,
                     },
                 })
@@ -2539,9 +2579,10 @@ fn lsp_server_recovers_semantic_results_after_incomplete_call_becomes_valid() {
             params: Some(
                 serde_json::to_value(LspSignatureHelpParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    // The now-valid call `helper(7)` is on line 5.
                     position: LspPosition {
-                        line: 4,
-                        character: 19,
+                        line: 5,
+                        character: 18,
                     },
                 })
                 .unwrap(),

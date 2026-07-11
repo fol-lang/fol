@@ -214,7 +214,7 @@ impl SemanticSnapshot {
             let Some(token_type) = semantic_token_type_for_symbol_kind(symbol.kind) else {
                 continue;
             };
-            let Some(syntax_id) = reference.syntax_id else { continue };
+            let Some(syntax_id) = reference.anchor() else { continue };
             let Some(origin) = program.syntax_index().origin(syntax_id) else {
                 continue;
             };
@@ -1210,7 +1210,7 @@ impl SemanticSnapshot {
         }
 
         for hit in program.all_references().filter(|hit| hit.resolved == Some(symbol_id)) {
-            let Some(syntax_id) = hit.syntax_id else { continue };
+            let Some(syntax_id) = hit.anchor() else { continue };
             let Some(origin) = program.syntax_index().origin(syntax_id) else {
                 continue;
             };
@@ -1273,6 +1273,12 @@ impl SemanticSnapshot {
             ));
         };
 
+            // NOTE: `Parameter` is deliberately excluded. The resolver records a
+            // parameter's declaration origin as the routine header (the routine
+            // name span), so renaming a parameter would rewrite the routine name
+            // instead of the parameter declaration, producing incorrect edits.
+            // Until parameters carry their own declaration origin, parameter
+            // rename stays outside the safe boundary.
             if !matches!(
                 symbol.kind,
                 fol_resolver::SymbolKind::ValueBinding
@@ -1282,7 +1288,6 @@ impl SemanticSnapshot {
                     | fol_resolver::SymbolKind::Type
                     | fol_resolver::SymbolKind::Alias
                     | fol_resolver::SymbolKind::Definition
-                    | fol_resolver::SymbolKind::Parameter
                     | fol_resolver::SymbolKind::Capture
                     | fol_resolver::SymbolKind::LoopBinder
                     | fol_resolver::SymbolKind::RollingBinder
@@ -1321,6 +1326,18 @@ impl SemanticSnapshot {
                     "rename target is missing a declaration file",
                 )
             })?;
+            // Build manifests (`build.fol`) declare the build entry graph, not
+            // ordinary renameable source. The build entry routine name is a
+            // fixed contract with the build system, so rename stays outside the
+            // safe boundary for symbols declared in a build file.
+            if Path::new(declaration_file).file_name().and_then(|name| name.to_str())
+                == Some("build.fol")
+            {
+                return Err(EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    "rename does not support build entry symbols",
+                ));
+            }
             if declaration_file != &analyzed_path_text
                 && !(supports_current_package_top_level
                     && path_is_in_current_package(declaration_file))
@@ -1344,7 +1361,7 @@ impl SemanticSnapshot {
             ));
 
             for hit in program.all_references().filter(|hit| hit.resolved == Some(symbol_id)) {
-                let Some(syntax_id) = hit.syntax_id else { continue };
+                let Some(syntax_id) = hit.anchor() else { continue };
                 let Some(origin) = program.syntax_index().origin(syntax_id) else {
                     continue;
                 };
@@ -1763,10 +1780,9 @@ fn reference_for_syntax_id(
     program: &fol_resolver::ResolvedProgram,
     syntax_id: SyntaxNodeId,
 ) -> Option<fol_resolver::ResolvedReference> {
-    if let Some(reference) = program
-        .all_references()
-        .find(|reference| reference.syntax_id == Some(syntax_id))
-    {
+    if let Some(reference) = program.all_references().find(|reference| {
+        reference.syntax_id == Some(syntax_id) || reference.anchor_syntax_id == Some(syntax_id)
+    }) {
         return Some(reference.clone());
     }
     let origin = program.syntax_index().origin(syntax_id)?;
@@ -1775,7 +1791,7 @@ fn reference_for_syntax_id(
     let column = origin.column;
     let mut best_reference: Option<(&fol_resolver::ResolvedReference, usize)> = None;
     for reference in program.all_references() {
-        let Some(reference_syntax_id) = reference.syntax_id else {
+        let Some(reference_syntax_id) = reference.anchor() else {
             continue;
         };
         let Some(reference_origin) = program.syntax_index().origin(reference_syntax_id) else {
@@ -1816,6 +1832,7 @@ fn reference_for_syntax_id(
         id: fol_resolver::ReferenceId(usize::MAX),
         kind: fol_resolver::ReferenceKind::Identifier,
         syntax_id: Some(syntax_id),
+        anchor_syntax_id: None,
         name: symbol.name.clone(),
         scope: symbol.scope,
         source_unit: symbol.source_unit,
@@ -1841,7 +1858,7 @@ fn reference_at_position_in_program(
     let column = position.character as usize + 1;
     let mut best_reference: Option<(&fol_resolver::ResolvedReference, usize)> = None;
     for reference in program.all_references() {
-        let Some(syntax_id) = reference.syntax_id else {
+        let Some(syntax_id) = reference.anchor() else {
             continue;
         };
         let Some(origin) = program.syntax_index().origin(syntax_id) else {
@@ -1888,6 +1905,7 @@ fn reference_at_position_in_program(
         id: fol_resolver::ReferenceId(usize::MAX),
         kind: fol_resolver::ReferenceKind::Identifier,
         syntax_id: None,
+        anchor_syntax_id: None,
         name: symbol.name.clone(),
         scope: symbol.scope,
         source_unit: symbol.source_unit,

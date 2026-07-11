@@ -493,13 +493,17 @@ impl EditorLspServer {
         for (uri, document) in workspace_documents {
             let snapshot = self.semantic_snapshot(&uri, &document)?;
             for symbol in snapshot.workspace_symbols(query) {
+                // A workspace symbol is uniquely identified by its kind and
+                // source location. The container name is derived from the
+                // per-request analysis overlay root, so it varies between the
+                // separate document analyses that surface the same declaration;
+                // excluding it keeps the same symbol from appearing twice.
                 let key = (
                     symbol.name.clone(),
                     symbol.kind,
                     symbol.location.uri.clone(),
                     symbol.location.range.start.line,
                     symbol.location.range.start.character,
-                    symbol.container_name.clone(),
                 );
                 if seen.insert(key) {
                     symbols.push(symbol);

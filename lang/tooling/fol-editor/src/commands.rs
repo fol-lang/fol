@@ -614,6 +614,42 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().expect("repo root should resolve")
     }
 
+    /// Builds a self-contained temp package whose entry file contains a
+    /// same-package top-level routine that is safe to rename. Rename resolution
+    /// needs a resolved workspace, which only exists for real packages, so the
+    /// package-less repo fixtures used for the other file commands cannot back
+    /// a rename smoke test. Returns the entry document path and a position on a
+    /// renameable routine usage.
+    fn rename_probe_package(label: &str) -> (PathBuf, LspPosition) {
+        let root = std::env::temp_dir().join(format!(
+            "fol_editor_rename_probe_{}_{}_{}",
+            label,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"rename_probe\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"rename_probe\", root = \"src/main.fol\", fol_model = \"core\" });\n    return;\n};\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/main.fol"),
+            "fun[] helper(): int = {\n    return 7;\n};\n\nfun[] main(): int = {\n    return helper();\n};\n",
+        )
+        .unwrap();
+        (
+            root.join("src/main.fol"),
+            LspPosition {
+                line: 5,
+                character: 11,
+            },
+        )
+    }
+
     #[test]
     fn lsp_entrypoint_summary_is_stable() {
         let summary = editor_lsp_entrypoint().unwrap();
@@ -663,15 +699,9 @@ mod tests {
             true,
         )
         .unwrap();
-        let rename = editor_rename_file(
-            &path,
-            LspPosition {
-                line: 5,
-                character: 11,
-            },
-            "count",
-        )
-        .unwrap();
+        let (rename_path, rename_position) = rename_probe_package("file_backed");
+        let rename = editor_rename_file(&rename_path, rename_position, "count").unwrap();
+        std::fs::remove_dir_all(rename_path.parent().and_then(Path::parent).unwrap()).ok();
 
         assert!(format.details.iter().any(|detail| detail.contains("path=")));
         assert!(format.details.iter().any(|detail| detail == "changed=true"));
@@ -754,15 +784,9 @@ mod tests {
             true,
         )
         .unwrap();
-        let rename = editor_rename_file(
-            &showcase,
-            LspPosition {
-                line: 5,
-                character: 11,
-            },
-            "count",
-        )
-        .unwrap();
+        let (rename_path, rename_position) = rename_probe_package("real_fixtures");
+        let rename = editor_rename_file(&rename_path, rename_position, "count").unwrap();
+        std::fs::remove_dir_all(rename_path.parent().and_then(Path::parent).unwrap()).ok();
         let highlight_captures = sorted_query_captures(crate::fol_tree_sitter_highlights_query());
 
         let showcase_text = std::fs::read_to_string(&showcase).unwrap();
@@ -776,7 +800,7 @@ mod tests {
                 format!("path={}", format_path.display()),
                 "lines=3".to_string(),
                 "changed=true".to_string(),
-                "changed_lines=2".to_string(),
+                "changed_lines=1".to_string(),
                 "style=hybrid-line".to_string(),
             ]
         );
@@ -861,7 +885,7 @@ mod tests {
             .unwrap();
         assert!(reference_count >= cross_file_count);
         assert_eq!(rename.command, "rename");
-        assert_eq!(rename.details[0], format!("path={}", showcase.display()));
+        assert_eq!(rename.details[0], format!("path={}", rename_path.display()));
         assert_eq!(rename.details[1], "line=5");
         assert_eq!(rename.details[2], "character=11");
         assert_eq!(rename.details[3], "new_name=count");

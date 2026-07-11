@@ -150,6 +150,7 @@ module.exports = grammar({
     stmt: $ => choice(
       $.var_decl,
       $.block,
+      $.assignment_stmt,
       $.return_stmt,
       $.yield_stmt,
       $.defer_stmt,
@@ -168,6 +169,11 @@ module.exports = grammar({
       $.expr,
     ),
 
+    assignment_stmt: $ => prec(1, seq(
+      field('target', choice($.identifier, $.qualified_path, $.field_access, $.index_access)),
+      '=',
+      field('value', $.expr),
+    )),
     return_stmt: $ => prec.right(seq('return', optional($.expr))),
     yield_stmt: $ => prec.right(seq('yield', optional($.expr))),
     defer_stmt: $ => seq('defer', $.block),

@@ -231,6 +231,21 @@ fn copy_directory_tree(from: &Path, to: &Path) -> EditorResult<()> {
                 format!("failed to inspect '{}': {error}", source.display()),
             )
         })?;
+        // Analysis overlays only need source packages, not build artifacts or
+        // version-control metadata. When a document resolves its analysis root
+        // to a repository root (for example via a `.git` root marker), copying
+        // the live `target/` build tree is both wasteful and racy: cargo can
+        // rewrite or delete object files mid-copy, surfacing spurious
+        // "No such file" failures. Skip those non-source directories entirely.
+        if file_type.is_dir() {
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| matches!(name, "target" | ".git" | ".jj" | ".hg" | ".svn" | "node_modules"))
+            {
+                continue;
+            }
+        }
         if file_type.is_dir() {
             fs::create_dir_all(&target).map_err(|error| {
                 EditorError::new(

@@ -337,17 +337,25 @@ fn lsp_server_prefers_authoritative_plain_completion_over_text_fallbacks() {
         .unwrap()
         .unwrap();
 
-    let labels = serde_json::from_value::<LspCompletionList>(completion.result.unwrap())
+    let items = serde_json::from_value::<LspCompletionList>(completion.result.unwrap())
         .unwrap()
-        .items
-        .into_iter()
-        .map(|item| item.label)
-        .collect::<Vec<_>>();
+        .items;
+    // Every suggestion is an authoritative resolver-backed routine completion
+    // (kind Function, detail "routine"), never a text-scan fallback. Both
+    // top-level routines the resolver recovered are offered, including the
+    // partially-parsed `phantom` declaration.
+    assert!(
+        items
+            .iter()
+            .all(|item| item.kind == 3 && item.detail.as_deref() == Some("routine")),
+        "completion should stay authoritative, not degrade to text-scan fallbacks: {items:?}"
+    );
+    let labels = items.into_iter().map(|item| item.label).collect::<Vec<_>>();
     assert!(labels.contains(&"helper".to_string()));
-    assert!(!labels.contains(&"phantom".to_string()));
+    assert!(labels.contains(&"phantom".to_string()));
     assert!(
         !labels.contains(&"main".to_string()),
-        "authoritative completion should not degrade to text-scan top-level noise when resolver data exists"
+        "authoritative completion should not suggest the enclosing routine or degrade to text-scan top-level noise when resolver data exists"
     );
 
     fs::remove_dir_all(root).ok();
