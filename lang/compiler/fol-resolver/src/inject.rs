@@ -45,6 +45,7 @@ pub fn inject_build_stdlib_types(program: &mut ResolvedProgram) {
             visibility: None,
             declaration_scope: None,
             mounted_from: None,
+            is_mutable: false,
         });
         if let Some(symbol) = program.symbols.get_mut(symbol_id) {
             symbol.id = symbol_id;
@@ -125,12 +126,12 @@ mod tests {
             .map(|s| s.name.clone())
             .collect();
 
-        assert!(type_names.contains(&"ArtifactHandle".to_string()));
-        assert!(type_names.contains(&"StepHandle".to_string()));
-        assert!(type_names.contains(&"RunHandle".to_string()));
-        assert!(type_names.contains(&"InstallHandle".to_string()));
-        assert!(type_names.contains(&"DependencyHandle".to_string()));
-        assert!(type_names.contains(&"GeneratedFileHandle".to_string()));
+        assert!(type_names.contains(&"Artifact".to_string()));
+        assert!(type_names.contains(&"Step".to_string()));
+        assert!(type_names.contains(&"Run".to_string()));
+        assert!(type_names.contains(&"Install".to_string()));
+        assert!(type_names.contains(&"Dependency".to_string()));
+        assert!(type_names.contains(&"GeneratedFile".to_string()));
     }
 
     #[test]

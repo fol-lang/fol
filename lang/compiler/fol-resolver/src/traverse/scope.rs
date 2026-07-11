@@ -26,7 +26,19 @@ pub fn insert_local_named_symbol(
     };
     let canonical_name = fol_types::canonical_identifier_key(name);
     let duplicate_key = top_level_duplicate_key(semantic_node(node), &canonical_name);
-    insert_local_symbol(program, source_unit_id, scope_id, name, kind, duplicate_key)
+    let origin = semantic_node(node)
+        .syntax_id()
+        .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+        .cloned();
+    insert_local_symbol_with_origin(
+        program,
+        source_unit_id,
+        scope_id,
+        name,
+        kind,
+        duplicate_key,
+        origin,
+    )
 }
 
 pub fn insert_local_symbol(
@@ -117,6 +129,7 @@ pub fn insert_local_symbol_with_origin(
         visibility: None,
         declaration_scope: None,
         mounted_from: None,
+        is_mutable: false,
     });
     if let Some(symbol) = program.symbols.get_mut(symbol_id) {
         symbol.id = symbol_id;

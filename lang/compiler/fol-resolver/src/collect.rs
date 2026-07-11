@@ -301,6 +301,9 @@ fn insert_symbol(
         visibility: item.meta.visibility,
         declaration_scope: item.meta.scope,
         mounted_from: None,
+        is_mutable: binding_options(&item.node)
+            .map(fol_parser::ast::binding_is_mutable)
+            .unwrap_or(false),
     });
 
     if let Some(symbol) = program.symbols.get_mut(symbol_id) {
@@ -325,6 +328,15 @@ pub(crate) fn semantic_node(node: &AstNode) -> &AstNode {
     match node {
         AstNode::Commented { node, .. } => semantic_node(node),
         _ => node,
+    }
+}
+
+/// Variable-declaration options for a binding node, unwrapping comments.
+/// Returns `None` for nodes that are not `var`/`lab` declarations.
+pub(crate) fn binding_options(node: &AstNode) -> Option<&[fol_parser::ast::VarOption]> {
+    match semantic_node(node) {
+        AstNode::VarDecl { options, .. } | AstNode::LabDecl { options, .. } => Some(options),
+        _ => None,
     }
 }
 

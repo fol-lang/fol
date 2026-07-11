@@ -107,9 +107,38 @@ fn resolve_location_target_from_disk(
     let source_path = Path::new(&source_unit.path);
     let source_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
     let target_path = fol_package::resolve_directory_target(source_dir, &import.import_target);
+    if let Some(scope_id) = intra_package_namespace_scope(program, import, &target_path) {
+        return Ok(scope_id);
+    }
     let loaded =
         session.load_package_from_directory(target_path.as_path(), PackageSourceKind::Local)?;
     program.mount_loaded_package(&loaded)
+}
+
+/// A loc target that points back inside the importing package is already
+/// loaded as one of that package's namespaces; loading it from disk again
+/// would duplicate its source units. Resolve to the existing namespace scope.
+fn intra_package_namespace_scope(
+    program: &ResolvedProgram,
+    import: &crate::ResolvedImport,
+    target_path: &Path,
+) -> Option<ScopeId> {
+    let canonical_target = target_path.canonicalize().ok()?;
+    let importing_package = program.source_unit(import.source_unit)?.package.clone();
+
+    let namespace = program
+        .ordinary_source_units()
+        .filter(|unit| unit.id != import.source_unit && unit.package == importing_package)
+        .find_map(|unit| {
+            let unit_dir = Path::new(&unit.path).parent()?.canonicalize().ok()?;
+            (unit_dir == canonical_target).then(|| unit.namespace.clone())
+        })?;
+
+    if namespace == program.package_name() {
+        Some(program.program_scope)
+    } else {
+        program.namespace_scope(&namespace)
+    }
 }
 
 fn resolve_package_target_from_store(

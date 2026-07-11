@@ -181,7 +181,7 @@ pub fn traverse_node(
         AstNode::QualifiedIdentifier { path } => {
             record_qualified_identifier_reference(program, source_unit_id, scope_id, path)?;
         }
-        AstNode::BinaryOp { left, right, .. } => {
+        AstNode::BinaryOp { op, left, right } => {
             traverse_node(
                 session,
                 program,
@@ -191,15 +191,24 @@ pub fn traverse_node(
                 false,
                 routine_context,
             )?;
-            traverse_node(
-                session,
-                program,
-                source_unit_id,
-                scope_id,
-                right,
-                false,
-                routine_context,
-            )?;
+            // `as` / `cast` right-hand sides are type positions, not value
+            // references; typecheck owns the explicit unsupported-casting
+            // boundary, so the resolver must not misreport them as
+            // unresolved value names.
+            if !matches!(
+                op,
+                fol_parser::ast::BinaryOperator::As | fol_parser::ast::BinaryOperator::Cast
+            ) {
+                traverse_node(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    right,
+                    false,
+                    routine_context,
+                )?;
+            }
         }
         AstNode::UnaryOp { operand, .. } => {
             traverse_node(
@@ -613,7 +622,7 @@ pub fn traverse_node(
                 )?;
             }
             if !is_top_level_node {
-                insert_local_symbol(
+                let symbol_id = insert_local_symbol(
                     program,
                     source_unit_id,
                     scope_id,
@@ -621,6 +630,13 @@ pub fn traverse_node(
                     SymbolKind::ValueBinding,
                     format!("symbol#{}", fol_types::canonical_identifier_key(name)),
                 )?;
+                if let AstNode::VarDecl { options, .. } = semantic_node(node) {
+                    if fol_parser::ast::binding_is_mutable(options) {
+                        if let Some(symbol) = program.symbols.get_mut(symbol_id) {
+                            symbol.is_mutable = true;
+                        }
+                    }
+                }
             }
         }
         AstNode::LabDecl { name, value, .. } => {
@@ -643,7 +659,7 @@ pub fn traverse_node(
                 )?;
             }
             if !is_top_level_node {
-                insert_local_symbol(
+                let symbol_id = insert_local_symbol(
                     program,
                     source_unit_id,
                     scope_id,
@@ -651,6 +667,13 @@ pub fn traverse_node(
                     SymbolKind::LabelBinding,
                     format!("symbol#{}", fol_types::canonical_identifier_key(name)),
                 )?;
+                if let AstNode::LabDecl { options, .. } = semantic_node(node) {
+                    if fol_parser::ast::binding_is_mutable(options) {
+                        if let Some(symbol) = program.symbols.get_mut(symbol_id) {
+                            symbol.is_mutable = true;
+                        }
+                    }
+                }
             }
         }
         AstNode::DestructureDecl { pattern, value, .. } => {

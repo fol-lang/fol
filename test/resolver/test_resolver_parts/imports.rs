@@ -41,9 +41,9 @@ fn test_resolver_lowers_top_level_use_declarations_into_import_records() {
                 .target_scope
                 .and_then(|scope_id| resolved.scope(scope_id))
                 .map(|scope| &scope.kind),
-            Some(ScopeKind::ProgramRoot { package }) if package == "math"
+            Some(ScopeKind::NamespaceRoot { namespace }) if namespace.ends_with("math")
         ),
-        "Location imports should mount the exact target directory as the imported root scope"
+        "Location imports inside the package should resolve to the existing namespace scope instead of double-loading the directory"
     );
 
     fs::remove_dir_all(&temp_root)
@@ -97,9 +97,9 @@ fn test_resolver_keeps_local_use_aliases_visible_in_routine_scopes() {
                 .target_scope
                 .and_then(|scope_id| resolved.scope(scope_id))
                 .map(|scope| &scope.kind),
-            Some(ScopeKind::ProgramRoot { package }) if package == "helper"
+            Some(ScopeKind::NamespaceRoot { namespace }) if namespace.ends_with("helper")
         ),
-        "Routine-local location imports should load the referenced directory and mount it as a root scope"
+        "Routine-local location imports inside the package should resolve to the existing namespace scope instead of double-loading the directory"
     );
 
     fs::remove_dir_all(&temp_root)

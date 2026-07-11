@@ -115,6 +115,10 @@ pub struct ResolvedSymbol {
     pub visibility: Option<ParsedDeclVisibility>,
     pub declaration_scope: Option<ParsedDeclScope>,
     pub mounted_from: Option<MountedSymbolProvenance>,
+    /// True for `var[mut]`/`lab[mut]` bindings. Bindings are immutable by
+    /// default (see the variables chapter), and this drives assignment-target
+    /// legality (e.g. field assignment requires a mutable record binding).
+    pub is_mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,10 +126,21 @@ pub struct ResolvedReference {
     pub id: ReferenceId,
     pub kind: ReferenceKind,
     pub syntax_id: Option<SyntaxNodeId>,
+    /// Precise use-site anchor when it differs from `syntax_id` (for
+    /// qualified references, the final path segment). `syntax_id` stays the
+    /// AST linkage key consumed by typecheck/lowering.
+    pub anchor_syntax_id: Option<SyntaxNodeId>,
     pub name: String,
     pub scope: ScopeId,
     pub source_unit: SourceUnitId,
     pub resolved: Option<SymbolId>,
+}
+
+impl ResolvedReference {
+    /// The syntax node an editor should treat as this reference's use site.
+    pub fn anchor(&self) -> Option<SyntaxNodeId> {
+        self.anchor_syntax_id.or(self.syntax_id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
