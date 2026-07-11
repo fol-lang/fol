@@ -166,6 +166,7 @@ dependencies = [
  "fol-lexer",
  "fol-parser",
  "fol-resolver",
+ "fol-stream",
 ]
 
 [[package]]
