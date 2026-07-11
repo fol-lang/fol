@@ -372,7 +372,6 @@ pub(crate) fn lower_pipe_or_expression(
     let error_block = cursor.create_block();
     let success_block = cursor.create_block();
     let join_block = cursor.create_block();
-    let result_local = cursor.allocate_local(observed_left.type_id, None);
 
     cursor.terminate_current_block(crate::LoweredTerminator::Branch {
         condition: condition_local,
@@ -380,23 +379,9 @@ pub(crate) fn lower_pipe_or_expression(
         else_block: success_block,
     })?;
 
-    cursor.switch_block(success_block)?;
-    let success_value = cursor.allocate_local(observed_left.type_id, None);
-    cursor.push_instr(
-        Some(success_value),
-        LoweredInstrKind::UnwrapRecoverable {
-            operand: observed_left.local_id,
-        },
-    )?;
-    cursor.push_instr(
-        None,
-        LoweredInstrKind::StoreLocal {
-            local: result_local,
-            value: success_value,
-        },
-    )?;
-    cursor.terminate_current_block(crate::LoweredTerminator::Jump { target: join_block })?;
-
+    // Lower the fallback arm first: a recoverable arm (chained `a || b || c`)
+    // re-wraps the whole expression as recoverable, which changes the join
+    // carrier from the plain value to the still-wrapped recoverable.
     cursor.switch_block(error_block)?;
     let fallback_value = lower_pipe_or_fallback(
         typed_package,
@@ -410,7 +395,27 @@ pub(crate) fn lower_pipe_or_expression(
         observed_left.type_id,
         right,
     )?;
-    if let Some(fallback_value) = fallback_value {
+
+    let arm_recover = fallback_value
+        .as_ref()
+        .and_then(|value| value.recoverable_error_type);
+    let result_local = if arm_recover.is_some() {
+        let carrier = fallback_value
+            .as_ref()
+            .and_then(|value| cursor.routine.locals.get(value.local_id))
+            .and_then(|local| local.type_id)
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::Internal,
+                    "recoverable fallback arm lost its lowered carrier type",
+                )
+            })?;
+        cursor.allocate_local(carrier, None)
+    } else {
+        cursor.allocate_local(observed_left.type_id, None)
+    };
+
+    if let Some(fallback_value) = &fallback_value {
         cursor.push_instr(
             None,
             LoweredInstrKind::StoreLocal {
@@ -421,11 +426,39 @@ pub(crate) fn lower_pipe_or_expression(
         cursor.terminate_current_block(crate::LoweredTerminator::Jump { target: join_block })?;
     }
 
+    cursor.switch_block(success_block)?;
+    if arm_recover.is_some() {
+        // Keep the left side still wrapped; the outer handler unwraps it.
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::StoreLocal {
+                local: result_local,
+                value: observed_left.local_id,
+            },
+        )?;
+    } else {
+        let success_value = cursor.allocate_local(observed_left.type_id, None);
+        cursor.push_instr(
+            Some(success_value),
+            LoweredInstrKind::UnwrapRecoverable {
+                operand: observed_left.local_id,
+            },
+        )?;
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::StoreLocal {
+                local: result_local,
+                value: success_value,
+            },
+        )?;
+    }
+    cursor.terminate_current_block(crate::LoweredTerminator::Jump { target: join_block })?;
+
     cursor.switch_block(join_block)?;
     Ok(LoweredValue {
         local_id: result_local,
         type_id: observed_left.type_id,
-        recoverable_error_type: None,
+        recoverable_error_type: arm_recover,
     })
 }
 
@@ -517,7 +550,9 @@ fn lower_pipe_or_fallback(
             )?;
             Ok(None)
         }
-        _ => lower_expression_expected(
+        // A fallback arm may itself be recoverable (chained `a || b || c`);
+        // the caller decides how to join it, so lower it observed.
+        _ => lower_expression_observed(
             typed_package,
             type_table,
             checked_type_map,

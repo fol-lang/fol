@@ -103,12 +103,28 @@ fn recoverable_error_type_for_local(
     routine: &LoweredRoutine,
     local_id: fol_lower::LoweredLocalId,
 ) -> Option<LoweredTypeId> {
+    recoverable_error_type_for_local_inner(routine, local_id, 0)
+}
+
+fn recoverable_error_type_for_local_inner(
+    routine: &LoweredRoutine,
+    local_id: fol_lower::LoweredLocalId,
+    depth: usize,
+) -> Option<LoweredTypeId> {
+    if depth > 8 {
+        return None;
+    }
     routine.instructions.iter().find_map(|instruction| match &instruction.kind {
         fol_lower::LoweredInstrKind::Call { error_type, .. }
         | fol_lower::LoweredInstrKind::CallIndirect { error_type, .. }
             if instruction.result == Some(local_id) =>
         {
             *error_type
+        }
+        // Chained fallbacks join a still-wrapped recoverable through a
+        // StoreLocal; the join local carries the same FolRecover shape.
+        fol_lower::LoweredInstrKind::StoreLocal { local, value } if *local == local_id => {
+            recoverable_error_type_for_local_inner(routine, *value, depth + 1)
         }
         _ => None,
     })

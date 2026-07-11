@@ -7,12 +7,28 @@ fn recoverable_error_type_for_local(
     routine: &crate::LoweredRoutine,
     local_id: crate::LoweredLocalId,
 ) -> Option<crate::LoweredTypeId> {
+    recoverable_error_type_for_local_inner(routine, local_id, 0)
+}
+
+fn recoverable_error_type_for_local_inner(
+    routine: &crate::LoweredRoutine,
+    local_id: crate::LoweredLocalId,
+    depth: usize,
+) -> Option<crate::LoweredTypeId> {
+    if depth > 8 {
+        return None;
+    }
     routine.instructions.iter().find_map(|instr| match &instr.kind {
         crate::LoweredInstrKind::Call { error_type, .. }
         | crate::LoweredInstrKind::CallIndirect { error_type, .. }
             if instr.result == Some(local_id) =>
         {
             *error_type
+        }
+        // Chained fallbacks join a still-wrapped recoverable through a
+        // StoreLocal; follow the stored source.
+        crate::LoweredInstrKind::StoreLocal { local, value } if *local == local_id => {
+            recoverable_error_type_for_local_inner(routine, *value, depth + 1)
         }
         _ => None,
     })
