@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0512914e.js";
+            window.path_to_searchindex_js = "searchindex-91c53c3f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-5e2af248.js"></script>
@@ -1304,8 +1304,8 @@ of copied by hand.</p>
 <li>code actions for compiler-suggested unresolved-name replacements</li>
 <li>signature help for plain and qualified routine calls</li>
 <li>references</li>
-<li>rename for same-file local and current-package top-level symbols, with
-prepare-rename validation</li>
+<li>rename for same-file local bindings, routine parameters, and current-package
+top-level symbols, with prepare-rename validation</li>
 <li>semantic tokens</li>
 <li>inlay hints (inferred type for <code>var</code>/<code>lab</code>/<code>con</code> bindings without an explicit
 annotation)</li>
@@ -1374,7 +1374,8 @@ The current shipped code-action inventory is intentionally narrow:
 unresolved-name replacements only.</li>
 <li>signature help for supported routine call sites</li>
 <li>references for the supported symbol classes</li>
-<li>rename for same-file local and current-package top-level symbols only</li>
+<li>rename for same-file local bindings, routine parameters, and current-package
+top-level symbols only</li>
 <li>semantic tokens for semantic identifier categories</li>
 <li>document symbols for the current file</li>
 <li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
