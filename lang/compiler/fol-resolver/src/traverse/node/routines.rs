@@ -105,6 +105,15 @@ pub fn traverse_named_routine(
         )?;
     }
     for param in params {
+        // A parameter now carries its own NAME syntax id, so its symbol origin
+        // points at the parameter declaration span (not the routine header).
+        // The synthesized `self` receiver above keeps the header origin because
+        // it has no source token of its own.
+        let param_origin = param
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned()
+            .or_else(|| header_origin.clone());
         insert_local_symbol_with_origin(
             program,
             source_unit_id,
@@ -115,7 +124,7 @@ pub fn traverse_named_routine(
                 "symbol#{}",
                 fol_types::canonical_identifier_key(&param.name)
             ),
-            header_origin.clone(),
+            param_origin,
         )?;
     }
 
@@ -204,7 +213,13 @@ pub fn traverse_anonymous_routine(
     }
 
     for param in params {
-        insert_local_symbol(
+        // Anonymous routine parameters carry their own NAME syntax id too, so
+        // give the parameter symbol its true declaration origin.
+        let param_origin = param
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned();
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
@@ -214,6 +229,7 @@ pub fn traverse_anonymous_routine(
                 "symbol#{}",
                 fol_types::canonical_identifier_key(&param.name)
             ),
+            param_origin,
         )?;
     }
 

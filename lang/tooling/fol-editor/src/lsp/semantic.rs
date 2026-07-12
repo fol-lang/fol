@@ -1301,17 +1301,16 @@ impl SemanticSnapshot {
             ));
         };
 
-            // NOTE: `Parameter` is deliberately excluded. The resolver records a
-            // parameter's declaration origin as the routine header (the routine
-            // name span), so renaming a parameter would rewrite the routine name
-            // instead of the parameter declaration, producing incorrect edits.
-            // Until parameters carry their own declaration origin, parameter
-            // rename stays outside the safe boundary.
+            // Parameters now carry their own declaration origin (the parameter
+            // NAME span), so renaming one rewrites the parameter declaration and
+            // its uses rather than the routine header. That makes `Parameter`
+            // safe to rename within the same file.
             if !matches!(
                 symbol.kind,
                 fol_resolver::SymbolKind::ValueBinding
                     | fol_resolver::SymbolKind::LabelBinding
                     | fol_resolver::SymbolKind::DestructureBinding
+                    | fol_resolver::SymbolKind::Parameter
                     | fol_resolver::SymbolKind::Routine
                     | fol_resolver::SymbolKind::Type
                     | fol_resolver::SymbolKind::Alias

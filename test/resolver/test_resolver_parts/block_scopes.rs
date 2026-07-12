@@ -46,6 +46,50 @@ fn test_resolver_records_local_binding_declaration_origins() {
 }
 
 #[test]
+fn test_resolver_records_parameter_declaration_origins() {
+    let temp_root = unique_temp_root("parameter_origins");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun[] add(left: int, right: int): int = {\n    return left;\n};\n",
+    )
+    .expect("Should write the parameter origin fixture");
+
+    let resolved = resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+
+    let left = resolved
+        .all_symbols()
+        .find(|symbol| symbol.name == "left" && symbol.kind == SymbolKind::Parameter)
+        .expect("Resolver should keep the `left` parameter");
+    let origin = left
+        .origin
+        .as_ref()
+        .expect("Parameter should now carry its own declaration origin");
+    // `fun[] add(left: int, ...` on line 1; the `left` NAME starts at column 11
+    // and spans "left" (not the routine name span).
+    assert_eq!(origin.line, 1);
+    assert_eq!(origin.column, 11);
+    assert_eq!(origin.length, 4);
+
+    let right = resolved
+        .all_symbols()
+        .find(|symbol| symbol.name == "right" && symbol.kind == SymbolKind::Parameter)
+        .expect("Resolver should keep the `right` parameter");
+    let right_origin = right
+        .origin
+        .as_ref()
+        .expect("Second parameter should also carry its own origin");
+    // `right` NAME starts at column 22 and spans "right".
+    assert_eq!(right_origin.line, 1);
+    assert_eq!(right_origin.column, 22);
+    assert_eq!(right_origin.length, 5);
+}
+
+#[test]
 fn test_resolver_records_distinct_origins_for_shadowed_local_bindings() {
     let temp_root = unique_temp_root("shadowed_binding_origins");
     fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");

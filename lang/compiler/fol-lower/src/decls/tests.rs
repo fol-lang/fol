@@ -770,6 +770,7 @@ mod tests {
                 is_mutex: false,
                 is_variadic: false,
                 default: None,
+                syntax_id: None,
             }],
             &mut next_routine_index,
         )

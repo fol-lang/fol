@@ -256,6 +256,11 @@ pub struct Parameter {
     /// parameter is NOT variadic.
     pub is_variadic: bool,
     pub default: Option<AstNode>,
+    /// Syntax id of the parameter NAME token, so tooling can locate the
+    /// parameter's own declaration span. The resolver derives the parameter
+    /// symbol origin from this id. `None` when the parameter was synthesized
+    /// without a source name token.
+    pub syntax_id: Option<SyntaxNodeId>,
 }
 
 /// Generic type parameters

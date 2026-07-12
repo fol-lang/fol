@@ -686,8 +686,9 @@ use super::*;
             "LSP book should keep the current narrow code-action contract"
         );
         assert!(
-            lsp_book.contains("rename for same-file local and current-package top-level symbols"),
-            "LSP book should keep the current rename boundary"
+            lsp_book
+                .contains("same-file local bindings, routine parameters, and current-package"),
+            "LSP book should keep the current rename boundary, including parameters"
         );
         assert!(
             lsp_book.contains("`textDocument/rangeFormatting` remains unsupported"),

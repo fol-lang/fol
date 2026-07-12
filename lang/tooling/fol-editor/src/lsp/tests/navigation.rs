@@ -1517,7 +1517,7 @@ fn lsp_server_renames_parameters_within_the_safe_boundary() {
     let mut server = EditorLspServer::new(EditorConfig::default());
     open_document(&mut server, uri.clone(), &text);
 
-    let error = server
+    let rename = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: JsonRpcId::Number(943),
@@ -1534,8 +1534,24 @@ fn lsp_server_renames_parameters_within_the_safe_boundary() {
                 .unwrap(),
             ),
         })
-        .expect_err("parameter rename should stay outside the current safe boundary");
-    assert_eq!(error.kind, crate::EditorErrorKind::InvalidInput);
+        .unwrap()
+        .unwrap();
+    // Parameters now carry their own declaration origin, so a same-file
+    // parameter rename rewrites both the `total` declaration in the header
+    // (line 0) and its `return total` use (line 1).
+    let edit: crate::LspWorkspaceEdit = serde_json::from_value(rename.result.unwrap()).unwrap();
+    let file_edits = edit.changes.get(&uri).expect("edits for the current file");
+    assert_eq!(file_edits.len(), 2);
+    assert!(file_edits.iter().all(|edit| edit.new_text == "count"));
+    // The declaration edit must land on the `total` parameter NAME (line 0,
+    // character 11), not the routine name `main` (character 6): the parameter
+    // now carries its own precise declaration origin.
+    let declaration_edit = file_edits
+        .iter()
+        .find(|edit| edit.range.start.line == 0)
+        .expect("parameter declaration edit on the header line");
+    assert_eq!(declaration_edit.range.start.character, 11);
+    assert!(file_edits.iter().any(|edit| edit.range.start.line == 1));
 
     fs::remove_dir_all(root).ok();
 }

@@ -7,7 +7,7 @@ impl AstParser {
         missing_name_error: &str,
         missing_group_name_error: &str,
         missing_mutex_close_error: &str,
-    ) -> Result<(Vec<String>, bool), ParseError> {
+    ) -> Result<(Vec<(String, Option<SyntaxNodeId>)>, bool), ParseError> {
         let token = tokens.curr(false)?;
 
         if matches!(token.key(), KEYWORD::Symbol(SYMBOL::RoundO))
@@ -31,6 +31,7 @@ impl AstParser {
 
             let name_token = tokens.curr(false)?;
             let name = Self::expect_named_label(&name_token, missing_name_error)?;
+            let name_syntax_id = self.record_syntax_origin(&name_token);
             let _ = tokens.bump();
             self.skip_ignorable(tokens)?;
 
@@ -52,12 +53,15 @@ impl AstParser {
                 ));
             }
             let _ = tokens.bump();
-            return Ok((vec![name], true));
+            return Ok((vec![(name, name_syntax_id)], true));
         }
 
         let first_name = Self::expect_named_label(&token, missing_name_error)?;
+        // Record the parameter NAME token so tooling can locate the parameter
+        // declaration; the resolver derives the symbol origin from this id.
+        let first_syntax_id = self.record_syntax_origin(&token);
 
-        let mut names = vec![first_name];
+        let mut names = vec![(first_name, first_syntax_id)];
         let _ = tokens.bump();
 
         self.skip_ignorable(tokens)?;
@@ -71,7 +75,8 @@ impl AstParser {
                 self.skip_ignorable(tokens)?;
                 let name_token = tokens.curr(false)?;
                 let grouped_name = Self::expect_named_label(&name_token, missing_group_name_error)?;
-                names.push(grouped_name);
+                let grouped_syntax_id = self.record_syntax_origin(&name_token);
+                names.push((grouped_name, grouped_syntax_id));
                 let _ = tokens.bump();
                 self.skip_ignorable(tokens)?;
                 continue;
@@ -122,6 +127,7 @@ impl AstParser {
                     }),
                     is_mutex: false,
                     default: None,
+                    syntax_id: None,
                 });
 
                 self.skip_ignorable(tokens)?;
@@ -221,7 +227,7 @@ impl AstParser {
                 ));
             }
 
-            for name in names {
+            for (name, name_syntax_id) in names {
                 params.push(Parameter {
                     name: name.clone(),
                     param_type: param_type.clone(),
@@ -231,6 +237,7 @@ impl AstParser {
                     }),
                     is_mutex,
                     default: default.clone(),
+                    syntax_id: name_syntax_id,
                 });
             }
 
@@ -584,6 +591,7 @@ impl AstParser {
                     }),
                     is_mutex: false,
                     default: None,
+                    syntax_id: None,
                 });
 
                 self.skip_ignorable(tokens)?;
@@ -611,14 +619,14 @@ impl AstParser {
                 "Expected parameter name after ','",
                 "Expected closing '))' after mutex parameter name",
             )?;
-            let first_name = names[0].clone();
+            let first_name = names[0].0.clone();
             if !seen_names.insert(canonical_identifier_key(&first_name)) {
                 return Err(ParseError::from_token(
                     &token,
                     format!("Duplicate parameter name '{}'", first_name),
                 ));
             }
-            for grouped_name in names.iter().skip(1) {
+            for (grouped_name, _) in names.iter().skip(1) {
                 if !seen_names.insert(canonical_identifier_key(grouped_name)) {
                     let name_token = tokens.curr(false)?;
                     return Err(ParseError::from_token(
@@ -686,7 +694,7 @@ impl AstParser {
                 ));
             }
 
-            for param_name in names {
+            for (param_name, name_syntax_id) in names {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: param_type.clone(),
@@ -696,6 +704,7 @@ impl AstParser {
                     }),
                     is_mutex,
                     default: default.clone(),
+                    syntax_id: name_syntax_id,
                 });
             }
 
