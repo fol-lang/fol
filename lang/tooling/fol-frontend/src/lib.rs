@@ -242,6 +242,7 @@ pub(crate) fn frontend_config_from_cli(
                 apply_build_option_args(&mut config, &command.options);
             }
             CodeSubcommand::Emit(_) => {}
+            CodeSubcommand::Explain(_) => {}
         },
         _ => {}
     }
@@ -281,11 +282,13 @@ fn command_output_mode(cli: &FrontendCli) -> Option<OutputMode> {
     match cli.command.as_ref() {
         Some(FrontendCommand::Work(command)) => Some(command.output.output),
         Some(FrontendCommand::Pack(command)) => Some(command.output.output),
-        Some(FrontendCommand::Code(command)) => Some(command.output.output),
+        // `code explain` carries an optional explicit override; `None` there means
+        // the root-level `--output`/`--json` flags apply instead.
+        Some(FrontendCommand::Code(command)) => match &command.command {
+            CodeSubcommand::Explain(explain) => explain.output,
+            _ => Some(command.output.output),
+        },
         Some(FrontendCommand::Tool(command)) => Some(command.output.output),
-        // `explain` carries an optional explicit override; `None` here means the
-        // root-level `--output`/`--json` flags apply instead.
-        Some(FrontendCommand::Explain(command)) => command.output,
         Some(FrontendCommand::Complete(_)) | None => None,
     }
 }

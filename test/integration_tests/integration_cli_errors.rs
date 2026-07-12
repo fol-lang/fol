@@ -657,7 +657,7 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
 
     #[test]
     fn test_cli_explain_known_code_prints_family_and_body() {
-        let output = run_fol(&["explain", "T1003"]);
+        let output = run_fol(&["code", "explain", "T1003"]);
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         assert!(
@@ -678,7 +678,7 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
 
     #[test]
     fn test_cli_explain_is_case_insensitive() {
-        let lower = run_fol(&["explain", "t1003"]);
+        let lower = run_fol(&["code", "explain", "t1003"]);
         let stdout = String::from_utf8_lossy(&lower.stdout);
 
         assert!(lower.status.success(), "lowercase code should still resolve");
@@ -694,7 +694,7 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
 
     #[test]
     fn test_cli_explain_unknown_code_is_honest_and_exits_nonzero() {
-        let output = run_fol(&["explain", "Z9999"]);
+        let output = run_fol(&["code", "explain", "Z9999"]);
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         assert!(
@@ -713,7 +713,7 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
 
     #[test]
     fn test_cli_explain_unknown_but_recognized_prefix_points_at_family() {
-        let output = run_fol(&["explain", "T9999"]);
+        let output = run_fol(&["code", "explain", "T9999"]);
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         assert!(
@@ -732,7 +732,7 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
 
     #[test]
     fn test_cli_explain_json_carries_documented_shape() {
-        let output = run_fol(&["--output", "json", "explain", "T1003"]);
+        let output = run_fol(&["--output", "json", "code", "explain", "T1003"]);
         let json = parse_cli_json(&output);
 
         assert!(output.status.success(), "known code json should exit zero");
@@ -743,6 +743,24 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
         assert!(
             json["explanation"].as_str().is_some(),
             "json explanation body should be present for known codes"
+        );
+    }
+
+    #[test]
+    fn test_cli_top_level_explain_is_removed() {
+        // `explain` moved under the `code` group. The old top-level spelling must
+        // no longer work — it should never render a diagnostic explanation and
+        // must exit nonzero (the token is treated as a bad direct input target).
+        let output = run_fol(&["explain", "T1003"]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "removed top-level `fol explain` must exit nonzero, stdout=\n{stdout}"
+        );
+        assert!(
+            !stdout.contains("incompatible types"),
+            "removed top-level `fol explain` must not render an explanation, stdout=\n{stdout}"
         );
     }
 

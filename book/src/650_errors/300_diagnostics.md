@@ -80,7 +80,7 @@ in brackets:
 error[R1003]: could not resolve name 'answer'
 ```
 
-Any code can be expanded on demand with `fol explain <CODE>` (see
+Any code can be expanded on demand with `fol code explain <CODE>` (see
 [Tool Commands](../050_tooling/200_tool_commands.md)).
 
 JSON output includes the code as a top-level field:
@@ -194,7 +194,7 @@ The default renderer prints a framed, colored report:
 - secondary labels for related sites
 - `= note:`, `= help:`, and `= try:` lines
 - a footer with a one-line plain-language hint and a
-  `` run `fol explain <CODE>` for more `` pointer
+  `` run `fol code explain <CODE>` for more `` pointer
 - a closing `found N error(s)` summary
 
 Illustrative shape (colors omitted):
@@ -207,7 +207,7 @@ Illustrative shape (colors omitted):
     │            ^^^^^^ unresolved name
   = note: no visible declaration with that name was found in the current scope chain
   = help: check imports or declare the name before use
-  a name or import problem — a symbol could not be resolved  ·  run `fol explain R1003` for more
+  a name or import problem — a symbol could not be resolved  ·  run `fol code explain R1003` for more
 
 found 1 error
 ```

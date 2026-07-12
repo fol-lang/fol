@@ -6,7 +6,7 @@
 //! - [`family_for_code`]: the plain-language family (`"TYPES"`, `"NAMES"`, ...)
 //!   and one-line "what this means" hint inferred from a code's letter prefix.
 //!   The pretty diagnostic renderer reuses this so the family chip and the
-//!   `fol explain <CODE>` output never drift apart.
+//!   `fol code explain <CODE>` output never drift apart.
 //! - [`explanation`]: a longer explanation (title + body) for the codes the
 //!   compiler actually emits.
 //!

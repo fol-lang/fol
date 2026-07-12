@@ -51,7 +51,6 @@ pub enum FrontendCommand {
     Pack(PackCommand),
     Code(CodeCommand),
     Tool(ToolCommand),
-    Explain(ExplainCommand),
     Complete(CompleteCommand),
 }
 
@@ -192,8 +191,9 @@ pub struct CompleteCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExplainCommand {
     pub code: String,
-    /// Output mode set explicitly on the command (e.g. `explain T1003 --output
-    /// json`). When `None`, the root-level `--output`/`--json` flags apply.
+    /// Output mode set explicitly on the command (e.g. `code explain T1003
+    /// --output json`). When `None`, the root-level `--output`/`--json` flags
+    /// apply.
     pub output: Option<OutputMode>,
 }
 
@@ -253,6 +253,7 @@ pub enum CodeSubcommand {
     Test(TestCommand),
     Check(CheckCommand),
     Emit(EmitCommand),
+    Explain(ExplainCommand),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

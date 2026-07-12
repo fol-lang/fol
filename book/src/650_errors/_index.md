@@ -22,7 +22,7 @@ the active parser/package/resolver/typecheck/lower/backend chain:
 - every diagnostic carries a stable producer-owned code (e.g. `R1003`); the
   default `human` output shows it next to a family chip, and `--output plain`
   shows it in brackets (`error[R1003]:`)
-- any code can be expanded with `fol explain <CODE>`
+- any code can be expanded with `fol code explain <CODE>`
 - all failures keep exact primary `file:line:column` locations
 - human-readable diagnostics render source snippets and underline the primary span
 - related sites such as duplicate declarations or ambiguity candidates appear

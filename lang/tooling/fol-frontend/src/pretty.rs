@@ -4,7 +4,7 @@
 //! LSP consumes) and renders a framed, colored report: a family chip that names
 //! the kind of problem in plain language ("a typo", "a type mismatch"), a source
 //! frame with a caret under the offending span, secondary labels, notes/helps,
-//! and a footer pointing at `fol explain <CODE>`.
+//! and a footer pointing at `fol code explain <CODE>`.
 //!
 //! Colors come from the in-house [`crate::ansi`] palette, which disables itself
 //! when stdout is not a terminal — so piped/CI output stays plain text while an
@@ -39,7 +39,7 @@ pub fn render_report_pretty(report: &DiagnosticReport) -> String {
 /// "what this means" hint. Warnings/infos take precedence over the code family.
 ///
 /// The code-prefix mapping is owned by `fol-diagnostics` so the family chip here
-/// and the `fol explain <CODE>` output never drift apart.
+/// and the `fol code explain <CODE>` output never drift apart.
 fn family(code: &str, severity: &Severity) -> (&'static str, &'static str) {
     match severity {
         Severity::Warning => return ("WARNING", "something worth a second look"),
@@ -127,7 +127,7 @@ pub fn render_diagnostic_pretty(diagnostic: &Diagnostic) -> String {
 
     // ── footer: plain-language hint + explain hook ──
     let explain = if has_code {
-        format!("{family_hint}  ·  run `fol explain {code}` for more")
+        format!("{family_hint}  ·  run `fol code explain {code}` for more")
     } else {
         family_hint.to_string()
     };
@@ -283,7 +283,7 @@ mod tests {
         assert!(out.contains("expected `;`, found `}`"));
         assert!(out.contains("P1001"));
         assert!(out.contains("a syntax slip"));
-        assert!(out.contains("run `fol explain P1001` for more"));
+        assert!(out.contains("run `fol code explain P1001` for more"));
     }
 
     #[test]

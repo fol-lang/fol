@@ -1,4 +1,4 @@
-//! `fol explain <CODE>` — render an extended explanation for a diagnostic code.
+//! `fol code explain <CODE>` — render an extended explanation for a diagnostic code.
 //!
 //! The explanations and the code-family mapping live in `fol-diagnostics` (the
 //! compiler-truth crate) so the family chip printed here matches the one the
@@ -17,7 +17,7 @@ pub struct ExplainRendering {
     pub known: bool,
 }
 
-/// Render `fol explain <code>` in the requested output mode.
+/// Render `fol code explain <code>` in the requested output mode.
 pub fn render_explain(code: &str, mode: OutputMode) -> ExplainRendering {
     let normalized = code.trim().to_ascii_uppercase();
     let (family, hint) = family_for_code(&normalized);
@@ -135,7 +135,7 @@ pub fn explain_command(code: &str, mode: OutputMode) -> FrontendResult<FrontendC
     } else {
         Err(
             FrontendError::new(FrontendErrorKind::InvalidInput, rendering.text).with_note(
-                "run `fol explain <CODE>` with a code from a diagnostic footer",
+                "run `fol code explain <CODE>` with a code from a diagnostic footer",
             ),
         )
     }

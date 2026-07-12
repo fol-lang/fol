@@ -207,7 +207,6 @@ User-facing frontend for the FOL toolchain
   {pack}  {ap}  Package management
   {code}  {ac}  Build, run, test, check
   {tool}  {at}  Editor tools, LSP, completion
-  {expl}         Explain a diagnostic code
 
 {opts}
   {h}, {hh}     Print help
@@ -221,7 +220,6 @@ User-facing frontend for the FOL toolchain
         pack = cmd("pack", 4),
         code = cmd("code", 4),
         tool = cmd("tool", 4),
-        expl = cmd("explain", 4),
         aw = alias("[aliases: w]"),
         ap = alias("[aliases: p]"),
         ac = alias("[aliases: c]"),
@@ -306,6 +304,7 @@ fn code_help() -> String {
   {c2}  {a2}  Run tests
   {c3}  {a3}  Check without building
   {c4}  {a4}  Emit intermediate representations
+  {c5}          Explain a diagnostic code
 
 {opts}
   {o0}  Select output mode [human|plain|json]
@@ -321,6 +320,7 @@ fn code_help() -> String {
         c2 = cmd("test", 5),
         c3 = cmd("check", 5),
         c4 = cmd("emit", 5),
+        c5 = cmd("explain", 5),
         a0 = alias("[aliases: b, make]  "),
         a1 = alias("[aliases: r]        "),
         a2 = alias("[aliases: t]        "),
@@ -429,7 +429,7 @@ fn explain_help() -> String {
         "\
 Explain a diagnostic code in plain language
 
-{usage} fol explain <CODE>
+{usage} fol code explain <CODE>
 
 {args}
   {a0}  A diagnostic code, e.g. T1003 (case-insensitive)
@@ -440,9 +440,9 @@ Explain a diagnostic code in plain language
   {o2}, {o3}  Print help
 
 {ex}
-  fol explain T1003
-  fol explain t1003
-  fol explain --output json R1003",
+  fol code explain T1003
+  fol code explain t1003
+  fol code explain --output json R1003",
         usage = s("Usage:"),
         args = s("Arguments:"),
         opts = s("Options:"),
@@ -503,10 +503,6 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
         Some(group) => {
             cursor.advance();
             cli.command = Some(parse_command_group(group, &mut cursor)?);
-        }
-        None if token == "explain" => {
-            cursor.advance();
-            cli.command = Some(FrontendCommand::Explain(parse_explain_command(&mut cursor)?));
         }
         None if token == "_complete" => {
             cursor.advance();
@@ -776,6 +772,7 @@ fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
         "test" | "t" => CodeSubcommand::Test(parse_test_command(cursor, sub_output, sub_profile)?),
         "check" | "c" | "verify" => CodeSubcommand::Check(parse_check_command(cursor, sub_output, sub_profile)?),
         "emit" | "e" | "gen" => CodeSubcommand::Emit(parse_emit_command(cursor)?),
+        "explain" => CodeSubcommand::Explain(parse_explain_command(cursor)?),
         _ => return Err(ParseError::invalid_subcommand(format!("unknown code subcommand: {sub}"))),
     };
 
@@ -1154,7 +1151,7 @@ fn parse_explain_command(cursor: &mut ArgCursor) -> Result<ExplainCommand, Parse
     }
 
     let code = code.ok_or_else(|| {
-        ParseError::missing("explain requires a diagnostic code, e.g. `fol explain T1003`")
+        ParseError::missing("explain requires a diagnostic code, e.g. `fol code explain T1003`")
     })?;
     Ok(ExplainCommand { code, output })
 }

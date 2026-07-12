@@ -326,38 +326,62 @@ fn completion_command_parses_requested_shell() {
 }
 
 #[test]
-fn explain_command_parses_as_a_top_level_command() {
-    let plain = parse_clean(&["fol", "explain", "T1003"]);
-    let cmd_json = parse_clean(&["fol", "explain", "R1003", "--output", "json"]);
-    let cmd_json_short = parse_clean(&["fol", "explain", "--json", "P1001"]);
+fn explain_command_parses_under_the_code_group() {
+    let plain = parse_clean(&["fol", "code", "explain", "T1003"]);
+    let cmd_json = parse_clean(&["fol", "code", "explain", "R1003", "--output", "json"]);
+    let cmd_json_short = parse_clean(&["fol", "code", "explain", "--json", "P1001"]);
 
     assert_eq!(
         plain.command,
-        Some(FrontendCommand::Explain(ExplainCommand {
-            code: "T1003".to_string(),
-            output: None,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Explain(ExplainCommand {
+                code: "T1003".to_string(),
+                output: None,
+            }),
         }))
     );
     assert_eq!(
         cmd_json.command,
-        Some(FrontendCommand::Explain(ExplainCommand {
-            code: "R1003".to_string(),
-            output: Some(OutputMode::Json),
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Explain(ExplainCommand {
+                code: "R1003".to_string(),
+                output: Some(OutputMode::Json),
+            }),
         }))
     );
     assert_eq!(
         cmd_json_short.command,
-        Some(FrontendCommand::Explain(ExplainCommand {
-            code: "P1001".to_string(),
-            output: Some(OutputMode::Json),
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Explain(ExplainCommand {
+                code: "P1001".to_string(),
+                output: Some(OutputMode::Json),
+            }),
         }))
     );
 }
 
 #[test]
 fn explain_command_requires_a_code() {
-    let error = try_parse_clean(&["fol", "explain"]).expect_err("explain needs a code");
+    let error = try_parse_clean(&["fol", "code", "explain"]).expect_err("explain needs a code");
     assert!(matches!(error.kind, ParseErrorKind::MissingValue(_)));
+}
+
+#[test]
+fn top_level_explain_command_is_removed() {
+    // `fol explain` no longer exists; the token is treated as a direct input
+    // target, not an explain command.
+    let cli = parse_clean(&["fol", "explain", "T1003"]);
+    assert!(
+        cli.command.is_none(),
+        "top-level explain must not resolve to a command"
+    );
+    assert_eq!(cli.input.as_deref(), Some("explain"));
 }
 
 #[test]

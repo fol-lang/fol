@@ -52,6 +52,15 @@ pub fn dispatch_cli(
                 dispatch_workspace_command(cmd, &workspace, config)
             }
         },
+        Some(FrontendCommand::Code(command))
+            if matches!(command.command, CodeSubcommand::Explain(_)) =>
+        {
+            let code = match &command.command {
+                CodeSubcommand::Explain(explain) => explain.code.clone(),
+                _ => unreachable!("guarded to Explain above"),
+            };
+            crate::explain_command(&code, config.output.mode)
+        }
         Some(cmd @ (FrontendCommand::Pack(_) | FrontendCommand::Code(_))) => {
             let needs_direct = match cmd {
                 FrontendCommand::Code(command) => code_has_direct_target(command),
@@ -111,9 +120,6 @@ pub fn dispatch_cli(
                 dispatch_workspace_command(cmd, &workspace, config)
             }
         },
-        Some(FrontendCommand::Explain(command)) => {
-            crate::explain_command(&command.code, config.output.mode)
-        }
         Some(FrontendCommand::Complete(command)) => {
             crate::internal_complete_command_with_tokens(&command.tokens)
         }
@@ -183,6 +189,10 @@ pub fn dispatch_direct_grouped_command(
             CodeSubcommand::Test(_) => Err(FrontendError::new(
                 FrontendErrorKind::Internal,
                 "unexpected direct test dispatch",
+            )),
+            CodeSubcommand::Explain(_) => Err(FrontendError::new(
+                FrontendErrorKind::Internal,
+                "unexpected direct explain dispatch",
             )),
         },
         _ => Err(FrontendError::new(
@@ -270,6 +280,10 @@ pub fn dispatch_workspace_command(
                     &config_for_roots(config, &emit.roots),
                 ),
             },
+            CodeSubcommand::Explain(_) => Err(FrontendError::new(
+                FrontendErrorKind::Internal,
+                "unexpected explain command reached workspace dispatcher",
+            )),
         },
         FrontendCommand::Tool(command) => match &command.command {
             ToolSubcommand::Clean(_) => crate::clean_workspace_with_config(workspace, config),
@@ -291,7 +305,7 @@ pub fn dispatch_workspace_command(
                 "unexpected completion command reached workspace dispatcher",
             )),
         },
-        FrontendCommand::Explain(_) | FrontendCommand::Complete(_) => Err(FrontendError::new(
+        FrontendCommand::Complete(_) => Err(FrontendError::new(
             FrontendErrorKind::Internal,
             "unexpected command reached workspace dispatcher",
         )),
@@ -339,6 +353,7 @@ pub fn code_has_direct_target(command: &cli::CodeCommand) -> bool {
         CodeSubcommand::Check(command) => command.target.input.is_some(),
         CodeSubcommand::Emit(command) => emit_has_direct_target(command),
         CodeSubcommand::Test(_) => false,
+        CodeSubcommand::Explain(_) => false,
     }
 }
 
@@ -478,15 +493,24 @@ where
                 }
             }
         }
-        Ok(cli) if matches!(cli.command.as_ref(), Some(FrontendCommand::Explain(_))) => {
+        Ok(cli)
+            if matches!(
+                cli.command.as_ref(),
+                Some(FrontendCommand::Code(command))
+                    if matches!(command.command, CodeSubcommand::Explain(_))
+            ) =>
+        {
             let config = crate::frontend_config_from_cli(&cli, None);
             // JSON/plain output must stay free of ANSI escapes even on a TTY.
             if !matches!(config.output.mode, crate::OutputMode::Human) {
                 crate::ansi::set_enabled(false);
             }
             let code = match cli.command.as_ref() {
-                Some(FrontendCommand::Explain(command)) => command.code.clone(),
-                _ => unreachable!("guarded to Explain above"),
+                Some(FrontendCommand::Code(command)) => match &command.command {
+                    CodeSubcommand::Explain(explain) => explain.code.clone(),
+                    _ => unreachable!("guarded to code explain above"),
+                },
+                _ => unreachable!("guarded to code explain above"),
             };
             let rendering = crate::render_explain(&code, config.output.mode);
             match writeln!(stdout, "{}", rendering.text.trim_end()) {

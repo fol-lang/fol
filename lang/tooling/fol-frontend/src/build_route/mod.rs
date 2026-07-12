@@ -94,6 +94,11 @@ impl FrontendBuildStep {
             crate::CodeSubcommand::Test(_) => FrontendBuildStep::Test,
             crate::CodeSubcommand::Check(_) => FrontendBuildStep::Check,
             crate::CodeSubcommand::Emit(_) => FrontendBuildStep::Build,
+            // `code explain` is dispatched directly and never enters workspace
+            // build-step routing, so it has no build step of its own.
+            crate::CodeSubcommand::Explain(_) => unreachable!(
+                "code explain is dispatched directly and never routes through build steps"
+            ),
         }
     }
 }
