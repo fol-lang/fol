@@ -129,6 +129,42 @@ There is no parallel `fol editor ...` command group.
 Future editor features are not exposed as placeholder commands.
 Only the shipped `fol tool` subcommands above are public.
 
+## Explain
+
+`fol explain <CODE>` prints an extended, plain-language explanation for a
+diagnostic code — the same code the pretty diagnostic footer points at
+(`run \`fol explain T1003\` for more`).
+
+- `fol explain <CODE>`
+
+Codes are accepted case-insensitively (`t1003` and `T1003` are the same).
+
+Examples:
+
+```text
+fol explain T1003
+fol explain t1003
+fol explain --output json R1003
+```
+
+Output modes:
+
+- `human` (default): a family chip, the code, a short title, and the body
+- `plain`: `code:` / `family:` / `title:` lines followed by the body
+- `json` / `--json`: `{ "code", "family", "known", "title", "explanation" }`
+
+Behavior:
+
+- known codes print their explanation and exit `0`
+- unknown codes print an honest "no extended explanation for `<CODE>` yet"
+  message (pointing at the code's family when the prefix is recognized) and
+  exit nonzero
+
+Only diagnostic codes the compiler and runtime actually emit have
+explanations. The registry lives in `fol-diagnostics` (compiler truth) and is
+kept honest by a completeness test, so `explain` never documents a code that
+does not exist.
+
 ## Artifact Reporting
 
 Frontend commands report explicit artifact roots when applicable, including:

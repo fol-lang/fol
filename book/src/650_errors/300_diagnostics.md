@@ -72,11 +72,16 @@ Codes are structurally assigned. The parser carries an explicit `ParseErrorKind`
 field on each error rather than deriving the code from message text. This means
 message wording can change without breaking code identity.
 
-Human output shows codes in brackets:
+The default `human` output shows the code after the message, alongside a
+plain-language family chip (e.g. `NAMES ... R1003`). The `plain` output shows it
+in brackets:
 
 ```text
 error[R1003]: could not resolve name 'answer'
 ```
+
+Any code can be expanded on demand with `fol explain <CODE>` (see
+[Tool Commands](../050_tooling/200_tool_commands.md)).
 
 JSON output includes the code as a top-level field:
 
@@ -174,16 +179,50 @@ failures.
 
 ## Human-readable diagnostics
 
-By default the CLI prints human-readable diagnostics.
+The CLI has two human-facing output modes, selected with the global `--output`
+flag. Both render from the same structured diagnostic model.
 
-The current renderer is designed around:
+### `human` (default)
 
-- a severity prefix with a diagnostic code bracket (e.g. `error[R1003]:`)
+The default renderer prints a framed, colored report:
+
+- a family chip that names the problem in plain language (`PARSER`, `NAMES`,
+  `TYPES`, `LOWERING`, `PACKAGE`, `BUILD`, `BACKEND`), the bold message, and the
+  diagnostic code
+- a framed source snippet (`┌─ file:line:column`) with the offending line and a
+  caret under the primary span
+- secondary labels for related sites
+- `= note:`, `= help:`, and `= try:` lines
+- a footer with a one-line plain-language hint and a
+  `` run `fol explain <CODE>` for more `` pointer
+- a closing `found N error(s)` summary
+
+Illustrative shape (colors omitted):
+
+```text
+ NAMES  could not resolve name 'answer'   R1003
+  ┌─ app/main.fol:3:12
+    │
+  3 │     return answer
+    │            ^^^^^^ unresolved name
+  = note: no visible declaration with that name was found in the current scope chain
+  = help: check imports or declare the name before use
+  a name or import problem — a symbol could not be resolved  ·  run `fol explain R1003` for more
+
+found 1 error
+```
+
+Colors disable themselves automatically when stdout is not a terminal, so piped
+and CI output stays plain text.
+
+### `plain`
+
+`--output plain` prints the older, unstyled human format:
+
+- a severity prefix with the diagnostic code in brackets (e.g. `error[R1003]:`)
 - an arrow line with `file:line:column`
-- a source snippet when the file and line can be loaded
-- an underline for the primary span
-- note-style summaries for related labels
-- note/help lines after the main snippet
+- a source snippet with an underline for the primary span
+- `note:`/`help:` lines and related-label summaries
 
 Illustrative shape:
 
@@ -197,9 +236,9 @@ error[R1003]: could not resolve name 'answer'
   help: check imports or declare the name before use
 ```
 
-Messages are clean human-readable text. The compiler does not prepend internal
-kind labels like `ResolverUnresolvedName:` to messages. The diagnostic code in
-brackets is the stable identifier.
+In both modes the messages are clean human-readable text. The compiler does not
+prepend internal kind labels like `ResolverUnresolvedName:` to messages; the
+diagnostic code is the stable identifier.
 
 ## Source fallbacks
 

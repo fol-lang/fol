@@ -51,6 +51,7 @@ pub enum FrontendCommand {
     Pack(PackCommand),
     Code(CodeCommand),
     Tool(ToolCommand),
+    Explain(ExplainCommand),
     Complete(CompleteCommand),
 }
 
@@ -186,6 +187,14 @@ pub struct TreeGenerateCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompleteCommand {
     pub tokens: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExplainCommand {
+    pub code: String,
+    /// Output mode set explicitly on the command (e.g. `explain T1003 --output
+    /// json`). When `None`, the root-level `--output`/`--json` flags apply.
+    pub output: Option<OutputMode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,5 +1,6 @@
 // FOL Diagnostics - Error formatting and output
 mod codes;
+mod explain;
 pub mod lsp;
 mod model;
 mod render_human;
@@ -7,6 +8,7 @@ mod render_json;
 pub mod source;
 
 pub use codes::DiagnosticCode;
+pub use explain::{explanation, family_for_code, registered_codes, Explanation};
 pub use model::{
     Diagnostic, DiagnosticLabel, DiagnosticLabelKind, DiagnosticLocation, DiagnosticReport,
     DiagnosticSuggestion, Severity,

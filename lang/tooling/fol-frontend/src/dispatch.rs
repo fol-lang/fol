@@ -111,6 +111,9 @@ pub fn dispatch_cli(
                 dispatch_workspace_command(cmd, &workspace, config)
             }
         },
+        Some(FrontendCommand::Explain(command)) => {
+            crate::explain_command(&command.code, config.output.mode)
+        }
         Some(FrontendCommand::Complete(command)) => {
             crate::internal_complete_command_with_tokens(&command.tokens)
         }
@@ -288,7 +291,7 @@ pub fn dispatch_workspace_command(
                 "unexpected completion command reached workspace dispatcher",
             )),
         },
-        FrontendCommand::Complete(_) => Err(FrontendError::new(
+        FrontendCommand::Explain(_) | FrontendCommand::Complete(_) => Err(FrontendError::new(
             FrontendErrorKind::Internal,
             "unexpected command reached workspace dispatcher",
         )),
@@ -471,6 +474,31 @@ where
                             let _ = writeln!(stderr, "FrontendInternal: {render_error}");
                         }
                     }
+                    1
+                }
+            }
+        }
+        Ok(cli) if matches!(cli.command.as_ref(), Some(FrontendCommand::Explain(_))) => {
+            let config = crate::frontend_config_from_cli(&cli, None);
+            // JSON/plain output must stay free of ANSI escapes even on a TTY.
+            if !matches!(config.output.mode, crate::OutputMode::Human) {
+                crate::ansi::set_enabled(false);
+            }
+            let code = match cli.command.as_ref() {
+                Some(FrontendCommand::Explain(command)) => command.code.clone(),
+                _ => unreachable!("guarded to Explain above"),
+            };
+            let rendering = crate::render_explain(&code, config.output.mode);
+            match writeln!(stdout, "{}", rendering.text.trim_end()) {
+                Ok(()) => {
+                    if rendering.known {
+                        0
+                    } else {
+                        1
+                    }
+                }
+                Err(error) => {
+                    let _ = writeln!(stderr, "FrontendInternal: {error}");
                     1
                 }
             }

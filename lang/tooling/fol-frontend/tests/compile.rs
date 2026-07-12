@@ -1,5 +1,5 @@
 use fol_frontend::{
-    build_workspace, build_workspace_with_config, check_workspace, check_workspace_with_config,
+    build_workspace_with_config, check_workspace, check_workspace_with_config,
     emit_lowered, emit_rust, run_command_from_args_in_dir, run_workspace,
     run_workspace_with_config, test_workspace, test_workspace_with_config, FrontendArtifactKind,
     FrontendConfig, FrontendWorkspace, PackageRoot, WorkspaceRoot,

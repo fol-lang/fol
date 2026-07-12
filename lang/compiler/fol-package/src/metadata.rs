@@ -776,8 +776,7 @@ fn is_valid_package_name(package_name: &str) -> bool {
 mod tests {
     use super::{
         extract_package_dependencies_from_build, extract_package_metadata_fields_from_build,
-        parse_package_metadata_from_build, PackageDependencyDecl, PackageDependencySourceKind,
-        PackageMetadata,
+        parse_package_metadata_from_build, PackageDependencySourceKind,
     };
     use fol_build::DependencyBuildEvaluationMode;
     use fol_diagnostics::ToDiagnostic;

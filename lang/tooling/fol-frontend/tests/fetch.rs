@@ -376,7 +376,6 @@ fn locked_fetch_repairs_missing_pinned_materializations_from_warm_cache() {
 #[test]
 fn fetch_supports_git_dependency_version_and_hash_fields() {
     let root = temp_root("git_versions");
-    let app = root.join("app");
     let remote = root.join("remote-logtiny");
     create_git_package_repo(&remote, "logtiny", "0.1.0");
     let revision = git_output(&remote, &["rev-parse", "HEAD"]);

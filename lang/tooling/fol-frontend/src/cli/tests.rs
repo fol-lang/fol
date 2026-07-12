@@ -2,9 +2,9 @@ use super::args::{
     BuildCommand, BuildOptionArgs, BuildStepArgs, CheckCommand, CodeCommand, CodeSubcommand,
     CompileRootArgs, CompleteCommand, CompletionCommand, CompletionShellArg, DirectTargetArg,
     EditorPathCommand, EditorReferenceCommand, EditorRenameCommand, EmitCommand,
-    EmitLoweredCommand, EmitRustCommand, EmitSubcommand, FetchCommand, FrontendCommand,
-    FrontendOutputArgs, FrontendProfile, FrontendProfileArgs, InitCommand, NewCommand,
-    PackCommand, PackSubcommand, RunCommand, TestCommand, ToolCommand, ToolSubcommand,
+    EmitLoweredCommand, EmitRustCommand, EmitSubcommand, ExplainCommand, FetchCommand,
+    FrontendCommand, FrontendOutputArgs, FrontendProfile, FrontendProfileArgs, InitCommand,
+    NewCommand, PackCommand, PackSubcommand, RunCommand, TestCommand, ToolCommand, ToolSubcommand,
     TreeCommand, TreeGenerateCommand, TreeSubcommand, UnitCommand, UpdateCommand, WorkCommand,
     WorkSubcommand,
 };
@@ -323,6 +323,41 @@ fn completion_command_parses_requested_shell() {
             }),
         }))
     );
+}
+
+#[test]
+fn explain_command_parses_as_a_top_level_command() {
+    let plain = parse_clean(&["fol", "explain", "T1003"]);
+    let cmd_json = parse_clean(&["fol", "explain", "R1003", "--output", "json"]);
+    let cmd_json_short = parse_clean(&["fol", "explain", "--json", "P1001"]);
+
+    assert_eq!(
+        plain.command,
+        Some(FrontendCommand::Explain(ExplainCommand {
+            code: "T1003".to_string(),
+            output: None,
+        }))
+    );
+    assert_eq!(
+        cmd_json.command,
+        Some(FrontendCommand::Explain(ExplainCommand {
+            code: "R1003".to_string(),
+            output: Some(OutputMode::Json),
+        }))
+    );
+    assert_eq!(
+        cmd_json_short.command,
+        Some(FrontendCommand::Explain(ExplainCommand {
+            code: "P1001".to_string(),
+            output: Some(OutputMode::Json),
+        }))
+    );
+}
+
+#[test]
+fn explain_command_requires_a_code() {
+    let error = try_parse_clean(&["fol", "explain"]).expect_err("explain needs a code");
+    assert!(matches!(error.kind, ParseErrorKind::MissingValue(_)));
 }
 
 #[test]

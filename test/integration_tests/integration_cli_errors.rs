@@ -656,6 +656,123 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
     }
 
     #[test]
+    fn test_cli_explain_known_code_prints_family_and_body() {
+        let output = run_fol(&["explain", "T1003"]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            output.status.success(),
+            "explaining a known code should exit zero, stdout=\n{stdout}"
+        );
+        assert!(stdout.contains("TYPES"), "explain should show the family chip");
+        assert!(
+            stdout.contains("incompatible types"),
+            "explain should show the code title"
+        );
+        assert!(stdout.contains("T1003"), "explain should echo the code");
+        assert!(
+            stdout.contains("How to fix"),
+            "explain body should include fix guidance"
+        );
+    }
+
+    #[test]
+    fn test_cli_explain_is_case_insensitive() {
+        let lower = run_fol(&["explain", "t1003"]);
+        let stdout = String::from_utf8_lossy(&lower.stdout);
+
+        assert!(lower.status.success(), "lowercase code should still resolve");
+        assert!(
+            stdout.contains("incompatible types"),
+            "lowercase `t1003` should resolve to the same explanation as `T1003`"
+        );
+        assert!(
+            stdout.contains("T1003"),
+            "explain should normalize the code to its canonical uppercase form"
+        );
+    }
+
+    #[test]
+    fn test_cli_explain_unknown_code_is_honest_and_exits_nonzero() {
+        let output = run_fol(&["explain", "Z9999"]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "explaining an unknown code should exit nonzero"
+        );
+        assert!(
+            stdout.contains("no extended explanation for Z9999"),
+            "unknown codes should print an honest message, stdout=\n{stdout}"
+        );
+        assert!(
+            stdout.contains("not a recognized FOL diagnostic code"),
+            "unrecognized prefixes should say so rather than invent a family"
+        );
+    }
+
+    #[test]
+    fn test_cli_explain_unknown_but_recognized_prefix_points_at_family() {
+        let output = run_fol(&["explain", "T9999"]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "an unregistered code should exit nonzero even with a known prefix"
+        );
+        assert!(
+            stdout.contains("no extended explanation for T9999"),
+            "unregistered codes should be honest about the missing explanation"
+        );
+        assert!(
+            stdout.contains("TYPES family"),
+            "a recognized prefix should still point at its family, stdout=\n{stdout}"
+        );
+    }
+
+    #[test]
+    fn test_cli_explain_json_carries_documented_shape() {
+        let output = run_fol(&["--output", "json", "explain", "T1003"]);
+        let json = parse_cli_json(&output);
+
+        assert!(output.status.success(), "known code json should exit zero");
+        assert_eq!(json["code"], "T1003");
+        assert_eq!(json["family"], "TYPES");
+        assert_eq!(json["known"], true);
+        assert_eq!(json["title"], "incompatible types");
+        assert!(
+            json["explanation"].as_str().is_some(),
+            "json explanation body should be present for known codes"
+        );
+    }
+
+    #[test]
+    fn test_explain_registry_only_documents_codes_that_exist_in_the_codebase() {
+        // Honest-surface guard: every code with a registered explanation must
+        // have a real construction site somewhere in the compiler/runtime crates.
+        // If a code is removed from the codebase, this fails until the registry
+        // drops it too.
+        let mut files = Vec::new();
+        collect_files_with_suffixes(&repo_root().join("lang"), &[".rs"], &mut files);
+
+        let registry_path = repo_root().join("lang/compiler/fol-diagnostics/src/explain.rs");
+        let sources: Vec<String> = files
+            .iter()
+            .filter(|path| **path != registry_path)
+            .map(|path| std::fs::read_to_string(path).unwrap_or_default())
+            .collect();
+
+        for code in fol_diagnostics::registered_codes() {
+            let needle = format!("\"{code}\"");
+            let found = sources.iter().any(|source| source.contains(&needle));
+            assert!(
+                found,
+                "explain registry code {code} has no construction site in lang/ outside the registry"
+            );
+        }
+    }
+
+    #[test]
     fn test_cli_typecheck_errors_fail_parse_clean_programs() {
         use std::fs;
 

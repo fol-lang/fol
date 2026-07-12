@@ -294,8 +294,23 @@ mod tests {
         assert_eq!(std_echo(memo::FolStr::from("ok")), memo::FolStr::from("ok"));
     }
 
+    /// Split runtime source into whole Rust identifiers so contract checks
+    /// match names exactly instead of matching accidental substrings. This is
+    /// what keeps the hosted `echo` service distinct from the pure
+    /// `render_echo` / `FolEchoFormat` formatting surface that `core`
+    /// legitimately re-exports as part of its records/entries display contract.
+    fn source_defines_or_reexports_identifier(source: &str, identifier: &str) -> bool {
+        source
+            .split(|character: char| !character.is_alphanumeric() && character != '_')
+            .any(|token| token == identifier)
+    }
+
     #[test]
     fn core_source_stays_free_of_accidental_heap_or_hosted_reexports() {
+        // These are whole-identifier names, not substrings: the heap container
+        // types, the hosted `echo` service, and the hosted process outcome. The
+        // pure formatting helpers `render_echo` and `FolEchoFormat` are separate
+        // identifiers and remain a legitimate part of the `core` tier surface.
         for forbidden in [
             "FolStr",
             "FolVec",
@@ -306,7 +321,7 @@ mod tests {
             "FolProcessOutcome",
         ] {
             assert!(
-                !CORE_SOURCE.contains(forbidden),
+                !source_defines_or_reexports_identifier(CORE_SOURCE, forbidden),
                 "core runtime tier should not expose '{forbidden}' through source reexports"
             );
         }

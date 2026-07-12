@@ -3,7 +3,6 @@
 //! `fol-frontend` will become the canonical command-line/workspace entrypoint
 //! above `fol-package` and the compiler pipeline.
 
-#[allow(dead_code)]
 pub(crate) mod ansi;
 mod build_route;
 mod clean;
@@ -16,6 +15,7 @@ mod discovery;
 mod dispatch;
 mod editor;
 mod errors;
+mod explain;
 mod fetch;
 mod output;
 mod pretty;
@@ -34,10 +34,10 @@ pub use clean::{clean_workspace, clean_workspace_with_config};
 pub use cli::{
     BuildCommand, CheckCommand, CodeCommand, CodeSubcommand, CompleteCommand, CompletionCommand,
     CompletionShellArg, EditorPathCommand, EditorReferenceCommand, EditorRenameCommand,
-    EmitCommand, EmitLoweredCommand, EmitRustCommand, EmitSubcommand, FetchCommand,
-    FrontendCli, FrontendCommand, FrontendProfile, InitCommand, NewCommand, PackCommand,
-    PackSubcommand, ParseError, ParseErrorKind, RunCommand, TestCommand, ToolCommand,
-    ToolSubcommand, UnitCommand, UpdateCommand,
+    EmitCommand, EmitLoweredCommand, EmitRustCommand, EmitSubcommand, ExplainCommand,
+    FetchCommand, FrontendCli, FrontendCommand, FrontendProfile, InitCommand, NewCommand,
+    PackCommand, PackSubcommand, ParseError, ParseErrorKind, RunCommand, TestCommand,
+    ToolCommand, ToolSubcommand, UnitCommand, UpdateCommand,
 };
 pub use compile::{
     build_workspace, build_workspace_for_profile_with_config, build_workspace_with_config,
@@ -66,6 +66,7 @@ pub use editor::{
     editor_tree_generate_command,
 };
 pub use errors::{FrontendError, FrontendErrorKind, FrontendResult};
+pub use explain::{explain_command, render_explain, ExplainRendering};
 pub use fetch::{
     fetch_workspace, fetch_workspace_with_config, prepare_workspace_packages,
     select_package_store_root, update_workspace, update_workspace_with_config,
@@ -282,6 +283,9 @@ fn command_output_mode(cli: &FrontendCli) -> Option<OutputMode> {
         Some(FrontendCommand::Pack(command)) => Some(command.output.output),
         Some(FrontendCommand::Code(command)) => Some(command.output.output),
         Some(FrontendCommand::Tool(command)) => Some(command.output.output),
+        // `explain` carries an optional explicit override; `None` here means the
+        // root-level `--output`/`--json` flags apply instead.
+        Some(FrontendCommand::Explain(command)) => command.output,
         Some(FrontendCommand::Complete(_)) | None => None,
     }
 }

@@ -3,7 +3,7 @@ use super::super::{
     FrontendBuildWorkflowMode, FrontendMemberBuildRoute, FrontendStepExecutionKind,
     FrontendWorkspaceBuildRequest, FrontendWorkspaceBuildRoute,
 };
-use crate::{FrontendConfig, FrontendProfile, FrontendWorkspace, PackageRoot, WorkspaceRoot};
+use crate::{FrontendConfig, FrontendWorkspace, PackageRoot, WorkspaceRoot};
 use std::{fs, path::PathBuf};
 
 fn plan_member_execution(

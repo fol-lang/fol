@@ -97,6 +97,12 @@ static COMMAND_TREE: &[CmdEntry] = &[
             CmdEntry { name: "completion", aliases: &["completions", "comp"], hidden: false, subcommands: &[] },
         ],
     },
+    CmdEntry {
+        name: "explain",
+        aliases: &[],
+        hidden: false,
+        subcommands: &[],
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -116,7 +122,7 @@ fn generate_bash_script() -> String {
     local cur prev words cword
     _init_completion || return
 
-    local -a toplevel=(work w pack p code c tool t)
+    local -a toplevel=(work w pack p code c tool t explain)
     local -a work_cmds=(init new info list deps status)
     local -a pack_cmds=(fetch f sync update u upgrade)
     local -a code_cmds=(build b make run r test t check c verify emit e gen)
@@ -168,6 +174,7 @@ _fol() {
         'pack:Package management'
         'code:Build, run, test, check'
         'tool:Editor tools, LSP, completion'
+        'explain:Explain a diagnostic code'
     )
     local -a work_cmds=(init new info list deps status)
     local -a pack_cmds=(fetch update)
@@ -227,6 +234,7 @@ fn generate_fish_script() -> String {
         ("pack", "Package management"),
         ("code", "Build, run, test, check"),
         ("tool", "Editor tools, LSP, completion"),
+        ("explain", "Explain a diagnostic code"),
     ] {
         lines.push(format!(
             "complete -c fol -f -n __fish_fol_no_subcommand -a {name} -d '{desc}'"
@@ -404,6 +412,19 @@ mod tests {
 
         assert!(script.contains("complete -c fol"));
         assert!(script.contains("__fish_fol_no_subcommand"));
+    }
+
+    #[test]
+    fn top_level_completions_offer_the_explain_command() {
+        let matches = internal_complete_matches(&["e".to_string()]);
+        assert!(matches.contains(&"explain".to_string()));
+
+        let bash = generate_bash_completion_script().unwrap();
+        assert!(bash.contains("explain"));
+        let zsh = generate_zsh_completion_script().unwrap();
+        assert!(zsh.contains("explain"));
+        let fish = generate_fish_completion_script().unwrap();
+        assert!(fish.contains("explain"));
     }
 
     #[test]

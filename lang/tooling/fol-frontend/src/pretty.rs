@@ -37,21 +37,16 @@ pub fn render_report_pretty(report: &DiagnosticReport) -> String {
 
 /// Map an error code + severity to a plain-language family name and a one-line
 /// "what this means" hint. Warnings/infos take precedence over the code family.
+///
+/// The code-prefix mapping is owned by `fol-diagnostics` so the family chip here
+/// and the `fol explain <CODE>` output never drift apart.
 fn family(code: &str, severity: &Severity) -> (&'static str, &'static str) {
     match severity {
         Severity::Warning => return ("WARNING", "something worth a second look"),
         Severity::Info => return ("NOTE", "an informational note"),
         Severity::Error => {}
     }
-    match code.chars().next() {
-        Some('L') | Some('K') => ("LEXER", "a typo — the source has characters FOL cannot read"),
-        Some('P') => ("PARSER", "a syntax slip — the code is shaped in a way FOL cannot parse"),
-        Some('R') => ("NAMES", "a name or import problem — a symbol could not be resolved"),
-        Some('T') => ("TYPES", "a type mismatch — the values do not fit the expected types"),
-        Some('F') => ("BUILD", "a build or configuration problem in the package graph"),
-        Some('B') => ("BACKEND", "a code-generation problem while emitting the program"),
-        _ => ("ERROR", "a problem the compiler could not accept"),
-    }
+    fol_diagnostics::family_for_code(code)
 }
 
 fn chip(text: &str, severity: &Severity) -> String {
@@ -294,7 +289,8 @@ mod tests {
     #[test]
     fn pretty_family_is_inferred_from_the_code_prefix() {
         for (code, expected) in [
-            ("L1001", "LEXER"),
+            ("L1001", "LOWERING"),
+            ("K1001", "PACKAGE"),
             ("P1001", "PARSER"),
             ("R1003", "NAMES"),
             ("T1002", "TYPES"),

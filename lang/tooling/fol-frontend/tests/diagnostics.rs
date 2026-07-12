@@ -5,19 +5,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-fn semantic_bin_build() -> &'static str {
-    concat!(
-        "pro[] build(): non = {\n",
-        "    var build = .build();\n",
-        "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
-        "    var graph = build.graph();\n",
-        "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
-        "    graph.install(app);\n",
-        "    graph.add_run(app);\n",
-        "};\n",
-    )
-}
-
 fn semantic_lib_build(name: &str) -> String {
     format!(
         concat!(

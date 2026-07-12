@@ -1,7 +1,7 @@
 use super::super::{
     canonical_graph_construction_capabilities, evaluate_build_source, BuildEvaluationBoundary,
     BuildEvaluationErrorKind, BuildEvaluationInputs, BuildEvaluationRequest, BuildEvaluationResult,
-    BuildRuntimeCapabilityModel, EvaluatedBuildProgram,
+    EvaluatedBuildProgram,
 };
 use crate::graph::BuildGraph;
 use crate::option::{BuildOptionDeclarationSet, ResolvedBuildOptionSet};

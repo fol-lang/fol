@@ -207,6 +207,7 @@ User-facing frontend for the FOL toolchain
   {pack}  {ap}  Package management
   {code}  {ac}  Build, run, test, check
   {tool}  {at}  Editor tools, LSP, completion
+  {expl}         Explain a diagnostic code
 
 {opts}
   {h}, {hh}     Print help
@@ -220,6 +221,7 @@ User-facing frontend for the FOL toolchain
         pack = cmd("pack", 4),
         code = cmd("code", 4),
         tool = cmd("tool", 4),
+        expl = cmd("explain", 4),
         aw = alias("[aliases: w]"),
         ap = alias("[aliases: p]"),
         ac = alias("[aliases: c]"),
@@ -421,6 +423,38 @@ fn tree_help() -> String {
     )
 }
 
+fn explain_help() -> String {
+    let s = section;
+    format!(
+        "\
+Explain a diagnostic code in plain language
+
+{usage} fol explain <CODE>
+
+{args}
+  {a0}  A diagnostic code, e.g. T1003 (case-insensitive)
+
+{opts}
+  {o0}  Select output mode [human|plain|json]
+  {o1}  Shorthand for --output json
+  {o2}, {o3}  Print help
+
+{ex}
+  fol explain T1003
+  fol explain t1003
+  fol explain --output json R1003",
+        usage = s("Usage:"),
+        args = s("Arguments:"),
+        opts = s("Options:"),
+        ex = s("Examples:"),
+        a0 = cmd("<CODE>", 15),
+        o0 = opt("--output <MODE>", 15),
+        o1 = opt("--json", 15),
+        o2 = opt("-h", 2),
+        o3 = opt("--help", 6),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Root parser
 // ---------------------------------------------------------------------------
@@ -469,6 +503,10 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
         Some(group) => {
             cursor.advance();
             cli.command = Some(parse_command_group(group, &mut cursor)?);
+        }
+        None if token == "explain" => {
+            cursor.advance();
+            cli.command = Some(FrontendCommand::Explain(parse_explain_command(&mut cursor)?));
         }
         None if token == "_complete" => {
             cursor.advance();
@@ -1088,6 +1126,37 @@ fn parse_tree_command(cursor: &mut ArgCursor) -> Result<TreeCommand, ParseError>
         }
         _ => Err(ParseError::invalid_subcommand(format!("unknown tree subcommand: {sub}"))),
     }
+}
+
+fn parse_explain_command(cursor: &mut ArgCursor) -> Result<ExplainCommand, ParseError> {
+    let mut code: Option<String> = None;
+    let mut output: Option<OutputMode> = None;
+
+    while let Some(token) = cursor.peek() {
+        if token == "-h" || token == "--help" {
+            return Err(ParseError::help(explain_help()));
+        }
+        if token.starts_with("--") {
+            let token = cursor.advance().unwrap().to_string();
+            let (key, _) = split_eq(&token);
+            match key {
+                "--output" => {
+                    output = Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
+                "--json" => output = Some(OutputMode::Json),
+                _ => return Err(ParseError::invalid(format!("unknown flag for explain: {key}"))),
+            }
+        } else if code.is_none() {
+            code = Some(cursor.advance().unwrap().to_string());
+        } else {
+            break;
+        }
+    }
+
+    let code = code.ok_or_else(|| {
+        ParseError::missing("explain requires a diagnostic code, e.g. `fol explain T1003`")
+    })?;
+    Ok(ExplainCommand { code, output })
 }
 
 fn parse_completion_command(cursor: &mut ArgCursor) -> Result<CompletionCommand, ParseError> {
