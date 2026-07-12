@@ -1242,6 +1242,7 @@ impl SemanticSnapshot {
         reference: &fol_resolver::ResolvedReference,
         new_name: &str,
     ) -> EditorResult<LspWorkspaceEdit> {
+        ensure_renameable_identifier(new_name)?;
         self.resolved_workspace.as_ref().ok_or_else(|| {
             EditorError::new(
                 EditorErrorKind::InvalidInput,
@@ -1913,6 +1914,43 @@ fn reference_at_position_in_program(
     })
 }
 
+
+/// Applying a rename with an illegal identifier would write syntactically
+/// broken source; validate the new name before producing any edit.
+fn ensure_renameable_identifier(new_name: &str) -> EditorResult<()> {
+    let valid_shape = !new_name.is_empty()
+        && new_name
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && new_name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+    if !valid_shape {
+        return Err(EditorError::new(
+            EditorErrorKind::InvalidInput,
+            format!(
+                "rename target '{}' is not a legal FOL identifier",
+                new_name.escape_debug()
+            ),
+        ));
+    }
+    let is_keyword = fol_lexer::token::buildin::DECLARATION_KEYWORDS
+        .iter()
+        .chain(fol_lexer::token::buildin::CONTROL_KEYWORDS)
+        .chain(fol_lexer::token::buildin::OPERATOR_KEYWORDS)
+        .chain(fol_lexer::token::buildin::LITERAL_KEYWORDS)
+        .chain(fol_lexer::token::buildin::DIAGNOSTIC_KEYWORDS)
+        .chain(fol_lexer::token::buildin::OTHER_KEYWORDS)
+        .any(|keyword| *keyword == new_name);
+    if is_keyword {
+        return Err(EditorError::new(
+            EditorErrorKind::InvalidInput,
+            format!("rename target '{new_name}' is a reserved FOL keyword"),
+        ));
+    }
+    Ok(())
+}
 
 /// Classify a build.fol receiver variable by scanning its binding site.
 fn classify_build_receiver(
