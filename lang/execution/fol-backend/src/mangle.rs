@@ -43,6 +43,21 @@ const RUST_KEYWORDS: &[&str] = &[
     "union", "unsafe", "use", "where", "while", "yield",
 ];
 
+/// Escape a FOL field or entry-variant name for a Rust IDENTIFIER position
+/// (struct field, enum variant, field access). FOL's keyword set does not
+/// overlap Rust's, so names like `type` or `match` are valid FOL field names
+/// but reserved in Rust — emit them as raw identifiers. `crate`/`self`/
+/// `super`/`Self` cannot be raw identifiers, so those few fall back to the
+/// `_kw` suffix (the same escape module names use). String-literal positions
+/// (runtime field labels) must keep the raw FOL name and NOT use this.
+pub fn escape_rust_field_ident(name: &str) -> String {
+    match name {
+        "crate" | "self" | "super" | "Self" => format!("{name}_kw"),
+        _ if RUST_KEYWORDS.contains(&name) => format!("r#{name}"),
+        _ => name.to_string(),
+    }
+}
+
 pub fn mangle_package_module_name(identity: &PackageIdentity) -> String {
     format!(
         "pkg__{}__{}",

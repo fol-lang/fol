@@ -57,7 +57,8 @@ pub use layout::{
     GeneratedCrateLayoutPlan, NamespaceLayoutPlan, PackageLayoutPlan,
 };
 pub use mangle::{
-    mangle_global_name, mangle_local_name, mangle_package_module_name, mangle_routine_name,
+    escape_rust_field_ident, mangle_global_name, mangle_local_name, mangle_package_module_name,
+    mangle_routine_name,
     mangle_type_name, sanitize_backend_ident,
 };
 pub use model::{BackendArtifact, BackendBuildPaths, EmittedRustFile};

@@ -56,6 +56,7 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::StoreField { base, field, value } => {
             let base = render_local_name(package_identity, routine, *base)?;
             let value = render_local_name(package_identity, routine, *value)?;
+            let field = crate::escape_rust_field_ident(field);
             Ok(format!("{base}.{field} = {value}.clone();"))
         }
         LoweredInstrKind::LoadGlobal { global } => {
@@ -136,6 +137,7 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::FieldAccess { base, field } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let base = render_local_name(package_identity, routine, *base)?;
+            let field = crate::escape_rust_field_ident(field);
             Ok(format!("{result} = {base}.{field}.clone();"))
         }
         LoweredInstrKind::IntrinsicCall { intrinsic, args } => {
@@ -393,7 +395,8 @@ pub fn render_core_instruction_in_workspace(
                 .iter()
                 .map(|(field, local)| {
                     Ok(format!(
-                        "{field}: {}",
+                        "{}: {}",
+                        crate::escape_rust_field_ident(field),
                         render_clone_expr(package_identity, routine, *local)?
                     ))
                 })
@@ -411,6 +414,7 @@ pub fn render_core_instruction_in_workspace(
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let (type_identity, type_decl) = resolve_type_decl(workspace, *type_id)?;
             let type_name = render_type_path(workspace, type_identity, type_decl)?;
+            let variant = crate::escape_rust_field_ident(variant);
             let expression = match payload {
                 Some(payload) => format!(
                     "{type_name}::{variant}({})",
