@@ -276,6 +276,12 @@ fn lower_top_level_declaration(
                 generics,
                 &generic_params,
             )?;
+            // Record the generic parameters/constraints before lowering the
+            // body so a self-referential field (`typ Node(T) = { next: Node[T] }`)
+            // sees `Node` as a generic type and interns a nominal `Node[T]` node
+            // instead of re-lowering the declaration and recursing forever.
+            record_symbol_generic_params(typed, symbol_id, generic_params)?;
+            record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
             let type_id = match type_def {
                 TypeDefinition::Alias { target } => {
                     lower_type(typed, resolved, type_scope, target)?
@@ -327,9 +333,18 @@ fn lower_top_level_declaration(
                         .intern(CheckedType::Entry { variants: lowered })
                 }
             };
-            record_symbol_generic_params(typed, symbol_id, generic_params)?;
-            record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
             record_symbol_type(typed, symbol_id, type_id)?;
+            // Recursive type definitions (`typ Node(T) = { next: Node[T] }`,
+            // `typ Tree = { kids: vec[Tree] }`) are not representable in the
+            // current structural runtime model: there is no nominal/named
+            // lowered type, so the shape has no finite form. Reject the
+            // declaration with an honest, located diagnostic instead of looping
+            // forever in lowering. This is a compile-time boundary, not a
+            // silent acceptance — recursive/heap-linked data belongs to the
+            // later ownership/pointer surface.
+            let recursion_origin = node_origin(resolved, &item.node)
+                .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+            reject_recursive_type_definition(typed, symbol_id, type_id, recursion_origin, resolved)?;
             if !explicit_contracts.is_empty() {
                 let mut standard_symbol_ids = Vec::new();
                 let mut claims = Vec::new();
@@ -2415,23 +2430,11 @@ fn instantiate_declared_generic_type(
     let typed_symbol = typed.typed_symbol(symbol_id).ok_or_else(|| {
         internal_error("instantiated type symbol disappeared during type lowering", origin.clone())
     })?;
-    let template = typed_symbol.declared_type.ok_or_else(|| {
-        match origin.clone() {
-            Some(origin) => TypecheckError::with_origin(
-                TypecheckErrorKind::Unsupported,
-                "generic recursive type instantiation is not yet supported",
-                origin,
-            ),
-            None => TypecheckError::new(
-                TypecheckErrorKind::Unsupported,
-                "generic recursive type instantiation is not yet supported",
-            ),
-        }
-    })?;
     if typed_symbol.generic_params.is_empty() {
         return lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id);
     }
-    if typed_symbol.generic_params.len() != arg_types.len() {
+    let generic_params = typed_symbol.generic_params.clone();
+    if generic_params.len() != arg_types.len() {
         return Err(invalid_input_error(
             format!(
                 "generic type '{}' expects {} type argument(s) but got {}",
@@ -2439,40 +2442,22 @@ fn instantiate_declared_generic_type(
                     .symbol(symbol_id)
                     .map(|symbol| symbol.name.as_str())
                     .unwrap_or("?"),
-                typed_symbol.generic_params.len(),
+                generic_params.len(),
                 arg_types.len()
             ),
             origin,
         ));
     }
-    let bindings = typed_symbol
-        .generic_params
-        .iter()
-        .copied()
-        .zip(arg_types.iter().copied())
-        .collect::<BTreeMap<_, _>>();
-    validate_generic_bindings_against_constraints(
-        typed,
-        &bindings,
-        &typed_symbol.generic_constraints,
-        format!(
-            "generic type instantiation '{}'",
-            resolved
-                .symbol(symbol_id)
-                .map(|symbol| symbol.name.as_str())
-                .unwrap_or("?")
-        ),
-        origin.clone(),
-    )?;
+    let generic_constraints = typed_symbol.generic_constraints.clone();
+    // The template (the declaration's structural body) may not be recorded yet
+    // when a generic type references itself inside its own body
+    // (`typ Node(T): rec = { next: Node[T] }`): its `declared_type` lands only
+    // after the body is fully lowered.
+    let template = typed_symbol.declared_type;
 
     // Nominal identity: intern the instantiation as a `Declared` node carrying
     // its type arguments, so `Box[int]` and `Cup[int]` are distinct types
     // (different `symbol`) and `Box[int]`/`Box[str]` differ (different `args`).
-    // The substituted structural shape is computed once and registered as the
-    // node's apparent type, so every consumer that resolves through
-    // `apparent_type_id` (field access, record-literal checking, assignability,
-    // dispatch) transparently sees the concrete record/entry.
-    let structural = substitute_generic_checked_type(typed, template, &bindings, origin.clone())?;
     let display_name = resolved
         .symbol(symbol_id)
         .map(|symbol| symbol.name.clone())
@@ -2487,10 +2472,143 @@ fn instantiate_declared_generic_type(
         kind,
         args: arg_types.to_vec(),
     });
+
+    // No template yet (self-reference while the type's own body is still being
+    // lowered), or this instance is already being expanded higher on the stack
+    // (a recursive instantiation): the interned nominal node is the answer. Its
+    // concrete structural shape is filled in when the type is instantiated at a
+    // real use site, and the cycle guard keeps that expansion finite.
+    let Some(template) = template else {
+        return Ok(instance);
+    };
+    if !typed.begin_instantiation(instance) {
+        return Ok(instance);
+    }
+
+    let bindings = generic_params
+        .iter()
+        .copied()
+        .zip(arg_types.iter().copied())
+        .collect::<BTreeMap<_, _>>();
+    let result = (|| {
+        validate_generic_bindings_against_constraints(
+            typed,
+            &bindings,
+            &generic_constraints,
+            format!(
+                "generic type instantiation '{}'",
+                resolved
+                    .symbol(symbol_id)
+                    .map(|symbol| symbol.name.as_str())
+                    .unwrap_or("?")
+            ),
+            origin.clone(),
+        )?;
+        // The substituted structural shape is computed once and registered as
+        // the node's apparent type, so every consumer that resolves through
+        // `apparent_type_id` (field access, record-literal checking,
+        // assignability, dispatch) transparently sees the concrete record/entry.
+        substitute_generic_checked_type(typed, template, &bindings, origin.clone())
+    })();
+    typed.end_instantiation(instance);
+    let structural = result?;
     if instance != structural {
         typed.record_apparent_type_override(instance, structural);
     }
     Ok(instance)
+}
+
+/// Reject a type whose structural body transitively references its own
+/// declaring symbol. The structural runtime model has no nominal/named lowered
+/// type, so a recursive shape has no finite representation and would loop the
+/// backend forever; catch it here with a located diagnostic. Covers direct
+/// (`{ next: Node[T] }`), container-indirected (`{ kids: vec[Node] }`), and
+/// mutual recursion through other declared types.
+fn reject_recursive_type_definition(
+    typed: &TypedProgram,
+    symbol_id: SymbolId,
+    type_id: CheckedTypeId,
+    origin: Option<SyntaxOrigin>,
+    resolved: &ResolvedProgram,
+) -> Result<(), TypecheckError> {
+    let mut visited = std::collections::BTreeSet::new();
+    if !checked_type_references_symbol(typed, type_id, symbol_id, &mut visited) {
+        return Ok(());
+    }
+    let name = resolved
+        .symbol(symbol_id)
+        .map(|symbol| symbol.name.clone())
+        .unwrap_or_else(|| "?".to_string());
+    let message = format!(
+        "recursive type '{name}' is not yet supported: a type whose fields refer back to \
+         itself (directly or through a container/another type) has no finite runtime shape in \
+         the current model; break the cycle or model the link with a later ownership/pointer type"
+    );
+    Err(match origin {
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+        }
+        None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+    })
+}
+
+/// Walk a checked type's structure looking for a reference back to `target`.
+/// Follows record fields, entry variants, container element/member/key/value
+/// types, optional/error inner types, generic arguments, and — for a nested
+/// declared type — that type's own structural body (for mutual recursion). The
+/// `visited` set keeps the walk finite.
+fn checked_type_references_symbol(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    target: SymbolId,
+    visited: &mut std::collections::BTreeSet<CheckedTypeId>,
+) -> bool {
+    if !visited.insert(type_id) {
+        return false;
+    }
+    let Some(checked) = typed.type_table().get(type_id).cloned() else {
+        return false;
+    };
+    let refers = |inner: CheckedTypeId, visited: &mut std::collections::BTreeSet<CheckedTypeId>| {
+        checked_type_references_symbol(typed, inner, target, visited)
+    };
+    match checked {
+        CheckedType::Declared { symbol, kind, args, .. } => {
+            if matches!(kind, DeclaredTypeKind::Type | DeclaredTypeKind::Alias)
+                && symbol == target
+            {
+                return true;
+            }
+            if args.iter().any(|arg| refers(*arg, visited)) {
+                return true;
+            }
+            // Descend into the referenced type's structural body (mutual
+            // recursion), preferring the concrete apparent shape when present.
+            let inner = typed
+                .apparent_type_override(type_id)
+                .or_else(|| typed.typed_symbol(symbol).and_then(|s| s.declared_type));
+            inner.is_some_and(|inner| refers(inner, visited))
+        }
+        CheckedType::Record { fields } => {
+            fields.values().any(|field| refers(*field, visited))
+        }
+        CheckedType::Entry { variants } => variants
+            .values()
+            .filter_map(|variant| *variant)
+            .any(|variant| refers(variant, visited)),
+        CheckedType::Array { element_type, .. }
+        | CheckedType::Vector { element_type }
+        | CheckedType::Sequence { element_type } => refers(element_type, visited),
+        CheckedType::Set { member_types } => {
+            member_types.iter().any(|member| refers(*member, visited))
+        }
+        CheckedType::Map { key_type, value_type } => {
+            refers(key_type, visited) || refers(value_type, visited)
+        }
+        CheckedType::Optional { inner } => refers(inner, visited),
+        CheckedType::Error { inner } => inner.is_some_and(|inner| refers(inner, visited)),
+        CheckedType::Builtin(_) | CheckedType::Routine(_) => false,
+    }
 }
 
 pub(crate) fn substitute_generic_checked_type(
@@ -2541,12 +2659,21 @@ pub(crate) fn substitute_generic_checked_type(
                 kind,
                 args: substituted_args.clone(),
             });
+            // Recompute the concrete structural shape unless this instance is
+            // already being expanded higher on the stack — a recursive type
+            // (`typ Node(T) = { next: Node[T] }`) reaches its own instantiation
+            // while substituting its body, and the interned nominal node is the
+            // fixpoint the recursion resolves to.
             if let Some(template) = template {
-                if generic_params.len() == substituted_args.len() {
+                if generic_params.len() == substituted_args.len()
+                    && typed.begin_instantiation(instance)
+                {
                     let inner: BTreeMap<SymbolId, CheckedTypeId> =
                         generic_params.into_iter().zip(substituted_args).collect();
                     let structural =
-                        substitute_generic_checked_type(typed, template, &inner, origin.clone())?;
+                        substitute_generic_checked_type(typed, template, &inner, origin.clone());
+                    typed.end_instantiation(instance);
+                    let structural = structural?;
                     if instance != structural {
                         typed.record_apparent_type_override(instance, structural);
                     }

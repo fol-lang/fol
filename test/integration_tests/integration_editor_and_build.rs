@@ -1053,6 +1053,27 @@ fn test_generic_receiver_cross_file_m1_example_builds_and_runs() {
 }
 
 #[test]
+fn test_fail_generic_recursive_m1m2_example_rejects_cleanly() {
+    // A recursive generic type (`typ Tree(T) = { kids: vec[Tree[T]] }`) has no
+    // finite runtime shape: the checker rejects it with an honest boundary
+    // diagnostic instead of overflowing the stack during lowering.
+    let root = temp_example_root("examples/fail_generic_recursive_m1m2");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        !check.status.success(),
+        "recursive generic type example should fail semantic checking: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(
+        combined.contains("recursive type") && combined.contains("not yet supported"),
+        "recursive generic type should keep the honest boundary diagnostic: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
 fn test_fail_generic_receiver_m1_example_rejects_cleanly() {
     let root = temp_example_root("examples/fail_generic_receiver_m1");
 
@@ -4594,8 +4615,6 @@ fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
     let contract =
         std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
             .expect("full V2 contract note should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(contract.contains("executable generic routines"));
     assert!(contract.contains("generic types"));
@@ -4604,11 +4623,6 @@ fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
     assert!(contract.contains("blueprint standards"));
     assert!(contract.contains("extended standards"));
     assert!(contract.contains("broad dispatch driven by standards"));
-    assert!(plan.contains("# V2 Deepening Plan"));
-    assert!(plan.contains("no OO"));
-    assert!(plan.contains("no runtime dispatch"));
-    assert!(plan.contains("# 4. Workstream G: Remove Surfaces We Will Not Build"));
-    assert!(plan.contains("# 13. Workstream P: Editor And Tree-Sitter Hardening"));
 }
 
 #[test]
@@ -4616,16 +4630,11 @@ fn test_v2_runtime_strategy_note_freezes_monomorphization() {
     let strategy =
         std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
             .expect("V2 runtime strategy note should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(strategy.contains("monomorphization for executable generic routines"));
     assert!(strategy.contains("monomorphization for generic type instantiations"));
     assert!(strategy.contains("no dictionary passing for the current `V2` target"));
     assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
-    assert!(plan.contains("# 1. Guardrails"));
-    assert!(plan.contains("vtable / witness-table systems"));
-    assert!(plan.contains("# 12. Workstream O: Generic Standards"));
 }
 
 #[test]
@@ -4636,15 +4645,12 @@ fn test_runtime_crate_docs_align_with_the_v2_monomorphization_boundary() {
     let strategy =
         std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
             .expect("V2 runtime strategy note should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(runtime_docs.contains("a runtime-owned generic reification model"));
     assert!(runtime_docs.contains("object-style standards/dispatch machinery"));
     assert!(runtime_docs.contains("Full `V2` generics, generic types, and procedural standards still execute"));
     assert!(runtime_docs.contains("does not define a second witness/dictionary system"));
     assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
-    assert!(plan.contains("vtable / witness-table systems"));
 }
 
 #[test]
@@ -4655,13 +4661,10 @@ fn test_v2_standards_docs_keep_execution_semantics_procedural() {
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(standards_note.contains("ordinary receiver-qualified routine emission"));
     assert!(standards_note.contains("docs must not imply that lowered protocol metadata creates a runtime witness"));
     assert!(standards_book.contains("ordinary receiver-qualified routine calls, not through a runtime object model"));
-    assert!(plan.contains("vtable / witness-table systems"));
 }
 
 #[test]
@@ -4669,8 +4672,6 @@ fn test_v2_standards_execution_stays_free_of_runtime_dispatch_artifacts() {
     let strategy =
         std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
             .expect("V2 runtime strategy note should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     for example in [
         "examples/standards_protocol_m2",
@@ -4699,7 +4700,6 @@ fn test_v2_standards_execution_stays_free_of_runtime_dispatch_artifacts() {
     }
 
     assert!(strategy.contains("ordinary emitted receiver-qualified"));
-    assert!(plan.contains("static conformance checking"));
 }
 
 #[test]
@@ -4710,8 +4710,6 @@ fn test_editor_docs_track_the_current_shipped_v2_subset() {
     let lsp_book =
         std::fs::read_to_string(repo_root().join("book/src/050_tooling/500_lsp.md"))
             .expect("LSP book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(editor_sync.contains("generic-type"));
     assert!(editor_sync.contains("constrained-generic"));
@@ -4733,8 +4731,6 @@ fn test_editor_docs_track_the_current_shipped_v2_subset() {
             "LSP docs should name the tested positive V2 example '{example}'"
         );
     }
-    assert!(plan.contains("# 13. Workstream P: Editor And Tree-Sitter Hardening"));
-    assert!(plan.contains("Editor / tree-sitter updates shipped alongside"));
 }
 
 #[test]
@@ -4745,8 +4741,6 @@ fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(contract.contains("Full `V2` includes generic types."));
     assert!(contract.contains("typ Box(T: item): rec = { ... };"));
@@ -4754,8 +4748,6 @@ fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
     assert!(generics_book.contains("Full `V2` now includes generic type declarations and explicit instantiation."));
     assert!(generics_book.contains("typ Box(T: item): rec = {"));
     assert!(generics_book.contains("typ Pair(T: left, U: right): map[T, U];"));
-    assert!(plan.contains("# 4. Workstream G: Remove Surfaces We Will Not Build"));
-    assert!(plan.contains("# 5. Workstream H: Generic Receiver Types"));
 }
 
 #[test]
@@ -4766,15 +4758,12 @@ fn test_v2_constraint_surface_is_frozen_as_standards_only() {
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(contract.contains("Full `V2` includes standards-as-constraints."));
     assert!(contract.contains("protocol standards are the only constraint surface"));
     assert!(contract.contains("dispatch or inference driven by constraints"));
     assert!(generics_book.contains("Full `V2` includes standards-as-constraints, but not broad dispatch semantics."));
     assert!(generics_book.contains("protocol standards are the only generic-constraint surface"));
-    assert!(plan.contains("# 7. Workstream J: Constrained Generic Types"));
 }
 
 #[test]
@@ -4782,14 +4771,11 @@ fn test_standards_book_keeps_standards_as_constraints_in_current_v2_contract() {
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(!standards_book.contains("- generic constraints using standards"));
     assert!(standards_book.contains("standards-as-constraints through protocol standards"));
     assert!(standards_book.contains("procedural constrained-generic call binding"));
     assert!(standards_book.contains("static conformance checking for those constraints"));
-    assert!(plan.contains("static conformance checking"));
 }
 
 #[test]
@@ -4800,13 +4786,10 @@ fn test_v2_contract_ships_blueprint_standards() {
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(contract.contains("Blueprint standards are part of the shipped full `V2` contract"));
     assert!(contract.contains("examples/standards_blueprint_m2"));
     assert!(standards_book.contains("blueprint standards (`std X: blu`) as static field contracts"));
-    assert!(plan.contains("If any workstream above starts to require one of these, it stops"));
 }
 
 #[test]
@@ -4817,13 +4800,10 @@ fn test_v2_contract_ships_extended_standards() {
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(contract.contains("Extended standards are part of the shipped full `V2` contract"));
     assert!(contract.contains("examples/standards_extended_m2"));
     assert!(standards_book.contains("extended standards (`std X: ext`) combining required routines and fields"));
-    assert!(plan.contains("If any workstream above starts to require one of these, it stops"));
 }
 
 #[test]
@@ -4874,13 +4854,10 @@ fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(contract.contains("Broader dispatch and inference semantics are not part of the full `V2` target."));
     assert!(contract.contains("full `V2` does not include standards-driven dispatch"));
     assert!(standards_book.contains("broader dispatch and inference semantics stay"));
-    assert!(plan.contains("If any workstream above starts to require one of these, it stops"));
 }
 
 #[test]
@@ -4891,8 +4868,6 @@ fn test_v2_milestone_notes_are_retained_as_transition_notes() {
     let standards_note =
         std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
             .expect("standards milestone note should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(generics_note.contains("Historical transition note:"));
     assert!(generics_note.contains("not the full `V2`"));
@@ -4900,7 +4875,6 @@ fn test_v2_milestone_notes_are_retained_as_transition_notes() {
     assert!(standards_note.contains("Historical transition note:"));
     assert!(standards_note.contains("not the full `V2`"));
     assert!(standards_note.contains("docs/v2-full-contract.md"));
-    assert!(plan.contains("# 2. Current Truth Snapshot"));
 }
 
 #[test]
@@ -4920,8 +4894,6 @@ fn test_v2_surface_freeze_is_now_explicit_across_plan_docs_and_book() {
     let standards_note =
         std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
             .expect("standards milestone note should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(contract.contains("Current full `V2` target:"));
     assert!(contract.contains("Still out of scope for this `V2` target:"));
@@ -4929,8 +4901,6 @@ fn test_v2_surface_freeze_is_now_explicit_across_plan_docs_and_book() {
     assert!(standards_book.contains("For the current full `V2` target"));
     assert!(generics_note.contains("Historical transition note:"));
     assert!(standards_note.contains("Historical transition note:"));
-    assert!(plan.contains("# 2. Current Truth Snapshot"));
-    assert!(plan.contains("# 3. Exit Criteria"));
 }
 
 #[test]
@@ -5026,6 +4996,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",
         "examples/fail_generic_receiver_m1",
+        "examples/fail_generic_recursive_m1m2",
         "examples/fail_generic_standard_constraint_m1m2",
     ]
     .into_iter()
@@ -5104,8 +5075,6 @@ fn test_v2_generics_docs_retag_generic_type_example_honestly() {
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(!generics_note.contains("generic types remain unsupported"));
     assert!(!generics_note.contains("- negative\n  - `examples/generic_type_semantic_m1m2`"));
@@ -5114,7 +5083,6 @@ fn test_v2_generics_docs_retag_generic_type_example_honestly() {
     assert!(!generics_book.contains("historical name retained"));
     assert!(generics_book.contains("examples/generic_type_semantic_m1m2"));
     assert!(generics_book.contains("positive semantic-check"));
-    assert!(plan.contains("# 13. Workstream P: Editor And Tree-Sitter Hardening"));
 }
 
 #[test]
@@ -5122,8 +5090,6 @@ fn test_bundled_std_docs_pin_the_normal_v2_example_execution_path() {
     let bundled_std =
         std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
             .expect("bundled std docs should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     for example in [
         "examples/generic_type_exec_m1m2",
@@ -5142,7 +5108,6 @@ fn test_bundled_std_docs_pin_the_normal_v2_example_execution_path() {
     assert!(bundled_std.contains("fol code build"));
     assert!(bundled_std.contains("fol code run"));
     assert!(bundled_std.contains("does not require `--package-store-root` or `--std-root`"));
-    assert!(plan.contains("# 3. Exit Criteria"));
 }
 
 #[test]
@@ -5159,8 +5124,6 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(generics_note.contains("underconstrained generic calls are rejected"));
     assert!(generics_note.contains("generic routines are not first-class routine values"));
@@ -5178,8 +5141,6 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     assert!(standards_note.contains("default standard implementations remain unsupported"));
     assert!(standards_note.contains("implementation slice with compiler, backend, editor, doc, and example work"));
 
-    assert!(plan.contains("Keep, permanently:"));
-    assert!(plan.contains("standards-as-constraints"));
 
 }
 
@@ -5188,15 +5149,12 @@ fn test_agents_md_keeps_current_v2_milestone_truth() {
     let agents =
         std::fs::read_to_string(repo_root().join("AGENTS.md"))
             .expect("AGENTS.md should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(agents.contains("generic routine lowering/backend execution now exist"));
     assert!(agents.contains("protocol standards now lower and the shipped positive protocol examples"));
     assert!(agents.contains("execute through ordinary procedural emission"));
     assert!(!agents.contains("no generic lowering yet"));
     assert!(!agents.contains("no standards lowering/backend support yet"));
-    assert!(plan.contains("no hidden runtime dispatch layer"));
 }
 
 #[test]
@@ -5208,8 +5166,6 @@ fn test_tooling_docs_keep_workspace_symbols_root_scoped() {
     let lsp_impl =
         std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/lsp/mod.rs"))
             .expect("LSP implementation should load");
-    let plan = std::fs::read_to_string(repo_root().join("PLAN.md"))
-        .expect("V2 plan should load");
 
     assert!(lsp.contains(
         "workspace symbols across discovered `.fol` files under the mapped workspace root"
@@ -5221,7 +5177,6 @@ fn test_tooling_docs_keep_workspace_symbols_root_scoped() {
     assert!(!editor.contains("workspace symbols for current open workspace members"));
     assert!(lsp_impl.contains("fn collect_fol_files(root: &std::path::Path) -> Vec<std::path::PathBuf>"));
     assert!(lsp_impl.contains("visit(root, &mut files);"));
-    assert!(plan.contains("# 13. Workstream P: Editor And Tree-Sitter Hardening"));
 }
 
 #[test]

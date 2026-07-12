@@ -232,7 +232,11 @@ The shipped narrow `V2` surface still keeps these limits explicit:
   solver-style inference
 - generic routines are not first-class routine values
 - generic error shells remain unsupported in the Milestone 1 routine subset
-- recursive generic type instantiation remains rejected
+- recursive generic type instantiation remains rejected — and so does any
+  recursive type definition (generic or plain), whether the self-reference is
+  direct or through a container/another type; the checker now reports an honest
+  `recursive type '...' is not yet supported` boundary instead of overflowing in
+  lowering, pinned by `examples/fail_generic_recursive_m1m2`
 
 If any of these limits change, they should move through a dedicated
 implementation slice with parser, typecheck, editor, doc, and example updates

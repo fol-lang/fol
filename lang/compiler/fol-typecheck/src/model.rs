@@ -141,6 +141,12 @@ pub struct TypedProgram {
     method_call_targets: BTreeMap<SyntaxNodeId, SymbolId>,
     constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
     record_layouts: BTreeMap<CheckedTypeId, Vec<RecordFieldLayout>>,
+    /// Generic instantiations whose structural shape is currently being
+    /// computed. A recursive type (`typ Node(T) = { next: Node[T] }`) reaches
+    /// its own instantiation while expanding it; this guard breaks the cycle so
+    /// the self-reference resolves to the interned nominal node instead of
+    /// re-expanding forever. Transient — empty outside active lowering.
+    active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -318,6 +324,7 @@ impl TypedProgram {
             standards: BTreeMap::new(),
             conformances: BTreeMap::new(),
             apparent_type_overrides: BTreeMap::new(),
+            active_instantiations: std::collections::BTreeSet::new(),
             method_call_targets: BTreeMap::new(),
             constraint_call_sites: std::collections::BTreeSet::new(),
             record_layouts: BTreeMap::new(),
@@ -543,6 +550,17 @@ impl TypedProgram {
     ) {
         self.apparent_type_overrides
             .insert(shell_type, apparent_type);
+    }
+
+    /// Mark a generic instantiation as being expanded. Returns `false` if it is
+    /// already in progress (a recursive self-reference), so the caller can stop
+    /// expanding and use the interned nominal node instead.
+    pub(crate) fn begin_instantiation(&mut self, instance: CheckedTypeId) -> bool {
+        self.active_instantiations.insert(instance)
+    }
+
+    pub(crate) fn end_instantiation(&mut self, instance: CheckedTypeId) {
+        self.active_instantiations.remove(&instance);
     }
 
     pub fn apparent_type_override(&self, type_id: CheckedTypeId) -> Option<CheckedTypeId> {

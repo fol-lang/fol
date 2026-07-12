@@ -2020,8 +2020,12 @@ fn propagation_typing_rejects_incompatible_error_types_in_plain_value_contexts()
 }
 
 #[test]
-fn self_referential_record_type_does_not_panic_during_typecheck() {
-    let typed = typecheck_fixture_folder(&[(
+fn self_referential_record_type_is_rejected_without_panicking() {
+    // A self-referential record has no finite runtime shape in the structural
+    // model (a direct `next: Node` field would be infinitely sized). The
+    // checker rejects it with an honest, located diagnostic rather than
+    // accepting an unbuildable type or overflowing the stack during lowering.
+    let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "typ Node: rec = {\n\
              value: int;\n\
@@ -2032,10 +2036,12 @@ fn self_referential_record_type_does_not_panic_during_typecheck() {
          };\n",
     )]);
 
-    let (_node_id, node) = find_typed_symbol(&typed, "Node", SymbolKind::Type);
     assert!(
-        node.declared_type.is_some(),
-        "Self-referential record types should typecheck via Declared reference indirection"
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error.message().contains("recursive type 'Node' is not yet supported")
+        }),
+        "Expected a self-referential record to be rejected with an honest boundary, got: {errors:?}"
     );
 }
 
