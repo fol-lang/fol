@@ -2496,3 +2496,55 @@ fn type_mismatch_diagnostics_render_fol_surface_syntax() {
         "mismatch should render FOL surface types: {errors:#?}"
     );
 }
+
+#[test]
+fn routines_keep_their_own_parameter_names_across_interning() {
+    // Two routines with identical shapes but different parameter names must
+    // not collapse to one interned signature: named-argument binding reads
+    // the names, so each declaration keeps its own (param_names is part of
+    // routine identity), while routine VALUES stay assignable by shape.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] alpha(aaa: int): int = {\n\
+             return aaa;\n\
+         };\n\
+         fun[] beta(bbb: int): int = {\n\
+             return bbb;\n\
+         };\n\
+         fun[] apply(op: {fun (n: int): int}, v: int): int = {\n\
+             return op(v);\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var x: int = beta(bbb = 2);\n\
+             var y: int = apply(alpha, 3);\n\
+             return x + y;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] alpha(aaa: int): int = {\n\
+             return aaa;\n\
+         };\n\
+         fun[] beta(bbb: int): int = {\n\
+             return bbb;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return beta(aaa = 2);\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("does not have a parameter named 'aaa'")),
+        "the wrong name must fail at typecheck: {errors:#?}"
+    );
+}

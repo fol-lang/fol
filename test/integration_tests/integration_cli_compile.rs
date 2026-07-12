@@ -2958,3 +2958,66 @@ use super::*;
 
         fs::remove_dir_all(&temp_root).ok();
     }
+
+    #[test]
+    fn test_emitted_aggregates_survive_floats_and_keyword_names() {
+        use std::fs;
+
+        // Two emission pins: float-bearing records must not derive Eq
+        // (f64: !Eq), and field/variant names that are Rust keywords must
+        // emit as raw identifiers.
+        let temp_root = unique_temp_root("emission_edge_names");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create emission fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"emission_edge_names\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"emission_edge_names\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write emission fixture build file");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            concat!(
+                "typ Point: rec = {\n",
+                "    x: flt;\n",
+                "    y: flt\n",
+                "};\n",
+                "\n",
+                "typ Thing: rec = {\n",
+                "    type: int;\n",
+                "    match: int\n",
+                "};\n",
+                "\n",
+                "typ Mode: ent = {\n",
+                "    var ref: int = 1;\n",
+                "    var move: int = 2;\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    var p: Point = { x = 1.5, y = 2.5 };\n",
+                "    var t: Thing = { type = 1, match = 2 };\n",
+                "    t.type = 5;\n",
+                "    return t.type + t.match;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write emission fixture source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert!(
+            output.status.success(),
+            "float records and keyword field names should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
