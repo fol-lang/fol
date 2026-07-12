@@ -382,6 +382,52 @@ So concurrency belongs in `V3`.
 So memory ownership, borrowing, pointers, eventuals, coroutines, channels, and
 related runtime semantics belong in `V3`.
 
+### The V3 pillar split and its detailed plans
+
+`V3` is planned as two ordered pillars, each with its own detailed plan. These
+plans override the future-design wording in the memory and processor book
+chapters; the chapters are rewritten to match the plans as each milestone lands.
+
+- the memory pillar — `plan/V3_MEM.md`
+- the processor pillar — `plan/V3_PROC.md`
+
+The memory pillar completes fully before the processor pillar begins.
+
+Memory pillar (`plan/V3_MEM.md`):
+
+- shared prep: rename the shipped keyword `defer` to `dfr` everywhere, remove the
+  unused reserved keyword `go`, fix the sigil charter, delete the
+  `ALL_CAPS`-means-borrowable convention, and add an `O####` OWNERSHIP
+  diagnostic family
+- Milestone 1: ownership with static move/clone semantics (stack values clone,
+  heap values move), and the flagship recursive heap types (`opt @Node`) through
+  a new nominal lowered-type representation
+- Milestone 2: scope-granular borrowing (`var[bor]`, `#x`, `!x`, `name[bor]:`
+  parameters), ownership-aware `dfr`, and error-only `edf`
+- Milestone 3: typed pointers `ptr[T]` (unique) and `ptr[shared, T]`
+  (refcounted), `&x` address-of, `*p` deref; raw pointers stay a `V4` interop
+  boundary
+- ownership/borrow checking is compile-time and legal in every runtime model;
+  anything that allocates requires `memo` or higher
+
+Processor pillar (`plan/V3_PROC.md`):
+
+- the entire processor surface is `std`-only; `core` and `memo` reject it with
+  tier diagnostics
+- concurrency is OS threads through the Rust standard library, with no async
+  runtime, no worker pool, and no colored functions
+- P1: `[>]` spawn with thread-per-spawn execution and join-all-at-exit
+- P2: `chn[T]` unbounded MPSC channels with pipe send and a blocking pull
+  receive
+- P3: multi-arm `select` multiplexing and `name[mux]:` mutex parameters
+- P4: eventuals through `| async` and `| await`, with an internal (not
+  user-nameable) eventual type and error handling identical to the synchronous
+  call site
+
+These pillars are plans, not yet an implemented `V3` promise. A processor or
+memory surface counts as `V3` only when it works through the full compiler chain
+that matters for it, exactly like the `V1`/`V2` rule above.
+
 ## What V4 means
 
 `V4` should be the interop and toolchain-boundary release.
