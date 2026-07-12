@@ -9,3 +9,4 @@ fol-types = { path = "../fol-types" }
 fol-stream = { path = "../fol-stream" }
 fol-lexer = { path = "../fol-lexer" }
 fol-diagnostics = { path = "../fol-diagnostics" }
+stacker = "0.1.24"

@@ -145,6 +145,21 @@ pub(crate) fn type_node_with_expectation(
     node: &AstNode,
     expected_type: Option<CheckedTypeId>,
 ) -> Result<TypedExpr, TypecheckError> {
+    // Expression typing recurses with the AST; debug frames here are large
+    // enough that ~18 nesting levels exhaust a 2 MB worker-thread stack.
+    // Grow the stack in segments (rustc's ensure_sufficient_stack pattern).
+    stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+        type_node_with_expectation_inner(typed, resolved, context, node, expected_type)
+    })
+}
+
+fn type_node_with_expectation_inner(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    node: &AstNode,
+    expected_type: Option<CheckedTypeId>,
+) -> Result<TypedExpr, TypecheckError> {
     match node {
         AstNode::Comment { .. } => Ok(TypedExpr::none()),
         AstNode::Commented { node, .. } => {

@@ -59,6 +59,30 @@ pub fn traverse_node(
     is_top_level_node: bool,
     routine_context: Option<RoutineContext>,
 ) -> Result<(), ResolverError> {
+    // Traversal recurses with the AST; grow the stack in segments so deep
+    // (but legal) nesting cannot overflow small worker-thread stacks.
+    stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+        traverse_node_inner(
+            session,
+            program,
+            source_unit_id,
+            scope_id,
+            node,
+            is_top_level_node,
+            routine_context,
+        )
+    })
+}
+
+fn traverse_node_inner(
+    session: &mut ResolverSession,
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    node: &AstNode,
+    is_top_level_node: bool,
+    routine_context: Option<RoutineContext>,
+) -> Result<(), ResolverError> {
     match semantic_node(node) {
         AstNode::FunDecl {
             syntax_id,

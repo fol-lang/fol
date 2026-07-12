@@ -136,6 +136,7 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<FolType, ParseError> {
+        let _nesting = self.enter_nesting(tokens)?;
         self.skip_ignorable(tokens)?;
         let token = tokens.curr(false)?;
 

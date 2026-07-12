@@ -97,6 +97,36 @@ pub(crate) fn lower_expression_observed(
     expected_type: Option<LoweredTypeId>,
     node: &AstNode,
 ) -> Result<LoweredValue, LoweringError> {
+    // Expression lowering recurses with the AST; grow the stack in segments
+    // so deep (but legal) nesting cannot overflow worker-thread stacks.
+    stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+        lower_expression_observed_inner(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            expected_type,
+            node,
+        )
+    })
+}
+
+fn lower_expression_observed_inner(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    expected_type: Option<LoweredTypeId>,
+    node: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
     let lowered = match node {
         AstNode::Literal(Literal::Nil) => lower_nil_literal(type_table, cursor, expected_type),
         AstNode::Literal(literal) => {

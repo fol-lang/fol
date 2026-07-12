@@ -14,6 +14,7 @@ fol-intrinsics = { path = "../fol-intrinsics" }
 fol-lexer = { path = "../fol-lexer" }
 fol-parser = { path = "../fol-parser" }
 fol-resolver = { path = "../fol-resolver" }
+stacker = "0.1.24"
 
 [dev-dependencies]
 fol-stream = { path = "../fol-stream" }

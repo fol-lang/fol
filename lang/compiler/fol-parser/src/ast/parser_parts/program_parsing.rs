@@ -12,6 +12,7 @@ impl AstParser {
         Self {
             routine_depth: Cell::new(0),
             loop_depth: Cell::new(0),
+            nesting_depth: Cell::new(0),
             syntax_index: std::cell::RefCell::new(None),
         }
     }

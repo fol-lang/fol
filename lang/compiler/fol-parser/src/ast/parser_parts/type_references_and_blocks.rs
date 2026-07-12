@@ -158,6 +158,7 @@ impl AstParser {
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_close_message: &str,
     ) -> Result<Vec<AstNode>, ParseError> {
+        let _nesting = self.enter_nesting(tokens)?;
         let mut body = Vec::new();
         let mut anchor_token = None;
 
