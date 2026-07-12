@@ -351,13 +351,29 @@ impl TypecheckSession {
             CheckedType::Builtin(builtin) => {
                 target_program.type_table_mut().intern_builtin(builtin)
             }
-            CheckedType::Declared { symbol, name, kind } => {
+            CheckedType::Declared { symbol, name, kind, args } => {
+                // A generic instantiation carries type args in the SOURCE
+                // program; translate each into the target program so the
+                // imported instance keeps its nominal `(symbol, args)` identity.
+                let translated_args = args
+                    .iter()
+                    .map(|arg| {
+                        self.import_type_id(
+                            target_program,
+                            source_identity,
+                            source_program,
+                            *arg,
+                            mounted_symbol_map,
+                            imported_cache,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 if kind == crate::DeclaredTypeKind::GenericParameter {
                     // Generic parameters are opaque placeholders; expanding
                     // their declared type would chase a self-reference.
                     target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind })
+                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args })
                 } else if let Some(translated_symbol) = translated_symbol_id(
                     source_identity,
                     source_program,
@@ -370,6 +386,7 @@ impl TypecheckSession {
                             symbol: translated_symbol,
                             name,
                             kind,
+                            args: translated_args,
                         })
                 } else if let Some(expanded_type) = source_program
                     .typed_symbol(symbol)
@@ -377,25 +394,33 @@ impl TypecheckSession {
                 {
                     let shell_type = target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind });
+                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args });
                     // Guard against cyclic declared types: cache the shell
                     // before expanding so re-entry terminates.
                     imported_cache
                         .insert((source_identity.clone(), source_type_id), shell_type);
+                    // A generic instantiation's apparent shape is the source's
+                    // own apparent override (its substituted record), not the
+                    // generic template; import that if present, else the body.
+                    let source_apparent = source_program
+                        .apparent_type_override(source_type_id)
+                        .unwrap_or(expanded_type);
                     let apparent_type = self.import_type_id(
                         target_program,
                         source_identity,
                         source_program,
-                        expanded_type,
+                        source_apparent,
                         mounted_symbol_map,
                         imported_cache,
                     )?;
-                    target_program.record_apparent_type_override(shell_type, apparent_type);
+                    if apparent_type != shell_type {
+                        target_program.record_apparent_type_override(shell_type, apparent_type);
+                    }
                     shell_type
                 } else {
                     target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind })
+                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args })
                 }
             }
             CheckedType::Array { element_type, size } => {

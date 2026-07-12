@@ -1,7 +1,7 @@
 use crate::{
-    CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType, TypeTable, TypecheckError,
-    TypecheckErrorKind, TypecheckResult, TypedConformance, TypedConformanceClaim, TypedProgram,
-    TypedStandard, TypedStandardField, TypedStandardRoutine,
+    CheckedType, CheckedTypeId, DeclaredTypeKind, GenericConstraint, RoutineType, TypeTable,
+    TypecheckError, TypecheckErrorKind, TypecheckResult, TypedConformance, TypedConformanceClaim,
+    TypedProgram, TypedStandard, TypedStandardField, TypedStandardRoutine,
 };
 use fol_parser::ast::{
     AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
@@ -269,8 +269,13 @@ fn lower_top_level_declaration(
                 find_top_level_type_decl_scope(resolved, source_unit_id, item, symbol_id)?;
             let generic_params =
                 generic_params_in_scope(resolved, type_scope, item, generics)?;
-            let generic_constraints =
-                lower_generic_constraints_for_params(resolved, generics, &generic_params)?;
+            let generic_constraints = lower_generic_constraints_for_params(
+                typed,
+                resolved,
+                type_scope,
+                generics,
+                &generic_params,
+            )?;
             let type_id = match type_def {
                 TypeDefinition::Alias { target } => {
                     lower_type(typed, resolved, type_scope, target)?
@@ -390,6 +395,7 @@ fn lower_top_level_declaration(
                     symbol: symbol_id,
                     name: generic.name.clone(),
                     kind: DeclaredTypeKind::GenericParameter,
+                    args: Vec::new(),
                 });
                 record_symbol_type(typed, symbol_id, generic_type)?;
                 generic_params.push(symbol_id);
@@ -1102,41 +1108,20 @@ fn lower_blueprint_standard_member(
     })
 }
 
-/// Using a *generic* standard as a generic-parameter constraint
-/// (`fun drive(T: Iterator[int])(...)`) is not yet supported: the constraint's
-/// required-routine signatures still mention the standard's own generic
-/// parameter, so a constraint call like `it.next()` would type as the raw
-/// standard parameter instead of the instantiation argument. Reject the form
-/// honestly here — this only fires on generic-parameter constraints, never on
-/// the (supported) generic-standard conformance headers, which lower through a
-/// different path.
-fn reject_generic_standard_constraint(
+/// Lower a generic-parameter constraint `T: Std` or `T: Std[args]` into a
+/// `GenericConstraint` carrying the standard symbol and its lowered type
+/// arguments. For a non-generic standard `args` is empty; for a generic
+/// standard the args let a constraint call substitute the standard's own
+/// parameters on demand (mirroring the conformance-header path).
+fn lower_standard_constraint_for_contract(
+    typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
+    scope_id: ScopeId,
     constraint: &FolType,
-) -> Result<(), TypecheckError> {
-    let display_name = constraint
-        .named_text()
-        .unwrap_or_else(|| format!("{constraint:?}"));
-    if parse_instantiated_type_args(&display_name, type_origin(resolved, constraint))?.is_some() {
-        return Err(match type_origin(resolved, constraint) {
-            Some(origin) => TypecheckError::with_origin(
-                TypecheckErrorKind::Unsupported,
-                format!(
-                    "generic standard '{display_name}' used as a generic-parameter constraint is not yet supported in V2; \
-                     use a non-generic protocol standard as the constraint"
-                ),
-                origin,
-            ),
-            None => TypecheckError::new(
-                TypecheckErrorKind::Unsupported,
-                format!(
-                    "generic standard '{display_name}' used as a generic-parameter constraint is not yet supported in V2; \
-                     use a non-generic protocol standard as the constraint"
-                ),
-            ),
-        });
-    }
-    Ok(())
+) -> Result<GenericConstraint, TypecheckError> {
+    let standard = lower_standard_symbol_for_contract(resolved, constraint)?;
+    let args = extract_contract_type_args(typed, resolved, scope_id, constraint)?;
+    Ok(GenericConstraint { standard, args })
 }
 
 fn lower_standard_symbol_for_contract(
@@ -1636,16 +1621,21 @@ fn check_standard_conformance(
 pub(crate) fn validate_generic_bindings_against_constraints(
     typed: &TypedProgram,
     bindings: &BTreeMap<SymbolId, CheckedTypeId>,
-    generic_constraints: &BTreeMap<SymbolId, Vec<SymbolId>>,
+    generic_constraints: &BTreeMap<SymbolId, Vec<GenericConstraint>>,
     surface: String,
     origin: Option<SyntaxOrigin>,
 ) -> Result<(), TypecheckError> {
-    for (generic_symbol_id, standard_symbol_ids) in generic_constraints {
+    for (generic_symbol_id, constraints) in generic_constraints {
         let Some(actual_type) = bindings.get(generic_symbol_id).copied() else {
             continue;
         };
-        for standard_symbol_id in standard_symbol_ids {
-            if checked_type_satisfies_standard(typed, actual_type, *standard_symbol_id) {
+        for constraint in constraints {
+            if checked_type_satisfies_standard(
+                typed,
+                actual_type,
+                constraint.standard,
+                &constraint.args,
+            ) {
                 continue;
             }
             let generic_name = typed
@@ -1655,7 +1645,7 @@ pub(crate) fn validate_generic_bindings_against_constraints(
                 .unwrap_or("T");
             let standard_name = typed
                 .resolved()
-                .symbol(*standard_symbol_id)
+                .symbol(constraint.standard)
                 .map(|symbol| symbol.name.as_str())
                 .unwrap_or("standard");
             let actual_name = typed.type_table().render_type(actual_type);
@@ -1680,10 +1670,12 @@ fn checked_type_satisfies_standard(
     typed: &TypedProgram,
     checked_type_id: CheckedTypeId,
     standard_symbol_id: SymbolId,
+    standard_args: &[CheckedTypeId],
 ) -> bool {
     // A generic parameter satisfies a standard when its own declared bound
-    // already includes that standard: passing `T` (bound by `geo`) into a
-    // `Box[T: geo]` slot is legal without a fresh conformance header.
+    // already includes that standard at the same arguments: passing `T`
+    // (bound by `geo`) into a `Box[T: geo]` slot is legal without a fresh
+    // conformance header, and `T: Holder[int]` satisfies a `Holder[int]` slot.
     if let Some(CheckedType::Declared {
         symbol,
         kind: DeclaredTypeKind::GenericParameter,
@@ -1693,15 +1685,24 @@ fn checked_type_satisfies_standard(
         return typed
             .typed_symbol(*symbol)
             .and_then(|param_symbol| param_symbol.generic_constraints.get(symbol))
-            .is_some_and(|standards| standards.contains(&standard_symbol_id));
+            .is_some_and(|constraints| {
+                constraints.iter().any(|constraint| {
+                    constraint.standard == standard_symbol_id
+                        && constraint.args == standard_args
+                })
+            });
     }
 
     let Some(type_symbol_id) = conformance_subject_symbol(typed, checked_type_id) else {
         return false;
     };
-    typed
-        .typed_conformance(type_symbol_id)
-        .is_some_and(|conformance| conformance.standard_symbol_ids.contains(&standard_symbol_id))
+    // The conformer must claim this exact standard at these exact arguments:
+    // a type claiming `Holder[str]` does not satisfy a `Holder[int]` bound.
+    typed.typed_conformance(type_symbol_id).is_some_and(|conformance| {
+        conformance.claims.iter().any(|claim| {
+            claim.standard_symbol_id == standard_symbol_id && claim.type_args == standard_args
+        })
+    })
 }
 
 pub(crate) fn conformance_subject_symbol(
@@ -1756,7 +1757,7 @@ fn lower_routine_generic_params(
     source_unit_id: SourceUnitId,
     signature_scope: ScopeId,
     generics: &[Generic],
-) -> Result<(Vec<SymbolId>, BTreeMap<SymbolId, Vec<SymbolId>>), TypecheckError> {
+) -> Result<(Vec<SymbolId>, BTreeMap<SymbolId, Vec<GenericConstraint>>), TypecheckError> {
     let mut generic_params = Vec::new();
     let mut generic_constraints = BTreeMap::new();
     for generic in generics {
@@ -1771,15 +1772,20 @@ fn lower_routine_generic_params(
             symbol: symbol_id,
             name: generic.name.clone(),
             kind: DeclaredTypeKind::GenericParameter,
+            args: Vec::new(),
         });
         record_symbol_type(typed, symbol_id, generic_type)?;
-        for constraint in &generic.constraints {
-            reject_generic_standard_constraint(resolved, constraint)?;
-        }
         let lowered_constraints = generic
             .constraints
             .iter()
-            .map(|constraint| lower_standard_symbol_for_contract(resolved, constraint))
+            .map(|constraint| {
+                lower_standard_constraint_for_contract(
+                    typed,
+                    resolved,
+                    signature_scope,
+                    constraint,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         if !lowered_constraints.is_empty() {
             // Record the parameter's own bound on its own typed symbol (keyed by
@@ -1810,6 +1816,11 @@ pub(crate) fn checked_type_contains_generic_param(
             kind: DeclaredTypeKind::GenericParameter,
             ..
         }) => true,
+        // A generic instantiation like `Box[T]` mentions a generic parameter
+        // when any of its type arguments does.
+        Some(CheckedType::Declared { args, .. }) => args
+            .iter()
+            .any(|arg| checked_type_contains_generic_param(typed, *arg)),
         Some(CheckedType::Array { element_type, .. })
         | Some(CheckedType::Vector {
             element_type,
@@ -2453,7 +2464,33 @@ fn instantiate_declared_generic_type(
         ),
         origin.clone(),
     )?;
-    substitute_generic_checked_type(typed, template, &bindings, origin)
+
+    // Nominal identity: intern the instantiation as a `Declared` node carrying
+    // its type arguments, so `Box[int]` and `Cup[int]` are distinct types
+    // (different `symbol`) and `Box[int]`/`Box[str]` differ (different `args`).
+    // The substituted structural shape is computed once and registered as the
+    // node's apparent type, so every consumer that resolves through
+    // `apparent_type_id` (field access, record-literal checking, assignability,
+    // dispatch) transparently sees the concrete record/entry.
+    let structural = substitute_generic_checked_type(typed, template, &bindings, origin.clone())?;
+    let display_name = resolved
+        .symbol(symbol_id)
+        .map(|symbol| symbol.name.clone())
+        .unwrap_or_else(|| "?".to_string());
+    let kind = match resolved.symbol(symbol_id).map(|symbol| symbol.kind) {
+        Some(SymbolKind::Alias) => DeclaredTypeKind::Alias,
+        _ => DeclaredTypeKind::Type,
+    };
+    let instance = typed.type_table_mut().intern(CheckedType::Declared {
+        symbol: symbol_id,
+        name: display_name,
+        kind,
+        args: arg_types.to_vec(),
+    });
+    if instance != structural {
+        typed.record_apparent_type_override(instance, structural);
+    }
+    Ok(instance)
 }
 
 pub(crate) fn substitute_generic_checked_type(
@@ -2478,6 +2515,45 @@ pub(crate) fn substitute_generic_checked_type(
                 origin.clone(),
             )
         }),
+        // A generic instantiation (`Box[T]`, args non-empty) inside a
+        // template must substitute its arguments and re-instantiate so the
+        // apparent structural shape is recomputed for the concrete args.
+        // Without this, an alias `typ MaybeBox(T): Box[T]` never turns `T`
+        // into `int` when instantiated.
+        CheckedType::Declared {
+            symbol,
+            name,
+            kind,
+            args,
+        } if !args.is_empty() => {
+            let substituted_args = args
+                .iter()
+                .map(|arg| substitute_generic_checked_type(typed, *arg, bindings, origin.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let template = typed.typed_symbol(symbol).and_then(|s| s.declared_type);
+            let generic_params = typed
+                .typed_symbol(symbol)
+                .map(|s| s.generic_params.clone())
+                .unwrap_or_default();
+            let instance = typed.type_table_mut().intern(CheckedType::Declared {
+                symbol,
+                name,
+                kind,
+                args: substituted_args.clone(),
+            });
+            if let Some(template) = template {
+                if generic_params.len() == substituted_args.len() {
+                    let inner: BTreeMap<SymbolId, CheckedTypeId> =
+                        generic_params.into_iter().zip(substituted_args).collect();
+                    let structural =
+                        substitute_generic_checked_type(typed, template, &inner, origin.clone())?;
+                    if instance != structural {
+                        typed.record_apparent_type_override(instance, structural);
+                    }
+                }
+            }
+            Ok(instance)
+        }
         CheckedType::Declared { .. } | CheckedType::Builtin(_) => Ok(type_id),
         CheckedType::Array { element_type, size } => {
             let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
@@ -2631,26 +2707,39 @@ fn unify_checked_type(
             CheckedType::Declared {
                 symbol: a,
                 kind: DeclaredTypeKind::Type,
+                args: template_args,
                 ..
             },
             CheckedType::Declared {
                 symbol: b,
                 kind: DeclaredTypeKind::Type,
+                args: object_args,
                 ..
             },
-        ) => a == b,
-        (
+        )
+        | (
             CheckedType::Declared {
                 symbol: a,
                 kind: DeclaredTypeKind::Alias,
+                args: template_args,
                 ..
             },
             CheckedType::Declared {
                 symbol: b,
                 kind: DeclaredTypeKind::Alias,
+                args: object_args,
                 ..
             },
-        ) => a == b,
+        ) => {
+            // Nominal unification: same base declaration, and the type
+            // arguments unify pairwise (binds `T` from `Box[T]` vs `Box[int]`).
+            a == b
+                && template_args.len() == object_args.len()
+                && template_args
+                    .iter()
+                    .zip(object_args.iter())
+                    .all(|(t, o)| unify_checked_type(typed, *t, *o, generic_params, bindings))
+        }
         (CheckedType::Array { element_type: t, size: ts }, CheckedType::Array { element_type: o, size: os }) => {
             ts == os && unify_checked_type(typed, t, o, generic_params, bindings)
         }
@@ -2764,6 +2853,7 @@ fn lower_declared_symbol(
         symbol: symbol_id,
         name: symbol.name.clone(),
         kind,
+        args: Vec::new(),
     }))
 }
 
@@ -3012,7 +3102,7 @@ fn record_symbol_generic_params(
 fn record_symbol_generic_constraints(
     typed: &mut TypedProgram,
     symbol_id: SymbolId,
-    generic_constraints: BTreeMap<SymbolId, Vec<SymbolId>>,
+    generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
 ) -> Result<(), TypecheckError> {
     let symbol = typed.typed_symbol_mut(symbol_id).ok_or_else(|| {
         TypecheckError::new(
@@ -3028,19 +3118,20 @@ fn record_symbol_generic_constraints(
 }
 
 fn lower_generic_constraints_for_params(
+    typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
+    scope_id: ScopeId,
     generics: &[Generic],
     generic_params: &[SymbolId],
-) -> Result<BTreeMap<SymbolId, Vec<SymbolId>>, TypecheckError> {
+) -> Result<BTreeMap<SymbolId, Vec<GenericConstraint>>, TypecheckError> {
     let mut generic_constraints = BTreeMap::new();
     for (generic, symbol_id) in generics.iter().zip(generic_params.iter().copied()) {
-        for constraint in &generic.constraints {
-            reject_generic_standard_constraint(resolved, constraint)?;
-        }
         let lowered_constraints = generic
             .constraints
             .iter()
-            .map(|constraint| lower_standard_symbol_for_contract(resolved, constraint))
+            .map(|constraint| {
+                lower_standard_constraint_for_contract(typed, resolved, scope_id, constraint)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         if !lowered_constraints.is_empty() {
             generic_constraints.insert(symbol_id, lowered_constraints);

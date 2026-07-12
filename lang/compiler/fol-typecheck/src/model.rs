@@ -1,3 +1,4 @@
+use crate::types::GenericConstraint;
 use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId};
@@ -35,7 +36,7 @@ pub struct TypedSymbol {
     pub declared_type: Option<CheckedTypeId>,
     pub receiver_type: Option<CheckedTypeId>,
     pub generic_params: Vec<SymbolId>,
-    pub generic_constraints: BTreeMap<SymbolId, Vec<SymbolId>>,
+    pub generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
     /// Mirrors the resolver's binding mutability (`var[mut]`/`lab[mut]`).
     /// Drives field-assignment legality.
     pub is_mutable: bool,
@@ -544,7 +545,7 @@ impl TypedProgram {
             .insert(shell_type, apparent_type);
     }
 
-    pub(crate) fn apparent_type_override(&self, type_id: CheckedTypeId) -> Option<CheckedTypeId> {
+    pub fn apparent_type_override(&self, type_id: CheckedTypeId) -> Option<CheckedTypeId> {
         self.apparent_type_overrides.get(&type_id).copied()
     }
 }

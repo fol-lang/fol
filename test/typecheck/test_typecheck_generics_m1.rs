@@ -27,6 +27,7 @@ fn generic_routine_signatures_keep_generic_parameter_facts() {
             symbol: generic_symbol.symbol_id,
             name: "T".to_string(),
             kind: DeclaredTypeKind::GenericParameter,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -37,6 +38,7 @@ fn generic_routine_signatures_keep_generic_parameter_facts() {
             symbol: generic_symbol.symbol_id,
             name: "T".to_string(),
             kind: DeclaredTypeKind::GenericParameter,
+            args: Vec::new(),
         })
     );
 }
@@ -1165,12 +1167,12 @@ fn generic_routine_calls_infer_bindings_through_instantiated_record_arguments() 
 }
 
 #[test]
-fn generic_receiver_method_ambiguity_is_gated_with_an_honest_diagnostic() {
-    // P5 gate: two generic types with identical structure and the same method
-    // name collapse to the same structural record, so a value cannot say which
-    // base it came from. Rather than silently choosing one conformer, the check
-    // rejects with an honest limitation message.
-    let errors = typecheck_fixture_folder_errors(&[(
+fn same_shaped_generic_receivers_dispatch_by_nominal_identity() {
+    // With nominal identity for generic instantiations, `Box[int]` and
+    // `Cup[int]` are distinct types even with identical structure, so a
+    // method shared by name resolves to each type's own receiver routine
+    // rather than gating as ambiguous.
+    let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "typ Box(T): rec = { value: T };\n\
          typ Cup(T): rec = { value: T };\n\
@@ -1182,42 +1184,68 @@ fn generic_receiver_method_ambiguity_is_gated_with_an_honest_diagnostic() {
              return b.get() + c.get();\n\
          };\n",
     )]);
-
-    assert!(
-        errors.iter().any(|error| {
-            error
-                .message()
-                .contains("nominal identity for generic type instantiations")
-        }),
-        "expected an honest generic-receiver ambiguity gate, got: {errors:#?}"
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
 
 #[test]
-fn generic_standard_used_as_generic_parameter_constraint_is_gated_honestly() {
-    // P6 gate: a generic standard used as a generic-*parameter* constraint
-    // (`drive(T: Iterator[int])`) would need the standard's own generic
-    // parameters substituted before its required routines are meaningful, so a
-    // constraint call like `it.next()` types as the raw standard parameter.
-    // That path is rejected honestly. Generic-standard *conformance* headers
-    // (`typ IntIter()(Iterator[int])`) stay supported and are exercised by the
-    // standards_m2 suite.
-    let errors = typecheck_fixture_folder_errors(&[(
+fn generic_standard_used_as_generic_parameter_constraint_substitutes_its_args() {
+    // A generic standard used as a generic-*parameter* constraint
+    // (`drive(T: Iterator[int])`) binds the standard's own generic parameters
+    // to the constraint arguments, so a constraint call `it.next()` types as
+    // the instantiation argument (`int`) rather than the raw standard
+    // parameter `T`. The constraint records the standard AND its args, and the
+    // `drive` body typechecks with `main` inferring `int`.
+    let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "std Iterator(T): pro = { fun next(): T; };\n\
          typ IntIter()(Iterator[int]): rec = { seed: int };\n\
          fun (IntIter)next(): int = { return 42; };\n\
          fun drive(T: Iterator[int])(it: T): int = { return it.next(); };\n\
-         fun[] main(): int = { return 0; };\n",
+         fun[] main(): int = {\n\
+             var iter: IntIter = { seed = 1 };\n\
+             return drive(iter);\n\
+         };\n",
+    )]);
+    let drive = find_named_routine_syntax_id(&typed, "drive");
+    assert_eq!(
+        typed
+            .typed_node(drive)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        "constraint call `it.next()` should substitute Iterator[int] and type as int"
+    );
+}
+
+#[test]
+fn generic_standard_constraint_rejects_wrong_argument_conformers() {
+    // A conformer that claims `Iterator[str]` does not satisfy an
+    // `Iterator[int]` constraint: the args must match, not just the standard.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std Iterator(T): pro = { fun next(): T; };\n\
+         typ StrIter()(Iterator[str]): rec = { seed: str };\n\
+         fun (StrIter)next(): str = { return self.seed; };\n\
+         fun drive(T: Iterator[int])(it: T): int = { return it.next(); };\n\
+         fun[] main(): int = {\n\
+             var iter: StrIter = { seed = \"x\" };\n\
+             return drive(iter);\n\
+         };\n",
     )]);
 
     assert!(
         errors.iter().any(|error| {
-            error
-                .message()
-                .contains("used as a generic-parameter constraint is not yet supported")
+            let message = error.message();
+            message.contains("satisfy standard") && message.contains("Iterator")
         }),
-        "expected an honest generic-standard constraint gate, got: {errors:#?}"
+        "expected a conformance rejection for the wrong standard argument, got: {errors:#?}"
     );
 }
 

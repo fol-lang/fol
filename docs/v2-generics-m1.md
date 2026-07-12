@@ -87,6 +87,17 @@ At the current repo state after the landed Milestone 1 semantic slices:
   `examples/generic_type_semantic_m1m2`
 - nested generic-type composition now typechecks and executes for the checked
   nested-record subset such as `Box[Box[int]]`
+- generic type instantiations now carry nominal identity: `Box[int]` and
+  `Cup[int]` stay distinct types even when they share a field shape, so a
+  method shared by name dispatches to each base's own receiver routine instead
+  of gating as ambiguous; runtime-pinned by
+  `examples/generic_receiver_overload_m1m2`
+- a generic standard now works as a generic-parameter constraint
+  (`fun drive(T: Holder[int])(...)`): the standard's own parameters are bound to
+  the constraint arguments, so a constraint call substitutes them (a required
+  `fun fetch(): Item` on `Holder[int]` types as `int`) and the conformer must
+  claim the standard at matching arguments; runtime-pinned by
+  `examples/generic_standard_constraint_generic_m1m2`
 
 That means the current honest boundary is:
 

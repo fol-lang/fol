@@ -267,6 +267,7 @@ fn semantic_type_table_covers_declared_and_structural_shapes() {
         symbol: SymbolId(9),
         name: "Meters".to_string(),
         kind: DeclaredTypeKind::Alias,
+        args: Vec::new(),
     });
 
     let mut fields = BTreeMap::new();
@@ -290,6 +291,7 @@ fn semantic_type_table_covers_declared_and_structural_shapes() {
             symbol: SymbolId(9),
             name: "Meters".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -414,6 +416,7 @@ fn declaration_signature_lowering_records_top_level_type_facts() {
             symbol: distance_id,
             name: "Distance".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -422,6 +425,7 @@ fn declaration_signature_lowering_records_top_level_type_facts() {
             symbol: person_id,
             name: "Person".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
     assert_eq!(typed.resolved().source_units.get(SourceUnitId(0)).map(|unit| unit.package.as_str()), Some(typed.package_name()));
@@ -456,6 +460,7 @@ fn declaration_signature_lowering_keeps_named_types_as_declared_symbols() {
             symbol: point_id,
             name: "Point".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
 }
@@ -476,6 +481,7 @@ fn declaration_signature_lowering_keeps_alias_references_as_alias_symbols() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -2419,6 +2425,7 @@ fn generic_call_infers_entry_type_from_a_bare_variant_argument() {
             symbol: status_id,
             name: "Status".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         }),
         "the entry-typed binding 's' should keep its declared entry type"
     );

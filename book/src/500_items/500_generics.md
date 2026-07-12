@@ -21,10 +21,12 @@ Current milestone note:
   - `examples/generic_routine_cross_file_m1`
   - `examples/generic_receiver_m1`
   - `examples/generic_receiver_cross_file_m1`
+  - `examples/generic_receiver_overload_m1m2`
   - `examples/generic_type_semantic_m1m2`
     - positive semantic-check fixture for generic type declarations
   - `examples/generic_type_exec_m1m2`
   - `examples/generic_standard_constraint_m1m2`
+  - `examples/generic_standard_constraint_generic_m1m2`
   - `examples/fail_generic_misuse_m1`
   - `examples/fail_generic_cross_file_m1`
   - `examples/fail_generic_receiver_m1`
@@ -44,6 +46,10 @@ Current milestone note:
   example packages too
 - nested generic-type composition now works for the checked nested-record
   subset such as `Box[Box[int]]`
+- generic type instantiations carry nominal identity: `Box[int]` and `Cup[int]`
+  are distinct types even with an identical field shape, so a method shared by
+  name dispatches to each base's own receiver routine rather than being
+  rejected as ambiguous; `examples/generic_receiver_overload_m1m2` pins this
 - broader Milestone 1 edge-case policy is still tracked separately from that
   shipped positive core
 - current editor hardening covers hover/definition on checked-in generic
@@ -102,6 +108,12 @@ Chosen constraint contract:
 
 - protocol standards are the only generic-constraint surface in the full `V2`
   target
+- a constraint may name a generic standard at concrete arguments
+  (`fun drive(T: Holder[int])(...)`): the standard's own generic parameters are
+  bound to those arguments, so a constraint call substitutes them (a required
+  `fun fetch(): Item` on `Holder[int]` types as `int`), and the conformer must
+  claim the standard at the same arguments; `examples/generic_standard_constraint_generic_m1m2`
+  pins this
 - constrained generic calls remain procedural and are checked through declared
   conformance
 - standards-as-constraints do not imply runtime object dispatch

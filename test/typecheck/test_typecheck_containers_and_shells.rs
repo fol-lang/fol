@@ -143,6 +143,7 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
             symbol: maybe_id,
             name: "MaybeText".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -151,6 +152,7 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
             symbol: failure_id,
             name: "Failure".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -162,6 +164,7 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
             symbol: maybe_id,
             name: "MaybeText".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(

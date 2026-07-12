@@ -205,11 +205,27 @@ fn translate_checked_type(
 
     let lowered_type_id = match checked_type {
         CheckedType::Builtin(builtin) => lowered_types.intern_builtin(lower_builtin(builtin)),
-        CheckedType::Declared { symbol, name, kind } => {
+        CheckedType::Declared { symbol, name, kind, args } => {
             if kind == DeclaredTypeKind::GenericParameter {
                 let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
                 cache.insert((package_identity.clone(), checked_type_id), lowered);
                 return Ok(lowered);
+            }
+            // A generic instantiation (`Box[int]`, args non-empty) lowers
+            // through its substituted structural shape (the apparent override),
+            // not the generic template that still mentions `T`.
+            if !args.is_empty() {
+                if let Some(apparent) = program.apparent_type_override(checked_type_id) {
+                    let lowered = translate_checked_type(
+                        lowered_types,
+                        cache,
+                        package_identity,
+                        program,
+                        apparent,
+                    )?;
+                    cache.insert((package_identity.clone(), checked_type_id), lowered);
+                    return Ok(lowered);
+                }
             }
             let typed_symbol = program.typed_symbol(symbol);
             let runtime_type = typed_symbol

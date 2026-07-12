@@ -230,7 +230,7 @@ pub fn synthesize_structural_runtime_type_declarations(
             continue;
         }
 
-        let Some(checked_type) = typed_package.program.type_table().get(checked_type_id).cloned() else {
+        let Some(mut checked_type) = typed_package.program.type_table().get(checked_type_id).cloned() else {
             errors.push(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
                 format!(
@@ -240,6 +240,18 @@ pub fn synthesize_structural_runtime_type_declarations(
             ));
             continue;
         };
+        // A generic instantiation (`Box[int]`) is a nominal `Declared` node;
+        // its runtime struct is its substituted structural record, reached via
+        // the apparent override. Synthesize the decl from that shape.
+        if matches!(&checked_type, CheckedType::Declared { args, .. } if !args.is_empty()) {
+            if let Some(apparent_id) = typed_package.program.apparent_type_override(checked_type_id)
+            {
+                if let Some(apparent) = typed_package.program.type_table().get(apparent_id).cloned()
+                {
+                    checked_type = apparent;
+                }
+            }
+        }
         if checked_type_contains_generic_parameter(&checked_type, &typed_package.program) {
             continue;
         }
@@ -522,6 +534,16 @@ fn checked_type_contains_generic_parameter(
             ..
         } => true,
         CheckedType::Builtin(_) => false,
+        // A generic INSTANTIATION (`Box[int]`, args non-empty) is generic iff
+        // one of its concrete type arguments is — checking the declaration's
+        // template (which always mentions `T`) would wrongly skip every
+        // concrete instance's runtime decl.
+        CheckedType::Declared { args, .. } if !args.is_empty() => args.iter().any(|arg| {
+            program
+                .type_table()
+                .get(*arg)
+                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+        }),
         CheckedType::Declared { symbol, .. } => program
             .typed_symbol(*symbol)
             .and_then(|typed_symbol| typed_symbol.declared_type)

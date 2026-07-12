@@ -750,6 +750,7 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
             symbol: direct_count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -760,6 +761,7 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
             symbol: direct_count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 
@@ -781,6 +783,7 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
             symbol: workspace_count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -791,6 +794,7 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
             symbol: workspace_count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -835,6 +839,7 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     let signature = match shared
@@ -852,6 +857,7 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -862,6 +868,7 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }

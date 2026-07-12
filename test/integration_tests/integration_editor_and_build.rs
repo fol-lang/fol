@@ -1006,6 +1006,35 @@ fn test_generic_receiver_m1_example_builds_and_runs() {
 }
 
 #[test]
+fn test_generic_receiver_overload_m1m2_example_builds_and_runs() {
+    // Nominal identity: `Box[int]` and `Cup[int]` share a field shape but stay
+    // distinct types, so `.tag()` dispatches to each type's own receiver
+    // routine instead of gating as ambiguous.
+    let root = temp_example_root("examples/generic_receiver_overload_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic receiver overload example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic receiver overload example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic receiver overload example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    // Box.tag() -> 10, Cup.tag() -> 20, Box[str].get() -> "boxed": each shared
+    // method name dispatches to its own base's receiver routine.
+    assert!(stdout.contains("10") && stdout.contains("20") && stdout.contains("boxed"));
+}
+
+#[test]
 fn test_generic_receiver_cross_file_m1_example_builds_and_runs() {
     let root = temp_example_root("examples/generic_receiver_cross_file_m1");
 
@@ -1108,6 +1137,34 @@ fn test_generic_standard_constraint_m1m2_example_builds_and_runs() {
         "constrained generic execution example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
     assert!(stdout.contains("1") || stderr.contains("1"));
+}
+
+#[test]
+fn test_generic_standard_constraint_generic_m1m2_example_builds_and_runs() {
+    // A generic standard used as a generic-parameter constraint
+    // (`drive(T: Holder[int])`): the constraint call `box.fetch()` substitutes
+    // the standard's own `Item` parameter to `int`, so the program builds and
+    // runs, echoing `cell.fetch()` == 7.
+    let root = temp_example_root("examples/generic_standard_constraint_generic_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic-standard constraint example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic-standard constraint example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic-standard constraint example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("7"));
 }
 
 #[test]
@@ -4956,6 +5013,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         "examples/generic_error_m1m2",
         "examples/generic_receiver_m1",
         "examples/generic_receiver_cross_file_m1",
+        "examples/generic_receiver_overload_m1m2",
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
@@ -4963,6 +5021,7 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
         "examples/generic_type_constrained_m1m2",
         "examples/generic_type_exec_m1m2",
         "examples/generic_standard_constraint_m1m2",
+        "examples/generic_standard_constraint_generic_m1m2",
         "examples/generic_type_semantic_m1m2",
         "examples/fail_generic_misuse_m1",
         "examples/fail_generic_cross_file_m1",

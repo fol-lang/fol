@@ -42,10 +42,20 @@ pub enum DeclaredTypeKind {
     GenericParameter,
 }
 
+/// A standard bound on a generic parameter, carrying the type arguments the
+/// constraint was written with. For a non-generic standard (`T: geo`) `args` is
+/// empty; for a generic standard (`T: Holder[int]`) `args` records `[int]` so a
+/// constraint call can substitute the standard's own parameters on demand.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GenericConstraint {
+    pub standard: SymbolId,
+    pub args: Vec<CheckedTypeId>,
+}
+
 #[derive(Debug, Clone)]
 pub struct RoutineType {
     pub generic_params: Vec<SymbolId>,
-    pub generic_constraints: BTreeMap<SymbolId, Vec<SymbolId>>,
+    pub generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
     pub param_names: Vec<String>,
     pub param_defaults: Vec<Option<AstNode>>,
     pub variadic_index: Option<usize>,
@@ -136,6 +146,14 @@ pub enum CheckedType {
         symbol: SymbolId,
         name: String,
         kind: DeclaredTypeKind,
+        /// Type arguments for a generic instantiation (`Box[int]` → `[int]`).
+        /// Empty for a plain (non-generic) type reference. Part of the type's
+        /// nominal identity: `Box[int]` and `Cup[int]` differ by `symbol`,
+        /// `Box[int]` and `Box[str]` differ by `args`, so the structural
+        /// collapse that made same-shaped generics indistinguishable is gone.
+        /// The structural expansion is resolved on demand via `apparent_type_id`
+        /// / the instantiation-shape table, never stored as identity.
+        args: Vec<CheckedTypeId>,
     },
     Array {
         element_type: CheckedTypeId,
@@ -211,7 +229,18 @@ impl TypeTable {
     pub fn render_type(&self, type_id: CheckedTypeId) -> String {
         match self.get(type_id) {
             Some(CheckedType::Builtin(builtin)) => builtin.as_str().to_string(),
-            Some(CheckedType::Declared { name, .. }) => name.clone(),
+            Some(CheckedType::Declared { name, args, .. }) => {
+                if args.is_empty() {
+                    name.clone()
+                } else {
+                    let rendered = args
+                        .iter()
+                        .map(|arg| self.render_type(*arg))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{name}[{rendered}]")
+                }
+            }
             Some(CheckedType::Optional { inner }) => {
                 format!("opt[{}]", self.render_type(*inner))
             }
@@ -321,6 +350,7 @@ mod tests {
             symbol: SymbolId(4),
             name: "Point".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         });
 
         let mut fields = BTreeMap::new();
@@ -349,6 +379,7 @@ mod tests {
                 symbol: SymbolId(4),
                 name: "Point".to_string(),
                 kind: DeclaredTypeKind::Type,
+                args: Vec::new(),
             })
         );
     }

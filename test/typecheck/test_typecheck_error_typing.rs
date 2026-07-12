@@ -829,6 +829,7 @@ fn record_initializer_typing_accepts_nested_record_construction() {
             symbol: employee_id,
             name: "Employee".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
 }
@@ -1083,6 +1084,7 @@ fn entry_value_typing_accepts_named_entry_binding_return_and_call_contexts() {
             symbol: status_id,
             name: "Status".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
 }

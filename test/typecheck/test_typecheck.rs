@@ -253,7 +253,8 @@ fn assert_imported_declared_count_binding_and_routine(
                 SymbolKind::Alias => DeclaredTypeKind::Alias,
                 _ => DeclaredTypeKind::Type,
             },
-        })
+            args: Vec::new(),
+})
     );
 
     let signature = match typed.type_table().get(
@@ -274,7 +275,8 @@ fn assert_imported_declared_count_binding_and_routine(
                 SymbolKind::Alias => DeclaredTypeKind::Alias,
                 _ => DeclaredTypeKind::Type,
             },
-        })
+            args: Vec::new(),
+})
     );
     assert_eq!(
         signature
@@ -287,7 +289,8 @@ fn assert_imported_declared_count_binding_and_routine(
                 SymbolKind::Alias => DeclaredTypeKind::Alias,
                 _ => DeclaredTypeKind::Type,
             },
-        })
+            args: Vec::new(),
+})
     );
 }
 

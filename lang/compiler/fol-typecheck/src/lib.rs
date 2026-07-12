@@ -31,7 +31,8 @@ pub use model::{
     TypedStandard, TypedStandardField, TypedStandardRoutine, TypedSymbol, TypedWorkspace,
 };
 pub use types::{
-    BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType, TypeTable,
+    BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind, GenericConstraint, RoutineType,
+    TypeTable,
 };
 
 pub type TypecheckResult<T> = Result<T, Vec<TypecheckError>>;
