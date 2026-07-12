@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2f96a772.js";
+            window.path_to_searchindex_js = "../searchindex-21f6de38.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-5e2af248.js"></script>
@@ -244,9 +244,13 @@ error family and specific failure without relying on message text.</p>
 <p>Codes are structurally assigned. The parser carries an explicit <code>ParseErrorKind</code>
 field on each error rather than deriving the code from message text. This means
 message wording can change without breaking code identity.</p>
-<p>Human output shows codes in brackets:</p>
+<p>The default <code>human</code> output shows the code after the message, alongside a
+plain-language family chip (e.g. <code>NAMES ... R1003</code>). The <code>plain</code> output shows it
+in brackets:</p>
 <pre><code class="language-text">error[R1003]: could not resolve name 'answer'
 </code></pre>
+<p>Any code can be expanded on demand with <code>fol explain &lt;CODE&gt;</code> (see
+<a href="../050_tooling/200_tool_commands.html">Tool Commands</a>).</p>
 <p>JSON output includes the code as a top-level field:</p>
 <pre><code class="language-json">{ "code": "R1003", "message": "could not resolve name 'answer'" }
 </code></pre>
@@ -324,15 +328,43 @@ same code and same line as a new one, the new one is suppressed</li>
 <p>These limits prevent walls of identical errors without hiding genuinely distinct
 failures.</p>
 <h2 id="human-readable-diagnostics"><a class="header" href="#human-readable-diagnostics">Human-readable diagnostics</a></h2>
-<p>By default the CLI prints human-readable diagnostics.</p>
-<p>The current renderer is designed around:</p>
+<p>The CLI has two human-facing output modes, selected with the global <code>--output</code>
+flag. Both render from the same structured diagnostic model.</p>
+<h3 id="human-default"><a class="header" href="#human-default"><code>human</code> (default)</a></h3>
+<p>The default renderer prints a framed, colored report:</p>
 <ul>
-<li>a severity prefix with a diagnostic code bracket (e.g. <code>error[R1003]:</code>)</li>
+<li>a family chip that names the problem in plain language (<code>PARSER</code>, <code>NAMES</code>,
+<code>TYPES</code>, <code>LOWERING</code>, <code>PACKAGE</code>, <code>BUILD</code>, <code>BACKEND</code>), the bold message, and the
+diagnostic code</li>
+<li>a framed source snippet (<code>┌─ file:line:column</code>) with the offending line and a
+caret under the primary span</li>
+<li>secondary labels for related sites</li>
+<li><code>= note:</code>, <code>= help:</code>, and <code>= try:</code> lines</li>
+<li>a footer with a one-line plain-language hint and a
+<code>run `fol explain &lt;CODE&gt;` for more</code> pointer</li>
+<li>a closing <code>found N error(s)</code> summary</li>
+</ul>
+<p>Illustrative shape (colors omitted):</p>
+<pre><code class="language-text"> NAMES  could not resolve name 'answer'   R1003
+  ┌─ app/main.fol:3:12
+    │
+  3 │     return answer
+    │            ^^^^^^ unresolved name
+  = note: no visible declaration with that name was found in the current scope chain
+  = help: check imports or declare the name before use
+  a name or import problem — a symbol could not be resolved  ·  run `fol explain R1003` for more
+
+found 1 error
+</code></pre>
+<p>Colors disable themselves automatically when stdout is not a terminal, so piped
+and CI output stays plain text.</p>
+<h3 id="plain"><a class="header" href="#plain"><code>plain</code></a></h3>
+<p><code>--output plain</code> prints the older, unstyled human format:</p>
+<ul>
+<li>a severity prefix with the diagnostic code in brackets (e.g. <code>error[R1003]:</code>)</li>
 <li>an arrow line with <code>file:line:column</code></li>
-<li>a source snippet when the file and line can be loaded</li>
-<li>an underline for the primary span</li>
-<li>note-style summaries for related labels</li>
-<li>note/help lines after the main snippet</li>
+<li>a source snippet with an underline for the primary span</li>
+<li><code>note:</code>/<code>help:</code> lines and related-label summaries</li>
 </ul>
 <p>Illustrative shape:</p>
 <pre><code class="language-text">error[R1003]: could not resolve name 'answer'
@@ -343,9 +375,9 @@ failures.</p>
   note: no visible declaration with that name was found in the current scope chain
   help: check imports or declare the name before use
 </code></pre>
-<p>Messages are clean human-readable text. The compiler does not prepend internal
-kind labels like <code>ResolverUnresolvedName:</code> to messages. The diagnostic code in
-brackets is the stable identifier.</p>
+<p>In both modes the messages are clean human-readable text. The compiler does not
+prepend internal kind labels like <code>ResolverUnresolvedName:</code> to messages; the
+diagnostic code is the stable identifier.</p>
 <h2 id="source-fallbacks"><a class="header" href="#source-fallbacks">Source fallbacks</a></h2>
 <p>Sometimes the compiler knows the location but cannot render the source line
 itself.</p>

@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2f96a772.js";
+            window.path_to_searchindex_js = "../searchindex-21f6de38.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-5e2af248.js"></script>
@@ -286,6 +286,36 @@ fol tool completion bash
 There is no parallel <code>fol editor ...</code> command group.
 Future editor features are not exposed as placeholder commands.
 Only the shipped <code>fol tool</code> subcommands above are public.</p>
+<h2 id="explain"><a class="header" href="#explain">Explain</a></h2>
+<p><code>fol explain &lt;CODE&gt;</code> prints an extended, plain-language explanation for a
+diagnostic code — the same code the pretty diagnostic footer points at
+(<code>run \</code>fol explain T1003` for more`).</p>
+<ul>
+<li><code>fol explain &lt;CODE&gt;</code></li>
+</ul>
+<p>Codes are accepted case-insensitively (<code>t1003</code> and <code>T1003</code> are the same).</p>
+<p>Examples:</p>
+<pre><code class="language-text">fol explain T1003
+fol explain t1003
+fol explain --output json R1003
+</code></pre>
+<p>Output modes:</p>
+<ul>
+<li><code>human</code> (default): a family chip, the code, a short title, and the body</li>
+<li><code>plain</code>: <code>code:</code> / <code>family:</code> / <code>title:</code> lines followed by the body</li>
+<li><code>json</code> / <code>--json</code>: <code>{ "code", "family", "known", "title", "explanation" }</code></li>
+</ul>
+<p>Behavior:</p>
+<ul>
+<li>known codes print their explanation and exit <code>0</code></li>
+<li>unknown codes print an honest “no extended explanation for <code>&lt;CODE&gt;</code> yet”
+message (pointing at the code’s family when the prefix is recognized) and
+exit nonzero</li>
+</ul>
+<p>Only diagnostic codes the compiler and runtime actually emit have
+explanations. The registry lives in <code>fol-diagnostics</code> (compiler truth) and is
+kept honest by a completeness test, so <code>explain</code> never documents a code that
+does not exist.</p>
 <h2 id="artifact-reporting"><a class="header" href="#artifact-reporting">Artifact Reporting</a></h2>
 <p>Frontend commands report explicit artifact roots when applicable, including:</p>
 <ul>
