@@ -491,6 +491,25 @@ pub(crate) fn is_v1_assignable(
     Ok(match typed.type_table().get(expected_apparent) {
         Some(CheckedType::Optional { inner }) if *inner == actual_apparent => true,
         Some(CheckedType::Error { inner: Some(inner) }) if *inner == actual_apparent => true,
+        // Routine values are compatible on their callable SHAPE. Parameter
+        // names and defaultedness are per-declaration metadata (they are
+        // part of the interned identity so named-argument binding stays
+        // correct), but they must not block passing one routine where a
+        // same-shaped routine type is expected.
+        Some(CheckedType::Routine(expected_routine)) => match typed
+            .type_table()
+            .get(actual_apparent)
+        {
+            Some(CheckedType::Routine(actual_routine)) => {
+                expected_routine.params == actual_routine.params
+                    && expected_routine.return_type == actual_routine.return_type
+                    && expected_routine.error_type == actual_routine.error_type
+                    && expected_routine.variadic_index == actual_routine.variadic_index
+                    && expected_routine.generic_params == actual_routine.generic_params
+                    && expected_routine.generic_constraints == actual_routine.generic_constraints
+            }
+            _ => false,
+        },
         _ => false,
     })
 }
