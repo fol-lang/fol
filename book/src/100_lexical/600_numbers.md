@@ -18,8 +18,8 @@ An integer has one of four forms:
 
 ```
 var decimal: int = 45;
-var hexadec: int = 0x6HF53BD5;
-var octal: int = 0o822371;
+var hexadec: int = 0x6AF53BD5;
+var octal: int = 0o722371;
 var binary: int = 0b010010010;
 ```
 ### Underscore

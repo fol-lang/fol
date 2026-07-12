@@ -10,6 +10,14 @@ Thus a pure function is a computational analogue of a mathematical function. Pur
 fun[] add(el1, el2: int[64]): int[64] = { result = el1 + el2 }
 ```
 
+Current boundary:
+
+- the current compiler requires an explicit `return` and a declared return
+  type; the `result = ...` spelling, short-form return-type omission, and
+  last-expression return shown here are earlier design, not current behavior
+- the closures, currying, and generator material at the end of this chapter is
+  later design work, not part of the current compiler surface
+
 When a function has a custom recoverable error type, use `/` after the result type:
 
 ```

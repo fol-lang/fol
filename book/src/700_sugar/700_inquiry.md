@@ -1,5 +1,12 @@
 # Inquiry
 
+Current boundary:
+
+- inquiry `where(...)` clauses parse, but no inquiry body typechecks today; the
+  `is` operator used inside them is gated
+- everything below describes intended design, not current behavior; inquiries
+  are later design work, not part of the current compiler surface
+
 Inquiries are inline unit tests and are a part of the basic syntax sugar. In other words, we don’t have to import any libraries or build up any suites to run tests.
 
 Instead, FOL includes a couple of clauses for testing within the source code:

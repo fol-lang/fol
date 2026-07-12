@@ -1,5 +1,11 @@
 # Calculations
 
+Current boundary:
+
+- the two-argument `assert(a, b)` form used in this chapter's examples is
+  illustrative; `assert` is registry-owned but deferred, and the intrinsic is
+  not yet dispatchable in the current compiler (see the intrinsics chapter)
+
 In fol, every calcultaion, needs to be enclosed in rounded brackets `( //to evaluate )` - except in one line evaluating, the curly brackets are allowed too `{ // to evaluate }`:
 
 ```

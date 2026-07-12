@@ -83,6 +83,15 @@ string lists are supported as loop iterables in `build.fol`.
 
 ## Helper Routines
 
+Current boundary:
+
+- defining helper `fun[]`/`pro[]` routines in `build.fol` and calling them from
+  `build()` is not part of the current build surface; the evaluator cannot
+  execute them today
+- this section describes later design work, not current behavior
+- the `when`, `loop`, and `case` build control flow above is the current build
+  surface
+
 `build.fol` can define helper `fun[]` and `pro[]` routines. They are visible
 only within the file — they are not exported to the package.
 

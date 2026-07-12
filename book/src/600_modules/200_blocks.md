@@ -151,6 +151,14 @@ routine there.
 
 ## Blocks
 
+Current boundary:
+
+- the namespace, package-scope, and import material above is the current
+  compiler surface
+- the block forms in this section (`_{}`, `.{}`, named `blk[]` blocks, and
+  unconditional jump) are not implemented; they are later design work, not part
+  of the current compiler surface
+
 Block statement is used for scopes where members get destroyed when scope is finished. And there are two ways to define a block: 
 - unnamed blocks and 
 - named blocks

@@ -1,5 +1,13 @@
 # Variables
 
+Current boundary:
+
+- ordinary `var`, `con`, and `lab` declarations are the current compiler surface
+- the `@var` and heap `var[new]` spellings are later design work, not current
+  behavior
+- the pipe-ternary and many-to-many assignment forms shown below are later
+  design work, not current behavior
+
 Here are some of the ways that variables can be defined:
 ```
 var[mut] counter: int = 98

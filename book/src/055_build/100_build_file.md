@@ -128,6 +128,14 @@ Do not put package metadata directly on the graph handle.
 
 ## Local Helpers
 
+Current boundary:
+
+- defining `fun`/`pro` helpers in `build.fol` and calling them from `build()`
+  is not part of the current build surface; the evaluator cannot execute them
+  today
+- this section describes later design work, not current behavior
+- `when`, `loop`, and `case` in `build.fol` are the current build surface
+
 `build.fol` can define helper functions visible only within itself:
 
 ```fol

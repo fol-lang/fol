@@ -1,5 +1,12 @@
 # Unpacking
 
+Current boundary:
+
+- unpacking / iterable-destructuring forms (`var a, *_ = ...`) are not part of
+  the current compiler surface; the compiler rejects them
+- everything below describes intended design, not current behavior
+- this is later design work, not part of the current V1 compiler surface
+
 Unpacking—also known as iterable destructuring—is another form of pattern matching used to extract data from collections of data. Take a look at the following example:
 ```
 var start, *_ = { 1, 4, 3, 8 }

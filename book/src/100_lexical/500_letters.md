@@ -4,7 +4,7 @@
 A character is a **single** Unicode element enclosed within quotes `U+0022` (`"`) with the exception of `U+0022` itself, which must be escaped by a preceding `U+005C` character (`\`).
 
 ```
-var aCharacter: chr = "z\n"
+var aCharacter: chr = "\n"
 var anotherOne: str = "語\n"
 ```
 ### Raw characters

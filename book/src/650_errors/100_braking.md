@@ -20,7 +20,7 @@ routine 'main' panicked at 'Hello'
 Trying to acces an out of bound element of array:
 ```
 pro main(): int = {
-    var a: arr[int, 3] = [10,20,30];
+    var a: arr[int, 3] = {10,20,30};
     a[10];                                                                      //invokes a panic since index 10 cannot be reached
 }
 ```

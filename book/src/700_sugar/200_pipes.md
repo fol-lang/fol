@@ -12,6 +12,13 @@ where the right-hand side sees the left-hand side as `this`.
 
 ## Ordinary value piping
 
+Current boundary:
+
+- the ordinary value-pipe (`left | ... this`) shown in this section is later
+  design work, not part of the current compiler surface
+- the recoverable-call surfaces below (`check(...)` and `||`) are the current
+  compiler surface
+
 Use `|` when you want to continue transforming a normal value:
 
 ```fol

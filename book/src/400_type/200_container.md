@@ -7,6 +7,15 @@ Model reminder:
 - `arr[...]` is valid in `core`
 - `vec[...]`, `seq[...]`, `set[...]`, and `map[...]` require `memo`
 
+Current boundary:
+
+- static `arr[...]`, `vec[...]`, `seq[...]`, and `map[...]` are the current
+  compiler surface
+- the `axi[...]` axiom container and `.add(...)` mutation shown later are not
+  implemented; they are later design work, not current behavior
+- the `set[...]` tuple-member form typechecks, but only single-member sets are
+  executable today (backend boundary)
+
 Containers are of compound types. They contain other primitive or constructed types. To access the types in container those brackets are used: `[]`, so:
 ```
 var container: type = { element, element, element }             // declaring a container
