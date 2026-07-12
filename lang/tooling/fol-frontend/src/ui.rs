@@ -133,8 +133,7 @@ impl FrontendOutput {
     }
 
     pub fn render_human_error(&self, error: &FrontendError) -> String {
-        let plain = Self::report_for_error(error).output(OutputFormat::Human);
-        crate::colorize::colorize_diagnostics(&plain)
+        crate::pretty::render_report_pretty(&Self::report_for_error(error))
     }
 
     pub fn render_plain_error(&self, error: &FrontendError) -> String {

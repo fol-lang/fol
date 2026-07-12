@@ -3269,7 +3269,7 @@ fn lower_generic_constraints_for_params(
 
 fn binding_names(pattern: &BindingPattern) -> Vec<String> {
     match pattern {
-        BindingPattern::Name(name) | BindingPattern::Rest(name) => vec![name.clone()],
+        BindingPattern::Name(name, _) | BindingPattern::Rest(name) => vec![name.clone()],
         BindingPattern::Sequence(parts) => parts.iter().flat_map(binding_names).collect(),
     }
 }

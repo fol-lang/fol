@@ -489,7 +489,7 @@ fn test_function_body_let_parsing() {
             let has_inferred_local = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::VarDecl { name, type_hint, value, options }
+                    AstNode::VarDecl { name, type_hint, value, options, .. }
                     if name == "base"
                         && type_hint.is_none()
                         && value.is_some()
@@ -504,7 +504,8 @@ fn test_function_body_let_parsing() {
                         name,
                         type_hint: Some(FolType::Int { size: None, signed: true }),
                         value: Some(_),
-                        options
+                        options,
+                        ..
                     }
                     if name == "next"
                         && options.contains(&fol_parser::ast::VarOption::Immutable)
@@ -554,7 +555,7 @@ fn test_function_body_con_parsing() {
             let has_inferred_local = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::VarDecl { name, type_hint, value, options }
+                    AstNode::VarDecl { name, type_hint, value, options, .. }
                     if name == "base"
                         && type_hint.is_none()
                         && value.is_some()
@@ -569,7 +570,8 @@ fn test_function_body_con_parsing() {
                         name,
                         type_hint: Some(FolType::Int { size: None, signed: true }),
                         value: Some(_),
-                        options
+                        options,
+                        ..
                     }
                     if name == "next"
                         && options.contains(&fol_parser::ast::VarOption::Immutable)

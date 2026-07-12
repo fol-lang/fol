@@ -4,7 +4,7 @@ pub mod lsp;
 mod model;
 mod render_human;
 mod render_json;
-mod source;
+pub mod source;
 
 pub use codes::DiagnosticCode;
 pub use model::{

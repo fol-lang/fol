@@ -22,7 +22,7 @@ fn test_destructuring_binding_supports_leading_rest_pattern() {
                     ..
                 } if matches!(
                     parts.as_slice(),
-                    [BindingPattern::Name(start), BindingPattern::Rest(rest)]
+                    [BindingPattern::Name(start, _), BindingPattern::Rest(rest)]
                         if start == "start" && rest == "_"
                 )
             ))
@@ -51,7 +51,7 @@ fn test_destructuring_binding_supports_trailing_rest_pattern() {
                     ..
                 } if matches!(
                     parts.as_slice(),
-                    [BindingPattern::Rest(rest), BindingPattern::Name(end)]
+                    [BindingPattern::Rest(rest), BindingPattern::Name(end, _)]
                         if rest == "_" && end == "end"
                 )
             ))
@@ -81,7 +81,7 @@ fn test_destructuring_binding_supports_nested_patterns() {
                 } if matches!(
                     parts.as_slice(),
                     [
-                        BindingPattern::Name(start),
+                        BindingPattern::Name(start, _),
                         BindingPattern::Rest(rest),
                         BindingPattern::Sequence(nested),
                     ]
@@ -89,7 +89,7 @@ fn test_destructuring_binding_supports_nested_patterns() {
                         && rest == "_"
                         && matches!(
                             nested.as_slice(),
-                            [BindingPattern::Name(letter), BindingPattern::Rest(inner_rest)]
+                            [BindingPattern::Name(letter, _), BindingPattern::Rest(inner_rest)]
                                 if letter == "last_word_first_letter" && inner_rest == "_"
                         )
                 )
@@ -119,7 +119,7 @@ fn test_grouped_destructuring_bindings_parse() {
                     ..
                 } if matches!(
                     parts.as_slice(),
-                    [BindingPattern::Name(first), BindingPattern::Rest(rest)]
+                    [BindingPattern::Name(first, _), BindingPattern::Rest(rest)]
                         if first == "first" && rest == "_"
                 )
             ))
@@ -150,7 +150,7 @@ fn test_label_destructuring_bindings_parse() {
                 } if *is_label
                     && matches!(
                         parts.as_slice(),
-                        [BindingPattern::Name(left), BindingPattern::Rest(rest)]
+                        [BindingPattern::Name(left, _), BindingPattern::Rest(rest)]
                             if left == "left" && rest == "_"
                     )
             ))

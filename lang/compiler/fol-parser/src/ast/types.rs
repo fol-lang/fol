@@ -227,7 +227,7 @@ impl InquiryTarget {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BindingPattern {
-    Name(String),
+    Name(String, Option<SyntaxNodeId>),
     Rest(String),
     Sequence(Vec<BindingPattern>),
 }
@@ -235,7 +235,7 @@ pub enum BindingPattern {
 impl BindingPattern {
     pub fn is_destructuring(&self) -> bool {
         match self {
-            BindingPattern::Name(_) => false,
+            BindingPattern::Name(..) => false,
             BindingPattern::Rest(_) => true,
             BindingPattern::Sequence(parts) => {
                 parts.len() != 1 || parts.iter().any(BindingPattern::is_destructuring)

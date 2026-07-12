@@ -348,7 +348,7 @@ pub(crate) fn binding_names(pattern: &BindingPattern) -> Vec<String> {
 
 fn collect_binding_names(pattern: &BindingPattern, output: &mut Vec<String>) {
     match pattern {
-        BindingPattern::Name(name) | BindingPattern::Rest(name) => output.push(name.clone()),
+        BindingPattern::Name(name, _) | BindingPattern::Rest(name) => output.push(name.clone()),
         BindingPattern::Sequence(parts) => {
             for part in parts {
                 collect_binding_names(part, output);

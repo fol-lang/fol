@@ -9,19 +9,21 @@ pub use transport::run_lsp_stdio;
 pub(crate) use transport::run_lsp_stdio_with_io;
 pub use types::{
     EditorCompletionItem, JsonRpcError, JsonRpcId, JsonRpcNotification, JsonRpcRequest,
-    JsonRpcResponse, LspCodeAction, LspCodeActionContext, LspCodeActionParams,
-    LspCompletionContext, LspCompletionItem, LspCompletionList, LspCompletionOptions,
-    LspCompletionParams, LspDefinitionParams, LspDidChangeTextDocumentParams,
-    LspDidCloseTextDocumentParams, LspDidOpenTextDocumentParams, LspDocumentFormattingParams,
-    LspDocumentSymbol, LspDocumentSymbolParams, LspHover, LspHoverParams, LspInitializeParams,
-    LspInitializeResult, LspParameterInformation, LspPublishDiagnosticsParams,
-    LspReferenceContext, LspReferenceParams, LspRenameParams, LspSemanticTokens,
-    LspSemanticTokensLegend, LspSemanticTokensOptions, LspSemanticTokensParams,
-    LspServerCapabilities, LspServerInfo, LspSignatureHelp,
-    LspSignatureHelpOptions, LspSignatureHelpParams, LspSignatureInformation,
-    LspTextDocumentContentChangeEvent, LspTextDocumentIdentifier, LspTextDocumentItem,
-    LspTextDocumentSyncOptions, LspTextEdit, LspVersionedTextDocumentIdentifier,
-    LspWorkspaceEdit, LspWorkspaceSymbol, LspWorkspaceSymbolParams,
+    JsonRpcResponse, LspCodeAction, LspCodeActionContext, LspCodeActionParams, LspCodeLens,
+    LspCodeLensOptions, LspCodeLensParams, LspCompletionContext, LspCompletionItem,
+    LspCompletionList, LspCompletionOptions, LspCompletionParams, LspDefinitionParams,
+    LspDidChangeTextDocumentParams, LspDidCloseTextDocumentParams, LspDidOpenTextDocumentParams,
+    LspDocumentFormattingParams, LspDocumentHighlight, LspDocumentSymbol, LspDocumentSymbolParams,
+    LspFoldingRange, LspFoldingRangeParams, LspHover, LspHoverParams, LspInitializeParams,
+    LspInitializeResult, LspInlayHint, LspInlayHintParams, LspParameterInformation,
+    LspPrepareRenameResult, LspPublishDiagnosticsParams, LspReferenceContext, LspReferenceParams,
+    LspRenameOptions, LspRenameParams, LspSelectionRange, LspSelectionRangeParams,
+    LspSemanticTokens, LspSemanticTokensLegend, LspSemanticTokensOptions, LspSemanticTokensParams,
+    LspServerCapabilities, LspServerInfo, LspSignatureHelp, LspSignatureHelpOptions,
+    LspSignatureHelpParams, LspSignatureInformation, LspTextDocumentContentChangeEvent,
+    LspTextDocumentIdentifier, LspTextDocumentItem, LspTextDocumentSyncOptions, LspTextEdit,
+    LspVersionedTextDocumentIdentifier, LspWorkspaceEdit, LspWorkspaceSymbol,
+    LspWorkspaceSymbolParams,
 };
 
 use crate::{
@@ -86,7 +88,9 @@ impl EditorLspServer {
                                 trigger_characters: vec!["(".to_string(), ",".to_string()],
                             }),
                             references_provider: Some(true),
-                            rename_provider: Some(true),
+                            rename_provider: Some(LspRenameOptions {
+                                prepare_provider: true,
+                            }),
                             semantic_tokens_provider: Some(LspSemanticTokensOptions {
                                 legend: LspSemanticTokensLegend {
                                     token_types: semantic::semantic_token_types()
@@ -99,6 +103,16 @@ impl EditorLspServer {
                             }),
                             completion_provider: Some(LspCompletionOptions {
                                 trigger_characters: vec![".".to_string()],
+                                resolve_provider: true,
+                            }),
+                            type_definition_provider: Some(true),
+                            implementation_provider: Some(true),
+                            document_highlight_provider: Some(true),
+                            folding_range_provider: Some(true),
+                            selection_range_provider: Some(true),
+                            inlay_hint_provider: Some(true),
+                            code_lens_provider: Some(LspCodeLensOptions {
+                                resolve_provider: false,
                             }),
                         },
                         server_info: LspServerInfo {
@@ -273,6 +287,116 @@ impl EditorLspServer {
                     result: Some(
                         serialize_result(&result)?,
                     ),
+                    error: None,
+                }))
+            }
+            "completionItem/resolve" => {
+                let item: EditorCompletionItem = from_params(request.params)?;
+                let result = self.resolve_completion_item(item);
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
+                    error: None,
+                }))
+            }
+            "textDocument/typeDefinition" => {
+                let params: LspDefinitionParams = from_params(request.params)?;
+                let result = self.type_definition(
+                    &EditorDocumentUri::parse(&params.text_document.uri)?,
+                    params.position,
+                )?;
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
+                    error: None,
+                }))
+            }
+            "textDocument/implementation" => {
+                let params: LspDefinitionParams = from_params(request.params)?;
+                let result = self.implementation(
+                    &EditorDocumentUri::parse(&params.text_document.uri)?,
+                    params.position,
+                )?;
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
+                    error: None,
+                }))
+            }
+            "textDocument/documentHighlight" => {
+                let params: LspDefinitionParams = from_params(request.params)?;
+                let result = self.document_highlights(
+                    &EditorDocumentUri::parse(&params.text_document.uri)?,
+                    params.position,
+                )?;
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
+                    error: None,
+                }))
+            }
+            "textDocument/prepareRename" => {
+                let params: LspDefinitionParams = from_params(request.params)?;
+                let result = self.prepare_rename(
+                    &EditorDocumentUri::parse(&params.text_document.uri)?,
+                    params.position,
+                )?;
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
+                    error: None,
+                }))
+            }
+            "textDocument/foldingRange" => {
+                let params: LspFoldingRangeParams = from_params(request.params)?;
+                let result = self
+                    .folding_ranges(&EditorDocumentUri::parse(&params.text_document.uri)?)?;
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
+                    error: None,
+                }))
+            }
+            "textDocument/selectionRange" => {
+                let params: LspSelectionRangeParams = from_params(request.params)?;
+                let result = self.selection_ranges(
+                    &EditorDocumentUri::parse(&params.text_document.uri)?,
+                    &params.positions,
+                )?;
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
+                    error: None,
+                }))
+            }
+            "textDocument/inlayHint" => {
+                let params: LspInlayHintParams = from_params(request.params)?;
+                let result = self.inlay_hints(
+                    &EditorDocumentUri::parse(&params.text_document.uri)?,
+                    params.range,
+                )?;
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
+                    error: None,
+                }))
+            }
+            "textDocument/codeLens" => {
+                let params: LspCodeLensParams = from_params(request.params)?;
+                let result =
+                    self.code_lenses(&EditorDocumentUri::parse(&params.text_document.uri)?)?;
+                Ok(Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -586,6 +710,88 @@ impl EditorLspServer {
                 })
                 .collect(),
         })
+    }
+
+    pub fn resolve_completion_item(&mut self, item: EditorCompletionItem) -> EditorCompletionItem {
+        semantic::resolve_completion_item(item)
+    }
+
+    pub fn type_definition(
+        &mut self,
+        uri: &EditorDocumentUri,
+        position: LspPosition,
+    ) -> EditorResult<Option<LspLocation>> {
+        let document = self.open_document(uri)?.clone();
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        Ok(snapshot.type_definition_at(position))
+    }
+
+    pub fn implementation(
+        &mut self,
+        uri: &EditorDocumentUri,
+        position: LspPosition,
+    ) -> EditorResult<Vec<LspLocation>> {
+        let document = self.open_document(uri)?.clone();
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        Ok(snapshot.implementations_at(position))
+    }
+
+    pub fn document_highlights(
+        &mut self,
+        uri: &EditorDocumentUri,
+        position: LspPosition,
+    ) -> EditorResult<Vec<LspDocumentHighlight>> {
+        let document = self.open_document(uri)?.clone();
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        Ok(snapshot.document_highlights_at(position))
+    }
+
+    pub fn prepare_rename(
+        &mut self,
+        uri: &EditorDocumentUri,
+        position: LspPosition,
+    ) -> EditorResult<Option<LspPrepareRenameResult>> {
+        let document = self.open_document(uri)?.clone();
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        Ok(snapshot.prepare_rename_at(position))
+    }
+
+    pub fn folding_ranges(
+        &mut self,
+        uri: &EditorDocumentUri,
+    ) -> EditorResult<Vec<LspFoldingRange>> {
+        let document = self.open_document(uri)?.clone();
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        Ok(snapshot.folding_ranges(&document))
+    }
+
+    pub fn selection_ranges(
+        &mut self,
+        uri: &EditorDocumentUri,
+        positions: &[LspPosition],
+    ) -> EditorResult<Vec<LspSelectionRange>> {
+        let document = self.open_document(uri)?.clone();
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        Ok(snapshot.selection_ranges(&document, positions))
+    }
+
+    pub fn inlay_hints(
+        &mut self,
+        uri: &EditorDocumentUri,
+        range: LspRange,
+    ) -> EditorResult<Vec<LspInlayHint>> {
+        let document = self.open_document(uri)?.clone();
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        Ok(snapshot.inlay_hints(&document, range))
+    }
+
+    pub fn code_lenses(
+        &mut self,
+        uri: &EditorDocumentUri,
+    ) -> EditorResult<Vec<LspCodeLens>> {
+        let document = self.open_document(uri)?.clone();
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        Ok(snapshot.code_lenses(&document))
     }
 
     pub fn semantic_tokens(

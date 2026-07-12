@@ -20,8 +20,7 @@ fn test_shared_binding_value_expands_to_multiple_declarations() {
                         name,
                         type_hint,
                         value,
-                        options,
-                    } = node
+                        options, .. } = node
                     {
                         Some((name, type_hint, value, options))
                     } else {

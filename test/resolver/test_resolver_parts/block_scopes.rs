@@ -3,6 +3,76 @@ use fol_resolver::{ResolverErrorKind, ScopeKind, SymbolKind};
 use std::fs;
 
 #[test]
+fn test_resolver_records_local_binding_declaration_origins() {
+    let temp_root = unique_temp_root("local_binding_origins");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun[] main(): int = {\n    var count = 7;\n    var label = count;\n    return label;\n};\n",
+    )
+    .expect("Should write the local binding origin fixture");
+
+    let resolved = resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+
+    let count = resolved
+        .all_symbols()
+        .find(|symbol| symbol.name == "count" && symbol.kind == SymbolKind::ValueBinding)
+        .expect("Resolver should keep the `count` local binding");
+    let origin = count
+        .origin
+        .as_ref()
+        .expect("Local binding should now carry a declaration origin");
+    // `var count` on line 2; the name starts at column 9 and spans "count".
+    assert_eq!(origin.line, 2);
+    assert_eq!(origin.column, 9);
+    assert_eq!(origin.length, 5);
+
+    let label = resolved
+        .all_symbols()
+        .find(|symbol| symbol.name == "label" && symbol.kind == SymbolKind::ValueBinding)
+        .expect("Resolver should keep the `label` local binding");
+    assert_eq!(
+        label
+            .origin
+            .as_ref()
+            .expect("second local binding should also carry an origin")
+            .line,
+        3
+    );
+}
+
+#[test]
+fn test_resolver_records_distinct_origins_for_shadowed_local_bindings() {
+    let temp_root = unique_temp_root("shadowed_binding_origins");
+    fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
+    fs::write(
+        temp_root.join("main.fol"),
+        "fun[] main(): int = {\n    var value = 1;\n    {\n        var value = 2;\n        return value;\n    };\n};\n",
+    )
+    .expect("Should write the shadowed binding fixture");
+
+    let resolved = resolve_package_from_folder(
+        temp_root
+            .to_str()
+            .expect("Temporary resolver fixture path should be valid UTF-8"),
+    );
+
+    let lines: Vec<usize> = resolved
+        .all_symbols()
+        .filter(|symbol| symbol.name == "value" && symbol.kind == SymbolKind::ValueBinding)
+        .filter_map(|symbol| symbol.origin.as_ref().map(|origin| origin.line))
+        .collect();
+    // The outer binding (line 2) and the shadowing inner binding (line 4) keep
+    // distinct declaration origins.
+    assert!(lines.contains(&2), "outer binding origin, got: {lines:?}");
+    assert!(lines.contains(&4), "shadowing binding origin, got: {lines:?}");
+}
+
+#[test]
 fn test_resolver_builds_block_scopes_and_allows_shadowing() {
     let temp_root = unique_temp_root("block_scope_shadowing");
     fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");

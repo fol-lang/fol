@@ -19,6 +19,9 @@ pub enum AstNode {
         name: String,
         type_hint: Option<FolType>,
         value: Option<Box<AstNode>>,
+        /// Syntax node for the binding name, so tooling can locate the local
+        /// declaration (the resolver derives the symbol origin from it).
+        syntax_id: Option<SyntaxNodeId>,
     },
 
     /// Destructuring binding declaration: var pattern = value
@@ -355,6 +358,8 @@ pub enum AstNode {
         name: String,
         type_hint: Option<FolType>,
         value: Option<Box<AstNode>>,
+        /// Syntax node for the binding name (see `VarDecl::syntax_id`).
+        syntax_id: Option<SyntaxNodeId>,
     },
 
     /// When statement (FOL's if/match): when(expr) { case(condition){} * {} }

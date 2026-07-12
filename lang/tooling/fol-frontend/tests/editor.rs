@@ -390,9 +390,9 @@ fn editor_build_file_commands_dispatch_through_public_cli() {
     write_rename_fixture_package(&root);
     let build = root.join("build.fol");
 
-    // `graph` is declared on line 3 and used on lines 4 and 5; local
-    // bindings carry no declaration origin, so the two use sites are the
-    // exact expected reference count.
+    // `graph` is declared on line 3 and used on lines 4 and 5; the resolver
+    // now records local binding declaration origins, so references cover the
+    // declaration plus both use sites.
     let (_, references) = run_command_from_args_in_dir(
         [
             "fol",
@@ -419,7 +419,7 @@ fn editor_build_file_commands_dispatch_through_public_cli() {
     .expect("editor semantic-tokens should dispatch on build files");
 
     assert_eq!(references.command, "references");
-    assert!(references.summary.contains("reference_count=2"));
+    assert!(references.summary.contains("reference_count=3"));
     assert_eq!(semantic_tokens.command, "semantic-tokens");
     assert!(semantic_tokens.summary.contains("token_count="));
 

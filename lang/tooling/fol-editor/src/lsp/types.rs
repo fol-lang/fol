@@ -73,11 +73,25 @@ pub struct LspServerCapabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub references_provider: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rename_provider: Option<bool>,
+    pub rename_provider: Option<LspRenameOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantic_tokens_provider: Option<LspSemanticTokensOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_provider: Option<LspCompletionOptions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_definition_provider: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implementation_provider: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_highlight_provider: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folding_range_provider: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_range_provider: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inlay_hint_provider: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_lens_provider: Option<LspCodeLensOptions>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -85,6 +99,8 @@ pub struct LspServerCapabilities {
 pub struct LspCompletionOptions {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trigger_characters: Vec<String>,
+    #[serde(default)]
+    pub resolve_provider: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -301,11 +317,14 @@ pub struct LspCompletionItem {
     pub insert_text: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EditorCompletionItem {
     pub label: String,
     pub kind: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub insert_text: Option<String>,
 }
 
@@ -389,4 +408,120 @@ pub struct LspCodeAction {
 #[serde(rename_all = "camelCase")]
 pub struct LspSemanticTokens {
     pub data: Vec<u32>,
+}
+
+// ---- Tier 1/2 navigation, annotation, and structural features ----
+
+/// `textDocument/documentHighlight` result item. `kind`: 1=Text, 2=Read, 3=Write.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspDocumentHighlight {
+    pub range: LspRange,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u8>,
+}
+
+/// `textDocument/prepareRename` result (range + placeholder form).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspPrepareRenameResult {
+    pub range: LspRange,
+    pub placeholder: String,
+}
+
+/// `textDocument/foldingRange` result item.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspFoldingRange {
+    pub start_line: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_character: Option<u32>,
+    pub end_line: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_character: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspFoldingRangeParams {
+    pub text_document: LspTextDocumentIdentifier,
+}
+
+/// `textDocument/selectionRange` result — a range plus its enclosing parent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspSelectionRange {
+    pub range: LspRange,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Box<LspSelectionRange>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspSelectionRangeParams {
+    pub text_document: LspTextDocumentIdentifier,
+    pub positions: Vec<LspPosition>,
+}
+
+/// A command a code lens (or other UI) can execute on the client.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspCommand {
+    pub title: String,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<serde_json::Value>,
+}
+
+/// `textDocument/codeLens` result item.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspCodeLens {
+    pub range: LspRange,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<LspCommand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspCodeLensParams {
+    pub text_document: LspTextDocumentIdentifier,
+}
+
+/// `textDocument/inlayHint` result item. `kind`: 1=Type, 2=Parameter.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspInlayHint {
+    pub position: LspPosition,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u8>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub padding_left: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub padding_right: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspInlayHintParams {
+    pub text_document: LspTextDocumentIdentifier,
+    pub range: LspRange,
+}
+
+/// Advertised as `renameProvider: { prepareProvider: true }` so clients issue
+/// `textDocument/prepareRename` before renaming.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspRenameOptions {
+    pub prepare_provider: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LspCodeLensOptions {
+    #[serde(default)]
+    pub resolve_provider: bool,
 }

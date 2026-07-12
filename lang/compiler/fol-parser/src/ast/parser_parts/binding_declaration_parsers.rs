@@ -62,11 +62,13 @@ impl AstParser {
                     name,
                     type_hint,
                     value,
+                    syntax_id,
                 } => AstNode::LabDecl {
                     options,
                     name,
                     type_hint,
                     value,
+                    syntax_id,
                 },
                 AstNode::DestructureDecl {
                     options,
@@ -158,7 +160,7 @@ impl AstParser {
                 let names = patterns
                     .into_iter()
                     .map(|pattern| match pattern {
-                        BindingPattern::Name(name) => Ok(name),
+                        BindingPattern::Name(name, syntax_id) => Ok((name, syntax_id)),
                         other => {
                             let error = if let Ok(token) = tokens.curr(false) {
                                 ParseError::from_token_with_kind(
@@ -305,19 +307,22 @@ impl AstParser {
 
         if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Under)) {
             let _ = tokens.bump();
-            return Ok(BindingPattern::Name("_".to_string()));
+            return Ok(BindingPattern::Name("_".to_string(), None));
         }
 
         let name =
             Self::expect_named_label(&token, &format!("Expected identifier after '{}'", keyword))?;
+        // Record the binding name token so tooling can locate the local
+        // declaration; the resolver derives the symbol origin from this id.
+        let syntax_id = self.record_syntax_origin(&token);
         let _ = tokens.bump();
-        Ok(BindingPattern::Name(name))
+        Ok(BindingPattern::Name(name, syntax_id))
     }
 
     pub(super) fn build_binding_nodes(
         &self,
         options: Vec<VarOption>,
-        names: Vec<String>,
+        names: Vec<(String, Option<SyntaxNodeId>)>,
         type_hint: Option<FolType>,
         values: Vec<AstNode>,
         tokens: &fol_lexer::lexer::stage3::Elements,
@@ -349,11 +354,12 @@ impl AstParser {
         Ok(names
             .into_iter()
             .zip(assigned_values)
-            .map(|(name, value)| AstNode::VarDecl {
+            .map(|((name, syntax_id), value)| AstNode::VarDecl {
                 options: options.clone(),
                 name,
                 type_hint: type_hint.clone(),
                 value: value.map(Box::new),
+                syntax_id,
             })
             .collect())
     }

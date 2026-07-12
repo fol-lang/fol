@@ -52,7 +52,22 @@ fn lsp_server_handles_initialize_shutdown_and_exit() {
         vec!["(".to_string(), ",".to_string()]
     );
     assert_eq!(result.capabilities.references_provider, Some(true));
-    assert_eq!(result.capabilities.rename_provider, Some(true));
+    assert_eq!(
+        result
+            .capabilities
+            .rename_provider
+            .expect("rename should be advertised")
+            .prepare_provider,
+        true
+    );
+    // Tier 1/2 providers are all advertised.
+    assert_eq!(result.capabilities.type_definition_provider, Some(true));
+    assert_eq!(result.capabilities.implementation_provider, Some(true));
+    assert_eq!(result.capabilities.document_highlight_provider, Some(true));
+    assert_eq!(result.capabilities.folding_range_provider, Some(true));
+    assert_eq!(result.capabilities.selection_range_provider, Some(true));
+    assert_eq!(result.capabilities.inlay_hint_provider, Some(true));
+    assert!(result.capabilities.code_lens_provider.is_some());
     let semantic_tokens_provider = result
         .capabilities
         .semantic_tokens_provider
@@ -142,9 +157,18 @@ fn lsp_server_initialize_surface_stays_aligned_with_shipped_capabilities() {
     assert!(rendered.contains("\"codeActionProvider\":true"));
     assert!(rendered.contains("\"signatureHelpProvider\""));
     assert!(rendered.contains("\"referencesProvider\":true"));
-    assert!(rendered.contains("\"renameProvider\":true"));
+    assert!(rendered.contains("\"renameProvider\":{\"prepareProvider\":true}"));
     assert!(rendered.contains("\"semanticTokensProvider\""));
     assert!(rendered.contains("\"completionProvider\""));
+    // Tier 1/2 providers.
+    assert!(rendered.contains("\"typeDefinitionProvider\":true"));
+    assert!(rendered.contains("\"implementationProvider\":true"));
+    assert!(rendered.contains("\"documentHighlightProvider\":true"));
+    assert!(rendered.contains("\"foldingRangeProvider\":true"));
+    assert!(rendered.contains("\"selectionRangeProvider\":true"));
+    assert!(rendered.contains("\"inlayHintProvider\":true"));
+    assert!(rendered.contains("\"codeLensProvider\""));
+    assert!(rendered.contains("\"resolveProvider\":true"));
     assert!(!rendered.contains("\"rangeFormattingProvider\":true"));
     assert!(!rendered.contains("\"executeCommandProvider\""));
 }
@@ -2506,13 +2530,15 @@ fn lsp_server_returns_safe_empty_results_for_incomplete_calls() {
     let completion: LspCompletionList =
         serde_json::from_value(completion.result.unwrap()).unwrap();
     // Inside the broken call, signature help is safely unavailable (asserted
-    // above). Completion still stays authoritative: it only surfaces the real
-    // in-scope `helper` routine and never fabricates misleading text-fallback
-    // entries from the incomplete syntax.
+    // above). Completion still stays authoritative: among resolver-backed
+    // (non-keyword) items it only surfaces the real in-scope `helper` routine
+    // and never fabricates misleading text-fallback entries from the incomplete
+    // syntax. Language keywords (kind 14) are context-free and offered alongside.
     assert!(!completion.items.is_empty());
     assert!(completion
         .items
         .iter()
+        .filter(|item| item.kind != 14)
         .all(|item| item.label == "helper" && item.kind == 3));
 
     fs::remove_dir_all(root).ok();

@@ -576,8 +576,9 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
             !output.status.success(),
             "Ambiguous resolver fixture should fail"
         );
-        assert!(stdout.contains("error[R1005]:"));
-        assert!(stdout.contains("note:"));
+        // Pretty human mode: the code shows as a chip suffix (`R1005`), and the
+        // secondary labels render as framed candidate sites.
+        assert!(stdout.contains("R1005"));
         assert!(stdout.contains("candidate value binding declaration"));
         assert!(stdout.contains("alpha/values.fol"));
         assert!(stdout.contains("beta/values.fol"));
@@ -614,7 +615,7 @@ fn test_cli_json_resolver_errors_keep_exact_bundled_std_module_paths() {
             !output.status.success(),
             "Formal package loc misuse should fail"
         );
-        assert!(stdout.contains("error[R1001]:"));
+        assert!(stdout.contains("R1001"));
         assert!(stdout.contains("pkg instead of loc"));
         assert!(
             stdout.contains("help: replace the import source kind with pkg for formal packages")

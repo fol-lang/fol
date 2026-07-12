@@ -277,9 +277,12 @@ fn lsp_server_locks_completion_item_labels_kinds_and_order() {
 
     let completion: LspCompletionList =
         serde_json::from_value(completion.result.unwrap()).unwrap();
+    // Language keywords (kind 14) are appended after the resolver-backed
+    // symbols and are asserted separately; lock the symbol shape/order here.
     let summary = completion
         .items
         .iter()
+        .filter(|item| item.kind != 14)
         .map(|item| {
             format!(
                 "{}:{}:{}",
@@ -340,13 +343,15 @@ fn lsp_server_prefers_authoritative_plain_completion_over_text_fallbacks() {
     let items = serde_json::from_value::<LspCompletionList>(completion.result.unwrap())
         .unwrap()
         .items;
-    // Every suggestion is an authoritative resolver-backed routine completion
-    // (kind Function, detail "routine"), never a text-scan fallback. Both
-    // top-level routines the resolver recovered are offered, including the
-    // partially-parsed `phantom` declaration.
+    // Every non-keyword suggestion is an authoritative resolver-backed routine
+    // completion (kind Function, detail "routine"), never a text-scan fallback.
+    // Both top-level routines the resolver recovered are offered, including the
+    // partially-parsed `phantom` declaration. (Language keywords, kind 14, are
+    // context-free and offered independently of resolver data.)
     assert!(
         items
             .iter()
+            .filter(|item| item.kind != 14)
             .all(|item| item.kind == 3 && item.detail.as_deref() == Some("routine")),
         "completion should stay authoritative, not degrade to text-scan fallbacks: {items:?}"
     );
@@ -357,6 +362,65 @@ fn lsp_server_prefers_authoritative_plain_completion_over_text_fallbacks() {
         !labels.contains(&"main".to_string()),
         "authoritative completion should not suggest the enclosing routine or degrade to text-scan top-level noise when resolver data exists"
     );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_offers_language_keywords_in_plain_completion() {
+    // Plain (statement/expression) completion offers the language's keywords
+    // straight from the lexer's keyword tables as Keyword-kind items (14),
+    // alongside resolver-backed symbols — so typing `fu` surfaces `fun`, `re`
+    // surfaces `return`, and so on. Operator keywords (infix) stay out.
+    let (root, uri) = sample_package_root("completion_keywords");
+    fs::write(
+        root.join("src/main.fol"),
+        "fun[] helper(): int = {\n    return 7;\n};\n\nfun[] main(): int = {\n    return \n};\n",
+    )
+    .unwrap();
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.clone(), &text);
+
+    let completion = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(60),
+            method: "textDocument/completion".to_string(),
+            params: Some(
+                serde_json::to_value(LspCompletionParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: LspPosition {
+                        line: 4,
+                        character: 11,
+                    },
+                    context: None,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+
+    let items = serde_json::from_value::<LspCompletionList>(completion.result.unwrap())
+        .unwrap()
+        .items;
+    for keyword in ["fun", "var", "typ", "return", "if", "defer", "select", "true", "check"] {
+        let item = items.iter().find(|item| item.label == keyword);
+        assert!(item.is_some(), "keyword '{keyword}' should be offered: {items:?}");
+        assert_eq!(
+            item.unwrap().kind,
+            14,
+            "keyword '{keyword}' should be Keyword-kind"
+        );
+    }
+    // Operator keywords stay out of plain completion.
+    assert!(
+        !items.iter().any(|item| item.label == "nand"),
+        "operator keywords should be excluded from plain completion"
+    );
+    // Resolver-backed symbols still coexist with the keyword items.
+    assert!(items.iter().any(|item| item.label == "helper"));
 
     fs::remove_dir_all(root).ok();
 }

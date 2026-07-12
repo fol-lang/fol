@@ -580,8 +580,12 @@ fn lsp_server_returns_same_file_references_for_local_bindings() {
         .unwrap();
     let references: Vec<LspLocation> = serde_json::from_value(references.result.unwrap()).unwrap();
 
-    assert_eq!(references.len(), 1);
+    // The resolver now records local binding declaration origins, so
+    // include_declaration surfaces both the `var value` declaration (line 1)
+    // and the `return value` use (line 2).
+    assert_eq!(references.len(), 2);
     assert!(references.iter().all(|location| location.uri == uri));
+    assert!(references.iter().any(|location| location.range.start.line == 1));
     assert!(references.iter().any(|location| location.range.start.line == 2));
 
     fs::remove_dir_all(root).ok();
@@ -1469,7 +1473,7 @@ fn lsp_server_renames_same_file_local_bindings() {
     let mut server = EditorLspServer::new(EditorConfig::default());
     open_document(&mut server, uri.clone(), &text);
 
-    let error = server
+    let rename = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: JsonRpcId::Number(92),
@@ -1486,8 +1490,17 @@ fn lsp_server_renames_same_file_local_bindings() {
                 .unwrap(),
             ),
         })
-        .expect_err("local rename should stay outside the current safe boundary");
-    assert_eq!(error.kind, crate::EditorErrorKind::InvalidInput);
+        .unwrap()
+        .unwrap();
+    // The resolver now records the local binding declaration origin, so a
+    // same-file local rename rewrites both the `var value` declaration (line 1)
+    // and its `return value` use (line 2).
+    let edit: crate::LspWorkspaceEdit = serde_json::from_value(rename.result.unwrap()).unwrap();
+    let file_edits = edit.changes.get(&uri).expect("edits for the current file");
+    assert_eq!(file_edits.len(), 2);
+    assert!(file_edits.iter().all(|edit| edit.new_text == "total"));
+    assert!(file_edits.iter().any(|edit| edit.range.start.line == 1));
+    assert!(file_edits.iter().any(|edit| edit.range.start.line == 2));
 
     fs::remove_dir_all(root).ok();
 }

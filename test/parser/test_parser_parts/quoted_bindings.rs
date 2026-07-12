@@ -50,7 +50,7 @@ fn test_function_body_let_declaration_accepts_quoted_name() {
             assert!(body.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::VarDecl { name, type_hint, value, options }
+                    AstNode::VarDecl { name, type_hint, value, options, .. }
                     if name == "count"
                         && options.contains(&fol_parser::ast::VarOption::Immutable)
                         && matches!(type_hint, Some(FolType::Int { .. }))

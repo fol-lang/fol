@@ -24,8 +24,9 @@ use super::completion_helpers::{
     FALLBACK_ALIAS_PREFIXES, FALLBACK_ROUTINE_PREFIXES, FALLBACK_TYPE_PREFIXES,
 };
 use super::types::{
-    EditorCompletionItem, LspDocumentSymbol, LspHover, LspParameterInformation, LspSignatureHelp,
-    LspSignatureInformation, LspWorkspaceSymbol,
+    EditorCompletionItem, LspCodeLens, LspCommand, LspDocumentHighlight, LspDocumentSymbol,
+    LspFoldingRange, LspHover, LspInlayHint, LspParameterInformation, LspPrepareRenameResult,
+    LspSelectionRange, LspSignatureHelp, LspSignatureInformation, LspWorkspaceSymbol,
 };
 
 const SEMANTIC_TOKEN_TYPES: &[&str] = &["namespace", "type", "function", "parameter", "variable"];
@@ -390,6 +391,7 @@ impl SemanticSnapshot {
         let mut items = self.local_completion_items(position);
         items.extend(self.current_package_top_level_completion_items());
         items.extend(self.import_alias_completion_items(position));
+        items.extend(self.keyword_completion_items());
         dedupe_completion_items(items)
     }
 
@@ -503,6 +505,7 @@ impl SemanticSnapshot {
                 let mut items = self.fallback_local_scope_items(document, position);
                 items.extend(self.fallback_current_package_top_level_items(document, position));
                 items.extend(self.fallback_import_alias_items(document));
+                items.extend(self.keyword_completion_items());
                 dedupe_completion_items(items)
             }
         }
@@ -621,6 +624,30 @@ impl SemanticSnapshot {
             .filter(|entry| entry.surface == IntrinsicSurface::DotRootCall)
             .filter(|entry| editor_intrinsic_available_in_model(model, **entry))
             .map(|entry| completion_intrinsic_item(entry.name))
+            .collect()
+    }
+
+    // COMPILER-BACKED: the keyword set comes from the lexer's own keyword
+    // tables, so completion stays in sync with what the language actually lexes.
+    // Offered in plain (statement/expression) context, independent of whether
+    // the buffer currently resolves, so keywords are available while typing.
+    // Operator keywords (infix) and receiver-contextual keywords are omitted.
+    fn keyword_completion_items(&self) -> Vec<EditorCompletionItem> {
+        use fol_lexer::token::buildin::{
+            CONTROL_KEYWORDS, DECLARATION_KEYWORDS, DIAGNOSTIC_KEYWORDS, LITERAL_KEYWORDS,
+        };
+        // LSP CompletionItemKind::Keyword == 14.
+        DECLARATION_KEYWORDS
+            .iter()
+            .chain(CONTROL_KEYWORDS.iter())
+            .chain(LITERAL_KEYWORDS.iter())
+            .chain(DIAGNOSTIC_KEYWORDS.iter())
+            .map(|keyword| EditorCompletionItem {
+                label: (*keyword).to_string(),
+                kind: 14,
+                detail: Some("keyword".to_string()),
+                insert_text: None,
+            })
             .collect()
     }
 
@@ -1489,6 +1516,287 @@ impl SemanticSnapshot {
         nest_document_symbols(symbols)
     }
 
+    fn symbol_at_position(&self, position: LspPosition) -> Option<fol_resolver::SymbolId> {
+        self.reference_at(position)
+            .and_then(|reference| reference.resolved)
+            .or_else(|| self.method_target_symbol_at(position))
+    }
+
+    fn current_document_uri(&self) -> Option<String> {
+        let path = self.analyzed_path.as_ref()?;
+        Some(format!(
+            "file://{}",
+            self.map_analyzed_file_to_source(&path.to_string_lossy())
+        ))
+    }
+
+    // COMPILER-BACKED: symbol under the cursor -> its declared type -> that type's decl
+    pub(super) fn type_definition_at(&self, position: LspPosition) -> Option<LspLocation> {
+        let symbol_id = self.symbol_at_position(position)?;
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self
+            .typed_workspace
+            .as_ref()?
+            .package(&package.identity)?;
+        let type_id = typed_package.program.typed_symbol(symbol_id)?.declared_type?;
+        let type_symbol = declared_type_symbol(typed_package.program.type_table(), type_id)?;
+        self.definition_for_symbol(type_symbol)
+    }
+
+    // COMPILER-BACKED: a protocol standard under the cursor -> its conforming types
+    pub(super) fn implementations_at(&self, position: LspPosition) -> Vec<LspLocation> {
+        let Some(symbol_id) = self.symbol_at_position(position) else {
+            return Vec::new();
+        };
+        let Some((package, program)) = self.current_resolved_package() else {
+            return Vec::new();
+        };
+        let Some(symbol) = program.symbol(symbol_id) else {
+            return Vec::new();
+        };
+        if symbol.kind != fol_resolver::SymbolKind::Standard {
+            return Vec::new();
+        }
+        let Some(typed_package) = self
+            .typed_workspace
+            .as_ref()
+            .and_then(|typed| typed.package(&package.identity))
+        else {
+            return Vec::new();
+        };
+        let mut locations = Vec::new();
+        for conformance in typed_package.program.all_typed_conformances() {
+            if conformance.standard_symbol_ids.contains(&symbol_id) {
+                if let Some(location) = self.definition_for_symbol(conformance.type_symbol_id) {
+                    locations.push(location);
+                }
+            }
+        }
+        locations.sort_by(|left, right| {
+            left.uri
+                .cmp(&right.uri)
+                .then(left.range.start.line.cmp(&right.range.start.line))
+        });
+        locations.dedup();
+        locations
+    }
+
+    // COMPILER-BACKED: occurrences of the symbol under the cursor, current file only
+    pub(super) fn document_highlights_at(
+        &self,
+        position: LspPosition,
+    ) -> Vec<LspDocumentHighlight> {
+        let Some(reference) = self.reference_at(position) else {
+            return Vec::new();
+        };
+        let Some(current_uri) = self.current_document_uri() else {
+            return Vec::new();
+        };
+        let mut highlights = self
+            .references_for_reference(&reference, true)
+            .into_iter()
+            .filter(|location| location.uri == current_uri)
+            .map(|location| LspDocumentHighlight {
+                range: location.range,
+                kind: Some(1),
+            })
+            .collect::<Vec<_>>();
+        highlights.sort_by(|left, right| {
+            left.range
+                .start
+                .line
+                .cmp(&right.range.start.line)
+                .then(left.range.start.character.cmp(&right.range.start.character))
+        });
+        highlights.dedup();
+        highlights
+    }
+
+    // COMPILER-BACKED: the renameable identifier range under the cursor
+    pub(super) fn prepare_rename_at(
+        &self,
+        position: LspPosition,
+    ) -> Option<LspPrepareRenameResult> {
+        let reference = self.reference_at(position)?;
+        let symbol_id = reference.resolved?;
+        let (_, program) = self.current_resolved_package()?;
+        let symbol = program.symbol(symbol_id)?;
+        let syntax_id = reference.anchor()?;
+        let origin = program.syntax_index().origin(syntax_id)?;
+        let file = origin.file.as_ref()?;
+        let range = location_to_range(&fol_diagnostics::DiagnosticLocation {
+            file: Some(self.map_analyzed_file_to_source(file)),
+            line: origin.line,
+            column: origin.column,
+            length: Some(origin.length),
+        });
+        Some(LspPrepareRenameResult {
+            range,
+            placeholder: symbol.name.clone(),
+        })
+    }
+
+    // Structural folding of every multi-line brace block (routine/record bodies,
+    // nested blocks). Text-driven so it works even while the buffer is mid-edit.
+    pub(super) fn folding_ranges(&self, document: &EditorDocument) -> Vec<LspFoldingRange> {
+        scan_brace_blocks(&document.text)
+            .into_iter()
+            .filter(|(start, end)| end.line > start.line)
+            .map(|(start, end)| LspFoldingRange {
+                start_line: start.line,
+                start_character: None,
+                end_line: end.line,
+                end_character: None,
+                kind: None,
+            })
+            .collect()
+    }
+
+    // Syntax-aware expand/shrink selection: word -> enclosing brace blocks -> file.
+    pub(super) fn selection_ranges(
+        &self,
+        document: &EditorDocument,
+        positions: &[LspPosition],
+    ) -> Vec<LspSelectionRange> {
+        let blocks = scan_brace_blocks(&document.text);
+        let doc_range = document_full_range(&document.text);
+        positions
+            .iter()
+            .map(|position| {
+                let mut ranges: Vec<LspRange> = Vec::new();
+                if let Some(word) = word_range_at(&document.text, *position) {
+                    ranges.push(word);
+                }
+                let mut enclosing = blocks
+                    .iter()
+                    .map(|(start, end)| LspRange {
+                        start: *start,
+                        end: *end,
+                    })
+                    .filter(|range| range_contains_position(range, *position))
+                    .collect::<Vec<_>>();
+                enclosing.sort_by_key(|range| range.end.line.saturating_sub(range.start.line));
+                ranges.extend(enclosing);
+                ranges.push(doc_range);
+                ranges.dedup();
+                build_selection_chain(&ranges)
+            })
+            .collect()
+    }
+
+    // COMPILER-BACKED: inferred-type hints for `var`/`lab`/`con` bindings that
+    // lack an explicit `: type` annotation (rust-analyzer/gopls style). The
+    // resolver now records the binding-name declaration origin, so both the
+    // type (the binding symbol's recorded/inferred type) and the position (the
+    // symbol origin) come straight from compiler data — precise even for
+    // multi-name and shadowed bindings.
+    pub(super) fn inlay_hints(
+        &self,
+        document: &EditorDocument,
+        range: LspRange,
+    ) -> Vec<LspInlayHint> {
+        let Some((package, program)) = self.current_resolved_package() else {
+            return Vec::new();
+        };
+        let Some(analyzed_path) = self.analyzed_path.as_ref() else {
+            return Vec::new();
+        };
+        let path_text = analyzed_path.to_string_lossy();
+        let Some(typed_package) = self
+            .typed_workspace
+            .as_ref()
+            .and_then(|typed| typed.package(&package.identity))
+        else {
+            return Vec::new();
+        };
+        let mut hints = Vec::new();
+        for symbol in program.all_symbols() {
+            if !matches!(
+                symbol.kind,
+                fol_resolver::SymbolKind::ValueBinding | fol_resolver::SymbolKind::LabelBinding
+            ) {
+                continue;
+            }
+            let Some(origin) = &symbol.origin else { continue };
+            let Some(file) = &origin.file else { continue };
+            if file != &path_text {
+                continue;
+            }
+            let line = origin.line.saturating_sub(1) as u32;
+            if line < range.start.line || line > range.end.line {
+                continue;
+            }
+            // Skip bindings that already carry an explicit `: type` annotation.
+            if binding_has_explicit_annotation(&document.text, origin) {
+                continue;
+            }
+            let Some(type_id) = typed_package
+                .program
+                .typed_symbol(symbol.id)
+                .and_then(|typed_symbol| typed_symbol.declared_type)
+            else {
+                continue;
+            };
+            let type_text = render_checked_type(typed_package.program.type_table(), type_id);
+            if type_text == "unknown" {
+                continue;
+            }
+            let character = (origin.column.saturating_sub(1) + origin.length) as u32;
+            hints.push(LspInlayHint {
+                position: LspPosition { line, character },
+                label: format!(": {type_text}"),
+                kind: Some(1),
+                padding_left: false,
+                padding_right: false,
+            });
+        }
+        hints.sort_by(|left, right| {
+            left.position
+                .line
+                .cmp(&right.position.line)
+                .then(left.position.character.cmp(&right.position.character))
+        });
+        hints
+    }
+
+    // COMPILER-BACKED: a "Run" lens above the package entry point `fun[] main`.
+    pub(super) fn code_lenses(&self, _document: &EditorDocument) -> Vec<LspCodeLens> {
+        let Some((_, program)) = self.current_resolved_package() else {
+            return Vec::new();
+        };
+        let Some(analyzed_path) = self.analyzed_path.as_ref() else {
+            return Vec::new();
+        };
+        let path_text = analyzed_path.to_string_lossy();
+        let mut lenses = Vec::new();
+        for symbol in program.all_symbols() {
+            if symbol.kind != fol_resolver::SymbolKind::Routine || symbol.name != "main" {
+                continue;
+            }
+            let Some(origin) = &symbol.origin else { continue };
+            let Some(file) = &origin.file else { continue };
+            if file != &path_text {
+                continue;
+            }
+            let source_file = self.map_analyzed_file_to_source(file);
+            let range = location_to_range(&fol_diagnostics::DiagnosticLocation {
+                file: Some(source_file.clone()),
+                line: origin.line,
+                column: origin.column,
+                length: Some(origin.length),
+            });
+            lenses.push(LspCodeLens {
+                range,
+                command: Some(LspCommand {
+                    title: "\u{25b6} Run".to_string(),
+                    command: "fol.run".to_string(),
+                    arguments: vec![serde_json::Value::String(source_file)],
+                }),
+            });
+        }
+        lenses
+    }
+
     fn current_source_unit<'a>(
         &self,
         program: &'a fol_resolver::ResolvedProgram,
@@ -2015,6 +2323,194 @@ fn origin_contains(origin: &fol_parser::ast::SyntaxOrigin, line: usize, column: 
     let end_column = start_column + origin.length.max(1);
     line == start_line && column >= start_column && column <= end_column
 }
+
+/// Heuristic: does the binding whose name ends at `origin` carry an explicit
+/// `: type` annotation? Used to suppress redundant inlay type hints.
+fn binding_has_explicit_annotation(
+    text: &str,
+    origin: &fol_parser::ast::SyntaxOrigin,
+) -> bool {
+    let Some(line) = text.lines().nth(origin.line.saturating_sub(1)) else {
+        return false;
+    };
+    let after = origin.column.saturating_sub(1) + origin.length;
+    let chars: Vec<char> = line.chars().collect();
+    if after > chars.len() {
+        return false;
+    }
+    chars[after..]
+        .iter()
+        .find(|c| !c.is_whitespace())
+        .map(|c| *c == ':')
+        .unwrap_or(false)
+}
+
+/// Completion-item resolution: enrich a keyword item's detail with its lexer
+/// category. Symbol items already carry an authoritative detail and pass
+/// through unchanged.
+pub(super) fn resolve_completion_item(mut item: EditorCompletionItem) -> EditorCompletionItem {
+    if item.kind == 14 {
+        if let Some(category) = keyword_category(&item.label) {
+            item.detail = Some(format!("{category} keyword"));
+        }
+    }
+    item
+}
+
+fn keyword_category(keyword: &str) -> Option<&'static str> {
+    use fol_lexer::token::buildin::{
+        CONTROL_KEYWORDS, DECLARATION_KEYWORDS, DIAGNOSTIC_KEYWORDS, LITERAL_KEYWORDS,
+    };
+    if DECLARATION_KEYWORDS.contains(&keyword) {
+        Some("declaration")
+    } else if CONTROL_KEYWORDS.contains(&keyword) {
+        Some("control-flow")
+    } else if LITERAL_KEYWORDS.contains(&keyword) {
+        Some("literal")
+    } else if DIAGNOSTIC_KEYWORDS.contains(&keyword) {
+        Some("diagnostic")
+    } else {
+        None
+    }
+}
+
+/// Resolve a checked type id to the declaring symbol of the named type it
+/// denotes, unwrapping optional/error/container shells (`opt Foo`, `vec[Foo]`).
+/// Returns `None` for anonymous/structural or builtin types.
+fn declared_type_symbol(
+    table: &fol_typecheck::TypeTable,
+    type_id: fol_typecheck::CheckedTypeId,
+) -> Option<fol_resolver::SymbolId> {
+    use fol_typecheck::{CheckedType, DeclaredTypeKind};
+    match table.get(type_id)? {
+        CheckedType::Declared { symbol, kind, .. }
+            if matches!(kind, DeclaredTypeKind::Type | DeclaredTypeKind::Alias) =>
+        {
+            Some(*symbol)
+        }
+        CheckedType::Optional { inner } => declared_type_symbol(table, *inner),
+        CheckedType::Error { inner } => inner.and_then(|inner| declared_type_symbol(table, inner)),
+        CheckedType::Vector { element_type }
+        | CheckedType::Sequence { element_type }
+        | CheckedType::Array { element_type, .. } => declared_type_symbol(table, *element_type),
+        _ => None,
+    }
+}
+
+/// Scan matched `{ .. }` brace pairs, returning each pair's open and close
+/// positions. Braces inside double-quoted strings are ignored. Used for folding
+/// ranges and syntax-aware selection ranges.
+fn scan_brace_blocks(text: &str) -> Vec<(LspPosition, LspPosition)> {
+    let mut blocks = Vec::new();
+    let mut stack: Vec<LspPosition> = Vec::new();
+    let mut line: u32 = 0;
+    let mut character: u32 = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for ch in text.chars() {
+        match ch {
+            '\n' => {
+                line += 1;
+                character = 0;
+                in_string = false;
+                escaped = false;
+                continue;
+            }
+            '\\' if in_string => escaped = !escaped,
+            '"' if !escaped => in_string = !in_string,
+            '{' if !in_string => stack.push(LspPosition { line, character }),
+            '}' if !in_string => {
+                if let Some(open) = stack.pop() {
+                    blocks.push((open, LspPosition { line, character }));
+                }
+            }
+            _ => escaped = false,
+        }
+        if ch != '\\' {
+            escaped = false;
+        }
+        character += 1;
+    }
+    blocks
+}
+
+fn document_full_range(text: &str) -> LspRange {
+    let last_line = text.lines().count().saturating_sub(1) as u32;
+    let last_len = text.lines().last().map(|line| line.chars().count()).unwrap_or(0) as u32;
+    LspRange {
+        start: LspPosition {
+            line: 0,
+            character: 0,
+        },
+        end: LspPosition {
+            line: last_line,
+            character: last_len,
+        },
+    }
+}
+
+fn range_contains_position(range: &LspRange, position: LspPosition) -> bool {
+    let after_start = (position.line, position.character) >= (range.start.line, range.start.character);
+    let before_end = (position.line, position.character) <= (range.end.line, range.end.character);
+    after_start && before_end
+}
+
+/// The identifier word range surrounding `position`, if the cursor is on one.
+fn word_range_at(text: &str, position: LspPosition) -> Option<LspRange> {
+    let line = text.lines().nth(position.line as usize)?;
+    let chars: Vec<char> = line.chars().collect();
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let cursor = (position.character as usize).min(chars.len());
+    let mut start = cursor;
+    while start > 0 && is_word(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = cursor;
+    while end < chars.len() && is_word(chars[end]) {
+        end += 1;
+    }
+    if start == end {
+        return None;
+    }
+    Some(LspRange {
+        start: LspPosition {
+            line: position.line,
+            character: start as u32,
+        },
+        end: LspPosition {
+            line: position.line,
+            character: end as u32,
+        },
+    })
+}
+
+/// Build a selection-range chain from ranges ordered innermost -> outermost.
+fn build_selection_chain(ranges: &[LspRange]) -> LspSelectionRange {
+    let mut chain: Option<LspSelectionRange> = None;
+    for range in ranges.iter().rev() {
+        if chain.as_ref().map(|current| &current.range) == Some(range) {
+            continue;
+        }
+        chain = Some(LspSelectionRange {
+            range: *range,
+            parent: chain.map(Box::new),
+        });
+    }
+    chain.unwrap_or(LspSelectionRange {
+        range: ranges.first().copied().unwrap_or(LspRange {
+            start: LspPosition {
+                line: 0,
+                character: 0,
+            },
+            end: LspPosition {
+                line: 0,
+                character: 0,
+            },
+        }),
+        parent: None,
+    })
+}
+
 
 fn offset_for_origin(text: &str, origin: &fol_parser::ast::SyntaxOrigin) -> Option<usize> {
     offset_for_position(

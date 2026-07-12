@@ -377,10 +377,6 @@ pub fn run_direct_compile_with_io(
     frontend_config: &FrontendConfig,
     stdout: &mut impl std::io::Write,
 ) -> i32 {
-    let output_format = match frontend_config.output.mode {
-        OutputMode::Json => OutputFormat::Json,
-        _ => OutputFormat::Human,
-    };
     let resolver_config = ResolverConfig {
         std_root: config.std_root.clone(),
         package_store_root: config.package_store_root.clone(),
@@ -544,11 +540,10 @@ pub fn run_direct_compile_with_io(
         Err(_) => {}
     }
 
-    let rendered = diagnostics.output(output_format);
-    let rendered = if frontend_config.output.mode == OutputMode::Human {
-        crate::colorize::colorize_diagnostics(&rendered)
-    } else {
-        rendered
+    let rendered = match frontend_config.output.mode {
+        OutputMode::Human => crate::pretty::render_report_pretty(&diagnostics),
+        OutputMode::Plain => diagnostics.output(OutputFormat::Human),
+        OutputMode::Json => diagnostics.output(OutputFormat::Json),
     };
     if !rendered.trim().is_empty() {
         let _ = writeln!(stdout, "{rendered}");
@@ -654,14 +649,10 @@ fn compile_file(
 }
 
 fn render_direct_diagnostics(report: &DiagnosticReport, mode: OutputMode) -> String {
-    let rendered = report.output(match mode {
-        OutputMode::Json => OutputFormat::Json,
-        _ => OutputFormat::Human,
-    });
-    if mode == OutputMode::Human {
-        crate::colorize::colorize_diagnostics(&rendered)
-    } else {
-        rendered
+    match mode {
+        OutputMode::Human => crate::pretty::render_report_pretty(report),
+        OutputMode::Plain => report.output(OutputFormat::Human),
+        OutputMode::Json => report.output(OutputFormat::Json),
     }
 }
 

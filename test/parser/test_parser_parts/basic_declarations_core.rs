@@ -57,7 +57,7 @@ fn test_top_level_let_parsing() {
             let has_inferred_let = declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::VarDecl { name, type_hint, value, options }
+                    AstNode::VarDecl { name, type_hint, value, options, .. }
                     if name == "message"
                         && type_hint.is_none()
                         && value.is_some()
@@ -72,7 +72,8 @@ fn test_top_level_let_parsing() {
                         name,
                         type_hint: Some(FolType::Int { size: None, signed: true }),
                         value: Some(_),
-                        options
+                        options,
+                        ..
                     }
                     if name == "count"
                         && options.contains(&fol_parser::ast::VarOption::Immutable)
@@ -105,7 +106,7 @@ fn test_top_level_con_parsing() {
             let has_inferred_con = declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::VarDecl { name, type_hint, value, options }
+                    AstNode::VarDecl { name, type_hint, value, options, .. }
                     if name == "message"
                         && type_hint.is_none()
                         && value.is_some()
@@ -120,7 +121,8 @@ fn test_top_level_con_parsing() {
                         name,
                         type_hint: Some(FolType::Int { size: None, signed: true }),
                         value: Some(_),
-                        options
+                        options,
+                        ..
                     }
                     if name == "count"
                         && options.contains(&fol_parser::ast::VarOption::Immutable)

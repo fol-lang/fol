@@ -59,6 +59,16 @@ const FG_BRIGHT_MAGENTA: &str = "95";
 const FG_BRIGHT_CYAN: &str = "96";
 const FG_BRIGHT_WHITE: &str = "97";
 
+const BG_BLACK: &str = "40";
+const BG_RED: &str = "41";
+const BG_GREEN: &str = "42";
+const BG_YELLOW: &str = "43";
+const BG_BLUE: &str = "44";
+const BG_MAGENTA: &str = "45";
+const BG_CYAN: &str = "46";
+const BG_WHITE: &str = "47";
+const BG_BRIGHT_BLACK: &str = "100";
+
 // ── Styled wrapper ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -102,6 +112,17 @@ impl Styled {
     pub fn bright_magenta(self) -> Self { self.with(FG_BRIGHT_MAGENTA) }
     pub fn bright_cyan(self) -> Self { self.with(FG_BRIGHT_CYAN) }
     pub fn bright_white(self) -> Self { self.with(FG_BRIGHT_WHITE) }
+
+    // background colors (for chips/badges)
+    pub fn on_black(self) -> Self { self.with(BG_BLACK) }
+    pub fn on_red(self) -> Self { self.with(BG_RED) }
+    pub fn on_green(self) -> Self { self.with(BG_GREEN) }
+    pub fn on_yellow(self) -> Self { self.with(BG_YELLOW) }
+    pub fn on_blue(self) -> Self { self.with(BG_BLUE) }
+    pub fn on_magenta(self) -> Self { self.with(BG_MAGENTA) }
+    pub fn on_cyan(self) -> Self { self.with(BG_CYAN) }
+    pub fn on_white(self) -> Self { self.with(BG_WHITE) }
+    pub fn on_bright_black(self) -> Self { self.with(BG_BRIGHT_BLACK) }
 }
 
 impl std::fmt::Display for Styled {

@@ -4,5 +4,6 @@ mod completion_plain;
 mod example_models;
 mod helpers;
 mod lifecycle;
+mod nav_features;
 mod navigation;
 mod semantic_tokens;

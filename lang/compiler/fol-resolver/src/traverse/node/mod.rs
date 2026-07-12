@@ -15,7 +15,10 @@ use super::references::{
     is_builtin_diagnostic_call, record_function_call_reference, record_identifier_reference,
     record_qualified_function_call_reference, record_qualified_identifier_reference,
 };
-use super::scope::{insert_generic_symbols, insert_local_named_symbol, insert_local_symbol};
+use super::scope::{
+    insert_generic_symbols, insert_local_named_symbol, insert_local_symbol,
+    insert_local_symbol_with_origin,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RoutineContext {
@@ -646,13 +649,21 @@ fn traverse_node_inner(
                 )?;
             }
             if !is_top_level_node {
-                let symbol_id = insert_local_symbol(
+                let binding_syntax_id = match semantic_node(node) {
+                    AstNode::VarDecl { syntax_id, .. } => *syntax_id,
+                    _ => None,
+                };
+                let binding_origin = binding_syntax_id
+                    .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+                    .cloned();
+                let symbol_id = insert_local_symbol_with_origin(
                     program,
                     source_unit_id,
                     scope_id,
                     name,
                     SymbolKind::ValueBinding,
                     format!("symbol#{}", fol_types::canonical_identifier_key(name)),
+                    binding_origin,
                 )?;
                 if let AstNode::VarDecl { options, .. } = semantic_node(node) {
                     if fol_parser::ast::binding_is_mutable(options) {
@@ -683,13 +694,21 @@ fn traverse_node_inner(
                 )?;
             }
             if !is_top_level_node {
-                let symbol_id = insert_local_symbol(
+                let binding_syntax_id = match semantic_node(node) {
+                    AstNode::LabDecl { syntax_id, .. } => *syntax_id,
+                    _ => None,
+                };
+                let binding_origin = binding_syntax_id
+                    .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+                    .cloned();
+                let symbol_id = insert_local_symbol_with_origin(
                     program,
                     source_unit_id,
                     scope_id,
                     name,
                     SymbolKind::LabelBinding,
                     format!("symbol#{}", fol_types::canonical_identifier_key(name)),
+                    binding_origin,
                 )?;
                 if let AstNode::LabDecl { options, .. } = semantic_node(node) {
                     if fol_parser::ast::binding_is_mutable(options) {
