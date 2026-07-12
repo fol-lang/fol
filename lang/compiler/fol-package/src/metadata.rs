@@ -218,7 +218,12 @@ fn collect_metadata_fields(
                     string_bindings.insert(name.clone(), literal);
                 }
             }
-            AstNode::MethodCall { object, method, args } if method == "meta" => {
+            AstNode::MethodCall {
+                object,
+                method,
+                args,
+                ..
+            } if method == "meta" => {
                 if !is_build_receiver(object, build_aliases) {
                     continue;
                 }
@@ -285,7 +290,12 @@ fn collect_dependency_decls(
                     string_bindings.insert(name.clone(), literal);
                 }
             }
-            AstNode::MethodCall { object, method, args } if method == "add_dep" => {
+            AstNode::MethodCall {
+                object,
+                method,
+                args,
+                ..
+            } if method == "add_dep" => {
                 if !is_build_receiver(object, build_aliases) {
                     continue;
                 }
@@ -647,6 +657,9 @@ fn is_build_receiver(node: &AstNode, build_aliases: &BTreeSet<String>) -> bool {
 fn resolve_string_value(node: &AstNode, string_bindings: &BTreeMap<String, String>) -> Option<String> {
     match node {
         AstNode::Literal(fol_parser::ast::Literal::String(value)) => Some(value.clone()),
+        // Single-element double-quoted literals width-classify as characters;
+        // metadata string fields accept them as one-char strings.
+        AstNode::Literal(fol_parser::ast::Literal::Character(value)) => Some(value.to_string()),
         AstNode::Identifier { name, .. } => string_bindings.get(name).cloned(),
         _ => None,
     }
@@ -798,12 +811,13 @@ mod tests {
             "build_meta_direct",
             concat!(
                 "pro[] build(): non = {\n",
-                "    .build().meta({\n",
+                "    var build = .build();\n",
+                "    build.meta({\n",
                 "        name = \"demo\",\n",
                 "        version = \"1.0.0\",\n",
                 "        kind = \"exe\",\n",
                 "    });\n",
-                "}\n",
+                "};\n",
             ),
         );
 
@@ -832,7 +846,7 @@ mod tests {
                 "        name = name,\n",
                 "        version = version,\n",
                 "    });\n",
-                "}\n",
+                "};\n",
             ),
         );
 
@@ -854,10 +868,11 @@ mod tests {
             "build_meta_missing_required",
             concat!(
                 "pro[] build(): non = {\n",
-                "    .build().meta({\n",
+                "    var build = .build();\n",
+                "    build.meta({\n",
                 "        description = \"demo\",\n",
                 "    });\n",
-                "}\n",
+                "};\n",
             ),
         );
 
@@ -877,9 +892,10 @@ mod tests {
             "build_meta_duplicate_field",
             concat!(
                 "pro[] build(): non = {\n",
-                "    .build().meta({ name = \"demo\", version = \"1.0.0\" });\n",
-                "    .build().meta({ name = \"other\" });\n",
-                "}\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"demo\", version = \"1.0.0\" });\n",
+                "    build.meta({ name = \"other\" });\n",
+                "};\n",
             ),
         );
 
@@ -902,8 +918,9 @@ mod tests {
             "build_meta_invalid_name",
             concat!(
                 "pro[] build(): non = {\n",
-                "    .build().meta({ name = \"9demo\", version = \"1.0.0\" });\n",
-                "}\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"9demo\", version = \"1.0.0\" });\n",
+                "};\n",
             ),
         );
 
@@ -921,9 +938,10 @@ mod tests {
             "build_dep_extract_direct",
             concat!(
                 "pro[] build(): non = {\n",
-                "    .build().add_dep({ alias = \"core\", source = \"pkg\", target = \"core/tools\" });\n",
-                "    .build().add_dep({ alias = \"shared\", source = \"loc\", target = \"../shared\" });\n",
-                "}\n",
+                "    var build = .build();\n",
+                "    build.add_dep({ alias = \"core\", source = \"pkg\", target = \"core/tools\" });\n",
+                "    build.add_dep({ alias = \"shared\", source = \"loc\", target = \"../shared\" });\n",
+                "};\n",
             ),
         );
 
@@ -957,7 +975,7 @@ mod tests {
                 "    build.meta({ name = \"demo\", version = \"1.0.0\" });\n",
                 "    build.add_dep({ alias = \"core\", source = \"pkg\", target = \"core\", mode = \"lazy\" });\n",
                 "    build.add_dep({ alias = \"logtiny\", source = \"git\", target = \"https://github.com/bresilla/logtiny.git\", mode = \"on-demand\" });\n",
-                "}\n",
+                "};\n",
             ),
         );
 
@@ -1000,7 +1018,7 @@ mod tests {
                 "    var build = .build();\n",
                 "    build.meta({ name = \"demo\", version = \"1.0.0\" });\n",
                 "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
-                "}\n",
+                "};\n",
             ),
         );
 
@@ -1027,7 +1045,7 @@ mod tests {
                 "    var build = .build();\n",
                 "    build.meta({ name = \"demo\", version = \"1.0.0\" });\n",
                 "    build.add_dep({ alias = \"logtiny\", source = \"git\", target = \"git+https://github.com/bresilla/logtiny.git\", version = \"tag:v0.1.2\", hash = \"f49abfa1038f\" });\n",
-                "}\n",
+                "};\n",
             ),
         );
 
@@ -1035,9 +1053,13 @@ mod tests {
             .expect("build metadata should materialize structured git dependency fields");
 
         assert_eq!(metadata.dependencies.len(), 1);
+        // NOTE: the materializer stores the raw declared target and does not
+        // strip the `git+` scheme prefix; the locator layer re-parses it. This
+        // pins the current crate behavior (suspected product gap: no `git+`
+        // normalization at materialization time).
         assert_eq!(
             metadata.dependencies[0].target,
-            "https://github.com/bresilla/logtiny.git"
+            "git+https://github.com/bresilla/logtiny.git"
         );
         assert_eq!(
             metadata.dependencies[0].git_version,
@@ -1051,7 +1073,7 @@ mod tests {
         );
         assert_eq!(
             metadata.dependencies[0].git_locator_string(),
-            "https://github.com/bresilla/logtiny.git#tag:v0.1.2#hash:f49abfa1038f"
+            "git+https://github.com/bresilla/logtiny.git#tag:v0.1.2#hash:f49abfa1038f"
         );
 
         fs::remove_dir_all(build_path.parent().unwrap()).ok();

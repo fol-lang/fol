@@ -30,6 +30,7 @@ pub fn render_rust_type_in_workspace(
     match ty {
         LoweredType::Builtin(LoweredBuiltinType::Str) => Ok("rt_model::FolStr".to_string()),
         LoweredType::Builtin(builtin) => Ok(render_builtin_type(*builtin)?.to_string()),
+        LoweredType::GenericParameter { name } => Ok(sanitize_backend_ident(name)),
         LoweredType::Array {
             element_type,
             size: Some(size),
@@ -105,6 +106,94 @@ pub fn render_rust_type_in_workspace(
     }
 }
 
+/// Whether a lowered type transitively contains a float (no `Eq`/`Ord` in
+/// Rust) or a routine value (no `Default`/`Eq`). Drives conditional derives
+/// on emitted aggregates: deriving `Eq` on a float-bearing struct or
+/// `Default` on an fn-pointer-bearing one fails rustc.
+fn type_contains(
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+    matches_builtin: &dyn Fn(&LoweredType) -> bool,
+    depth: usize,
+) -> bool {
+    if depth > 32 {
+        return true; // deep/cyclic: be conservative, skip the derive
+    }
+    let Some(ty) = type_table.get(type_id) else {
+        return true;
+    };
+    if matches_builtin(ty) {
+        return true;
+    }
+    match ty {
+        LoweredType::Array { element_type, .. }
+        | LoweredType::Vector { element_type }
+        | LoweredType::Sequence { element_type } => {
+            type_contains(type_table, *element_type, matches_builtin, depth + 1)
+        }
+        LoweredType::Set { member_types } => member_types
+            .iter()
+            .any(|member| type_contains(type_table, *member, matches_builtin, depth + 1)),
+        LoweredType::Map {
+            key_type,
+            value_type,
+        } => {
+            type_contains(type_table, *key_type, matches_builtin, depth + 1)
+                || type_contains(type_table, *value_type, matches_builtin, depth + 1)
+        }
+        LoweredType::Optional { inner } => {
+            type_contains(type_table, *inner, matches_builtin, depth + 1)
+        }
+        LoweredType::Error { inner } => inner
+            .map(|inner| type_contains(type_table, inner, matches_builtin, depth + 1))
+            .unwrap_or(false),
+        LoweredType::Record { fields } => fields
+            .values()
+            .any(|field| type_contains(type_table, *field, matches_builtin, depth + 1)),
+        LoweredType::Entry { variants } => variants.values().any(|payload| {
+            payload
+                .map(|payload| type_contains(type_table, payload, matches_builtin, depth + 1))
+                .unwrap_or(false)
+        }),
+        _ => false,
+    }
+}
+
+fn aggregate_derives(
+    type_table: &LoweredTypeTable,
+    field_types: impl Iterator<Item = LoweredTypeId>,
+    include_default: bool,
+) -> String {
+    let mut has_float = false;
+    let mut has_routine = false;
+    for type_id in field_types {
+        if type_contains(
+            type_table,
+            type_id,
+            &|ty| matches!(ty, LoweredType::Builtin(LoweredBuiltinType::Float)),
+            0,
+        ) {
+            has_float = true;
+        }
+        if type_contains(
+            type_table,
+            type_id,
+            &|ty| matches!(ty, LoweredType::Routine(_)),
+            0,
+        ) {
+            has_routine = true;
+        }
+    }
+    let mut derives = vec!["Debug", "Clone", "PartialEq"];
+    if !has_float && !has_routine {
+        derives.push("Eq");
+    }
+    if include_default && !has_routine {
+        derives.push("Default");
+    }
+    format!("#[derive({})]", derives.join(", "))
+}
+
 pub fn render_record_definition(
     workspace: &LoweredWorkspace,
     package_identity: &PackageIdentity,
@@ -123,13 +212,23 @@ pub fn render_record_definition(
         .map(|field| {
             let rendered_type =
                 render_rust_type_in_workspace(Some(workspace), type_table, field.type_id)?;
-            Ok(format!("    pub {}: {},", field.name, rendered_type))
+            Ok(format!(
+                "    pub {}: {},",
+                crate::escape_rust_field_ident(&field.name),
+                rendered_type
+            ))
         })
         .collect::<BackendResult<Vec<_>>>()?
         .join("\n");
 
+    let derives = aggregate_derives(
+        type_table,
+        fields.iter().map(|field| field.type_id),
+        true,
+    );
     Ok(format!(
-        "#[derive(Debug, Clone, PartialEq, Eq, Default)]\npub struct {} {{\n{}\n}}\n",
+        "{}\npub struct {} {{\n{}\n}}\n",
+        derives,
         mangle_type_name(package_identity, type_decl.runtime_type, &type_decl.name),
         rendered_fields
     ))
@@ -150,9 +249,12 @@ pub fn render_record_trait_impl(
     let rendered_fields = fields
         .iter()
         .map(|field| {
+            // Render through FolEchoFormat: containers (seq/vec/set/map) have
+            // no Display impl, but every runtime value type formats for echo.
             format!(
-                "            rt::FolNamedValue::new(\"{}\", self.{}.to_string()),",
-                field.name, field.name
+                "            rt::FolNamedValue::new(\"{}\", rt::FolEchoFormat::fol_echo_format(&self.{})),",
+                field.name,
+                crate::escape_rust_field_ident(&field.name)
             )
         })
         .collect::<Vec<_>>()
@@ -185,9 +287,15 @@ pub fn render_entry_definition(
         .join("\n");
     let type_name = mangle_type_name(package_identity, type_decl.runtime_type, &type_decl.name);
     let default_variant = render_entry_default_variant(workspace, variants, type_table)?;
+    // Entries hand-write their Default impl, so only Eq is conditional.
+    let derives = aggregate_derives(
+        type_table,
+        variants.iter().filter_map(|variant| variant.payload_type),
+        false,
+    );
 
     Ok(format!(
-        "#[derive(Debug, Clone, PartialEq, Eq)]\npub enum {type_name} {{\n{rendered_variants}\n}}\n\nimpl Default for {type_name} {{\n    fn default() -> Self {{\n        {default_variant}\n    }}\n}}\n",
+        "{derives}\npub enum {type_name} {{\n{rendered_variants}\n}}\n\nimpl Default for {type_name} {{\n    fn default() -> Self {{\n        {default_variant}\n    }}\n}}\n",
     ))
 }
 
@@ -229,10 +337,10 @@ fn render_entry_variant(
     Ok(match variant.payload_type {
         Some(payload_type) => format!(
             "    {}({}),",
-            variant.name,
+            crate::escape_rust_field_ident(&variant.name),
             render_rust_type_in_workspace(Some(workspace), type_table, payload_type)?
         ),
-        None => format!("    {},", variant.name),
+        None => format!("    {},", crate::escape_rust_field_ident(&variant.name)),
     })
 }
 
@@ -248,8 +356,14 @@ fn render_entry_default_variant(
         )
     })?;
     Ok(match default_variant.payload_type {
-        Some(_payload_type) => format!("Self::{}(Default::default())", default_variant.name,),
-        None => format!("Self::{}", default_variant.name),
+        Some(_payload_type) => format!(
+            "Self::{}(Default::default())",
+            crate::escape_rust_field_ident(&default_variant.name)
+        ),
+        None => format!(
+            "Self::{}",
+            crate::escape_rust_field_ident(&default_variant.name)
+        ),
     })
 }
 
@@ -343,25 +457,27 @@ fn render_namespace_module_path(
 }
 
 fn render_entry_trait_match_arm(variant: &LoweredVariantLayout) -> String {
+    let ident = crate::escape_rust_field_ident(&variant.name);
     match variant.payload_type {
         Some(_) => format!(
             "            Self::{}(..) => \"{}\",",
-            variant.name, variant.name
+            ident, variant.name
         ),
         None => format!(
             "            Self::{} => \"{}\",",
-            variant.name, variant.name
+            ident, variant.name
         ),
     }
 }
 
 fn render_entry_field_match_arm(variant: &LoweredVariantLayout) -> String {
+    let ident = crate::escape_rust_field_ident(&variant.name);
     match variant.payload_type {
         Some(_) => format!(
-            "            Self::{}(payload) => vec![rt::FolNamedValue::new(\"payload\", payload.to_string())],",
-            variant.name
+            "            Self::{}(payload) => vec![rt::FolNamedValue::new(\"payload\", rt::FolEchoFormat::fol_echo_format(payload))],",
+            ident
         ),
-        None => format!("            Self::{} => Vec::new(),", variant.name),
+        None => format!("            Self::{} => Vec::new(),", ident),
     }
 }
 
@@ -476,11 +592,11 @@ mod tests {
         );
         assert_eq!(
             render_rust_type(&table, option_id),
-            Ok("rt::FolOption<rt::FolStr>".to_string())
+            Ok("rt::FolOption<rt_model::FolStr>".to_string())
         );
         assert_eq!(
             render_rust_type(&table, error_id),
-            Ok("rt::FolError<rt::FolStr>".to_string())
+            Ok("rt::FolError<rt_model::FolStr>".to_string())
         );
     }
 
@@ -562,7 +678,9 @@ mod tests {
         assert!(rendered.contains("impl rt::FolRecord for ty__pkg__entry__app__t"));
         assert!(rendered.contains("fn fol_record_name(&self) -> &'static str"));
         assert!(rendered.contains("\"User\""));
-        assert!(rendered.contains("rt::FolNamedValue::new(\"name\", self.name.to_string())"));
+        assert!(rendered.contains(
+            "rt::FolNamedValue::new(\"name\", rt::FolEchoFormat::fol_echo_format(&self.name))"
+        ));
         assert!(rendered.contains("impl rt::FolEchoFormat for ty__pkg__entry__app__t"));
         assert!(rendered.contains("rt::render_record(self)"));
     }
@@ -658,7 +776,7 @@ mod tests {
         assert!(rendered.contains("\"Status\""));
         assert!(rendered.contains("Self::Ok(..) => \"Ok\""));
         assert!(rendered.contains(
-            "Self::Err(payload) => vec![rt::FolNamedValue::new(\"payload\", payload.to_string())]"
+            "Self::Err(payload) => vec![rt::FolNamedValue::new(\"payload\", rt::FolEchoFormat::fol_echo_format(payload))]"
         ));
         assert!(rendered.contains("Self::Empty => Vec::new()"));
         assert!(rendered.contains("impl rt::FolEchoFormat for ty__pkg__entry__app__t"));

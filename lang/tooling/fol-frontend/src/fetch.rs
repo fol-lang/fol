@@ -833,6 +833,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         };
 
         let preparation = prepare_workspace_packages(&workspace).unwrap();
@@ -865,6 +866,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         };
 
         let error = prepare_workspace_packages(&workspace).unwrap_err();
@@ -890,6 +892,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         };
 
         let result = fetch_workspace(&workspace).unwrap();
@@ -932,6 +935,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         };
 
         let result = fetch_workspace(&workspace).unwrap();
@@ -940,9 +944,9 @@ mod tests {
         assert!(result
             .artifacts
             .iter()
-            .any(|artifact| artifact.name == "std:internal:eager"));
+            .any(|artifact| artifact.label == "std:internal:eager"));
         assert!(std_alias_root.join("build.fol").is_file());
-        assert!(std_alias_root.join("fmt/lib.fol").is_file());
+        assert!(std_alias_root.join("fmt/root.fol").is_file());
 
         fs::remove_dir_all(root).ok();
     }
@@ -957,6 +961,7 @@ mod tests {
             build_root: PathBuf::from("/tmp/demo/.fol/build"),
             cache_root: PathBuf::from("/tmp/demo/.fol/cache"),
             git_cache_root: PathBuf::from("/tmp/demo/.fol/cache/git"),
+            install_prefix: PathBuf::from("/tmp/demo/.fol/install"),
         };
         let config = FrontendConfig {
             package_store_root_override: Some(PathBuf::from("/tmp/demo/config-pkg")),
@@ -1000,6 +1005,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         };
         let config = FrontendConfig {
             package_store_root_override: Some(root.join(".fol/config-pkg")),
@@ -1026,12 +1032,21 @@ mod tests {
         fs::write(
             app.join("build.fol"),
             format!(
-                "name: app\nversion: 0.1.0\ndep.logtiny: git:git+file://{}\n",
+                concat!(
+                    "pro[] build(): non = {{\n",
+                    "    var build = .build();\n",
+                    "    build.meta({{ name = \"app\", version = \"0.1.0\" }});\n",
+                    "    build.add_dep({{ alias = \"logtiny\", source = \"git\", target = \"git+file://{}\" }});\n",
+                    "    var graph = build.graph();\n",
+                    "    var app = graph.add_exe({{ name = \"app\", root = \"src/main.fol\" }});\n",
+                    "    graph.install(app);\n",
+                    "    graph.add_run(app);\n",
+                    "}};\n",
+                ),
                 remote.display()
             ),
         )
-        .expect("should write app manifest");
-        fs::write(app.join("build.fol"), semantic_bin_build()).expect("should write app build");
+        .expect("should write app build");
         fs::write(app.join("src/main.fol"), "var[exp] answer: int = 1;\n")
             .expect("should write app source");
 
@@ -1043,6 +1058,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         };
 
         let result = fetch_workspace(&workspace).expect("fetch should succeed");

@@ -1,0 +1,14 @@
+use std: pkg = {"std"};
+
+fun echo(T)(value: T, fail: bol): T / T = {
+    when(fail) {
+        case(true) { report value; }
+        * { return value; }
+    }
+};
+
+fun[] main(): int = {
+    if(check(echo(42, false))) => std::io::echo_int(42)
+    else => std::io::echo_int(99)
+    return 0;
+};

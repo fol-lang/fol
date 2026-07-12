@@ -1,0 +1,26 @@
+use std: pkg = {"std"};
+
+// A generic standard used as a generic-parameter constraint. `drive` requires
+// its type argument to conform to `Holder[int]`; the constraint call
+// `box.fetch()` substitutes the standard's own parameter `Item` to `int`, so
+// it types (and runs) as an `int`.
+std Holder(Item): pro = {
+    fun fetch(): Item;
+};
+
+typ Cell()(Holder[int]): rec = {
+    value: int
+};
+
+fun (Cell)fetch(): int = {
+    return self.value;
+};
+
+fun drive(T: Holder[int])(box: T): int = {
+    return box.fetch();
+};
+
+fun[] main(): int = {
+    var cell: Cell = { value = 7 };
+    return std::io::echo_int(drive(cell));
+};

@@ -83,6 +83,7 @@ fn workspace_info_and_list_summaries_are_stable_through_public_api() {
         build_root: PathBuf::from("/tmp/demo/.fol/build"),
         cache_root: PathBuf::from("/tmp/demo/.fol/cache"),
         git_cache_root: PathBuf::from("/tmp/demo/.fol/cache/git"),
+        install_prefix: PathBuf::from("/tmp/demo/.fol/install"),
     };
 
     let info = work_info(&workspace);

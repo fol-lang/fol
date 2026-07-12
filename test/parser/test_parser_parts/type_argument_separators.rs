@@ -1,4 +1,18 @@
 use super::*;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn unique_temp_root(label: &str) -> std::path::PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("System time should be after unix epoch")
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "fol_parser_{}_{}_{}",
+        label,
+        std::process::id(),
+        stamp
+    ))
+}
 
 #[test]
 fn test_aliases_and_bindings_accept_semicolon_type_arguments() {
@@ -292,6 +306,72 @@ fn test_shared_type_argument_lists_accept_trailing_separators() {
                                 FolType::Vector { element_type }
                                 if matches!(element_type.as_ref(), FolType::Int { .. })
                             )
+                    ))
+            )));
+        }
+        _ => panic!("Expected program node"),
+    }
+}
+
+#[test]
+fn test_generic_type_instantiations_parse_in_alias_and_qualified_signature_positions() {
+    let temp_root = unique_temp_root("generic_type_instantiation_parser");
+    std::fs::create_dir_all(&temp_root).expect("Should create temp parser fixture dir");
+    let fixture = temp_root.join("generic_type_instantiation.fol");
+    std::fs::write(
+        &fixture,
+        "ali LocalBox: Box[int];\nfun[] main(value: shared::Box[int]): Box[int] = {\n    var copy: shared::Box[int] = value;\n    return copy;\n};\n",
+    )
+    .expect("Should write generic type instantiation parser fixture");
+
+    let mut file_stream =
+        FileStream::from_file(fixture.to_str().expect("Generic parser fixture path should be UTF-8"))
+            .expect("Should read generic type instantiation parser fixture");
+    let mut lexer = Elements::init(&mut file_stream);
+    let mut parser = AstParser::new();
+    let ast = parser
+        .parse(&mut lexer)
+        .expect("Parser should accept instantiated generic types in alias and signature positions");
+
+    std::fs::remove_dir_all(&temp_root).ok();
+
+    match ast {
+        AstNode::Program { declarations } => {
+            assert!(declarations.iter().any(|node| matches!(
+                node,
+                AstNode::AliasDecl {
+                    name,
+                    target: FolType::Named { name: target, .. },
+                    ..
+                }
+                if name == "LocalBox" && target == "Box[int]"
+            )));
+            assert!(declarations.iter().any(|node| matches!(
+                node,
+                AstNode::FunDecl {
+                    name,
+                    params,
+                    return_type: Some(FolType::Named { name: return_name, .. }),
+                    body,
+                    ..
+                }
+                if name == "main"
+                    && matches!(
+                        params.as_slice(),
+                        [fol_parser::ast::Parameter {
+                            param_type: FolType::Named { name: param_name, .. },
+                            ..
+                        }] if param_name == "shared::Box[int]"
+                    )
+                    && return_name == "Box[int]"
+                    && body.iter().any(|stmt| matches!(
+                        stmt,
+                        AstNode::VarDecl {
+                            name,
+                            type_hint: Some(FolType::Named { name: hint, .. }),
+                            ..
+                        }
+                        if name == "copy" && hint == "shared::Box[int]"
                     ))
             )));
         }

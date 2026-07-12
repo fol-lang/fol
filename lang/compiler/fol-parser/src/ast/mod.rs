@@ -9,8 +9,8 @@ pub mod visitor;
 
 pub use node::AstNode;
 pub use options::{
-    decl_visibility, fun_decl_visibility, type_decl_visibility, use_decl_visibility,
-    var_decl_visibility, BinaryOperator, CallSurface, CharEncoding, CommentKind, ContainerType,
+    binding_is_mutable, decl_visibility, fun_decl_visibility, type_decl_visibility,
+    use_decl_visibility, var_decl_visibility, BinaryOperator, CallSurface, CharEncoding, CommentKind, ContainerType,
     DeclOption, FloatSize, FunOption, IntSize, Literal, StandardKind, TypeOption, UnaryOperator,
     UseOption, UsePathSegment, UsePathSeparator, VarOption,
 };

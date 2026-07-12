@@ -16,7 +16,9 @@ use fol_parser::ast::{
     AstNode, CallSurface, FolType, ParsedSourceUnitKind,
 };
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId};
+use std::collections::BTreeMap;
 
+pub(crate) use helpers::{inline_body_block_scope, loop_binder_scope};
 use helpers::{
     binding_kind_for, describe_type, ensure_assignable, ensure_assignable_target,
     internal_error, node_origin, origin_for, plain_value_expr,
@@ -137,6 +139,21 @@ pub(crate) fn type_node(
 }
 
 pub(crate) fn type_node_with_expectation(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    node: &AstNode,
+    expected_type: Option<CheckedTypeId>,
+) -> Result<TypedExpr, TypecheckError> {
+    // Expression typing recurses with the AST; debug frames here are large
+    // enough that ~18 nesting levels exhaust a 2 MB worker-thread stack.
+    // Grow the stack in segments (rustc's ensure_sufficient_stack pattern).
+    stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+        type_node_with_expectation_inner(typed, resolved, context, node, expected_type)
+    })
+}
+
+fn type_node_with_expectation_inner(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
     context: TypeContext,
@@ -321,6 +338,7 @@ pub(crate) fn type_node_with_expectation(
         }
         AstNode::AnonymousFun {
             syntax_id,
+            captures,
             params,
             return_type,
             error_type,
@@ -330,6 +348,7 @@ pub(crate) fn type_node_with_expectation(
         }
         | AstNode::AnonymousPro {
             syntax_id,
+            captures,
             params,
             return_type,
             error_type,
@@ -339,6 +358,7 @@ pub(crate) fn type_node_with_expectation(
         }
         | AstNode::AnonymousLog {
             syntax_id,
+            captures,
             params,
             return_type,
             error_type,
@@ -346,8 +366,33 @@ pub(crate) fn type_node_with_expectation(
             inquiries,
             ..
         } => {
+            if !captures.is_empty() {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    node,
+                    "anonymous routines with captures are not yet supported",
+                ));
+            }
             if let Some(message) = decls::unsupported_routine_param_surface_message(params) {
                 return Err(unsupported_node_surface(resolved, node, message));
+            }
+            for param in params {
+                if !anonymous_routine_type_is_lowerable(&param.param_type) {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        "complex type annotation in anonymous routine is not yet supported",
+                    ));
+                }
+            }
+            for typ in return_type.as_ref().into_iter().chain(error_type.as_ref()) {
+                if !anonymous_routine_type_is_lowerable(typ) {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        "complex type annotation in anonymous routine is not yet supported",
+                    ));
+                }
             }
             let routine_scope = syntax_id
                 .and_then(|id| resolved.scope_for_syntax(id))
@@ -420,13 +465,13 @@ pub(crate) fn type_node_with_expectation(
                 }
             }
             let routine_type_id = typed.type_table_mut().intern(CheckedType::Routine(RoutineType {
+                generic_params: Vec::new(),
+                generic_constraints: BTreeMap::new(),
                 param_names: vec![String::new(); lowered_params.len()],
                 param_defaults: vec![None; lowered_params.len()],
-                variadic_index: params.iter().enumerate().find_map(|(index, param)| {
-                    (index + 1 == params.len()
-                        && matches!(param.param_type, FolType::Sequence { .. }))
-                    .then_some(index)
-                }),
+                variadic_index: params
+                    .iter()
+                    .position(|param| param.is_variadic),
                 params: lowered_params,
                 return_type: expected_return_type,
                 error_type: expected_error_type,
@@ -444,7 +489,13 @@ pub(crate) fn type_node_with_expectation(
             controlflow::type_loop(typed, resolved, context, condition, body)
         }
         AstNode::Assignment { target, value } => {
-            ensure_assignable_target(target)?;
+            ensure_assignable_target(
+                typed,
+                resolved,
+                context.source_unit_id,
+                context.scope_id,
+                target,
+            )?;
             let expected = type_node(typed, resolved, context, target)?.required_value(
                 "assignment target does not have a type",
             )?;
@@ -484,6 +535,7 @@ pub(crate) fn type_node_with_expectation(
         AstNode::FunctionCall {
             name,
             args,
+            type_args,
             syntax_id,
             ..
         } => {
@@ -497,13 +549,26 @@ pub(crate) fn type_node_with_expectation(
                     *syntax_id,
                 )
             } else {
-                calls::type_function_call(typed, resolved, context, name, args, *syntax_id)
+                calls::type_function_call(
+                    typed,
+                    resolved,
+                    context,
+                    name,
+                    type_args,
+                    args,
+                    *syntax_id,
+                )
             }
         }
         AstNode::QualifiedFunctionCall { path, args } => {
             calls::type_qualified_function_call(typed, resolved, context, path, args)
         }
-        AstNode::MethodCall { object, method, args } => {
+        AstNode::MethodCall {
+            object,
+            method,
+            args,
+            ..
+        } => {
             calls::type_method_call(typed, resolved, context, node, object, method, args)
         }
         AstNode::FieldAccess { object, field } => {
@@ -566,6 +631,14 @@ pub(crate) fn type_node_with_expectation(
                     "break is not allowed inside deferred blocks in V1",
                 ));
             }
+            // Deferred blocks replay at every exit; a diverging terminator
+            // inside one cannot be lowered against the surrounding exit.
+            if body_contains_panic(body) {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    "panic is not allowed inside deferred blocks in V1",
+                ));
+            }
             let _ = type_body(typed, resolved, context, body)?;
             Ok(TypedExpr::none())
         }
@@ -593,7 +666,7 @@ pub(crate) fn type_node_with_expectation(
                     ));
                 }
             };
-            let arg_effect = calls::check_call_arguments(
+            let (signature, arg_effect) = calls::check_call_arguments(
                 typed,
                 resolved,
                 context,
@@ -627,14 +700,13 @@ pub(crate) fn type_node_with_expectation(
             node,
             "availability access is not yet supported",
         )),
+        AstNode::StdDecl { .. } => Ok(TypedExpr::none()),
         // Declaration-level constructs: type their children but produce no value.
         AstNode::UseDecl { .. }
         | AstNode::TypeDecl { .. }
         | AstNode::AliasDecl { .. }
         | AstNode::DefDecl { .. }
         | AstNode::SegDecl { .. }
-        | AstNode::ImpDecl { .. }
-        | AstNode::StdDecl { .. }
         | AstNode::DestructureDecl { .. }
         | AstNode::NamedArgument { .. }
         | AstNode::Unpack { .. }
@@ -652,6 +724,37 @@ pub(crate) fn type_node_with_expectation(
 /// Check whether an AST body contains at least one `return` statement (non-recursive into nested routines).
 fn body_contains_return(nodes: &[AstNode]) -> bool {
     nodes.iter().any(|node| node_contains_return(node))
+}
+
+fn body_contains_panic(nodes: &[AstNode]) -> bool {
+    nodes.iter().any(|node| node_contains_panic(node))
+}
+
+fn node_contains_panic(node: &AstNode) -> bool {
+    match node {
+        AstNode::FunctionCall { name, .. } if name == "panic" => true,
+        AstNode::FunDecl { .. }
+        | AstNode::ProDecl { .. }
+        | AstNode::LogDecl { .. }
+        | AstNode::AnonymousFun { .. }
+        | AstNode::AnonymousPro { .. }
+        | AstNode::AnonymousLog { .. } => false,
+        _ => node.children().iter().any(|child| node_contains_panic(child)),
+    }
+}
+
+fn anonymous_routine_type_is_lowerable(typ: &FolType) -> bool {
+    match typ {
+        FolType::Int { .. }
+        | FolType::Float { .. }
+        | FolType::Bool
+        | FolType::Char { .. }
+        | FolType::Never
+        | FolType::Named { .. }
+        | FolType::QualifiedNamed { .. } => true,
+        ty if ty.is_builtin_str() => true,
+        _ => false,
+    }
 }
 
 fn body_contains_break(nodes: &[AstNode]) -> bool {
@@ -794,16 +897,15 @@ mod tests {
     fn literal_typing_maps_v1_scalar_literals_to_builtin_types() {
         let mut typed = typed_fixture_program();
 
+        let int_type = type_literal_simple(&mut typed, &Literal::Integer(1), None).unwrap();
         assert_eq!(
-            typed
-                .type_table()
-                .get(type_literal_simple(&mut typed, &Literal::Integer(1), None).unwrap()),
+            typed.type_table().get(int_type),
             Some(&crate::CheckedType::Builtin(BuiltinType::Int))
         );
+        let str_type =
+            type_literal_simple(&mut typed, &Literal::String("ok".to_string()), None).unwrap();
         assert_eq!(
-            typed
-                .type_table()
-                .get(type_literal_simple(&mut typed, &Literal::String("ok".to_string()), None).unwrap()),
+            typed.type_table().get(str_type),
             Some(&crate::CheckedType::Builtin(BuiltinType::Str))
         );
     }

@@ -19,24 +19,22 @@ fn package_workflow_walkthrough_feels_like_one_canonical_tool_flow() {
     let root = temp_root("package");
     fs::create_dir_all(&root).expect("should create workflow root");
 
-    let (_, init) =
-        run_command_from_args_in_dir(["fol", "init", "--bin"], &root).expect("init should succeed");
+    let (_, init) = run_command_from_args_in_dir(["fol", "work", "init", "--bin"], &root)
+        .expect("init should succeed");
     let (_, fetch) =
-        run_command_from_args_in_dir(["fol", "fetch"], &root).expect("fetch should succeed");
+        run_command_from_args_in_dir(["fol", "pack", "fetch"], &root).expect("fetch should succeed");
     let (_, check) =
-        run_command_from_args_in_dir(["fol", "check"], &root).expect("check should succeed");
+        run_command_from_args_in_dir(["fol", "code", "check"], &root).expect("check should succeed");
     let (_, build) =
-        run_command_from_args_in_dir(["fol", "build"], &root).expect("build should succeed");
-    let (_, run) = run_command_from_args_in_dir(["fol", "run"], &root).expect("run should succeed");
-    let (_, test) =
-        run_command_from_args_in_dir(["fol", "test"], &root).expect("test should succeed");
+        run_command_from_args_in_dir(["fol", "code", "build"], &root).expect("build should succeed");
+    let (_, run) =
+        run_command_from_args_in_dir(["fol", "code", "run"], &root).expect("run should succeed");
 
     assert_eq!(init.command, "init");
     assert_eq!(fetch.command, "fetch");
     assert_eq!(check.command, "check");
     assert_eq!(build.command, "build");
     assert_eq!(run.command, "run");
-    assert_eq!(test.command, "test");
 
     assert!(build
         .summary
@@ -44,15 +42,18 @@ fn package_workflow_walkthrough_feels_like_one_canonical_tool_flow() {
     assert!(fetch
         .summary
         .contains(&root.join(".fol/pkg").display().to_string()));
-    assert_eq!(build.artifacts[0].kind, FrontendArtifactKind::EmittedRust);
-    assert_eq!(build.artifacts[1].kind, FrontendArtifactKind::Binary);
-    assert!(build.artifacts[1]
+    assert_eq!(build.artifacts[0].kind, FrontendArtifactKind::BuildRoot);
+    let binary = build
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.kind == FrontendArtifactKind::Binary)
+        .expect("build should report a binary artifact");
+    assert!(binary
         .path
         .as_ref()
         .expect("binary path should exist")
         .is_file());
     assert_eq!(run.artifacts[0].kind, FrontendArtifactKind::Binary);
-    assert_eq!(test.artifacts[0].kind, FrontendArtifactKind::Binary);
 
     fs::remove_dir_all(root).ok();
 }
@@ -65,10 +66,12 @@ fn workspace_workflow_walkthrough_reports_member_and_artifact_roots() {
     fs::create_dir_all(&app).expect("should create app root");
     fs::create_dir_all(&lib).expect("should create lib root");
 
-    run_command_from_args_in_dir(["fol", "init", "--workspace"], &root)
+    run_command_from_args_in_dir(["fol", "work", "init", "--workspace"], &root)
         .expect("workspace init should succeed");
-    run_command_from_args_in_dir(["fol", "init", "--bin"], &app).expect("app init should succeed");
-    run_command_from_args_in_dir(["fol", "init", "--lib"], &lib).expect("lib init should succeed");
+    run_command_from_args_in_dir(["fol", "work", "init", "--bin"], &app)
+        .expect("app init should succeed");
+    run_command_from_args_in_dir(["fol", "work", "init", "--lib"], &lib)
+        .expect("lib init should succeed");
     fs::write(root.join("fol.work.yaml"), "members:\n  - app\n  - lib\n")
         .expect("should write workspace members");
 
@@ -81,7 +84,7 @@ fn workspace_workflow_walkthrough_reports_member_and_artifact_roots() {
     let (_, status) = run_command_from_args_in_dir(["fol", "work", "status"], &root)
         .expect("work status should succeed");
     let (_, build) =
-        run_command_from_args_in_dir(["fol", "build"], &root).expect("build should succeed");
+        run_command_from_args_in_dir(["fol", "code", "build"], &root).expect("build should succeed");
 
     assert!(info.summary.contains(&format!("root={}", root.display())));
     assert!(info.summary.contains("members=2"));

@@ -2,14 +2,41 @@
 Declarations
 ==================
 
-use shared: loc = {"shared::lib"}
-ali Result: seq[str]
+use shared: loc = {"../shared"};
+con ResultLabel = "ready";
+lab attempt: int = 1;
+ali Result: seq[str];
 typ User: rec = {
     name: str
-}
+};
+typ Rect()(geo): rec = {
+    var width: int;
+};
 fun load(path: str): str / str = {
-    return path
-}
+    return path;
+};
+pro apply(path: str): str = {
+    return path;
+};
 log ready(): bol = {
-    return true
-}
+    return true;
+};
+fun (Rect)area(): int = {
+    return self.width;
+};
+std geo: pro = {
+    fun area(): int;
+};
+std geometry: pro = {
+    fun area(): flt[64];
+};
+typ Box(T): rec = {
+    value: T
+};
+ali IntBox: Box[int];
+fun pick(T)(value: T): T = {
+    return value;
+};
+fun (Box[T])unwrap(T)(fallback: T): T = {
+    return self.value;
+};

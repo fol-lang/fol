@@ -5,6 +5,7 @@ use crate::{
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind, TypeDefinition};
 use fol_resolver::{SourceUnitId, SymbolId, SymbolKind};
 use fol_typecheck::CheckedType;
+use std::collections::BTreeSet;
 
 use super::symbol_lookup::find_local_symbol_id;
 
@@ -38,6 +39,9 @@ pub fn lower_alias_declarations(
                 name,
             ) {
                 Some(symbol_id) => {
+                    if symbol_has_generic_params(&typed_package.program, symbol_id) {
+                        continue;
+                    }
                     match lower_symbol_signature(typed_package, lowered_package, symbol_id) {
                         Ok(target_type) => {
                             lowered_package.type_decls.insert(
@@ -103,18 +107,23 @@ pub fn lower_record_declarations(
                 SymbolKind::Type,
                 name,
             ) {
-                Some(symbol_id) => match lower_record_decl(
-                    typed_package,
-                    lowered_package,
-                    symbol_id,
-                    source_unit_id,
-                    name,
-                ) {
-                    Ok(type_decl) => {
-                        lowered_package.type_decls.insert(symbol_id, type_decl);
+                Some(symbol_id) => {
+                    if symbol_has_generic_params(&typed_package.program, symbol_id) {
+                        continue;
                     }
-                    Err(error) => errors.push(error),
-                },
+                    match lower_record_decl(
+                        typed_package,
+                        lowered_package,
+                        symbol_id,
+                        source_unit_id,
+                        name,
+                    ) {
+                        Ok(type_decl) => {
+                            lowered_package.type_decls.insert(symbol_id, type_decl);
+                        }
+                        Err(error) => errors.push(error),
+                    }
+                }
                 None => errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
                     format!("record type '{name}' does not retain a resolved symbol"),
@@ -164,24 +173,101 @@ pub fn lower_entry_declarations(
                 SymbolKind::Type,
                 name,
             ) {
-                Some(symbol_id) => match lower_entry_decl(
-                    typed_package,
-                    lowered_package,
-                    symbol_id,
-                    source_unit_id,
-                    name,
-                ) {
-                    Ok(type_decl) => {
-                        lowered_package.type_decls.insert(symbol_id, type_decl);
+                Some(symbol_id) => {
+                    if symbol_has_generic_params(&typed_package.program, symbol_id) {
+                        continue;
                     }
-                    Err(error) => errors.push(error),
-                },
+                    match lower_entry_decl(
+                        typed_package,
+                        lowered_package,
+                        symbol_id,
+                        source_unit_id,
+                        name,
+                    ) {
+                        Ok(type_decl) => {
+                            lowered_package.type_decls.insert(symbol_id, type_decl);
+                        }
+                        Err(error) => errors.push(error),
+                    }
+                }
                 None => errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
                     format!("entry type '{name}' does not retain a resolved symbol"),
                 )),
             }
         }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+pub fn synthesize_structural_runtime_type_declarations(
+    typed_package: &fol_typecheck::TypedPackage,
+    lowered_package: &mut LoweredPackage,
+) -> LoweringResult<()> {
+    let Some(source_unit_id) = typed_package
+        .program
+        .ordinary_source_units()
+        .next()
+        .map(|unit| unit.source_unit_id)
+    else {
+        return Ok(());
+    };
+
+    let mut existing_runtime_types = lowered_package
+        .type_decls
+        .values()
+        .map(|type_decl| type_decl.runtime_type)
+        .collect::<BTreeSet<_>>();
+    let mut errors = Vec::new();
+
+    for (checked_type_id, runtime_type) in lowered_package.checked_type_map.clone() {
+        if existing_runtime_types.contains(&runtime_type) {
+            continue;
+        }
+
+        let Some(mut checked_type) = typed_package.program.type_table().get(checked_type_id).cloned() else {
+            errors.push(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "checked type {} disappeared while synthesizing structural runtime declarations",
+                    checked_type_id.0
+                ),
+            ));
+            continue;
+        };
+        // A generic instantiation (`Box[int]`) is a nominal `Declared` node;
+        // its runtime struct is its substituted structural record, reached via
+        // the apparent override. Synthesize the decl from that shape.
+        if matches!(&checked_type, CheckedType::Declared { args, .. } if !args.is_empty()) {
+            if let Some(apparent_id) = typed_package.program.apparent_type_override(checked_type_id)
+            {
+                if let Some(apparent) = typed_package.program.type_table().get(apparent_id).cloned()
+                {
+                    checked_type = apparent;
+                }
+            }
+        }
+        if checked_type_contains_generic_parameter(&checked_type, &typed_package.program) {
+            continue;
+        }
+
+        let Some(type_decl) = synthesize_structural_type_decl(
+            lowered_package,
+            checked_type,
+            runtime_type,
+            source_unit_id,
+        ) else {
+            continue;
+        };
+        existing_runtime_types.insert(runtime_type);
+        lowered_package
+            .type_decls
+            .insert(type_decl.symbol_id, type_decl);
     }
 
     if errors.is_empty() {
@@ -368,6 +454,160 @@ fn lower_record_decl(
             fields: lowered_fields,
         },
     })
+}
+
+fn synthesize_structural_type_decl(
+    lowered_package: &LoweredPackage,
+    checked_type: CheckedType,
+    runtime_type: crate::LoweredTypeId,
+    source_unit_id: SourceUnitId,
+) -> Option<LoweredTypeDecl> {
+    let symbol_id = synthetic_type_decl_symbol_id(runtime_type);
+    match checked_type {
+        CheckedType::Record { fields } => {
+            let mut lowered_fields = Vec::new();
+            for (field_name, field_type) in fields {
+                let lowered_field_type = lowered_package.checked_type_map.get(&field_type).copied()?;
+                lowered_fields.push(LoweredFieldLayout {
+                    name: field_name,
+                    type_id: lowered_field_type,
+                });
+            }
+            Some(LoweredTypeDecl {
+                symbol_id,
+                source_unit_id,
+                name: format!("record_t{}", runtime_type.0),
+                runtime_type,
+                kind: LoweredTypeDeclKind::Record {
+                    fields: lowered_fields,
+                },
+            })
+        }
+        CheckedType::Entry { variants } => {
+            let mut lowered_variants = Vec::new();
+            for (variant_name, variant_type) in variants {
+                let lowered_variant_type = match variant_type {
+                    Some(variant_type) => Some(
+                        lowered_package
+                            .checked_type_map
+                            .get(&variant_type)
+                            .copied()?,
+                    ),
+                    None => None,
+                };
+                lowered_variants.push(LoweredVariantLayout {
+                    name: variant_name,
+                    payload_type: lowered_variant_type,
+                });
+            }
+            Some(LoweredTypeDecl {
+                symbol_id,
+                source_unit_id,
+                name: format!("entry_t{}", runtime_type.0),
+                runtime_type,
+                kind: LoweredTypeDeclKind::Entry {
+                    variants: lowered_variants,
+                },
+            })
+        }
+        _ => None,
+    }
+}
+
+fn synthetic_type_decl_symbol_id(runtime_type: crate::LoweredTypeId) -> SymbolId {
+    SymbolId(usize::MAX - runtime_type.0)
+}
+
+fn symbol_has_generic_params(program: &fol_typecheck::TypedProgram, symbol_id: SymbolId) -> bool {
+    program
+        .typed_symbol(symbol_id)
+        .is_some_and(|typed_symbol| !typed_symbol.generic_params.is_empty())
+}
+
+fn checked_type_contains_generic_parameter(
+    checked_type: &CheckedType,
+    program: &fol_typecheck::TypedProgram,
+) -> bool {
+    match checked_type {
+        CheckedType::Declared {
+            kind: fol_typecheck::DeclaredTypeKind::GenericParameter,
+            ..
+        } => true,
+        CheckedType::Builtin(_) => false,
+        // A generic INSTANTIATION (`Box[int]`, args non-empty) is generic iff
+        // one of its concrete type arguments is — checking the declaration's
+        // template (which always mentions `T`) would wrongly skip every
+        // concrete instance's runtime decl.
+        CheckedType::Declared { args, .. } if !args.is_empty() => args.iter().any(|arg| {
+            program
+                .type_table()
+                .get(*arg)
+                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+        }),
+        CheckedType::Declared { symbol, .. } => program
+            .typed_symbol(*symbol)
+            .and_then(|typed_symbol| typed_symbol.declared_type)
+            .and_then(|type_id| program.type_table().get(type_id))
+            .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program)),
+        CheckedType::Array { element_type, .. }
+        | CheckedType::Vector { element_type }
+        | CheckedType::Sequence { element_type }
+        | CheckedType::Optional { inner: element_type } => program
+            .type_table()
+            .get(*element_type)
+            .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program)),
+        CheckedType::Set { member_types } => member_types.iter().any(|member| {
+            program
+                .type_table()
+                .get(*member)
+                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+        }),
+        CheckedType::Map {
+            key_type,
+            value_type,
+        } => [key_type, value_type].iter().any(|type_id| {
+            program
+                .type_table()
+                .get(**type_id)
+                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+        }),
+        CheckedType::Error { inner } => inner.is_some_and(|inner| {
+            program
+                .type_table()
+                .get(inner)
+                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+        }),
+        CheckedType::Record { fields } => fields.values().any(|field| {
+            program
+                .type_table()
+                .get(*field)
+                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+        }),
+        CheckedType::Entry { variants } => variants.values().flatten().any(|variant| {
+            program
+                .type_table()
+                .get(*variant)
+                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+        }),
+        CheckedType::Routine(signature) => {
+            signature.params.iter().any(|param| {
+                program
+                    .type_table()
+                    .get(*param)
+                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+            }) || signature.return_type.is_some_and(|return_type| {
+                program
+                    .type_table()
+                    .get(return_type)
+                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+            }) || signature.error_type.is_some_and(|error_type| {
+                program
+                    .type_table()
+                    .get(error_type)
+                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+            })
+        }
+    }
 }
 
 fn lower_entry_decl(

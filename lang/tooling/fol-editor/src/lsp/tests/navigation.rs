@@ -13,6 +13,82 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
+fn lsp_server_handles_standard_conformance_sources_without_future_boundary_noise() {
+    let (root, uri) = sample_package_root("standards_m2_editor_baseline");
+    let text = "std geo: pro = {\n    fun area(): int;\n};\n\
+                typ Rect()(geo): rec = {\n    var width: int;\n};\n";
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, text);
+    let messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        !messages.iter().any(|message| {
+            message.contains("type contract conformance is planned for a future release")
+        }),
+        "editor path should no longer describe protocol conformance as future-only: {messages:?}"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_reports_missing_required_standard_routines_with_current_m2_wording() {
+    let (root, uri) = sample_package_root("standards_m2_editor_missing_routine");
+    let text = "std geo: pro = {\n    fun area(): int;\n};\n\
+                typ Rect()(geo): rec = {\n    var width: int;\n};\n";
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, text);
+    let messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        messages.iter().any(|message| {
+            message.contains(
+                "type 'Rect' does not satisfy standard 'geo': missing required routine 'area'",
+            )
+        }),
+        "editor path should surface the concrete M2 conformance failure: {messages:?}"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_reports_blueprint_conformance_failures_with_current_wording() {
+    let (root, uri) = sample_package_root("standards_m2_editor_unsupported_kind");
+    let text = "std shape: blu = {\n    var size: int;\n};\n\
+                typ Rect()(shape): rec = {\n    var width: int;\n};\n";
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, text);
+    let messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        messages.iter().any(|message| {
+            message.contains(
+                "type 'Rect' does not satisfy blueprint standard 'shape': missing required field 'size: int'",
+            )
+        }),
+        "editor path should surface the concrete blueprint conformance wording: {messages:?}"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn lsp_server_keeps_nested_document_symbols_stable() {
     let (root, uri) = sample_package_root("nested_symbols");
     fs::write(
@@ -38,13 +114,17 @@ fn lsp_server_keeps_nested_document_symbols_stable() {
         })
         .unwrap()
         .unwrap();
-    let _symbols: Vec<crate::LspDocumentSymbol> =
+    let symbols: Vec<crate::LspDocumentSymbol> =
         serde_json::from_value(symbols.result.unwrap()).unwrap();
 
-    // Symbol extraction depends on a successful resolver pass. If the
-    // analysis pipeline does not produce a resolved workspace (e.g.,
-    // due to fixture syntax changes), the symbols list may be empty.
-    // The test verifies the document-symbol request completes.
+    let main = symbols
+        .iter()
+        .find(|symbol| symbol.name == "main")
+        .expect("document symbols should include the outer routine");
+    assert!(
+        main.children.iter().any(|child| child.name == "inner"),
+        "document symbols should nest child routines under their parent: {symbols:#?}"
+    );
 
     fs::remove_dir_all(root).ok();
 }
@@ -135,7 +215,7 @@ fn lsp_server_handles_real_checked_in_package_fixture() {
 }
 
 #[test]
-fn lsp_server_returns_workspace_symbols_for_current_workspace_members_only() {
+fn lsp_server_returns_workspace_symbols_for_unopened_workspace_members_too() {
     let (root, uri) = sample_loc_workspace_root("workspace_symbols");
     let text = fs::read_to_string(root.join("app/src/main.fol")).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
@@ -161,6 +241,42 @@ fn lsp_server_returns_workspace_symbols_for_current_workspace_members_only() {
     assert_eq!(symbols[0].name, "helper");
     assert_eq!(symbols[0].container_name.as_deref(), Some("shared (shared)"));
     assert!(symbols[0].location.uri.ends_with("/shared/lib.fol"));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_workspace_symbols_pick_up_late_unopened_files() {
+    let (root, uri) = sample_loc_workspace_root("workspace_symbols_late_file");
+    let text = fs::read_to_string(root.join("app/src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri, &text);
+
+    fs::write(
+        root.join("shared/late.fol"),
+        "fun[exp] late_helper(): int = {\n    return 5;\n};\n",
+    )
+    .unwrap();
+
+    let symbols = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(891),
+            method: "workspace/symbol".to_string(),
+            params: Some(
+                serde_json::to_value(LspWorkspaceSymbolParams {
+                    query: "late_helper".to_string(),
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let symbols: Vec<LspWorkspaceSymbol> = serde_json::from_value(symbols.result.unwrap()).unwrap();
+
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0].name, "late_helper");
+    assert!(symbols[0].location.uri.ends_with("/shared/late.fol"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -259,7 +375,12 @@ fn lsp_server_keeps_unresolved_and_malformed_documents_out_of_symbol_results() {
 #[test]
 fn lsp_server_surfaces_future_version_boundary_diagnostics() {
     let (root, uri) = sample_package_root("future_boundary");
-    let text = "typ Shape(geo): rec[] = {\n    size: int;\n};\n\nfun[] main(): int = {\n    return 0;\n};\n";
+    // Generic recursive type instantiation belongs to a later generics surface,
+    // so the current compiler rejects it with a located "not yet supported"
+    // boundary diagnostic. This keeps the editor covering a genuine
+    // future-version boundary now that plain generic types (the previous
+    // fixture) are accepted by the compiler.
+    let text = "typ Node(T): rec = {\n    value: T;\n    next: Node[int]\n};\n\nfun[] main(): int = {\n    return 0;\n};\n";
     fs::write(root.join("src/main.fol"), text).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     let diagnostics = open_document(&mut server, uri, text);
@@ -267,6 +388,56 @@ fn lsp_server_surfaces_future_version_boundary_diagnostics() {
     assert_eq!(diagnostics.len(), 1);
     assert!(diagnostics[0].diagnostics[0].code.starts_with('T'));
     assert!(!diagnostics[0].diagnostics[0].message.is_empty());
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_surfaces_current_generic_m1_boundaries_only() {
+    let (root, uri) = sample_package_root("generic_m1_boundaries");
+    let source = concat!(
+        "fun pick(T)(value: T): T = {\n",
+        "    return value;\n",
+        "};\n",
+        "typ Box(T): rec = {\n",
+        "    value: T\n",
+        "};\n",
+        "fun[] use_value(): int = {\n",
+        "    var chosen: int = pick;\n",
+        "    return 0;\n",
+        "};\n",
+        "fun[] main(): int = {\n",
+        "    var kept: Box[int] = { value = 1 };\n",
+        "    return pick$(kept.value);\n",
+        "};\n",
+    );
+    fs::write(root.join("src/main.fol"), source).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, source);
+    let messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        messages
+            .iter()
+            .all(|message| !message.contains("generic types are not yet supported")),
+        "editor path should not surface the removed generic-type boundary, got: {messages:?}"
+    );
+    assert!(
+        messages.iter().any(|message| message.contains(
+            "generic routine 'pick' cannot be used as a plain routine value in V2 Milestone 1"
+        )),
+        "editor path should surface the generic-routine value boundary, got: {messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("template instantiation is not yet supported")),
+        "editor path should surface the template-instantiation boundary, got: {messages:?}"
+    );
 
     fs::remove_dir_all(root).ok();
 }
@@ -315,7 +486,9 @@ fn lsp_server_maps_current_v1_diagnostic_classes_stably() {
                 root.join("build.fol"),
                 concat!(
                     "pro[] build(): non = {\n",
-                    "    var graph = .build().graph();\n",
+                    "    var build = .build();\n",
+                    "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+                    "    var graph = build.graph();\n",
                     "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"core\" });\n",
                     "};\n",
                 ),
@@ -905,7 +1078,7 @@ fn lsp_server_returns_no_code_actions_for_typecheck_diagnostics_without_exact_re
 }
 
 #[test]
-fn lsp_server_keeps_current_v1_code_action_inventory_narrow_and_sorted() {
+fn lsp_server_keeps_current_v1_code_actions_to_structured_replacements_only() {
     let (root, uri) = sample_package_root("code_action_inventory_v1");
     fs::write(
         root.join("src/main.fol"),
@@ -965,6 +1138,10 @@ fn lsp_server_keeps_current_v1_code_action_inventory_narrow_and_sorted() {
         .collect::<Vec<_>>();
 
     assert_eq!(titles, vec!["replace with 'helper'"]);
+    assert!(
+        actions.iter().all(|action| action.title.starts_with("replace with '")),
+        "current V1 code actions should stay limited to exact structured replacements"
+    );
 
     fs::remove_dir_all(root).ok();
 }
@@ -976,7 +1153,9 @@ fn lsp_server_keeps_missing_std_dependency_without_quick_fix_for_now() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
             "};\n",
         ),
@@ -1028,14 +1207,14 @@ fn lsp_server_keeps_missing_std_dependency_without_quick_fix_for_now() {
 #[test]
 fn lsp_server_returns_same_package_namespaced_references() {
     let (root, uri) = sample_package_root("same_package_namespaced_references");
-    fs::create_dir_all(root.join("src/api")).unwrap();
+    fs::create_dir_all(root.join("api")).unwrap();
     fs::write(
         root.join("src/main.fol"),
         "fun[] main(): int = {\n    return api::helper();\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/api/lib.fol"),
+        root.join("api/lib.fol"),
         "fun[exp] helper(): int = {\n    return 7;\n};\n",
     )
     .unwrap();
@@ -1065,7 +1244,16 @@ fn lsp_server_returns_same_package_namespaced_references() {
         .unwrap()
         .unwrap();
     let references: Vec<LspLocation> = serde_json::from_value(references.result.unwrap()).unwrap();
-    assert!(references.is_empty());
+    // Qualified references anchor at their final path segment, so the
+    // imported routine resolves to its declaration plus the qualified use
+    // site in the importing document.
+    assert_eq!(references.len(), 2);
+    assert!(references
+        .iter()
+        .any(|location| location.uri.ends_with("api/lib.fol")));
+    assert!(references
+        .iter()
+        .any(|location| location.uri.ends_with("src/main.fol")));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1109,7 +1297,16 @@ fn lsp_server_returns_imported_namespace_references() {
         .unwrap()
         .unwrap();
     let references: Vec<LspLocation> = serde_json::from_value(references.result.unwrap()).unwrap();
-    assert!(references.is_empty());
+    // Qualified references anchor at their final path segment, so the
+    // imported routine resolves to its declaration plus the qualified use
+    // site in the importing document.
+    assert_eq!(references.len(), 2);
+    assert!(references
+        .iter()
+        .any(|location| location.uri.ends_with("shared/lib.fol")));
+    assert!(references
+        .iter()
+        .any(|location| location.uri.ends_with("app/src/main.fol")));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1121,7 +1318,9 @@ fn lsp_server_fails_navigation_cleanly_without_bundled_std_dependency() {
         root.join("build.fol"),
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
             "};\n",
         ),
@@ -1445,7 +1644,7 @@ fn lsp_server_refuses_imported_symbol_rename_outside_the_safe_boundary() {
     let (root, uri) = sample_loc_workspace_root("rename_imported_boundary");
     fs::write(
         root.join("app/src/main.fol"),
-        "use shared: pkg = {\"shared\"};\n\nfun[] main(): int = {\n    return shared::helper();\n};\n",
+        "use shared: loc = {\"../../shared\"};\n\nfun[] main(): int = {\n    return shared::helper();\n};\n",
     )
     .unwrap();
     fs::write(
@@ -1477,9 +1676,17 @@ fn lsp_server_refuses_imported_symbol_rename_outside_the_safe_boundary() {
         .expect_err("imported rename should stay outside the first safe boundary");
 
     assert_eq!(error.kind, crate::EditorErrorKind::InvalidInput);
+    // A symbol imported from another package is declared outside the current
+    // package and its qualified call site does not resolve to a renameable
+    // reference in the current document, so rename refuses it before it can
+    // reach the multi-package boundary check. Either refusal keeps imported
+    // symbols outside the safe rename boundary.
     assert!(
-        !error.message.is_empty(),
-        "rename rejection should keep a concrete message"
+        error.message.contains("no rename target")
+            || error
+                .message
+                .contains("rename currently refuses multi-package symbols"),
+        "imported symbol rename should stay outside the safe boundary: {error:?}"
     );
 
     fs::remove_dir_all(root).ok();

@@ -1,6 +1,7 @@
+use crate::types::GenericConstraint;
 use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
-use fol_parser::ast::{ParsedSourceUnitKind, SyntaxNodeId};
+use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::BTreeMap;
 
@@ -34,6 +35,11 @@ pub struct TypedSymbol {
     pub source_unit_id: SourceUnitId,
     pub declared_type: Option<CheckedTypeId>,
     pub receiver_type: Option<CheckedTypeId>,
+    pub generic_params: Vec<SymbolId>,
+    pub generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
+    /// Mirrors the resolver's binding mutability (`var[mut]`/`lab[mut]`).
+    /// Drives field-assignment legality.
+    pub is_mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +60,71 @@ pub struct TypedReference {
     pub recoverable_effect: Option<RecoverableCallEffect>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandardRoutine {
+    pub symbol_id: SymbolId,
+    pub name: String,
+    pub params: Vec<CheckedTypeId>,
+    pub return_type: Option<CheckedTypeId>,
+    pub error_type: Option<CheckedTypeId>,
+    /// True when the required routine ships a default body that conformers
+    /// inherit if they do not provide their own receiver routine with the
+    /// exact signature.
+    pub has_default_body: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandardField {
+    pub symbol_id: SymbolId,
+    pub name: String,
+    pub field_type: CheckedTypeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandard {
+    pub symbol_id: SymbolId,
+    pub scope_id: ScopeId,
+    pub kind: StandardKind,
+    /// Generic parameters of the standard itself. Empty when the
+    /// standard is not parameterized. At each conformance site these
+    /// parameters are substituted with the types supplied in the
+    /// conformance header.
+    pub generic_params: Vec<SymbolId>,
+    pub required_routines: Vec<TypedStandardRoutine>,
+    pub required_fields: Vec<TypedStandardField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedConformanceClaim {
+    pub standard_symbol_id: SymbolId,
+    /// Type arguments supplied at the conformance header, e.g. the
+    /// `int` in `typ IntIter()(Iterator[int]): rec`. Empty when the
+    /// conformer claims a non-generic standard.
+    pub type_args: Vec<CheckedTypeId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedConformance {
+    pub type_symbol_id: SymbolId,
+    pub standard_symbol_ids: Vec<SymbolId>,
+    /// Claim-with-args list, parallel to `standard_symbol_ids` but
+    /// carrying the concrete type arguments supplied at each
+    /// conformance header.
+    pub claims: Vec<TypedConformanceClaim>,
+}
+
+/// One field of a record type, in source declaration order, carrying the
+/// optional default initializer expression. Records store their fields in
+/// order-losing maps for identity; this side table preserves declaration
+/// order and defaults so record initialization (positional binding and
+/// default filling) can be checked and lowered.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordFieldLayout {
+    pub name: String,
+    pub type_id: CheckedTypeId,
+    pub default: Option<AstNode>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
     capability_model: TypecheckCapabilityModel,
@@ -64,7 +135,18 @@ pub struct TypedProgram {
     symbols: BTreeMap<SymbolId, TypedSymbol>,
     nodes: BTreeMap<SyntaxNodeId, TypedNode>,
     references: BTreeMap<fol_resolver::ReferenceId, TypedReference>,
+    standards: BTreeMap<SymbolId, TypedStandard>,
+    conformances: BTreeMap<SymbolId, TypedConformance>,
     apparent_type_overrides: BTreeMap<CheckedTypeId, CheckedTypeId>,
+    method_call_targets: BTreeMap<SyntaxNodeId, SymbolId>,
+    constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
+    record_layouts: BTreeMap<CheckedTypeId, Vec<RecordFieldLayout>>,
+    /// Generic instantiations whose structural shape is currently being
+    /// computed. A recursive type (`typ Node(T) = { next: Node[T] }`) reaches
+    /// its own instantiation while expanding it; this guard breaks the cycle so
+    /// the self-reference resolves to the interned nominal node instead of
+    /// re-expanding forever. Transient — empty outside active lowering.
+    active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -189,6 +271,9 @@ impl TypedProgram {
                         source_unit_id: symbol.source_unit,
                         declared_type: None,
                         receiver_type: None,
+                        generic_params: Vec::new(),
+                        generic_constraints: BTreeMap::new(),
+                        is_mutable: symbol.is_mutable,
                     },
                 )
             })
@@ -236,8 +321,55 @@ impl TypedProgram {
             symbols,
             nodes,
             references,
+            standards: BTreeMap::new(),
+            conformances: BTreeMap::new(),
             apparent_type_overrides: BTreeMap::new(),
+            active_instantiations: std::collections::BTreeSet::new(),
+            method_call_targets: BTreeMap::new(),
+            constraint_call_sites: std::collections::BTreeSet::new(),
+            record_layouts: BTreeMap::new(),
         }
+    }
+
+    /// Store the ordered field layout (with defaults) for a record type. Keyed
+    /// by the interned record `CheckedTypeId` so record-initializer checking and
+    /// lowering can recover declaration order and per-field defaults.
+    pub(crate) fn set_record_layout(
+        &mut self,
+        type_id: CheckedTypeId,
+        layout: Vec<RecordFieldLayout>,
+    ) {
+        self.record_layouts.insert(type_id, layout);
+    }
+
+    /// The ordered field layout for a record type, if one was recorded.
+    pub fn record_layout(&self, type_id: CheckedTypeId) -> Option<&[RecordFieldLayout]> {
+        self.record_layouts.get(&type_id).map(|fields| fields.as_slice())
+    }
+
+    pub fn record_method_call_target(&mut self, syntax_id: SyntaxNodeId, symbol_id: SymbolId) {
+        self.method_call_targets.insert(syntax_id, symbol_id);
+    }
+
+    pub fn method_call_target(&self, syntax_id: SyntaxNodeId) -> Option<SymbolId> {
+        self.method_call_targets.get(&syntax_id).copied()
+    }
+
+    pub fn record_constraint_call_site(&mut self, syntax_id: SyntaxNodeId) {
+        self.constraint_call_sites.insert(syntax_id);
+    }
+
+    /// True when the method call at `syntax_id` targets a required routine of
+    /// a generic-parameter constraint; the concrete callee is only known
+    /// after monomorphization.
+    pub fn is_constraint_call_site(&self, syntax_id: SyntaxNodeId) -> bool {
+        self.constraint_call_sites.contains(&syntax_id)
+    }
+
+    pub fn method_call_targets(&self) -> impl Iterator<Item = (SyntaxNodeId, SymbolId)> + '_ {
+        self.method_call_targets
+            .iter()
+            .map(|(syntax_id, symbol_id)| (*syntax_id, *symbol_id))
     }
 
     pub fn package_name(&self) -> &str {
@@ -307,11 +439,36 @@ impl TypedProgram {
         self.references.values()
     }
 
+    pub fn typed_standard(&self, symbol_id: SymbolId) -> Option<&TypedStandard> {
+        self.standards.get(&symbol_id)
+    }
+
+    pub fn all_typed_standards(&self) -> impl Iterator<Item = &TypedStandard> {
+        self.standards.values()
+    }
+
+    pub fn typed_conformance(&self, symbol_id: SymbolId) -> Option<&TypedConformance> {
+        self.conformances.get(&symbol_id)
+    }
+
+    pub fn all_typed_conformances(&self) -> impl Iterator<Item = &TypedConformance> {
+        self.conformances.values()
+    }
+
     pub(crate) fn typed_reference_mut(
         &mut self,
         reference_id: fol_resolver::ReferenceId,
     ) -> Option<&mut TypedReference> {
         self.references.get_mut(&reference_id)
+    }
+
+    pub(crate) fn record_typed_standard(&mut self, standard: TypedStandard) {
+        self.standards.insert(standard.symbol_id, standard);
+    }
+
+    pub(crate) fn record_typed_conformance(&mut self, conformance: TypedConformance) {
+        self.conformances
+            .insert(conformance.type_symbol_id, conformance);
     }
 
     pub(crate) fn record_node_type(
@@ -395,16 +552,29 @@ impl TypedProgram {
             .insert(shell_type, apparent_type);
     }
 
-    pub(crate) fn apparent_type_override(&self, type_id: CheckedTypeId) -> Option<CheckedTypeId> {
+    /// Mark a generic instantiation as being expanded. Returns `false` if it is
+    /// already in progress (a recursive self-reference), so the caller can stop
+    /// expanding and use the interned nominal node instead.
+    pub(crate) fn begin_instantiation(&mut self, instance: CheckedTypeId) -> bool {
+        self.active_instantiations.insert(instance)
+    }
+
+    pub(crate) fn end_instantiation(&mut self, instance: CheckedTypeId) {
+        self.active_instantiations.remove(&instance);
+    }
+
+    pub fn apparent_type_override(&self, type_id: CheckedTypeId) -> Option<CheckedTypeId> {
         self.apparent_type_overrides.get(&type_id).copied()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::TypedWorkspace;
-    use crate::TypecheckCapabilityModel;
-    use fol_resolver::{PackageIdentity, PackageSourceKind};
+    use super::{TypedProgram, TypedWorkspace};
+    use crate::{BuiltinType, CheckedType, TypecheckCapabilityModel};
+    use fol_parser::ast::{AstParser, ParsedSourceUnitKind};
+    use fol_resolver::{resolve_package, PackageIdentity, PackageSourceKind};
+    use fol_stream::FileStream;
     use std::collections::BTreeMap;
 
     fn package_identity(name: &str) -> PackageIdentity {
@@ -441,15 +611,6 @@ mod tests {
 
         assert_eq!(program.capability_model(), TypecheckCapabilityModel::Std);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{TypedProgram, TypedWorkspace};
-    use crate::{BuiltinType, CheckedType};
-    use fol_parser::ast::{AstParser, ParsedSourceUnitKind};
-    use fol_resolver::resolve_package;
-    use fol_stream::FileStream;
 
     #[test]
     fn typed_program_shell_installs_builtin_types_for_resolved_programs() {
@@ -527,7 +688,7 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join("src")).expect("should create temp source dir");
         std::fs::write(root.join("build.fol"), "`build`\n").expect("should write build file");
-        std::fs::write(root.join("src/main.fol"), "var value: int = 1\n")
+        std::fs::write(root.join("src/main.fol"), "var value: int = 1;\n")
             .expect("should write ordinary source");
 
         let mut stream =

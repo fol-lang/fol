@@ -17,7 +17,7 @@ That pattern appears across:
 - routines
 - type declarations
 - module-like declarations
-- standards and implementations
+- standards
 
 ## Main Declaration Families
 
@@ -27,7 +27,6 @@ The main declaration families are:
 use    // import declarations
 def    // named definitions such as modules, blocks, and tests
 seg    // segment/module-like declarations
-imp    // implementation declarations
 
 var    // mutable bindings
 let    // immutable local bindings

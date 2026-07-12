@@ -3,11 +3,22 @@ Expressions
 ==================
 
 fun demo(flag: bol, items: seq[int]): int = {
-    var value: int = .len(items)
+    var value: int = .len(items);
+    var logic: bol = flag and not false;
+    var typed: int = value as int;
+    var tagged: bol = value is 1;
+    var member: bol = value in items;
+    var pipe: bol = flag or false xor true nand false nor false;
+    var pow: int = value ^ 2;
+    var full_range = value..10;
+    var callback = fun[](item: int)[value]: int = => item + value;
+    var first: int = items[0];
+    var explicit: int = pick::[int](42);
     when(flag) {
-        return .echo(value)
+        case(true) { return .echo(value); }
+        * { return 0; }
     }
-    loop {
-        break value
+    loop(flag) {
+        break;
     }
-}
+};

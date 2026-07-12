@@ -42,8 +42,20 @@ pub enum DeclaredTypeKind {
     GenericParameter,
 }
 
+/// A standard bound on a generic parameter, carrying the type arguments the
+/// constraint was written with. For a non-generic standard (`T: geo`) `args` is
+/// empty; for a generic standard (`T: Holder[int]`) `args` records `[int]` so a
+/// constraint call can substitute the standard's own parameters on demand.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GenericConstraint {
+    pub standard: SymbolId,
+    pub args: Vec<CheckedTypeId>,
+}
+
 #[derive(Debug, Clone)]
 pub struct RoutineType {
+    pub generic_params: Vec<SymbolId>,
+    pub generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
     pub param_names: Vec<String>,
     pub param_defaults: Vec<Option<AstNode>>,
     pub variadic_index: Option<usize>,
@@ -52,9 +64,30 @@ pub struct RoutineType {
     pub error_type: Option<CheckedTypeId>,
 }
 
+impl RoutineType {
+    /// Which parameters carry a default. Part of the routine's callable
+    /// identity together with `param_names`: named-argument binding and
+    /// default filling both read the interned signature, so two routines
+    /// that differ only in parameter names or defaultedness must not
+    /// collapse to one interned type. The default *expressions* are not
+    /// hashable (`AstNode` is `PartialEq`-only), but the defaultedness
+    /// pattern is what call-arity binding depends on.
+    fn default_flags(&self) -> Vec<bool> {
+        self.param_defaults
+            .iter()
+            .map(|default| default.is_some())
+            .collect()
+    }
+}
+
 impl PartialEq for RoutineType {
     fn eq(&self, other: &Self) -> bool {
-        self.params == other.params
+        self.generic_params == other.generic_params
+            && self.generic_constraints == other.generic_constraints
+            && self.variadic_index == other.variadic_index
+            && self.default_flags() == other.default_flags()
+            && self.param_names == other.param_names
+            && self.params == other.params
             && self.return_type == other.return_type
             && self.error_type == other.error_type
     }
@@ -70,16 +103,36 @@ impl PartialOrd for RoutineType {
 
 impl Ord for RoutineType {
     fn cmp(&self, other: &Self) -> Ordering {
-        (&self.params, self.return_type, self.error_type).cmp(&(
-            &other.params,
-            other.return_type,
-            other.error_type,
-        ))
+        (
+            &self.generic_params,
+            &self.generic_constraints,
+            self.variadic_index,
+            self.default_flags(),
+            &self.param_names,
+            &self.params,
+            self.return_type,
+            self.error_type,
+        )
+            .cmp(&(
+                &other.generic_params,
+                &other.generic_constraints,
+                other.variadic_index,
+                other.default_flags(),
+                &other.param_names,
+                &other.params,
+                other.return_type,
+                other.error_type,
+            ))
     }
 }
 
 impl Hash for RoutineType {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.generic_params.hash(state);
+        self.generic_constraints.hash(state);
+        self.variadic_index.hash(state);
+        self.default_flags().hash(state);
+        self.param_names.hash(state);
         self.params.hash(state);
         self.return_type.hash(state);
         self.error_type.hash(state);
@@ -93,6 +146,14 @@ pub enum CheckedType {
         symbol: SymbolId,
         name: String,
         kind: DeclaredTypeKind,
+        /// Type arguments for a generic instantiation (`Box[int]` → `[int]`).
+        /// Empty for a plain (non-generic) type reference. Part of the type's
+        /// nominal identity: `Box[int]` and `Cup[int]` differ by `symbol`,
+        /// `Box[int]` and `Box[str]` differ by `args`, so the structural
+        /// collapse that made same-shaped generics indistinguishable is gone.
+        /// The structural expansion is resolved on demand via `apparent_type_id`
+        /// / the instantiation-shape table, never stored as identity.
+        args: Vec<CheckedTypeId>,
     },
     Array {
         element_type: CheckedTypeId,
@@ -168,7 +229,18 @@ impl TypeTable {
     pub fn render_type(&self, type_id: CheckedTypeId) -> String {
         match self.get(type_id) {
             Some(CheckedType::Builtin(builtin)) => builtin.as_str().to_string(),
-            Some(CheckedType::Declared { name, .. }) => name.clone(),
+            Some(CheckedType::Declared { name, args, .. }) => {
+                if args.is_empty() {
+                    name.clone()
+                } else {
+                    let rendered = args
+                        .iter()
+                        .map(|arg| self.render_type(*arg))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{name}[{rendered}]")
+                }
+            }
             Some(CheckedType::Optional { inner }) => {
                 format!("opt[{}]", self.render_type(*inner))
             }
@@ -219,7 +291,25 @@ impl TypeTable {
                     None => format!("fun({params}): {returns}"),
                 }
             }
-            Some(other) => format!("{other:?}"),
+            Some(CheckedType::Record { fields }) => {
+                let fields = fields
+                    .iter()
+                    .map(|(name, field_type)| format!("{name}: {}", self.render_type(*field_type)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("rec {{ {fields} }}")
+            }
+            Some(CheckedType::Entry { variants }) => {
+                let variants = variants
+                    .iter()
+                    .map(|(name, payload)| match payload {
+                        Some(payload) => format!("{name}: {}", self.render_type(*payload)),
+                        None => name.clone(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("ent {{ {variants} }}")
+            }
             None => "unknown".to_string(),
         }
     }
@@ -260,6 +350,7 @@ mod tests {
             symbol: SymbolId(4),
             name: "Point".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         });
 
         let mut fields = BTreeMap::new();
@@ -270,6 +361,8 @@ mod tests {
         });
         let record_second = table.intern(CheckedType::Record { fields });
         let routine = table.intern(CheckedType::Routine(RoutineType {
+            generic_params: Vec::new(),
+            generic_constraints: BTreeMap::new(),
             param_names: vec!["point".to_string(), "count".to_string()],
             param_defaults: vec![None, None],
             variadic_index: None,
@@ -286,6 +379,7 @@ mod tests {
                 symbol: SymbolId(4),
                 name: "Point".to_string(),
                 kind: DeclaredTypeKind::Type,
+                args: Vec::new(),
             })
         );
     }
@@ -334,6 +428,8 @@ mod tests {
         let int_id = table.intern_builtin(BuiltinType::Int);
         let str_id = table.intern_builtin(BuiltinType::Str);
         let routine_id = table.intern(CheckedType::Routine(RoutineType {
+            generic_params: Vec::new(),
+            generic_constraints: BTreeMap::new(),
             param_names: vec!["left".to_string(), "right".to_string()],
             param_defaults: vec![None, None],
             variadic_index: None,

@@ -1,0 +1,7 @@
+typ Box(T): rec = {
+    value: T
+};
+
+fun (Box[T])get(T)(): T = {
+    return self.value;
+};

@@ -26,12 +26,19 @@
 //! The heap-backed runtime families now belong to [`memo`], while [`containers`]
 //! remains the helper layer for indexing, slicing, and rendering.
 //!
-//! Explicitly out of scope for this milestone:
+//! Explicitly out of scope for this runtime crate:
 //!
 //! - ownership / borrowing / pointers
-//! - standards / generics
+//! - a runtime-owned generic reification model
+//! - object-style standards/dispatch machinery
 //! - concurrency runtime
 //! - C ABI
+//!
+//! Full `V2` generics, generic types, and procedural standards still execute
+//! through the current backend strategy. The important boundary is narrower:
+//! `fol-runtime` itself does not define a second witness/dictionary system or
+//! an object-style runtime contract for standards. Those semantics stay in the
+//! compiler/lowering/backend pipeline under monomorphization.
 //!
 //! # Backend Mapping: Builtins
 //!

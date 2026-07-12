@@ -4,7 +4,8 @@ At least two linguistic mechanisms are necessary to make the computations in pro
 
 There are two types of control flow mechanisms:
 - choice - `when`
-- loop - `loop`
+- loop - `loop` (with `while`, `for`, and `each` as loop-header spellings of
+  the same mechanism)
 
 
 ## Choice type
@@ -16,6 +17,15 @@ when(iterable){ has (member){}; has (member){}; * {}; };
 when(generic){ of (type){}; of (type){}; * {}; };
 when(type){ on (channel){}; on (channel){}; };
 ```
+
+Current boundary:
+
+- `case` and `is` arms (plus the required `*` default) are the current `V1`
+  surface, in both statement bodies and the arrow expression form
+  (`is 3 -> 7;`)
+- `in` (range/set matching), `has` (membership), `of` (type matching), and
+  `on` (channels) are declared syntax whose semantics are later-milestone
+  work; the compiler rejects them with explicit boundary diagnostics
 ### Condition
 ```
 when(true) {

@@ -141,6 +141,8 @@ pub fn run_direct_compile(
                     "lowered-snapshot",
                     Some(snapshot_path),
                 ));
+                result.summary = format!("emitted lowered snapshot for {}", config.input);
+                return Ok(result);
             }
 
             if lowered.entry_candidates().is_empty() {
@@ -423,6 +425,16 @@ pub fn run_direct_compile_with_io(
                             ),
                             None,
                         );
+                    }
+                } else if matches!(
+                    config.mode,
+                    DirectCompileMode::Auto {
+                        dump_lowered: true,
+                        ..
+                    }
+                ) {
+                    if frontend_config.output.mode != OutputMode::Json {
+                        let _ = writeln!(stdout, "✓ Emitted lowered snapshot!");
                     }
                 } else if !matches!(
                     config.mode,

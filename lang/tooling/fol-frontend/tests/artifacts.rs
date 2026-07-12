@@ -39,8 +39,8 @@ fn build_and_emit_commands_report_explicit_root_artifacts() {
     .expect("should write source");
 
     let (_, build) =
-        run_command_from_args_in_dir(["fol", "build"], &root).expect("build should pass");
-    let (_, emit) = run_command_from_args_in_dir(["fol", "emit", "rust"], &root)
+        run_command_from_args_in_dir(["fol", "code", "build"], &root).expect("build should pass");
+    let (_, emit) = run_command_from_args_in_dir(["fol", "code", "emit", "rust"], &root)
         .expect("emit rust should pass");
 
     assert!(build

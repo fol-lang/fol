@@ -37,7 +37,7 @@ r: run
 
 
 test:
-	@cargo test
+	@cargo test --workspace
 	@cargo test -- --ignored
 
 t: test

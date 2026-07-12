@@ -18,6 +18,28 @@ pub(crate) enum BoundLoweredCallArg<'a> {
     VariadicUnpack(&'a AstNode),
 }
 
+/// The variadic pack is built at the call site from the concrete argument
+/// expressions. When the callee is generic its declared variadic parameter
+/// type still mentions the routine's generic parameter (e.g. `seq[T]`). Using
+/// that as the pack's expected type would leak `T` into the caller's scope
+/// (`FolSeq<t>` with `t` unbound), which the backend cannot emit. When there
+/// are concrete elements to infer from, drop the generic expected type so the
+/// pack is typed from its actual elements instead.
+fn variadic_pack_expected(
+    type_table: &crate::LoweredTypeTable,
+    expected: Option<LoweredTypeId>,
+    has_elements: bool,
+) -> Option<LoweredTypeId> {
+    match expected {
+        Some(type_id)
+            if has_elements && type_table.contains_generic_parameter(type_id) =>
+        {
+            None
+        }
+        other => other,
+    }
+}
+
 pub(crate) fn bind_lowered_call_arguments<'a>(
     args: &'a [AstNode],
     param_names: &[String],
@@ -350,7 +372,6 @@ pub(crate) fn lower_pipe_or_expression(
     let error_block = cursor.create_block();
     let success_block = cursor.create_block();
     let join_block = cursor.create_block();
-    let result_local = cursor.allocate_local(observed_left.type_id, None);
 
     cursor.terminate_current_block(crate::LoweredTerminator::Branch {
         condition: condition_local,
@@ -358,23 +379,9 @@ pub(crate) fn lower_pipe_or_expression(
         else_block: success_block,
     })?;
 
-    cursor.switch_block(success_block)?;
-    let success_value = cursor.allocate_local(observed_left.type_id, None);
-    cursor.push_instr(
-        Some(success_value),
-        LoweredInstrKind::UnwrapRecoverable {
-            operand: observed_left.local_id,
-        },
-    )?;
-    cursor.push_instr(
-        None,
-        LoweredInstrKind::StoreLocal {
-            local: result_local,
-            value: success_value,
-        },
-    )?;
-    cursor.terminate_current_block(crate::LoweredTerminator::Jump { target: join_block })?;
-
+    // Lower the fallback arm first: a recoverable arm (chained `a || b || c`)
+    // re-wraps the whole expression as recoverable, which changes the join
+    // carrier from the plain value to the still-wrapped recoverable.
     cursor.switch_block(error_block)?;
     let fallback_value = lower_pipe_or_fallback(
         typed_package,
@@ -388,7 +395,27 @@ pub(crate) fn lower_pipe_or_expression(
         observed_left.type_id,
         right,
     )?;
-    if let Some(fallback_value) = fallback_value {
+
+    let arm_recover = fallback_value
+        .as_ref()
+        .and_then(|value| value.recoverable_error_type);
+    let result_local = if arm_recover.is_some() {
+        let carrier = fallback_value
+            .as_ref()
+            .and_then(|value| cursor.routine.locals.get(value.local_id))
+            .and_then(|local| local.type_id)
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::Internal,
+                    "recoverable fallback arm lost its lowered carrier type",
+                )
+            })?;
+        cursor.allocate_local(carrier, None)
+    } else {
+        cursor.allocate_local(observed_left.type_id, None)
+    };
+
+    if let Some(fallback_value) = &fallback_value {
         cursor.push_instr(
             None,
             LoweredInstrKind::StoreLocal {
@@ -399,11 +426,39 @@ pub(crate) fn lower_pipe_or_expression(
         cursor.terminate_current_block(crate::LoweredTerminator::Jump { target: join_block })?;
     }
 
+    cursor.switch_block(success_block)?;
+    if arm_recover.is_some() {
+        // Keep the left side still wrapped; the outer handler unwraps it.
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::StoreLocal {
+                local: result_local,
+                value: observed_left.local_id,
+            },
+        )?;
+    } else {
+        let success_value = cursor.allocate_local(observed_left.type_id, None);
+        cursor.push_instr(
+            Some(success_value),
+            LoweredInstrKind::UnwrapRecoverable {
+                operand: observed_left.local_id,
+            },
+        )?;
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::StoreLocal {
+                local: result_local,
+                value: success_value,
+            },
+        )?;
+    }
+    cursor.terminate_current_block(crate::LoweredTerminator::Jump { target: join_block })?;
+
     cursor.switch_block(join_block)?;
     Ok(LoweredValue {
         local_id: result_local,
         type_id: observed_left.type_id,
-        recoverable_error_type: None,
+        recoverable_error_type: arm_recover,
     })
 }
 
@@ -495,7 +550,9 @@ fn lower_pipe_or_fallback(
             )?;
             Ok(None)
         }
-        _ => lower_expression_expected(
+        // A fallback arm may itself be recoverable (chained `a || b || c`);
+        // the caller decides how to join it, so lower it observed.
+        _ => lower_expression_observed(
             typed_package,
             type_table,
             checked_type_map,
@@ -904,6 +961,8 @@ pub(crate) fn lower_function_call(
                         container_type: ContainerType::Sequence,
                         elements: args.iter().map(|arg| (*arg).clone()).collect(),
                     };
+                    let pack_expected =
+                        variadic_pack_expected(type_table, expected, !args.is_empty());
                     lower_expression_expected(
                         typed_package,
                         type_table,
@@ -913,7 +972,7 @@ pub(crate) fn lower_function_call(
                         cursor,
                         source_unit_id,
                         scope_id,
-                        expected,
+                        pack_expected,
                         &packed,
                     )
                 }
@@ -921,8 +980,15 @@ pub(crate) fn lower_function_call(
             .map(|value| value.local_id)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let call_error_type =
-        lowered_symbol_error_type(typed_package, checked_type_map, resolved_symbol.id);
+    // Prefer the call-site's recorded recoverable effect — this is the
+    // monomorphized error type, which matters when the routine has a
+    // generic error (e.g., `fun echo(T)(...): T / T`). Fall back to the
+    // declared error type when no effect is recorded.
+    let call_error_type = syntax_id
+        .and_then(|syntax_id| typed_package.program.typed_node(syntax_id))
+        .and_then(|node| node.recoverable_effect)
+        .and_then(|effect| checked_type_map.get(&effect.error_type).copied())
+        .or_else(|| lowered_symbol_error_type(typed_package, checked_type_map, resolved_symbol.id));
     let result_local = cursor.allocate_local(result_type, None);
     cursor.push_instr(
         Some(result_local),
@@ -1045,6 +1111,8 @@ pub(crate) fn lower_statement_free_call(
                         container_type: ContainerType::Sequence,
                         elements: args.iter().map(|arg| (*arg).clone()).collect(),
                     };
+                    let pack_expected =
+                        variadic_pack_expected(type_table, expected, !args.is_empty());
                     lower_expression_expected(
                         typed_package,
                         type_table,
@@ -1054,7 +1122,7 @@ pub(crate) fn lower_statement_free_call(
                         cursor,
                         source_unit_id,
                         scope_id,
-                        expected,
+                        pack_expected,
                         &packed,
                     )
                 }
@@ -1148,8 +1216,33 @@ pub(crate) fn resolve_method_target(
     decl_index: &WorkspaceDeclIndex,
     method: &str,
     receiver_type: LoweredTypeId,
-) -> Result<(crate::LoweredRoutineId, Option<LoweredTypeId>, Option<LoweredTypeId>), LoweringError>
+    call_syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
+) -> Result<crate::LoweredRoutineId, LoweringError>
 {
+    // Fast path: typecheck already resolved the method symbol for this call
+    // site (including generic receiver unification). Prefer that when present.
+    if let Some(syntax_id) = call_syntax_id {
+        if let Some(symbol_id) = typed_package.program.method_call_target(syntax_id) {
+            let symbol = typed_package
+                .program
+                .resolved()
+                .symbol(symbol_id)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("method '{method}' resolved to an unknown symbol"),
+                    )
+                })?;
+            let (owning_identity, owning_symbol_id) =
+                canonical_symbol_key(current_identity, symbol.mounted_from.as_ref(), symbol_id);
+            if let Some(routine_id) =
+                decl_index.routine_id_for_symbol(&owning_identity, owning_symbol_id)
+            {
+                return Ok(routine_id);
+            }
+        }
+    }
+
     let mut matches = Vec::new();
 
     for (symbol_id, symbol) in typed_package.program.resolved().symbols.iter_with_ids() {
@@ -1176,23 +1269,7 @@ pub(crate) fn resolve_method_target(
         else {
             continue;
         };
-        let Some(signature_checked_type) = typed_symbol.declared_type else {
-            continue;
-        };
-        let Some(fol_typecheck::CheckedType::Routine(signature)) = typed_package
-            .program
-            .type_table()
-            .get(signature_checked_type)
-        else {
-            continue;
-        };
-        let return_type = signature
-            .return_type
-            .and_then(|return_type| checked_type_map.get(&return_type).copied());
-        let error_type = signature
-            .error_type
-            .and_then(|error_type| checked_type_map.get(&error_type).copied());
-        matches.push((routine_id, return_type, error_type));
+        matches.push(routine_id);
     }
 
     match matches.len() {

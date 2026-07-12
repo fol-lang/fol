@@ -131,6 +131,7 @@ mod tests {
         GeneratedFileInstallProjection, GeneratedFileSet, GeneratedOutputDependencySet,
         SystemToolRequest, SystemToolResult,
     };
+    use std::collections::BTreeMap;
 
     #[test]
     fn generated_file_set_starts_empty() {

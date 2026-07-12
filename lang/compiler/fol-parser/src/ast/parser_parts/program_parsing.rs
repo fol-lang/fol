@@ -12,6 +12,7 @@ impl AstParser {
         Self {
             routine_depth: Cell::new(0),
             loop_depth: Cell::new(0),
+            nesting_depth: Cell::new(0),
             syntax_index: std::cell::RefCell::new(None),
         }
     }
@@ -66,8 +67,12 @@ impl AstParser {
         token: &fol_lexer::lexer::stage3::element::Element,
         node: AstNode,
     ) {
-        let node_id = self
-            .record_syntax_origin(token)
+        // Prefer the node's own syntax anchor (declaration parsers record it
+        // at the declared name) so symbols and editor tokens point at names
+        // instead of leading keywords.
+        let node_id = node
+            .syntax_id()
+            .or_else(|| self.record_syntax_origin(token))
             .expect("top-level parsing should have active syntax tracking");
         entries.push(ParsedTopLevel {
             node_id,
@@ -325,28 +330,6 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-                let before = (
-                    token.loc().row(),
-                    token.loc().col(),
-                    token.con().to_string(),
-                );
-                match self.parse_imp_decl(tokens) {
-                    Ok(node) => {
-                        self.consume_required_semicolon(tokens).map_err(|e| vec![e])?;
-                        self.push_top_level_entry(&mut entries, &token, node);
-                        self.bump_if_no_progress(tokens, before);
-                    }
-                    Err(error) => {
-                        errors.push(error);
-                        self.sync_to_next_declaration(tokens);
-                    }
-                }
-                if tokens.curr(false).is_err() {
-                    break;
-                }
-                continue;
-            }
 
             if matches!(key, KEYWORD::Keyword(BUILDIN::Std)) && self.lookahead_is_std_decl(tokens) {
                 let before = (

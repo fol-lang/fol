@@ -334,7 +334,12 @@ fn test_chained_postfix_expressions_mix_fields_indexes_and_methods() {
                         AstNode::Assignment { value, .. }
                         if matches!(
                             value.as_ref(),
-                            AstNode::MethodCall { object, method, args }
+                            AstNode::MethodCall {
+                                object,
+                                method,
+                                args,
+                                ..
+                            }
                             if method == "format"
                                 && args.is_empty()
                                 && matches!(

@@ -1,5 +1,11 @@
 # Calculations
 
+Current boundary:
+
+- the two-argument `assert(a, b)` form used in this chapter's examples is
+  illustrative; `assert` is registry-owned but deferred, and the intrinsic is
+  not yet dispatchable in the current compiler (see the intrinsics chapter)
+
 In fol, every calcultaion, needs to be enclosed in rounded brackets `( //to evaluate )` - except in one line evaluating, the curly brackets are allowed too `{ // to evaluate }`:
 
 ```
@@ -49,6 +55,19 @@ assert((14 / 3), 4);
 assert((100 % 7), 2);
 ```
 
+Current integer semantics:
+
+- division truncates toward zero (`-7 / 2` is `-3`)
+- remainder takes the sign of the dividend (`-7 % 2` is `-1`)
+- integers are 64-bit two's-complement; overflow panics at runtime (debug)
+  rather than wrapping, and division/modulo by zero panics
+- declared widths such as `int[8]` currently share the 64-bit runtime
+  representation and are not range-enforced yet
+- floats follow IEEE-754: `1.0 / 0.0` is infinity, `0.0 / 0.0` is NaN (no panic)
+
+```
+```
+
 
 ## Comparisons
 
@@ -58,8 +77,8 @@ Symbol  |	Meaning
 ---     | --- 
 ==	    | equal
 !=	    | not equal
-\>>	    | greater than
-\<<	    | Less than
+\>	    | greater than
+\<	    | Less than
 \>=	    | greater than or equal to
 \<=	    | Less than or equal to
 
@@ -67,8 +86,8 @@ Symbol  |	Meaning
 ```
 assert((123 == 123));
 assert((23 != -12));
-assert((12.5 >> 12.2));
-assert(({1, 2, 3} << {1, 3, 4}));
+assert((12.5 > 12.2));
+assert((1 < 3));
 assert(('A' <= 'B'));
 assert(("World" >= "Hello"));
 ```
@@ -86,6 +105,13 @@ assert((true and false), (false and true));
 assert((true or false), true)
 assert((not true), false)
 ```
+
+Current evaluation note:
+
+- `and`/`or` evaluate both operands eagerly; they do NOT short-circuit, so
+  the right operand runs even when the left already decides the result
+  (`(false) and (1/0 > 0)` still evaluates `1/0`). Guard side-effecting or
+  fallible right operands explicitly.
 
 
 

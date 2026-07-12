@@ -175,9 +175,32 @@ mod tests {
             .command,
             "references"
         );
+        // Rename resolution needs a resolved workspace, which only exists for
+        // real packages. The package-less `record_flow` fixture backs the other
+        // file commands, so build a small self-contained package for the rename
+        // smoke check.
+        let rename_root = std::env::temp_dir().join(format!(
+            "fol_editor_public_rename_pkg_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(rename_root.join("src")).unwrap();
+        std::fs::write(
+            rename_root.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"rename_smoke\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"rename_smoke\", root = \"src/main.fol\", fol_model = \"core\" });\n    return;\n};\n",
+        )
+        .unwrap();
+        std::fs::write(
+            rename_root.join("src/main.fol"),
+            "fun[] helper(): int = {\n    return 7;\n};\n\nfun[] main(): int = {\n    return helper();\n};\n",
+        )
+        .unwrap();
         assert_eq!(
             editor_rename_file(
-                &path,
+                &rename_root.join("src/main.fol"),
                 LspPosition {
                     line: 5,
                     character: 11,
@@ -188,6 +211,7 @@ mod tests {
             .command,
             "rename"
         );
+        std::fs::remove_dir_all(&rename_root).ok();
         assert_eq!(
             editor_semantic_tokens_file(&path).unwrap().command,
             "semantic-tokens"
@@ -211,7 +235,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(root.join("build.fol"), "pro[] build(): non = {\n    return;\n};\n").unwrap();
+        std::fs::write(root.join("build.fol"), "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n").unwrap();
         let file = src.join("main.fol");
         let text = "fun[] main(): int = {\n    return 0;\n};\n";
         std::fs::write(&file, text).unwrap();
@@ -278,7 +302,7 @@ mod tests {
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
         std::fs::write(
             root.join("build.fol"),
-            "pro[] build(): non = {\n    return;\n};\n",
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
         )
         .unwrap();
         let file = src.join("main.fol");

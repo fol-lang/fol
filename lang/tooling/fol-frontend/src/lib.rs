@@ -301,11 +301,14 @@ mod tests {
     fn semantic_dispatch_build() -> &'static str {
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
             "    graph.install(app);\n",
             "    graph.add_run(app);\n",
             "    graph.add_test({ name = \"app_test\", root = \"src/main.fol\" });\n",
+            "    return;\n",
             "};\n",
         )
     }
@@ -341,6 +344,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         }
     }
 
@@ -375,6 +379,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         }
     }
 

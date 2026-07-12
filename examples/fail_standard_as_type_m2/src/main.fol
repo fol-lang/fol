@@ -1,0 +1,11 @@
+std geo: pro = {
+    fun area(): int;
+};
+
+fun use(value: geo): int = {
+    return 1;
+};
+
+fun[] main(): int = {
+    return use(panic("boom"));
+};

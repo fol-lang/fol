@@ -1,7 +1,3 @@
-use super::{
-    lower_fixture_error, lower_fixture_panic_message, lower_fixture_workspace,
-    lower_folder_fixture_workspace,
-};
 use crate::{LoweredInstrKind, LoweredOperand, LoweringErrorKind};
 use fol_parser::ast::AstParser;
 use fol_resolver::resolve_package_workspace;
@@ -19,7 +15,7 @@ fn record_initializer_lowering_constructs_records_in_binding_and_call_contexts()
     ));
     std::fs::write(
         &fixture,
-        "typ User: { name: str, count: int }\nfun[] echo(user: User): User = { return user }\nfun[] main(): User = {\n    var current: User = { name = \"ok\", count = 1 }\n    return echo({ name = \"next\", count = 2 })\n}",
+        "typ User: rec = { name: str, count: int };\nfun[] echo(user: User): User = { return user; };\nfun[] main(): User = {\n    var current: User = { name = \"ok\", count = 1 };\n    return echo({ name = \"next\", count = 2 });\n};",
     )
     .expect("should write lowering record fixture");
 
@@ -71,7 +67,7 @@ fn linear_container_lowering_constructs_array_vector_and_sequence_values() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] make_arr(): arr[int, 3] = { return {1, 2, 3} }\nfun[] make_vec(): vec[int] = { return {1, 2, 3} }\nfun[] make_seq(): seq[int] = { return {1, 2, 3} }\n",
+        "fun[] make_arr(): arr[int, 3] = { return {1, 2, 3}; };\nfun[] make_vec(): vec[int] = { return {1, 2, 3}; };\nfun[] make_seq(): seq[int] = { return {1, 2, 3} };\n",
     )
     .expect("should write lowering linear-container fixture");
 
@@ -136,7 +132,7 @@ fn set_and_map_lowering_construct_explicit_aggregate_instructions() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] take_set(items: set[int, str]): str = { return items[1] }\nfun[] take_map(items: map[str, int]): int = { return items[\"US\"] }\nfun[] main(): int = {\n    var parts: set[int, str] = {1, \"two\"}\n    var counts: map[str, int] = {{\"US\", 45}, {\"DE\", 82}}\n    var current: str = take_set(parts)\n    return take_map(counts)\n}\n",
+        "fun[] take_set(items: set[int, str]): str = { return items[1]; };\nfun[] take_map(items: map[str, int]): int = { return items[\"US\"]; };\nfun[] main(): int = {\n    var parts: set[int, str] = {1, \"two\"};\n    var counts: map[str, int] = {{\"US\", 45}, {\"DE\", 82}};\n    var current: str = take_set(parts);\n    return take_map(counts);\n};\n",
     )
     .expect("should write lowering set/map fixture");
 
@@ -191,7 +187,7 @@ fn entry_variant_lowering_supports_payload_access_and_entry_construction() {
     ));
     std::fs::write(
         &fixture,
-        "typ Color: ent = {\n    var BLUE: str = \"#0037cd\";\n    var RED: str = \"#ff0000\";\n}\nfun[] payload(): str = {\n    return Color.BLUE;\n}\nfun[] typed(): Color = {\n    return Color.RED;\n}\n",
+        "typ Color: ent = {\n    var BLUE: str = \"#0037cd\";\n    var RED: str = \"#ff0000\";\n};\nfun[] payload(): str = {\n    return Color.BLUE;\n};\nfun[] typed(): Color = {\n    return Color.RED;\n};\n",
     )
     .expect("should write lowering entry fixture");
 
@@ -254,7 +250,7 @@ fn nil_lowering_constructs_optional_and_error_shell_values() {
     ));
     std::fs::write(
         &fixture,
-        "ali MaybeText: opt[str]\nali Failure: err[str]\nfun[] make(): MaybeText = { return nil }\nfun[] fail(): int / Failure = { report nil }\n",
+        "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] make(): MaybeText = { return nil; };\nfun[] fail(): int / Failure = {\n    report nil;\n    return 1;\n};\n",
     )
     .expect("should write lowering nil fixture");
 
@@ -313,7 +309,7 @@ fn unwrap_lowering_uses_explicit_shell_unwrap_instructions() {
     ));
     std::fs::write(
         &fixture,
-        "ali MaybeText: opt[str]\nali Failure: err[str]\nfun[] from_optional(value: MaybeText): str = { return value! }\nfun[] from_error(value: Failure): str = { return value! }\n",
+        "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] from_optional(value: MaybeText): str = { return value!; };\nfun[] from_error(value: Failure): str = { return value! };\n",
     )
     .expect("should write lowering unwrap fixture");
 
@@ -366,12 +362,15 @@ fn alias_shell_contexts_lower_to_concrete_runtime_shell_operations() {
     fs::create_dir_all(&shared_dir).expect("should create shared dir");
     fs::write(
         shared_dir.join("lib.fol"),
-        "ali RemoteText: opt[str]\nali RemoteFailure: err[str]\nfun[exp] imported_wrap(): RemoteText = { return \"shared\" }\nfun[exp] imported_fail(): int / RemoteFailure = { report \"shared\" }\n",
+        "ali RemoteText: opt[str];\nali RemoteFailure: err[str];\nfun imported_wrap(): RemoteText = { return \"shared\"; };\nfun imported_fail(): int / RemoteFailure = {\n    report \"shared\";\n    return 1;\n};\nfun[exp] remote_ping(): int = { return 1; };\n",
     )
     .expect("should write shared package");
+    // Aliases are never exported in current FOL (`ali` has no `[exp]` form),
+    // so imported alias-backed shells are exercised inside the imported
+    // package itself rather than through qualified alias type references.
     fs::write(
         app_dir.join("main.fol"),
-        "use shared: loc = {\"../shared\"}\nali LocalText: opt[str]\nali LocalFailure: err[str]\nfun[] local_wrap(): LocalText = { return \"local\" }\nfun[] local_fail(): int / LocalFailure = { report \"local\" }\nfun[] imported_wrap_main(): shared::RemoteText = { return \"entry\" }\nfun[] imported_fail_main(): int / shared::RemoteFailure = { report \"entry\" }\n",
+        "use shared: loc = {\"../shared\"};\nali LocalText: opt[str];\nali LocalFailure: err[str];\nfun[] local_wrap(): LocalText = { return \"local\"; };\nfun[] local_fail(): int / LocalFailure = {\n    report \"local\";\n    return 1;\n};\nfun[] main(): int = {\n    return shared::remote_ping();\n};\n",
     )
     .expect("should write app package");
 
@@ -391,13 +390,17 @@ fn alias_shell_contexts_lower_to_concrete_runtime_shell_operations() {
         .expect("shell alias lowering should succeed");
 
     let app_package = lowered.entry_package();
-    for routine_name in [
-        "local_wrap",
-        "local_fail",
-        "imported_wrap_main",
-        "imported_fail_main",
+    let shared_package = lowered
+        .packages()
+        .find(|package| package.identity.display_name == "shared")
+        .expect("shared package should exist");
+    for (package, routine_name) in [
+        (app_package, "local_wrap"),
+        (app_package, "local_fail"),
+        (shared_package, "imported_wrap"),
+        (shared_package, "imported_fail"),
     ] {
-        let routine = app_package
+        let routine = package
             .routine_decls
             .values()
             .find(|routine| routine.name == routine_name)
@@ -428,7 +431,7 @@ fn shell_payload_lifting_lowers_to_explicit_runtime_wrappers() {
     ));
     std::fs::write(
         &fixture,
-        "ali MaybeText: opt[str]\nali Failure: err[str]\nfun[] echo(value: MaybeText): MaybeText = { return value }\nfun[] direct(): MaybeText = { return \"return\" }\nfun[] main(): MaybeText = {\n    var local: MaybeText = \"bind\"\n    return echo(\"call\")\n}\nfun[] fail(): int / Failure = { report \"broken\" }\n",
+        "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] echo(value: MaybeText): MaybeText = { return value; };\nfun[] direct(): MaybeText = { return \"return\"; };\nfun[] main(): MaybeText = {\n    var local: MaybeText = \"bind\";\n    return echo(\"call\");\n};\nfun[] fail(): int / Failure = {\n    report \"broken\";\n    return 1;\n};\n",
     )
     .expect("should write lowering shell lift fixture");
 
@@ -507,14 +510,17 @@ fn aggregate_container_and_shell_lowering_stays_aligned_across_local_and_importe
     let shared_dir = root.join("shared");
     fs::create_dir_all(&app_dir).expect("should create app dir");
     fs::create_dir_all(&shared_dir).expect("should create shared dir");
+    // Aliases are never exported in current FOL, so the imported package
+    // exercises its shell alias internally while records cross the package
+    // boundary through `typ[exp]`.
     fs::write(
         shared_dir.join("lib.fol"),
-        "ali RemoteText: opt[str]\ntyp RemoteUser: { name: str, count: int }\nfun[exp] keep_remote(user: RemoteUser): RemoteUser = { return user }\n",
+        "ali RemoteText: opt[str];\ntyp[exp] RemoteUser: rec = { name: str, count: int };\nfun[exp] keep_remote(user: RemoteUser): RemoteUser = { return user; };\nfun remote_label(): RemoteText = { return \"shared\"; };\n",
     )
     .expect("should write shared package");
     fs::write(
         app_dir.join("main.fol"),
-        "use shared: loc = {\"../shared\"}\nali LocalText: opt[str]\ntyp LocalUser: { name: str, count: int }\nfun[] main(): shared::RemoteUser = {\n    var local: LocalText = \"ok\"\n    var remote_label: shared::RemoteText = \"shared\"\n    var local_user: LocalUser = { name = \"local\", count = 1 }\n    var remote_user: shared::RemoteUser = { name = \"remote\", count = 2 }\n    var ids: seq[int] = {1, 2, 3}\n    return shared::keep_remote(remote_user)\n}\n",
+        "use shared: loc = {\"../shared\"};\nali LocalText: opt[str];\ntyp LocalUser: rec = { name: str, count: int };\nfun[] main(): shared::RemoteUser = {\n    var local: LocalText = \"ok\";\n    var local_user: LocalUser = { name = \"local\", count = 1 };\n    var remote_user: shared::RemoteUser = { name = \"remote\", count = 2 };\n    var ids: seq[int] = {1, 2, 3};\n    return shared::keep_remote(remote_user);\n};\n",
     )
     .expect("should write app package");
 
@@ -539,17 +545,33 @@ fn aggregate_container_and_shell_lowering_stays_aligned_across_local_and_importe
         .values()
         .find(|routine| routine.name == "main")
         .expect("main routine should exist");
+    let remote_label = lowered
+        .packages()
+        .find(|package| package.identity.display_name == "shared")
+        .expect("shared package should exist")
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "remote_label")
+        .expect("remote_label routine should exist");
 
     assert!(
         main.instructions
             .iter()
-            .filter(|instr| matches!(
+            .any(|instr| matches!(
                 instr.kind,
                 LoweredInstrKind::ConstructOptional { value: Some(_), .. }
-            ))
-            .count()
-            >= 2,
-        "local and imported shell aliases should both lower to explicit shell constructors"
+            )),
+        "local shell aliases should lower to explicit shell constructors"
+    );
+    assert!(
+        remote_label
+            .instructions
+            .iter()
+            .any(|instr| matches!(
+                instr.kind,
+                LoweredInstrKind::ConstructOptional { value: Some(_), .. }
+            )),
+        "imported-package shell aliases should lower to explicit shell constructors"
     );
     assert!(
         main.instructions
@@ -569,7 +591,29 @@ fn aggregate_container_and_shell_lowering_stays_aligned_across_local_and_importe
 
 #[test]
 fn unsupported_lowering_surfaces_report_explicit_boundary_messages() {
-    let nil_error = lower_fixture_error("fun[] main(): int = {\n    return nil;\n}\n");
+    // Typecheck now front-runs source-level `nil` outside opt/err shell
+    // contexts, so the lowering boundary is exercised directly against a
+    // non-shell expected runtime type.
+    use crate::types::{LoweredBuiltinType, LoweredTypeTable};
+
+    let mut types = LoweredTypeTable::new();
+    let int_type = types.intern_builtin(LoweredBuiltinType::Int);
+    let mut routine = crate::LoweredRoutine::new(
+        crate::LoweredRoutineId(0),
+        "main",
+        crate::LoweredBlockId(0),
+    );
+    let entry = routine.blocks.push(crate::LoweredBlock {
+        id: crate::LoweredBlockId(0),
+        instructions: Vec::new(),
+        terminator: None,
+    });
+    routine.entry_block = entry;
+    let mut cursor = super::super::cursor::RoutineCursor::new(&mut routine, entry);
+
+    let nil_error =
+        super::super::containers::lower_nil_literal(&types, &mut cursor, Some(int_type))
+            .expect_err("nil lowering outside shell contexts should stay an explicit boundary");
     assert_eq!(nil_error.kind(), LoweringErrorKind::Unsupported);
     assert!(nil_error.message().contains(
         "nil lowering requires an expected opt[...] or err[...] runtime type"
@@ -578,16 +622,26 @@ fn unsupported_lowering_surfaces_report_explicit_boundary_messages() {
 
 #[test]
 fn audited_v1_lowering_boundaries_fail_with_explicit_messages() {
+    // Typecheck now rejects when/of branches before lowering runs, so the
+    // remaining lowering boundary is exercised directly against the when-case
+    // lowering entry point.
     let cases = [(
         crate::UnsupportedLoweringSurface::TypeMatchingWhenOf,
-        "fun classify(value: any): int = {\n    when(value) {\n        of(int) { return 1; }\n        { return 0; }\n    }\n}\n",
+        fol_parser::ast::WhenCase::Of {
+            type_match: fol_parser::ast::FolType::Int {
+                size: None,
+                signed: true,
+            },
+            body: Vec::new(),
+        },
         "type-matching when/of branches are not lowered in this slice yet",
     )];
 
     assert_eq!(crate::v1_lowering_boundaries().len(), cases.len());
 
-    for (surface, source, expected_message) in cases {
-        let error = lower_fixture_error(source);
+    for (surface, case, expected_message) in cases {
+        let error = super::super::flow::when_case_condition_and_body(&case)
+            .expect_err("when/of branches should stay an explicit lowering boundary");
         assert_eq!(
             error.kind(),
             LoweringErrorKind::Unsupported,

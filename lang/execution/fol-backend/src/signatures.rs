@@ -9,16 +9,122 @@ use fol_lower::{
 };
 use fol_resolver::PackageIdentity;
 
+fn collect_generic_params_from_type(
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+    params: &mut Vec<String>,
+) {
+    let Some(ty) = type_table.get(type_id) else {
+        return;
+    };
+    match ty {
+        LoweredType::GenericParameter { name } => {
+            if !params.iter().any(|existing| existing == name) {
+                params.push(name.clone());
+            }
+        }
+        LoweredType::Array { element_type, .. }
+        | LoweredType::Vector { element_type }
+        | LoweredType::Sequence { element_type }
+        | LoweredType::Optional { inner: element_type } => {
+            collect_generic_params_from_type(type_table, *element_type, params);
+        }
+        LoweredType::Map {
+            key_type,
+            value_type,
+        } => {
+            collect_generic_params_from_type(type_table, *key_type, params);
+            collect_generic_params_from_type(type_table, *value_type, params);
+        }
+        LoweredType::Error { inner } => {
+            if let Some(inner) = inner {
+                collect_generic_params_from_type(type_table, *inner, params);
+            }
+        }
+        LoweredType::Set { member_types } => {
+            for member in member_types {
+                collect_generic_params_from_type(type_table, *member, params);
+            }
+        }
+        LoweredType::Record { fields } => {
+            for field in fields.values() {
+                collect_generic_params_from_type(type_table, *field, params);
+            }
+        }
+        LoweredType::Entry { variants } => {
+            for variant in variants.values().flatten() {
+                collect_generic_params_from_type(type_table, *variant, params);
+            }
+        }
+        LoweredType::Routine(signature) => {
+            for param in &signature.params {
+                collect_generic_params_from_type(type_table, *param, params);
+            }
+            if let Some(ret) = signature.return_type {
+                collect_generic_params_from_type(type_table, ret, params);
+            }
+            if let Some(err) = signature.error_type {
+                collect_generic_params_from_type(type_table, err, params);
+            }
+        }
+        LoweredType::Builtin(_) => {}
+    }
+}
+
+fn render_generic_clause(signature: &LoweredRoutineType, type_table: &LoweredTypeTable) -> String {
+    let mut params = Vec::new();
+    for param in &signature.params {
+        collect_generic_params_from_type(type_table, *param, &mut params);
+    }
+    if let Some(ret) = signature.return_type {
+        collect_generic_params_from_type(type_table, ret, &mut params);
+    }
+    if let Some(err) = signature.error_type {
+        collect_generic_params_from_type(type_table, err, &mut params);
+    }
+    if params.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<{}>",
+            params
+                .iter()
+                .map(|name| format!(
+                    "{}: Clone + Default",
+                    crate::sanitize_backend_ident(name)
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
 fn recoverable_error_type_for_local(
     routine: &LoweredRoutine,
     local_id: fol_lower::LoweredLocalId,
 ) -> Option<LoweredTypeId> {
+    recoverable_error_type_for_local_inner(routine, local_id, 0)
+}
+
+fn recoverable_error_type_for_local_inner(
+    routine: &LoweredRoutine,
+    local_id: fol_lower::LoweredLocalId,
+    depth: usize,
+) -> Option<LoweredTypeId> {
+    if depth > 8 {
+        return None;
+    }
     routine.instructions.iter().find_map(|instruction| match &instruction.kind {
         fol_lower::LoweredInstrKind::Call { error_type, .. }
         | fol_lower::LoweredInstrKind::CallIndirect { error_type, .. }
             if instruction.result == Some(local_id) =>
         {
             *error_type
+        }
+        // Chained fallbacks join a still-wrapped recoverable through a
+        // StoreLocal; the join local carries the same FolRecover shape.
+        fol_lower::LoweredInstrKind::StoreLocal { local, value } if *local == local_id => {
+            recoverable_error_type_for_local_inner(routine, *value, depth + 1)
         }
         _ => None,
     })
@@ -54,8 +160,32 @@ pub fn render_routine_signature(
 
     let mut params = Vec::new();
     if let Some(receiver_type) = routine.receiver_type {
+        let receiver_local_id = routine.params.first().copied().ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "receiver-qualified routine '{}' does not retain a receiver local slot",
+                    routine.name
+                ),
+            )
+        })?;
+        let receiver_local = routine.locals.get(receiver_local_id).ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "receiver-qualified routine '{}' is missing its receiver local",
+                    routine.name
+                ),
+            )
+        })?;
         params.push(format!(
-            "receiver: {}",
+            "{}: {}",
+            mangle_local_name(
+                package_identity,
+                routine.id,
+                receiver_local_id,
+                receiver_local.name.as_deref(),
+            ),
             render_rust_type_in_workspace(Some(workspace), type_table, receiver_type)?
         ));
     }
@@ -68,10 +198,12 @@ pub fn render_routine_signature(
     )?);
 
     let return_type = render_routine_return_type(workspace, signature, type_table)?;
+    let generic_clause = render_generic_clause(signature, type_table);
 
     Ok(format!(
-        "pub fn {}({}){}",
+        "pub fn {}{}({}){}",
         mangle_routine_name(package_identity, routine.id, &routine.name),
+        generic_clause,
         params.join(", "),
         return_type
     ))
@@ -100,11 +232,15 @@ pub fn render_routine_shell(
         })
         .collect::<BackendResult<Vec<_>>>()?
         .join("\n");
+    let stub = format!(
+        "    unreachable!(\"backend routine shell '{}' should not be executed\");",
+        routine.name
+    );
 
     Ok(if local_decls.is_empty() {
-        format!("{header} {{\n    todo!()\n}}\n")
+        format!("{header} {{\n{stub}\n}}\n")
     } else {
-        format!("{header} {{\n{local_decls}\n    todo!()\n}}\n")
+        format!("{header} {{\n{local_decls}\n{stub}\n}}\n")
     })
 }
 
@@ -464,7 +600,7 @@ mod tests {
         assert!(plain_rendered.contains("pub fn r__pkg__entry__app__r0__main("));
         assert!(plain_rendered.contains("l__pkg__entry__app__r0__l0__flag: rt::FolBool"));
         assert!(plain_rendered.ends_with(" -> rt::FolInt"));
-        assert!(method_rendered.contains("receiver: rt::FolInt"));
+        assert!(method_rendered.contains("l__pkg__entry__app__r1__l0__self_kw: rt::FolInt"));
         assert!(method_rendered.contains("l__pkg__entry__app__r1__l1__flag: rt::FolBool"));
     }
 
@@ -525,7 +661,9 @@ mod tests {
         ));
         assert!(!rendered
             .contains("l__pkg__entry__app__r3__l0__flag: rt::FolInt = Default::default();"));
-        assert!(rendered.contains("todo!()"));
+        assert!(rendered.contains(
+            "unreachable!(\"backend routine shell 'compute' should not be executed\")"
+        ));
         assert_eq!(temp_id, LoweredLocalId(1));
     }
 

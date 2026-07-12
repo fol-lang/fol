@@ -217,7 +217,7 @@ mod tests {
             Some("echo")
         );
         assert_eq!(
-            echo.docs,
+            echo.doc_summary,
             "emit a runtime-visible debug value and forward it unchanged"
         );
     }

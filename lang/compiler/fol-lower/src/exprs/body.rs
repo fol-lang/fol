@@ -36,7 +36,17 @@ pub(crate) fn lower_routine_bodies(
         }
         let source_unit_id = SourceUnitId(source_unit_index);
         for item in &source_unit.items {
-            let (name, syntax_id, body) = match &item.node {
+            // Collect routine bodies to lower. Most come from top-level
+            // routine decls, but standard default bodies are nested inside
+            // `std` decls and need the same treatment so method resolution
+            // can reach their bodies at call sites.
+            let member_iter: Vec<&AstNode> = if let AstNode::StdDecl { body, .. } = &item.node {
+                body.iter().collect()
+            } else {
+                vec![&item.node]
+            };
+            for member in member_iter {
+            let (name, syntax_id, body) = match member {
                 AstNode::FunDecl {
                     name,
                     syntax_id,
@@ -78,11 +88,17 @@ pub(crate) fn lower_routine_bodies(
                 },
                 _ => continue,
             };
-            let Some(symbol_id) = crate::decls::find_local_symbol_id(
+            if body.is_empty() {
+                // Signature-only members (e.g., bare protocol standard
+                // requirements with no default body) have nothing to
+                // lower into a routine body.
+                continue;
+            }
+            let Some(symbol_id) = crate::decls::find_routine_symbol_for_item(
                 &typed_package.program,
                 source_unit_id,
-                SymbolKind::Routine,
                 name,
+                syntax_id,
             ) else {
                 errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
@@ -135,6 +151,7 @@ pub(crate) fn lower_routine_bodies(
                     }
                 }
                 Err(error) => errors.push(error),
+            }
             }
         }
     }
@@ -533,6 +550,25 @@ pub(crate) fn lower_body_node(
             Ok(None)
         }
         AstNode::FunctionCall {
+            surface: fol_parser::ast::CallSurface::DotIntrinsic,
+            ..
+        } => {
+            // Statement-position dot intrinsics (`.echo(x);`) lower through
+            // the expression path — they never carry resolver references.
+            let _ = lower_expression(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                node,
+            )?;
+            Ok(None)
+        }
+        AstNode::FunctionCall {
             syntax_id,
             name,
             args,
@@ -637,6 +673,9 @@ pub(crate) fn lower_body_node(
                 .terminate_current_block(crate::LoweredTerminator::Jump { target: exit_block })?;
             Ok(None)
         }
+        // Routine-local imports bind an alias during resolution; they have
+        // no runtime effect, so lowering skips them.
+        AstNode::UseDecl { .. } => Ok(None),
         AstNode::Defer { syntax_id, body } => {
             let deferred_scope_id =
                 nested_scope_for_syntax(typed_package, *syntax_id, scope_id, "defer block")?;
@@ -664,6 +703,7 @@ pub(crate) fn lower_body_node(
             Ok(None)
         }
         AstNode::MethodCall {
+            syntax_id,
             object,
             method,
             args,
@@ -679,14 +719,66 @@ pub(crate) fn lower_body_node(
                 scope_id,
                 object,
             )?;
-            let (callee, result_type, error_type) = resolve_method_target(
+            // Constraint calls on generic parameters defer callee resolution
+            // to monomorphization; emit the placeholder instruction instead
+            // of resolving a concrete routine here.
+            if syntax_id
+                .is_some_and(|syntax_id| typed_package.program.is_constraint_call_site(syntax_id))
+            {
+                let typed_node =
+                    syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+                let result_type = typed_node
+                    .and_then(|node| node.inferred_type)
+                    .and_then(|checked_type| checked_type_map.get(&checked_type).copied());
+                let error_type = typed_node
+                    .and_then(|node| node.recoverable_effect)
+                    .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
+                let mut lowered_args = vec![receiver.local_id];
+                for arg in args {
+                    let value = lower_expression(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        arg,
+                    )?;
+                    lowered_args.push(value.local_id);
+                }
+                let result_local = result_type.map(|result_type| cursor.allocate_local(result_type, None));
+                cursor.push_instr(
+                    result_local,
+                    crate::control::LoweredInstrKind::ConstraintCall {
+                        method: method.clone(),
+                        args: lowered_args,
+                        error_type,
+                    },
+                )?;
+                return Ok(result_local.zip(result_type).map(|(local_id, type_id)| LoweredValue {
+                    local_id,
+                    type_id,
+                    recoverable_error_type: error_type,
+                }));
+            }
+            let callee = resolve_method_target(
                 typed_package,
                 checked_type_map,
                 current_identity,
                 decl_index,
                 method,
                 receiver.type_id,
+                *syntax_id,
             )?;
+            let typed_node = syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+            let result_type = typed_node
+                .and_then(|node| node.inferred_type)
+                .and_then(|checked_type| checked_type_map.get(&checked_type).copied());
+            let error_type = typed_node
+                .and_then(|node| node.recoverable_effect)
+                .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
             let mut lowered_args = vec![receiver.local_id];
             let param_types = decl_index
                 .routine_param_types(callee)

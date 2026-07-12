@@ -170,10 +170,6 @@ impl AstParser {
             return self.parse_seg_decl(tokens);
         }
 
-        if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Imp)) {
-            return self.parse_imp_decl(tokens);
-        }
-
         if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Std))
             && self.lookahead_is_std_decl(tokens)
         {

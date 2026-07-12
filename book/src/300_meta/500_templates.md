@@ -1,5 +1,12 @@
 # Templates
 
+Current boundary:
+
+- the `def`-based meta family (macros, alternatives, defaults, templates) is
+  planned for a future release; none of it is part of the current compiler
+  surface
+- everything below describes intended design, not current behavior
+
 Templates are supposed to be mostly used for operator overloading. They are glorified functions, hence used with `pro` or `fun` instead of `def`. 
 
 For example here is how the `!=` is defined: 

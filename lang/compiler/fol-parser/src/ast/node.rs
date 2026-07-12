@@ -80,6 +80,7 @@ pub enum AstNode {
         options: Vec<TypeOption>,
         generics: Vec<Generic>,
         contracts: Vec<FolType>,
+        explicit_contracts: Vec<FolType>,
         name: String,
         type_def: TypeDefinition,
     },
@@ -100,6 +101,7 @@ pub enum AstNode {
 
     /// Alias declaration: ali name: target_type
     AliasDecl {
+        options: Vec<super::options::TypeOption>,
         name: String,
         target: FolType,
     },
@@ -121,19 +123,14 @@ pub enum AstNode {
         body: Vec<AstNode>,
     },
 
-    /// Implementation declaration: imp name: target_type = { body }
-    ImpDecl {
-        options: Vec<DeclOption>,
-        generics: Vec<Generic>,
-        name: String,
-        target: FolType,
-        body: Vec<AstNode>,
-    },
-
-    /// Standard declaration: std name: pro|blu|ext = { body }
+    /// Standard declaration: std name[generics]: pro|blu|ext = { body }
     StdDecl {
+        syntax_id: Option<SyntaxNodeId>,
         options: Vec<DeclOption>,
         name: String,
+        /// Optional generic parameters like `std Iterator(T): pro = { ... }`.
+        /// Empty when the standard is not parameterized.
+        generics: Vec<Generic>,
         kind: StandardKind,
         kind_options: Vec<DeclOption>,
         body: Vec<AstNode>,
@@ -164,11 +161,14 @@ pub enum AstNode {
         operand: Box<AstNode>,
     },
 
-    /// Function call: function_name(args)
+    /// Function call: function_name(args) or function_name[TypeArgs](args)
     FunctionCall {
         syntax_id: Option<SyntaxNodeId>,
         surface: CallSurface,
         name: String,
+        /// Explicit generic type arguments (turbofish-style `name[T, U](...)`).
+        /// Empty when the caller relies on argument-driven inference.
+        type_args: Vec<FolType>,
         args: Vec<AstNode>,
     },
 
@@ -244,6 +244,7 @@ pub enum AstNode {
 
     /// Method call: object.method(args)
     MethodCall {
+        syntax_id: Option<SyntaxNodeId>,
         object: Box<AstNode>,
         method: String,
         args: Vec<AstNode>,
@@ -430,9 +431,8 @@ impl AstNode {
             AstNode::UseDecl { options, .. } => Some(use_decl_visibility(options)),
             AstNode::DefDecl { options, .. }
             | AstNode::SegDecl { options, .. }
-            | AstNode::ImpDecl { options, .. }
             | AstNode::StdDecl { options, .. } => Some(decl_visibility(options)),
-            AstNode::AliasDecl { .. } => Some(ParsedDeclVisibility::Normal),
+            AstNode::AliasDecl { options, .. } => Some(type_decl_visibility(options)),
             AstNode::Commented { node, .. } => node.declaration_visibility(),
             _ => None,
         }
@@ -457,6 +457,7 @@ impl AstNode {
             | AstNode::UseDecl { syntax_id, .. }
             | AstNode::Identifier { syntax_id, .. }
             | AstNode::FunctionCall { syntax_id, .. }
+            | AstNode::MethodCall { syntax_id, .. }
             | AstNode::RecordInit { syntax_id, .. }
             | AstNode::Defer { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,
@@ -507,7 +508,6 @@ impl AstNode {
             AstNode::LogDecl { return_type, .. } => return_type.clone().or(Some(FolType::Bool)),
             AstNode::DefDecl { def_type, .. } => Some(def_type.clone()),
             AstNode::SegDecl { seg_type, .. } => Some(seg_type.clone()),
-            AstNode::ImpDecl { target, .. } => Some(target.clone()),
             AstNode::StdDecl { .. } => None,
             AstNode::Comment { .. } => None,
             AstNode::Commented { node, .. } => node.syntactic_type_hint(),
@@ -646,7 +646,6 @@ impl AstNode {
             }
             AstNode::DefDecl { body, .. }
             | AstNode::SegDecl { body, .. }
-            | AstNode::ImpDecl { body, .. }
             | AstNode::StdDecl { body, .. } => body.iter().collect(),
             AstNode::Inquiry { body, .. } => body.iter().collect(),
             AstNode::BinaryOp { left, right, .. } => {

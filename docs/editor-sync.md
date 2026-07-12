@@ -8,9 +8,10 @@ tree-sitter assets aligned.
 The editor layer should not become a second language implementation, and it
 should not depend on copied compiler name lists.
 
-Current V1 non-goals:
+Current editor non-goals:
 
-- no V2-aware language/editor support
+- no broad V2-aware language/editor support beyond the shipped generic-routine,
+  generic-type, constrained-generic, and protocol-standard example subset
 - no editor-owned semantic divergence from compiler results
 - no broad rename outside the currently documented safe classes
 - no `textDocument/rangeFormatting` until structure-safe partial formatting
@@ -25,6 +26,18 @@ The intended split is:
 - tree-sitter grammar remains hand-authored
 - repetitive editor registries should be compiler-derived
 - drift should fail tests
+
+Current shipped V2-aware coverage is intentionally narrow:
+
+- diagnostics, hover, definition, symbols, and completion are exercised against
+  the checked-in generic-routine, generic-type, constrained-generic, and
+  protocol-standard example packages
+- the current positive executable example roots covered by editor tests are:
+  - `examples/generic_type_exec_m1m2`
+  - `examples/generic_standard_constraint_m1m2`
+  - `examples/standards_protocol_m2`
+- those tests should stay honest about current boundaries and must not imply
+  lowering/backend support that the compiler does not yet ship
 
 ## Ownership
 

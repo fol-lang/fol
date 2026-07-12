@@ -466,6 +466,7 @@ mod tests {
                 output_name: "app".to_string(),
                 linkage: BuildArtifactLinkage::Executable,
                 target: BuildArtifactTargetConfig {
+                    fol_model: BuildArtifactFolModel::Memo,
                     target: Some("native".to_string()),
                     optimize: Some("debug".to_string()),
                 },

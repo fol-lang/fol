@@ -137,8 +137,9 @@ mod tests {
         assert!(families.contains(&BuildSemanticTypeFamily::DependencyStepHandle));
         assert!(families.contains(&BuildSemanticTypeFamily::DependencyGeneratedOutputHandle));
         assert!(families.contains(&BuildSemanticTypeFamily::GeneratedFileHandle));
-        assert!(families.contains(&BuildSemanticTypeFamily::SourceFileHandle));
-        assert!(families.contains(&BuildSemanticTypeFamily::SourceDirHandle));
+        // NOTE: SourceFileHandle/SourceDirHandle are transient handle families
+        // and are no longer enumerated in the canonical stdlib scope types.
+        assert!(families.contains(&BuildSemanticTypeFamily::ModuleHandle));
     }
 
     #[test]

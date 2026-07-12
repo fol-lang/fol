@@ -309,9 +309,6 @@ mod quoted_function_type_refs;
 #[path = "test_parser_parts/quoted_iteration_binders.rs"]
 mod quoted_iteration_binders;
 #[cfg(test)]
-#[path = "test_parser_parts/implementation_declarations.rs"]
-mod implementation_declarations;
-#[cfg(test)]
 #[path = "test_parser_parts/illegal_token_contexts_expressions.rs"]
 mod illegal_token_contexts_expressions;
 #[cfg(test)]
@@ -513,6 +510,9 @@ mod variadic_parameters;
 #[path = "test_parser_parts/while_loops.rs"]
 mod while_loops;
 #[cfg(test)]
+#[path = "test_parser_parts/v2_generics_m1.rs"]
+mod v2_generics_m1;
+#[cfg(test)]
 #[path = "test_parser_parts/routine_headers_and_when_forms.rs"]
 mod routine_headers_and_when_forms;
 #[cfg(test)]
@@ -551,6 +551,9 @@ mod type_member_bodies;
 #[cfg(test)]
 #[path = "test_parser_parts/type_contracts.rs"]
 mod type_contracts;
+#[cfg(test)]
+#[path = "test_parser_parts/v2_standards_m2.rs"]
+mod v2_standards_m2;
 #[cfg(test)]
 #[path = "test_parser_parts/type_group_declarations.rs"]
 mod type_group_declarations;

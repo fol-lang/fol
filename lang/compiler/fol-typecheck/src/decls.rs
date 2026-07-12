@@ -1,30 +1,46 @@
 use crate::{
-    CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType, TypeTable, TypecheckError,
-    TypecheckErrorKind, TypecheckResult, TypedProgram,
+    CheckedType, CheckedTypeId, DeclaredTypeKind, GenericConstraint, RoutineType, TypeTable,
+    TypecheckError, TypecheckErrorKind, TypecheckResult, TypedConformance, TypedConformanceClaim,
+    TypedProgram, TypedStandard, TypedStandardField, TypedStandardRoutine,
 };
 use fol_parser::ast::{
-    AstNode, BindingPattern, FolType, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
-    SyntaxNodeId, SyntaxOrigin, TypeDefinition, TypeOption, VarOption,
+    AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
+    RecordFieldMeta, StandardKind, SyntaxNodeId, SyntaxOrigin, TypeDefinition, TypeOption,
+    VarOption,
 };
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult<()> {
     let resolved = typed.resolved().clone();
     let syntax = resolved.syntax().clone();
     let mut errors = Vec::new();
 
-    for (source_unit_index, source_unit) in syntax.source_units.iter().enumerate() {
-        if source_unit.kind == ParsedSourceUnitKind::Build {
-            continue;
-        }
-        let source_unit_id = SourceUnitId(source_unit_index);
-        for item in &source_unit.items {
-            if let Err(error) = lower_top_level_declaration(typed, &resolved, source_unit_id, item)
-            {
-                errors.push(error);
+    // Type declarations are lowered for every source unit before any other
+    // declarations. Routine signatures and eager binding hints may instantiate
+    // generic type templates declared in a later-ordered source unit, so the
+    // templates must be recorded first regardless of unit ordering.
+    for type_decls_only in [true, false] {
+        for (source_unit_index, source_unit) in syntax.source_units.iter().enumerate() {
+            if source_unit.kind == ParsedSourceUnitKind::Build {
+                continue;
+            }
+            let source_unit_id = SourceUnitId(source_unit_index);
+            for item in &source_unit.items {
+                if is_type_decl_item(&item.node) != type_decls_only {
+                    continue;
+                }
+                if let Err(error) =
+                    lower_top_level_declaration(typed, &resolved, source_unit_id, item)
+                {
+                    errors.push(error);
+                }
             }
         }
+    }
+
+    if let Err(mut conformance_errors) = check_standard_conformance(typed, &resolved, &syntax) {
+        errors.append(&mut conformance_errors);
     }
 
     if errors.is_empty() {
@@ -32,6 +48,86 @@ pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult
     } else {
         Err(errors)
     }
+}
+
+fn is_type_decl_item(node: &AstNode) -> bool {
+    match node {
+        AstNode::TypeDecl { .. } => true,
+        AstNode::Commented { node, .. } => is_type_decl_item(node),
+        _ => false,
+    }
+}
+
+/// Record the ordered field layout (declaration order plus per-field default
+/// initializers) for a record type and validate that each default expression
+/// is assignable to its field's declared type.
+#[allow(clippy::too_many_arguments)]
+fn lower_record_field_layout(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    type_scope: ScopeId,
+    record_type_id: CheckedTypeId,
+    fields: &HashMap<String, FolType>,
+    field_meta: &HashMap<String, RecordFieldMeta>,
+    field_order: &[String],
+    decl_origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    use crate::model::RecordFieldLayout;
+
+    let mut layout = Vec::with_capacity(field_order.len());
+    for field_name in field_order {
+        let Some(field_type) = fields.get(field_name) else {
+            continue;
+        };
+        let field_type_id = lower_type(typed, resolved, type_scope, field_type)?;
+        let default = field_meta
+            .get(field_name)
+            .and_then(|meta| meta.default.clone());
+
+        // A field default must be assignable to the field's declared type;
+        // reject a mismatch at the declaration with a located diagnostic.
+        if let Some(default_expr) = &default {
+            let default_origin =
+                node_origin(resolved, default_expr).or_else(|| decl_origin.clone());
+            let context = crate::exprs::TypeContext {
+                source_unit_id,
+                scope_id: type_scope,
+                routine_return_type: None,
+                routine_error_type: None,
+                error_call_mode: crate::exprs::ErrorCallMode::Propagate,
+            };
+            let typed_default = crate::exprs::type_node_with_expectation(
+                typed,
+                resolved,
+                context,
+                default_expr,
+                Some(field_type_id),
+            )
+            .map_err(|error| {
+                default_origin
+                    .clone()
+                    .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
+            })?;
+            if let Some(actual) = typed_default.value_type {
+                crate::exprs::helpers::ensure_assignable(
+                    typed,
+                    field_type_id,
+                    actual,
+                    format!("default for record field '{field_name}'"),
+                    default_origin,
+                )?;
+            }
+        }
+
+        layout.push(RecordFieldLayout {
+            name: field_name.clone(),
+            type_id: field_type_id,
+            default,
+        });
+    }
+    typed.set_record_layout(record_type_id, layout);
+    Ok(())
 }
 
 fn lower_top_level_declaration(
@@ -101,6 +197,7 @@ fn lower_top_level_declaration(
         AstNode::FunDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -112,6 +209,7 @@ fn lower_top_level_declaration(
         | AstNode::ProDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -123,6 +221,7 @@ fn lower_top_level_declaration(
         | AstNode::LogDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -137,6 +236,7 @@ fn lower_top_level_declaration(
                 source_unit_id,
                 name,
                 *syntax_id,
+                generics,
                 receiver_type.as_ref(),
                 params,
                 return_type.as_ref(),
@@ -157,27 +257,65 @@ fn lower_top_level_declaration(
                 inquiries,
             )?;
         }
-        AstNode::TypeDecl { name, type_def, .. } => {
+        AstNode::TypeDecl {
+            generics,
+            name,
+            explicit_contracts,
+            type_def,
+            ..
+        } => {
             let symbol_id = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Type], name)?;
-            let symbol_scope = resolved
-                .symbol(symbol_id)
-                .map(|symbol| symbol.scope)
-                .ok_or_else(|| internal_error("resolved type symbol disappeared", None))?;
+            let type_scope =
+                find_top_level_type_decl_scope(resolved, source_unit_id, item, symbol_id)?;
+            let generic_params =
+                generic_params_in_scope(resolved, type_scope, item, generics)?;
+            let generic_constraints = lower_generic_constraints_for_params(
+                typed,
+                resolved,
+                type_scope,
+                generics,
+                &generic_params,
+            )?;
+            // Record the generic parameters/constraints before lowering the
+            // body so a self-referential field (`typ Node(T) = { next: Node[T] }`)
+            // sees `Node` as a generic type and interns a nominal `Node[T]` node
+            // instead of re-lowering the declaration and recursing forever.
+            record_symbol_generic_params(typed, symbol_id, generic_params)?;
+            record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
             let type_id = match type_def {
                 TypeDefinition::Alias { target } => {
-                    lower_type(typed, resolved, symbol_scope, target)?
+                    lower_type(typed, resolved, type_scope, target)?
                 }
-                TypeDefinition::Record { fields, .. } => {
+                TypeDefinition::Record {
+                    fields,
+                    field_meta,
+                    field_order,
+                    ..
+                } => {
                     let mut lowered = BTreeMap::new();
                     for (field_name, field_type) in fields {
                         lowered.insert(
                             field_name.clone(),
-                            lower_type(typed, resolved, symbol_scope, field_type)?,
+                            lower_type(typed, resolved, type_scope, field_type)?,
                         );
                     }
-                    typed
+                    let record_type_id = typed
                         .type_table_mut()
-                        .intern(CheckedType::Record { fields: lowered })
+                        .intern(CheckedType::Record { fields: lowered });
+                    let decl_origin = node_origin(resolved, &item.node)
+                        .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                    lower_record_field_layout(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        type_scope,
+                        record_type_id,
+                        fields,
+                        field_meta,
+                        field_order,
+                        decl_origin,
+                    )?;
+                    record_type_id
                 }
                 TypeDefinition::Entry { variants, .. } => {
                     let mut lowered = BTreeMap::new();
@@ -186,7 +324,7 @@ fn lower_top_level_declaration(
                             variant_name.clone(),
                             variant_type
                                 .as_ref()
-                                .map(|variant| lower_type(typed, resolved, symbol_scope, variant))
+                                .map(|variant| lower_type(typed, resolved, type_scope, variant))
                                 .transpose()?,
                         );
                     }
@@ -196,8 +334,171 @@ fn lower_top_level_declaration(
                 }
             };
             record_symbol_type(typed, symbol_id, type_id)?;
+            // Recursive type definitions (`typ Node(T) = { next: Node[T] }`,
+            // `typ Tree = { kids: vec[Tree] }`) are not representable in the
+            // current structural runtime model: there is no nominal/named
+            // lowered type, so the shape has no finite form. Reject the
+            // declaration with an honest, located diagnostic instead of looping
+            // forever in lowering. This is a compile-time boundary, not a
+            // silent acceptance — recursive/heap-linked data belongs to the
+            // later ownership/pointer surface.
+            let recursion_origin = node_origin(resolved, &item.node)
+                .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+            reject_recursive_type_definition(typed, symbol_id, type_id, recursion_origin, resolved)?;
+            if !explicit_contracts.is_empty() {
+                let mut standard_symbol_ids = Vec::new();
+                let mut claims = Vec::new();
+                for contract in explicit_contracts {
+                    let standard_symbol_id =
+                        lower_standard_symbol_for_contract(resolved, contract)?;
+                    standard_symbol_ids.push(standard_symbol_id);
+                    // Pull explicit type arguments out of
+                    // `Name[args]`-shaped contract references and lower
+                    // them in the type declaration scope.
+                    let type_args = extract_contract_type_args(
+                        typed,
+                        resolved,
+                        type_scope,
+                        contract,
+                    )?;
+                    claims.push(TypedConformanceClaim {
+                        standard_symbol_id,
+                        type_args,
+                    });
+                }
+                typed.record_typed_conformance(TypedConformance {
+                    type_symbol_id: symbol_id,
+                    standard_symbol_ids,
+                    claims,
+                });
+            }
         }
-        AstNode::AliasDecl { name, target } => {
+        AstNode::StdDecl {
+            syntax_id,
+            name,
+            generics,
+            kind,
+            body,
+            ..
+        } => {
+            let standard_symbol_id =
+                find_symbol_id(resolved, source_unit_id, &[SymbolKind::Standard], name)?;
+            let standard_scope = syntax_id
+                .and_then(|id| resolved.scope_for_syntax(id))
+                .ok_or_else(|| {
+                    internal_error(
+                        format!(
+                            "resolved standard scope disappeared for standard '{}'",
+                            name
+                        ),
+                        node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
+                    )
+                })?;
+            // Bind the standard's generic parameters as declared types in
+            // the standard scope so routine signatures inside the body
+            // see `T` as a proper generic parameter.
+            let mut generic_params: Vec<SymbolId> = Vec::new();
+            for generic in generics {
+                let symbol_id = find_symbol_id_in_scope(
+                    resolved,
+                    source_unit_id,
+                    standard_scope,
+                    &[SymbolKind::GenericParameter],
+                    &generic.name,
+                )?;
+                let generic_type = typed.type_table_mut().intern(CheckedType::Declared {
+                    symbol: symbol_id,
+                    name: generic.name.clone(),
+                    kind: DeclaredTypeKind::GenericParameter,
+                    args: Vec::new(),
+                });
+                record_symbol_type(typed, symbol_id, generic_type)?;
+                generic_params.push(symbol_id);
+            }
+            let mut required_routines = Vec::new();
+            let mut required_fields = Vec::new();
+            match kind {
+                StandardKind::Protocol => {
+                    for member in body {
+                        let required = lower_protocol_standard_member(
+                            typed,
+                            resolved,
+                            source_unit_id,
+                            standard_scope,
+                            member,
+                        )?;
+                        required_routines.push(required);
+                    }
+                }
+                StandardKind::Blueprint => {
+                    for member in body {
+                        let required = lower_blueprint_standard_member(
+                            typed,
+                            resolved,
+                            source_unit_id,
+                            standard_scope,
+                            member,
+                        )?;
+                        required_fields.push(required);
+                    }
+                }
+                StandardKind::Extended => {
+                    // Extended standards combine protocol and blueprint
+                    // requirements. Routine members lower through the
+                    // protocol path; field members lower through the
+                    // blueprint path. Each member is routed to the path
+                    // matching its AST shape.
+                    for member in body {
+                        match member {
+                            AstNode::FunDecl { .. }
+                            | AstNode::ProDecl { .. }
+                            | AstNode::LogDecl { .. } => {
+                                let required = lower_protocol_standard_member(
+                                    typed,
+                                    resolved,
+                                    source_unit_id,
+                                    standard_scope,
+                                    member,
+                                )?;
+                                required_routines.push(required);
+                            }
+                            AstNode::VarDecl { .. } => {
+                                let required = lower_blueprint_standard_member(
+                                    typed,
+                                    resolved,
+                                    source_unit_id,
+                                    standard_scope,
+                                    member,
+                                )?;
+                                required_fields.push(required);
+                            }
+                            _ => {
+                                return Err(match node_origin(resolved, member) {
+                                    Some(origin) => TypecheckError::with_origin(
+                                        TypecheckErrorKind::Unsupported,
+                                        "extended standards currently support only required routines and `var` field declarations",
+                                        origin,
+                                    ),
+                                    None => TypecheckError::new(
+                                        TypecheckErrorKind::Unsupported,
+                                        "extended standards currently support only required routines and `var` field declarations",
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            typed.record_typed_standard(TypedStandard {
+                symbol_id: standard_symbol_id,
+                scope_id: standard_scope,
+                kind: *kind,
+                generic_params,
+                required_routines,
+                required_fields,
+            });
+        }
+        AstNode::AliasDecl { name, target, .. } => {
             let symbol_id = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Alias], name)?;
             let symbol_scope = resolved
                 .symbol(symbol_id)
@@ -232,8 +533,29 @@ fn lower_nested_declarations_in_node(
     current_scope: ScopeId,
     node: &AstNode,
 ) -> Result<(), TypecheckError> {
-    if let Some(error) = unsupported_v1_nested_decl(resolved, node) {
-        return Err(error);
+    let source_unit = resolved
+        .source_unit(source_unit_id)
+        .ok_or_else(|| internal_error("resolved source unit disappeared", None))?;
+    if let AstNode::StdDecl { syntax_id, .. } = node {
+        let is_top_level_standard = syntax_id
+            .is_some_and(|id| source_unit.top_level_nodes.contains(&id));
+        if !is_top_level_standard {
+            return Err(match node_origin(resolved, node) {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    "standard declarations are not supported in executable bodies",
+                    origin,
+                ),
+                None => TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    "standard declarations are not supported in executable bodies",
+                ),
+            });
+        }
+    } else if current_scope != source_unit.scope_id {
+        if let Some(error) = unsupported_v1_nested_decl(resolved, node) {
+            return Err(error);
+        }
     }
 
     match node {
@@ -275,6 +597,7 @@ fn lower_nested_declarations_in_node(
         AstNode::FunDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -286,6 +609,7 @@ fn lower_nested_declarations_in_node(
         | AstNode::ProDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -297,6 +621,7 @@ fn lower_nested_declarations_in_node(
         | AstNode::LogDecl {
             syntax_id,
             name,
+            generics,
             receiver_type,
             params,
             return_type,
@@ -311,6 +636,7 @@ fn lower_nested_declarations_in_node(
                 source_unit_id,
                 name,
                 *syntax_id,
+                generics,
                 receiver_type.as_ref(),
                 params,
                 return_type.as_ref(),
@@ -396,6 +722,103 @@ fn lower_nested_declarations_in_node(
                 body,
             )?;
         }
+        AstNode::When { cases, default, .. } => {
+            // Case and default bodies live in their own resolver Block
+            // scopes; nested bindings must be lowered against those scopes.
+            let mut bodies: Vec<&[fol_parser::ast::AstNode]> = Vec::new();
+            for case in cases {
+                match case {
+                    fol_parser::ast::WhenCase::Case { body, .. }
+                    | fol_parser::ast::WhenCase::Is { body, .. }
+                    | fol_parser::ast::WhenCase::In { body, .. }
+                    | fol_parser::ast::WhenCase::Has { body, .. }
+                    | fol_parser::ast::WhenCase::On { body, .. }
+                    | fol_parser::ast::WhenCase::Of { body, .. } => bodies.push(body),
+                }
+            }
+            if let Some(default) = default {
+                bodies.push(default);
+            }
+            for body in bodies {
+                let body_scope = crate::exprs::inline_body_block_scope(
+                    resolved,
+                    source_unit_id,
+                    current_scope,
+                    body,
+                )
+                .unwrap_or(current_scope);
+                lower_nested_declarations_in_nodes(
+                    typed,
+                    resolved,
+                    source_unit_id,
+                    body_scope,
+                    body,
+                )?;
+            }
+        }
+        AstNode::Loop { condition, body } => {
+            // A condition (while-like) loop keeps its body in the parent
+            // scope, but an iteration (for-like) loop resolves its body in a
+            // dedicated `LoopBinder` scope. Nested bindings must be lowered
+            // against whichever scope the resolver actually used, mirroring
+            // the When-case handling above.
+            match condition.as_ref() {
+                fol_parser::ast::LoopCondition::Condition(cond) => {
+                    lower_nested_declarations_in_node(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        current_scope,
+                        cond,
+                    )?;
+                    lower_nested_declarations_in_nodes(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        current_scope,
+                        body,
+                    )?;
+                }
+                fol_parser::ast::LoopCondition::Iteration {
+                    var,
+                    iterable,
+                    condition: guard,
+                    ..
+                } => {
+                    lower_nested_declarations_in_node(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        current_scope,
+                        iterable,
+                    )?;
+                    let binder_scope = crate::exprs::loop_binder_scope(
+                        resolved,
+                        source_unit_id,
+                        current_scope,
+                        var,
+                        guard,
+                        body,
+                    )?;
+                    if let Some(guard) = guard.as_deref() {
+                        lower_nested_declarations_in_node(
+                            typed,
+                            resolved,
+                            source_unit_id,
+                            binder_scope,
+                            guard,
+                        )?;
+                    }
+                    lower_nested_declarations_in_nodes(
+                        typed,
+                        resolved,
+                        source_unit_id,
+                        binder_scope,
+                        body,
+                    )?;
+                }
+            }
+        }
         AstNode::Commented { node, .. } => {
             lower_nested_declarations_in_node(
                 typed,
@@ -427,6 +850,7 @@ fn lower_named_routine_signature(
     source_unit_id: SourceUnitId,
     name: &str,
     syntax_id: Option<SyntaxNodeId>,
+    generics: &[Generic],
     receiver_type: Option<&FolType>,
     params: &[fol_parser::ast::Parameter],
     return_type: Option<&FolType>,
@@ -437,6 +861,13 @@ fn lower_named_routine_signature(
         .and_then(|id| resolved.scope_for_syntax(id))
         .or_else(|| resolved.symbol(symbol_id).map(|symbol| symbol.scope))
         .ok_or_else(|| internal_error("resolved routine scope disappeared", None))?;
+    let (generic_params, generic_constraints) = lower_routine_generic_params(
+        typed,
+        resolved,
+        source_unit_id,
+        signature_scope,
+        generics,
+    )?;
     let mut lowered_params = Vec::new();
     for param in params {
         let param_type = lower_type(typed, resolved, signature_scope, &param.param_type)?;
@@ -462,23 +893,992 @@ fn lower_named_routine_signature(
         .as_ref()
         .map(|ty| lower_type(typed, resolved, signature_scope, ty))
         .transpose()?;
+    if let Some(receiver_checked) = lowered_receiver {
+        let self_symbol_id = find_symbol_id_in_scope(
+            resolved,
+            source_unit_id,
+            signature_scope,
+            &[SymbolKind::Parameter],
+            "self",
+        )?;
+        record_symbol_type(typed, self_symbol_id, receiver_checked)?;
+    }
     let routine_type = typed
         .type_table_mut()
         .intern(CheckedType::Routine(RoutineType {
+            generic_params,
+            generic_constraints: generic_constraints.clone(),
             param_names: params.iter().map(|param| param.name.clone()).collect(),
             param_defaults: params.iter().map(|param| param.default.clone()).collect(),
-            variadic_index: params.iter().enumerate().find_map(|(index, param)| {
-                (index + 1 == params.len()
-                    && matches!(param.param_type, FolType::Sequence { .. }))
-                .then_some(index)
-            }),
+            variadic_index: params
+                .iter()
+                .position(|param| param.is_variadic),
             params: lowered_params,
             return_type: lowered_return,
             error_type: lowered_error,
         }));
+    record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
     record_symbol_type(typed, symbol_id, routine_type)?;
     record_symbol_receiver_type(typed, symbol_id, lowered_receiver)?;
     Ok(signature_scope)
+}
+
+fn lower_protocol_standard_member(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    standard_scope: ScopeId,
+    member: &AstNode,
+) -> Result<TypedStandardRoutine, TypecheckError> {
+    let origin = node_origin(resolved, member);
+    let unsupported = |message: &'static str| match origin.clone() {
+        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+        None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+    };
+
+    match member {
+        AstNode::FunDecl {
+            name,
+            syntax_id,
+            generics,
+            receiver_type,
+            captures,
+            params,
+            return_type,
+            error_type,
+            body,
+            inquiries,
+            ..
+        }
+        | AstNode::ProDecl {
+            name,
+            syntax_id,
+            generics,
+            receiver_type,
+            captures,
+            params,
+            return_type,
+            error_type,
+            body,
+            inquiries,
+            ..
+        }
+        | AstNode::LogDecl {
+            name,
+            syntax_id,
+            generics,
+            receiver_type,
+            captures,
+            params,
+            return_type,
+            error_type,
+            body,
+            inquiries,
+            ..
+        } => {
+            let _ = (generics, receiver_type, captures);
+            let has_default_body = !body.is_empty() || !inquiries.is_empty();
+
+            let symbol_id = find_routine_symbol_id_in_scope(
+                resolved,
+                source_unit_id,
+                standard_scope,
+                name,
+                params,
+            )?;
+            let _ = lower_named_routine_signature(
+                typed,
+                resolved,
+                source_unit_id,
+                name,
+                *syntax_id,
+                generics,
+                None,
+                params,
+                return_type.as_ref(),
+                error_type.as_ref(),
+            )?;
+            let signature = typed
+                .typed_symbol(symbol_id)
+                .and_then(|symbol| symbol.declared_type)
+                .and_then(|type_id| typed.type_table().get(type_id))
+                .and_then(|checked| match checked {
+                    CheckedType::Routine(signature) => Some(signature.clone()),
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    internal_error(
+                        format!(
+                            "typed standard routine '{}' is missing its lowered routine signature",
+                            name
+                        ),
+                        origin.clone(),
+                    )
+                })?;
+
+            Ok(TypedStandardRoutine {
+                symbol_id,
+                name: name.clone(),
+                params: signature.params,
+                return_type: signature.return_type,
+                error_type: signature.error_type,
+                has_default_body,
+            })
+        }
+        _ => Err(unsupported(
+            "protocol standards currently support only required routine signatures in V2 Milestone 2",
+        )),
+    }
+}
+
+/// Given a type-contract reference like `Iterator[int]`, lower the
+/// inner type arguments into `CheckedTypeId`s for later substitution
+/// into the standard's required routine/field signatures. Returns an
+/// empty list when the contract has no explicit type arguments.
+fn extract_contract_type_args(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    contract: &FolType,
+) -> Result<Vec<CheckedTypeId>, TypecheckError> {
+    let raw_name = match contract {
+        FolType::Named { name, .. } => name.clone(),
+        _ => return Ok(Vec::new()),
+    };
+    let Some(open_index) = raw_name.find('[') else {
+        return Ok(Vec::new());
+    };
+    let Some(parsed) = parse_instantiated_type_args(&raw_name, type_origin(resolved, contract))?
+    else {
+        let _ = open_index;
+        return Ok(Vec::new());
+    };
+    let mut lowered = Vec::with_capacity(parsed.args.len());
+    for arg in parsed.args {
+        lowered.push(lower_type(typed, resolved, scope_id, &arg)?);
+    }
+    Ok(lowered)
+}
+
+fn lower_blueprint_standard_member(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    standard_scope: ScopeId,
+    member: &AstNode,
+) -> Result<TypedStandardField, TypecheckError> {
+    let origin = node_origin(resolved, member);
+    let unsupported = |message: &'static str| match origin.clone() {
+        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+        None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+    };
+
+    let (name, type_hint, value) = match member {
+        AstNode::VarDecl {
+            name,
+            type_hint,
+            value,
+            ..
+        } => (name.as_str(), type_hint.clone(), value.clone()),
+        AstNode::LabDecl { .. } | AstNode::DestructureDecl { .. } => {
+            return Err(unsupported(
+                "blueprint standards currently support only required `var` field declarations",
+            ));
+        }
+        _ => {
+            return Err(unsupported(
+                "blueprint standards currently support only required `var` field declarations",
+            ));
+        }
+    };
+
+    // Required field declarations are static contracts — they must not
+    // carry an initializer at the standard site. The conformer declares
+    // its own initializer.
+    if value.is_some() {
+        return Err(unsupported(
+            "blueprint required fields must not provide an initializer; conformers supply the value",
+        ));
+    }
+    let Some(type_hint) = type_hint else {
+        return Err(unsupported(
+            "blueprint required fields must declare an explicit type",
+        ));
+    };
+
+    let symbol_id = find_symbol_id_in_scope(
+        resolved,
+        source_unit_id,
+        standard_scope,
+        &[SymbolKind::ValueBinding],
+        name,
+    )?;
+    let field_type = lower_type(typed, resolved, standard_scope, &type_hint)?;
+    record_symbol_type(typed, symbol_id, field_type)?;
+
+    Ok(TypedStandardField {
+        symbol_id,
+        name: name.to_string(),
+        field_type,
+    })
+}
+
+/// Lower a generic-parameter constraint `T: Std` or `T: Std[args]` into a
+/// `GenericConstraint` carrying the standard symbol and its lowered type
+/// arguments. For a non-generic standard `args` is empty; for a generic
+/// standard the args let a constraint call substitute the standard's own
+/// parameters on demand (mirroring the conformance-header path).
+fn lower_standard_constraint_for_contract(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    constraint: &FolType,
+) -> Result<GenericConstraint, TypecheckError> {
+    let standard = lower_standard_symbol_for_contract(resolved, constraint)?;
+    let args = extract_contract_type_args(typed, resolved, scope_id, constraint)?;
+    Ok(GenericConstraint { standard, args })
+}
+
+fn lower_standard_symbol_for_contract(
+    resolved: &ResolvedProgram,
+    contract: &FolType,
+) -> Result<SymbolId, TypecheckError> {
+    let display_name = contract
+        .named_text()
+        .unwrap_or_else(|| format!("{contract:?}"));
+    let syntax_id = match contract {
+        FolType::Named { syntax_id, .. } => *syntax_id,
+        FolType::QualifiedNamed { path } => path.syntax_id(),
+        _ => {
+            return Err(match type_origin(resolved, contract) {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "type contract '{}' must resolve to a standard declaration",
+                        display_name
+                    ),
+                    origin,
+                ),
+                None => TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "type contract '{}' must resolve to a standard declaration",
+                        display_name
+                    ),
+                ),
+            })
+        }
+    };
+    let symbol_id = resolved_symbol_for_syntax(
+        resolved,
+        syntax_id,
+        &display_name,
+        match contract {
+            FolType::QualifiedNamed { .. } => SymbolReferenceShape::Qualified,
+            _ => SymbolReferenceShape::Named,
+        },
+    )?;
+    let symbol = resolved.symbol(symbol_id).ok_or_else(|| {
+        internal_error(
+            format!("resolved contract symbol '{}' disappeared", display_name),
+            type_origin(resolved, contract),
+        )
+    })?;
+    if symbol.kind != SymbolKind::Standard {
+        return Err(match type_origin(resolved, contract) {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "type contract '{}' must resolve to a standard declaration",
+                    display_name
+                ),
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "type contract '{}' must resolve to a standard declaration",
+                    display_name
+                ),
+            ),
+        });
+    }
+    Ok(symbol_id)
+}
+
+fn check_standard_conformance(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    syntax: &fol_parser::ast::ParsedPackage,
+) -> TypecheckResult<()> {
+    let mut errors = Vec::new();
+    for (source_unit_index, source_unit) in syntax.source_units.iter().enumerate() {
+        if source_unit.kind == ParsedSourceUnitKind::Build {
+            continue;
+        }
+        let source_unit_id = SourceUnitId(source_unit_index);
+        for item in &source_unit.items {
+            let AstNode::TypeDecl {
+                name,
+                explicit_contracts,
+                ..
+            } = &item.node
+            else {
+                continue;
+            };
+            if explicit_contracts.is_empty() {
+                continue;
+            }
+
+            let type_symbol_id =
+                match find_symbol_id(resolved, source_unit_id, &[SymbolKind::Type], name) {
+                    Ok(symbol_id) => symbol_id,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                };
+            let receiver_type =
+                match lower_declared_symbol(typed.type_table_mut(), resolved, type_symbol_id) {
+                    Ok(type_id) => type_id,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                };
+            let Some(conformance) = typed.typed_conformance(type_symbol_id).cloned() else {
+                errors.push(internal_error(
+                    format!(
+                        "typed conformance metadata disappeared for type '{}'",
+                        name
+                    ),
+                    node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
+                ));
+                continue;
+            };
+            for claim in &conformance.claims {
+                let standard_symbol_id = claim.standard_symbol_id;
+                let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
+                    let standard_name = resolved
+                        .symbol(standard_symbol_id)
+                        .map(|symbol| symbol.name.clone())
+                        .unwrap_or_else(|| format!("#{}", standard_symbol_id.0));
+                    errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
+                        Some(origin) => TypecheckError::with_origin(
+                            TypecheckErrorKind::Unsupported,
+                            format!(
+                                "type '{}' claims standard '{}' whose kind is not part of the shipped V2 contract",
+                                name, standard_name
+                            ),
+                            origin,
+                        ),
+                        None => TypecheckError::new(
+                            TypecheckErrorKind::Unsupported,
+                            format!(
+                                "type '{}' claims standard '{}' whose kind is not part of the shipped V2 contract",
+                                name, standard_name
+                            ),
+                        ),
+                    });
+                    continue;
+                };
+
+                // Build the generic-parameter substitution table for this
+                // claim. For non-generic standards the map is empty and
+                // substitution is a no-op; for generic standards the
+                // table binds each parameter to the type arg supplied in
+                // the conformance header.
+                let bindings: BTreeMap<SymbolId, CheckedTypeId> = if standard
+                    .generic_params
+                    .is_empty()
+                {
+                    BTreeMap::new()
+                } else {
+                    if claim.type_args.len() != standard.generic_params.len() {
+                        let standard_name = resolved
+                            .symbol(standard_symbol_id)
+                            .map(|symbol| symbol.name.clone())
+                            .unwrap_or_else(|| format!("#{}", standard_symbol_id.0));
+                        errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                format!(
+                                    "type '{}' claims generic standard '{}' with {} type argument(s) but the standard expects {}",
+                                    name,
+                                    standard_name,
+                                    claim.type_args.len(),
+                                    standard.generic_params.len(),
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::InvalidInput,
+                                format!(
+                                    "type '{}' claims generic standard '{}' with {} type argument(s) but the standard expects {}",
+                                    name,
+                                    standard_name,
+                                    claim.type_args.len(),
+                                    standard.generic_params.len(),
+                                ),
+                            ),
+                        });
+                        continue;
+                    }
+                    standard
+                        .generic_params
+                        .iter()
+                        .copied()
+                        .zip(claim.type_args.iter().copied())
+                        .collect()
+                };
+
+                // Substituted requirements: each routine/field has its
+                // declared types rewritten through `bindings`. For a
+                // non-generic standard this is a cheap clone.
+                let substituted_routines: Vec<TypedStandardRoutine> = standard
+                    .required_routines
+                    .iter()
+                    .map(|req| {
+                        let params = req
+                            .params
+                            .iter()
+                            .map(|type_id| {
+                                substitute_generic_checked_type(typed, *type_id, &bindings, None)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let return_type = req
+                            .return_type
+                            .map(|type_id| {
+                                substitute_generic_checked_type(typed, type_id, &bindings, None)
+                            })
+                            .transpose()?;
+                        let error_type = req
+                            .error_type
+                            .map(|type_id| {
+                                substitute_generic_checked_type(typed, type_id, &bindings, None)
+                            })
+                            .transpose()?;
+                        Ok::<_, TypecheckError>(TypedStandardRoutine {
+                            symbol_id: req.symbol_id,
+                            name: req.name.clone(),
+                            params,
+                            return_type,
+                            error_type,
+                            has_default_body: req.has_default_body,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_default();
+                let substituted_fields: Vec<TypedStandardField> = standard
+                    .required_fields
+                    .iter()
+                    .map(|req| {
+                        let field_type = substitute_generic_checked_type(
+                            typed,
+                            req.field_type,
+                            &bindings,
+                            None,
+                        )?;
+                        Ok::<_, TypecheckError>(TypedStandardField {
+                            symbol_id: req.symbol_id,
+                            name: req.name.clone(),
+                            field_type,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_default();
+
+                for requirement in &substituted_routines {
+                    let candidates = typed
+                        .all_typed_symbols()
+                        .filter(|symbol| {
+                            symbol.kind == SymbolKind::Routine
+                                && symbol.receiver_type == Some(receiver_type)
+                                && resolved
+                                    .symbol(symbol.symbol_id)
+                                    .is_some_and(|resolved_symbol| {
+                                        resolved_symbol.name == requirement.name
+                                    })
+                        })
+                        .filter_map(|symbol| {
+                            symbol
+                                .declared_type
+                                .and_then(|type_id| typed.type_table().get(type_id))
+                                .and_then(|checked| match checked {
+                                    CheckedType::Routine(signature) => {
+                                        Some((symbol.symbol_id, signature.clone()))
+                                    }
+                                    _ => None,
+                                })
+                        })
+                        .collect::<Vec<_>>();
+                    let exact_matches = candidates
+                        .iter()
+                        .filter(|(_, signature)| {
+                            signature.params == requirement.params
+                                && signature.return_type == requirement.return_type
+                                && signature.error_type == requirement.error_type
+                        })
+                        .collect::<Vec<_>>();
+                    if exact_matches.len() == 1 {
+                        continue;
+                    }
+                    // When the standard ships a default body, missing the
+                    // routine on the conformer is fine — the default is
+                    // inherited. Multiple matches still fail as ambiguous,
+                    // and signature mismatches still fail as incompatible.
+                    if candidates.is_empty() && requirement.has_default_body {
+                        continue;
+                    }
+
+                    let standard_name = resolved
+                        .symbol(standard.symbol_id)
+                        .map(|symbol| symbol.name.clone())
+                        .unwrap_or_else(|| format!("#{}", standard.symbol_id.0));
+                    let expected_signature = render_standard_signature(
+                        typed,
+                        &requirement.name,
+                        &requirement.params,
+                        requirement.return_type,
+                        requirement.error_type,
+                    );
+                    let mut error = if exact_matches.len() > 1 {
+                        match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                format!(
+                                    "type '{}' satisfies standard '{}' ambiguously: multiple routines match required routine '{}'; expected exactly one routine with signature {}",
+                                    name, standard_name, requirement.name, expected_signature
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::InvalidInput,
+                                format!(
+                                    "type '{}' satisfies standard '{}' ambiguously: multiple routines match required routine '{}'; expected exactly one routine with signature {}",
+                                    name, standard_name, requirement.name, expected_signature
+                                ),
+                            ),
+                        }
+                    } else if candidates.is_empty() {
+                        match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy standard '{}': missing required routine '{}'; expected {}",
+                                    name, standard_name, requirement.name, expected_signature
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy standard '{}': missing required routine '{}'; expected {}",
+                                    name, standard_name, requirement.name, expected_signature
+                                ),
+                            ),
+                        }
+                    } else {
+                        let actual_signatures = candidates
+                            .iter()
+                            .map(|(_, signature)| {
+                                render_standard_signature(
+                                    typed,
+                                    &requirement.name,
+                                    &signature.params,
+                                    signature.return_type,
+                                    signature.error_type,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy standard '{}': routine '{}' has incompatible signature; expected {}, found {}",
+                                    name,
+                                    standard_name,
+                                    requirement.name,
+                                    expected_signature,
+                                    actual_signatures,
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy standard '{}': routine '{}' has incompatible signature; expected {}, found {}",
+                                    name,
+                                    standard_name,
+                                    requirement.name,
+                                    expected_signature,
+                                    actual_signatures,
+                                ),
+                            ),
+                        }
+                    };
+                    if let Some(origin) = resolved
+                        .symbol(requirement.symbol_id)
+                        .and_then(|symbol| symbol.origin.clone())
+                    {
+                        error = error.with_related_origin(origin, "required by this standard routine");
+                    }
+                    for (symbol_id, _) in exact_matches {
+                        if let Some(origin) =
+                            resolved.symbol(*symbol_id).and_then(|symbol| symbol.origin.clone())
+                        {
+                            error = error.with_related_origin(
+                                origin,
+                                "matching routine contributing to ambiguity",
+                            );
+                        }
+                    }
+                    errors.push(error);
+                }
+
+                // Blueprint field checks: walk each blueprint requirement
+                // and match it against the conformer's declared record
+                // fields. The checks are purely structural — a matching
+                // name with a compatible type is enough.
+                // The conformer receiver type is a `Declared { kind: Type }`
+                // wrapper — resolve it through the typed symbol to the
+                // underlying record definition.
+                let conformer_record_fields = typed
+                    .typed_symbol(type_symbol_id)
+                    .and_then(|typed_symbol| typed_symbol.declared_type)
+                    .and_then(|type_id| typed.type_table().get(type_id))
+                    .and_then(|checked| match checked {
+                        CheckedType::Record { fields } => Some(fields.clone()),
+                        _ => None,
+                    });
+                for requirement in &substituted_fields {
+                    let standard_name = resolved
+                        .symbol(standard.symbol_id)
+                        .map(|symbol| symbol.name.clone())
+                        .unwrap_or_else(|| format!("#{}", standard.symbol_id.0));
+                    let expected_type_name =
+                        typed.type_table().render_type(requirement.field_type);
+                    let Some(fields) = conformer_record_fields.as_ref() else {
+                        errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy blueprint standard '{}': it is not a record type and cannot carry the required field '{}: {}'",
+                                    name, standard_name, requirement.name, expected_type_name
+                                ),
+                                origin,
+                            ),
+                            None => TypecheckError::new(
+                                TypecheckErrorKind::IncompatibleType,
+                                format!(
+                                    "type '{}' does not satisfy blueprint standard '{}': it is not a record type and cannot carry the required field '{}: {}'",
+                                    name, standard_name, requirement.name, expected_type_name
+                                ),
+                            ),
+                        });
+                        continue;
+                    };
+                    match fields.get(&requirement.name) {
+                        None => {
+                            errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
+                                Some(origin) => TypecheckError::with_origin(
+                                    TypecheckErrorKind::IncompatibleType,
+                                    format!(
+                                        "type '{}' does not satisfy blueprint standard '{}': missing required field '{}: {}'",
+                                        name, standard_name, requirement.name, expected_type_name
+                                    ),
+                                    origin,
+                                ),
+                                None => TypecheckError::new(
+                                    TypecheckErrorKind::IncompatibleType,
+                                    format!(
+                                        "type '{}' does not satisfy blueprint standard '{}': missing required field '{}: {}'",
+                                        name, standard_name, requirement.name, expected_type_name
+                                    ),
+                                ),
+                            });
+                        }
+                        Some(actual_type) if *actual_type != requirement.field_type => {
+                            let actual_type_name = typed.type_table().render_type(*actual_type);
+                            errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
+                                Some(origin) => TypecheckError::with_origin(
+                                    TypecheckErrorKind::IncompatibleType,
+                                    format!(
+                                        "type '{}' does not satisfy blueprint standard '{}': field '{}' has incompatible type; expected {}, found {}",
+                                        name, standard_name, requirement.name, expected_type_name, actual_type_name
+                                    ),
+                                    origin,
+                                ),
+                                None => TypecheckError::new(
+                                    TypecheckErrorKind::IncompatibleType,
+                                    format!(
+                                        "type '{}' does not satisfy blueprint standard '{}': field '{}' has incompatible type; expected {}, found {}",
+                                        name, standard_name, requirement.name, expected_type_name, actual_type_name
+                                    ),
+                                ),
+                            });
+                        }
+                        Some(_) => {}
+                    }
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+pub(crate) fn validate_generic_bindings_against_constraints(
+    typed: &TypedProgram,
+    bindings: &BTreeMap<SymbolId, CheckedTypeId>,
+    generic_constraints: &BTreeMap<SymbolId, Vec<GenericConstraint>>,
+    surface: String,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    for (generic_symbol_id, constraints) in generic_constraints {
+        let Some(actual_type) = bindings.get(generic_symbol_id).copied() else {
+            continue;
+        };
+        for constraint in constraints {
+            if checked_type_satisfies_standard(
+                typed,
+                actual_type,
+                constraint.standard,
+                &constraint.args,
+            ) {
+                continue;
+            }
+            let generic_name = typed
+                .resolved()
+                .symbol(*generic_symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("T");
+            let standard_name = typed
+                .resolved()
+                .symbol(constraint.standard)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("standard");
+            let actual_name = typed.type_table().render_type(actual_type);
+            let message = format!(
+                "{surface} requires type '{actual_name}' to satisfy standard '{standard_name}' for generic parameter '{generic_name}'; add an explicit conformance header for '{standard_name}' on '{actual_name}' and implement the required routines"
+            );
+            return Err(match origin.clone() {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::IncompatibleType,
+                    message,
+                    origin,
+                ),
+                None => TypecheckError::new(TypecheckErrorKind::IncompatibleType, message),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn checked_type_satisfies_standard(
+    typed: &TypedProgram,
+    checked_type_id: CheckedTypeId,
+    standard_symbol_id: SymbolId,
+    standard_args: &[CheckedTypeId],
+) -> bool {
+    // A generic parameter satisfies a standard when its own declared bound
+    // already includes that standard at the same arguments: passing `T`
+    // (bound by `geo`) into a `Box[T: geo]` slot is legal without a fresh
+    // conformance header, and `T: Holder[int]` satisfies a `Holder[int]` slot.
+    if let Some(CheckedType::Declared {
+        symbol,
+        kind: DeclaredTypeKind::GenericParameter,
+        ..
+    }) = typed.type_table().get(checked_type_id)
+    {
+        return typed
+            .typed_symbol(*symbol)
+            .and_then(|param_symbol| param_symbol.generic_constraints.get(symbol))
+            .is_some_and(|constraints| {
+                constraints.iter().any(|constraint| {
+                    constraint.standard == standard_symbol_id
+                        && constraint.args == standard_args
+                })
+            });
+    }
+
+    let Some(type_symbol_id) = conformance_subject_symbol(typed, checked_type_id) else {
+        return false;
+    };
+    // The conformer must claim this exact standard at these exact arguments:
+    // a type claiming `Holder[str]` does not satisfy a `Holder[int]` bound.
+    typed.typed_conformance(type_symbol_id).is_some_and(|conformance| {
+        conformance.claims.iter().any(|claim| {
+            claim.standard_symbol_id == standard_symbol_id && claim.type_args == standard_args
+        })
+    })
+}
+
+pub(crate) fn conformance_subject_symbol(
+    typed: &TypedProgram,
+    checked_type_id: CheckedTypeId,
+) -> Option<SymbolId> {
+    match typed.type_table().get(checked_type_id)? {
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::Type,
+            ..
+        } => Some(*symbol),
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::Alias,
+            ..
+        } => typed
+            .typed_symbol(*symbol)
+            .and_then(|typed_symbol| typed_symbol.declared_type)
+            .and_then(|target| conformance_subject_symbol(typed, target)),
+        _ => None,
+    }
+}
+
+fn render_standard_signature(
+    typed: &TypedProgram,
+    name: &str,
+    params: &[CheckedTypeId],
+    return_type: Option<CheckedTypeId>,
+    error_type: Option<CheckedTypeId>,
+) -> String {
+    let params = params
+        .iter()
+        .map(|type_id| typed.type_table().render_type(*type_id))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut signature = format!("fun {name}({params})");
+    if let Some(return_type) = return_type {
+        signature.push_str(": ");
+        signature.push_str(&typed.type_table().render_type(return_type));
+    }
+    if let Some(error_type) = error_type {
+        signature.push_str(" / ");
+        signature.push_str(&typed.type_table().render_type(error_type));
+    }
+    signature
+}
+
+fn lower_routine_generic_params(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    signature_scope: ScopeId,
+    generics: &[Generic],
+) -> Result<(Vec<SymbolId>, BTreeMap<SymbolId, Vec<GenericConstraint>>), TypecheckError> {
+    let mut generic_params = Vec::new();
+    let mut generic_constraints = BTreeMap::new();
+    for generic in generics {
+        let symbol_id = find_symbol_id_in_scope(
+            resolved,
+            source_unit_id,
+            signature_scope,
+            &[SymbolKind::GenericParameter],
+            &generic.name,
+        )?;
+        let generic_type = typed.type_table_mut().intern(CheckedType::Declared {
+            symbol: symbol_id,
+            name: generic.name.clone(),
+            kind: DeclaredTypeKind::GenericParameter,
+            args: Vec::new(),
+        });
+        record_symbol_type(typed, symbol_id, generic_type)?;
+        let lowered_constraints = generic
+            .constraints
+            .iter()
+            .map(|constraint| {
+                lower_standard_constraint_for_contract(
+                    typed,
+                    resolved,
+                    signature_scope,
+                    constraint,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if !lowered_constraints.is_empty() {
+            // Record the parameter's own bound on its own typed symbol (keyed by
+            // itself) so a later constraint-satisfaction check can answer "does
+            // generic parameter T carry standard geo?" directly. This must land
+            // before the routine's parameter types are lowered, since an
+            // instantiation like `Box[T]` in the parameter list is validated
+            // immediately.
+            if let Some(param_symbol) = typed.typed_symbol_mut(symbol_id) {
+                param_symbol
+                    .generic_constraints
+                    .insert(symbol_id, lowered_constraints.clone());
+            }
+            generic_constraints.insert(symbol_id, lowered_constraints);
+        }
+        generic_params.push(symbol_id);
+    }
+
+    Ok((generic_params, generic_constraints))
+}
+
+pub(crate) fn checked_type_contains_generic_param(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> bool {
+    match typed.type_table().get(type_id) {
+        Some(CheckedType::Declared {
+            kind: DeclaredTypeKind::GenericParameter,
+            ..
+        }) => true,
+        // A generic instantiation like `Box[T]` mentions a generic parameter
+        // when any of its type arguments does.
+        Some(CheckedType::Declared { args, .. }) => args
+            .iter()
+            .any(|arg| checked_type_contains_generic_param(typed, *arg)),
+        Some(CheckedType::Array { element_type, .. })
+        | Some(CheckedType::Vector {
+            element_type,
+        })
+        | Some(CheckedType::Sequence {
+            element_type,
+        })
+        | Some(CheckedType::Optional { inner: element_type }) => {
+            checked_type_contains_generic_param(typed, *element_type)
+        }
+        Some(CheckedType::Error { inner }) => inner
+            .is_some_and(|inner| checked_type_contains_generic_param(typed, inner)),
+        Some(CheckedType::Set { member_types }) => member_types
+            .iter()
+            .any(|member| checked_type_contains_generic_param(typed, *member)),
+        Some(CheckedType::Map {
+            key_type,
+            value_type,
+        }) => {
+            checked_type_contains_generic_param(typed, *key_type)
+                || checked_type_contains_generic_param(typed, *value_type)
+        }
+        Some(CheckedType::Record { fields }) => fields
+            .values()
+            .any(|field| checked_type_contains_generic_param(typed, *field)),
+        Some(CheckedType::Entry { variants }) => variants
+            .values()
+            .flatten()
+            .any(|variant| checked_type_contains_generic_param(typed, *variant)),
+        Some(CheckedType::Routine(signature)) => {
+            signature
+                .params
+                .iter()
+                .any(|param| checked_type_contains_generic_param(typed, *param))
+                || signature
+                    .return_type
+                    .is_some_and(|ret| checked_type_contains_generic_param(typed, ret))
+                || signature
+                    .error_type
+                    .is_some_and(|err| checked_type_contains_generic_param(typed, err))
+        }
+        _ => false,
+    }
 }
 
 fn nested_scope_for_syntax(
@@ -534,21 +1934,127 @@ pub(crate) fn lower_type(
         }
         FolType::Never => Ok(typed.builtin_types().never),
         FolType::Named { name, syntax_id } => {
-            let symbol_id = resolved_symbol_for_syntax(
-                resolved,
-                *syntax_id,
-                name,
-                SymbolReferenceShape::Named,
-            )?;
+            if let Some(instantiated) = parse_instantiated_type_args(name, type_origin(resolved, typ))? {
+                let symbol_id = if let Some(syntax_id) = *syntax_id {
+                    resolved_symbol_for_syntax(
+                        resolved,
+                        Some(syntax_id),
+                        name,
+                        SymbolReferenceShape::Named,
+                    )
+                    .or_else(|_| {
+                        resolve_declared_symbol_by_text(
+                            resolved,
+                            scope_id,
+                            &instantiated.base_name,
+                            type_origin(resolved, typ),
+                        )
+                    })?
+                } else {
+                    resolve_declared_symbol_by_text(
+                        resolved,
+                        scope_id,
+                        &instantiated.base_name,
+                        type_origin(resolved, typ),
+                    )?
+                };
+                let arg_types = instantiated
+                    .args
+                    .iter()
+                    .map(|arg| lower_type(typed, resolved, scope_id, arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return instantiate_declared_generic_type(
+                    typed,
+                    resolved,
+                    symbol_id,
+                    &arg_types,
+                    type_origin(resolved, typ),
+                );
+            }
+            let symbol_id = if syntax_id.is_some() {
+                resolved_symbol_for_syntax(
+                    resolved,
+                    *syntax_id,
+                    name,
+                    SymbolReferenceShape::Named,
+                )
+                .or_else(|_| {
+                    resolve_declared_symbol_by_text(
+                        resolved,
+                        scope_id,
+                        name,
+                        type_origin(resolved, typ),
+                    )
+                })?
+            } else {
+                resolve_declared_symbol_by_text(resolved, scope_id, name, type_origin(resolved, typ))?
+            };
             lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id)
         }
         FolType::QualifiedNamed { path } => {
-            let symbol_id = resolved_symbol_for_syntax(
-                resolved,
-                path.syntax_id(),
-                &path.joined(),
-                SymbolReferenceShape::Qualified,
-            )?;
+            let joined = path.joined();
+            if let Some(instantiated) =
+                parse_instantiated_type_args(&joined, type_origin(resolved, typ))?
+            {
+                let symbol_id = if path.syntax_id().is_some() {
+                    resolved_symbol_for_syntax(
+                        resolved,
+                        path.syntax_id(),
+                        &joined,
+                        SymbolReferenceShape::Qualified,
+                    )
+                    .or_else(|_| {
+                        resolve_declared_symbol_by_text(
+                            resolved,
+                            scope_id,
+                            &instantiated.base_name,
+                            type_origin(resolved, typ),
+                        )
+                    })?
+                } else {
+                    resolve_declared_symbol_by_text(
+                        resolved,
+                        scope_id,
+                        &instantiated.base_name,
+                        type_origin(resolved, typ),
+                    )?
+                };
+                let arg_types = instantiated
+                    .args
+                    .iter()
+                    .map(|arg| lower_type(typed, resolved, scope_id, arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return instantiate_declared_generic_type(
+                    typed,
+                    resolved,
+                    symbol_id,
+                    &arg_types,
+                    type_origin(resolved, typ),
+                );
+            }
+            let symbol_id = if path.syntax_id().is_some() {
+                resolved_symbol_for_syntax(
+                    resolved,
+                    path.syntax_id(),
+                    &joined,
+                    SymbolReferenceShape::Qualified,
+                )
+                .or_else(|_| {
+                    resolve_declared_symbol_by_text(
+                        resolved,
+                        scope_id,
+                        &joined,
+                        type_origin(resolved, typ),
+                    )
+                })?
+            } else {
+                resolve_declared_symbol_by_text(
+                    resolved,
+                    scope_id,
+                    &joined,
+                    type_origin(resolved, typ),
+                )?
+            };
             lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id)
         }
         FolType::Array { element_type, size } => {
@@ -645,6 +2151,8 @@ pub(crate) fn lower_type(
             let lowered_return = lower_type(typed, resolved, scope_id, return_type)?;
             Ok(typed.type_table_mut().intern(CheckedType::Routine(
                 crate::types::RoutineType {
+                    generic_params: Vec::new(),
+                    generic_constraints: BTreeMap::new(),
                     param_names: vec![String::new(); lowered_params.len()],
                     param_defaults: vec![None; lowered_params.len()],
                     variadic_index: None,
@@ -655,6 +2163,756 @@ pub(crate) fn lower_type(
             )))
         }
         unsupported => Err(unsupported_type_error(resolved, unsupported)),
+    }
+}
+
+#[derive(Debug)]
+struct ParsedInstantiatedType {
+    base_name: String,
+    args: Vec<FolType>,
+}
+
+fn parse_instantiated_type_args(
+    raw: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<Option<ParsedInstantiatedType>, TypecheckError> {
+    let Some(open_index) = raw.find('[') else {
+        return Ok(None);
+    };
+    if !raw.ends_with(']') {
+        return Err(invalid_input_error(
+            format!("instantiated type '{raw}' is missing a closing ']'"),
+            origin,
+        ));
+    }
+    let base_name = raw[..open_index].trim().to_string();
+    let inner = &raw[open_index + 1..raw.len() - 1];
+    let args = split_type_argument_text(inner)
+        .into_iter()
+        .map(|arg| {
+            fol_parser::parse_type_reference_text(&arg).map_err(|diagnostic| {
+                invalid_input_error(
+                    format!("could not parse generic type argument '{arg}': {}", diagnostic.message),
+                    origin.clone(),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(ParsedInstantiatedType { base_name, args }))
+}
+
+fn split_type_argument_text(raw: &str) -> Vec<String> {
+    let mut depth = 0usize;
+    let mut current = String::new();
+    let mut args = Vec::new();
+
+    for ch in raw.chars() {
+        match ch {
+            '[' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ']' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' | ';' if depth == 0 => {
+                let trimmed = current.trim();
+                if !trimmed.is_empty() {
+                    args.push(trimmed.to_string());
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        args.push(trimmed.to_string());
+    }
+
+    args
+}
+
+fn resolve_declared_symbol_by_text(
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    display_name: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<SymbolId, TypecheckError> {
+    if display_name.contains("::") {
+        let segments = display_name
+            .split("::")
+            .map(|segment| segment.trim())
+            .filter(|segment| !segment.is_empty())
+            .collect::<Vec<_>>();
+        if segments.len() < 2 {
+            return Err(invalid_input_error(
+                format!("qualified generic type argument '{display_name}' is malformed"),
+                origin,
+            ));
+        }
+        let (mut current_scope, mut current_namespace) = resolve_qualified_type_root_by_text(
+            resolved,
+            scope_id,
+            segments[0],
+            display_name,
+            origin.clone(),
+        )?;
+        for segment in &segments[1..segments.len() - 1] {
+            current_namespace.push_str("::");
+            current_namespace.push_str(segment);
+            current_scope = resolved.namespace_scope(&current_namespace).ok_or_else(|| {
+                invalid_input_error(
+                    format!("could not resolve generic type argument '{display_name}'"),
+                    origin.clone(),
+                )
+            })?;
+        }
+        return resolve_symbol_in_scope_by_text(
+            resolved,
+            current_scope,
+            segments.last().copied().unwrap_or_default(),
+            display_name,
+            origin,
+        );
+    }
+
+    let mut current_scope = Some(scope_id);
+    let canonical_name = canonical_identifier_key(display_name);
+    while let Some(scope_id) = current_scope {
+        let matches = resolved
+            .symbols_named_in_scope(scope_id, &canonical_name)
+            .into_iter()
+            .filter(|symbol| {
+                matches!(
+                    symbol.kind,
+                    SymbolKind::Type
+                        | SymbolKind::Alias
+                        | SymbolKind::GenericParameter
+                        | SymbolKind::Standard
+                )
+            })
+            .collect::<Vec<_>>();
+        match matches.len() {
+            1 => return Ok(matches[0].id),
+            0 => {
+                current_scope = resolved.scope(scope_id).and_then(|scope| scope.parent);
+            }
+            _ => {
+                return Err(invalid_input_error(
+                    format!("generic type argument '{display_name}' is ambiguous in the current scope"),
+                    origin,
+                ));
+            }
+        }
+    }
+
+    Err(invalid_input_error(
+        format!("could not resolve generic type argument '{display_name}'"),
+        origin,
+    ))
+}
+
+fn resolve_qualified_type_root_by_text(
+    resolved: &ResolvedProgram,
+    starting_scope: ScopeId,
+    root_segment: &str,
+    full_path: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(ScopeId, String), TypecheckError> {
+    if root_segment == resolved.package_name() {
+        return Ok((resolved.program_scope, resolved.package_name().to_string()));
+    }
+
+    let canonical_root = canonical_identifier_key(root_segment);
+    let mut current_scope = Some(starting_scope);
+    while let Some(scope_id) = current_scope {
+        let import_aliases = resolved
+            .symbols_named_in_scope(scope_id, &canonical_root)
+            .into_iter()
+            .filter(|symbol| symbol.kind == SymbolKind::ImportAlias)
+            .collect::<Vec<_>>();
+        match import_aliases.len() {
+            1 => {
+                let target_scope = resolved
+                    .imports_in_scope(scope_id)
+                    .into_iter()
+                    .find(|import| import.alias_symbol == import_aliases[0].id)
+                    .and_then(|import| import.target_scope)
+                    .ok_or_else(|| {
+                        invalid_input_error(
+                            format!("could not resolve generic type argument '{full_path}'"),
+                            origin.clone(),
+                        )
+                    })?;
+                let namespace = resolved
+                    .scope(target_scope)
+                    .and_then(|scope| match &scope.kind {
+                        fol_resolver::ScopeKind::ProgramRoot { package } => Some(package.clone()),
+                        fol_resolver::ScopeKind::NamespaceRoot { namespace } => {
+                            Some(namespace.clone())
+                        }
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        TypecheckError::new(
+                            TypecheckErrorKind::Internal,
+                            "qualified type lookup lost its namespace root",
+                        )
+                    })?;
+                return Ok((target_scope, namespace));
+            }
+            0 => current_scope = resolved.scope(scope_id).and_then(|scope| scope.parent),
+            _ => {
+                return Err(invalid_input_error(
+                    format!("generic type argument '{full_path}' is ambiguous in the current scope"),
+                    origin,
+                ))
+            }
+        }
+    }
+
+    let namespace = format!("{}::{}", resolved.package_name(), root_segment);
+    resolved
+        .namespace_scope(&namespace)
+        .map(|scope_id| (scope_id, namespace))
+        .ok_or_else(|| {
+            invalid_input_error(
+                format!("could not resolve generic type argument '{full_path}'"),
+                origin,
+            )
+        })
+}
+
+fn resolve_symbol_in_scope_by_text(
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    name: &str,
+    full_path: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<SymbolId, TypecheckError> {
+    let canonical_name = canonical_identifier_key(name);
+    let matches = resolved
+        .symbols_named_in_scope(scope_id, &canonical_name)
+        .into_iter()
+        .filter(|symbol| {
+            matches!(
+                symbol.kind,
+                SymbolKind::Type
+                    | SymbolKind::Alias
+                    | SymbolKind::GenericParameter
+                    | SymbolKind::Standard
+            )
+        })
+        .collect::<Vec<_>>();
+    match matches.len() {
+        1 => Ok(matches[0].id),
+        0 => Err(invalid_input_error(
+            format!("could not resolve generic type argument '{full_path}'"),
+            origin,
+        )),
+        _ => Err(invalid_input_error(
+            format!("generic type argument '{full_path}' is ambiguous in the current scope"),
+            origin,
+        )),
+    }
+}
+
+fn instantiate_declared_generic_type(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    symbol_id: SymbolId,
+    arg_types: &[CheckedTypeId],
+    origin: Option<SyntaxOrigin>,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let typed_symbol = typed.typed_symbol(symbol_id).ok_or_else(|| {
+        internal_error("instantiated type symbol disappeared during type lowering", origin.clone())
+    })?;
+    if typed_symbol.generic_params.is_empty() {
+        return lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id);
+    }
+    let generic_params = typed_symbol.generic_params.clone();
+    if generic_params.len() != arg_types.len() {
+        return Err(invalid_input_error(
+            format!(
+                "generic type '{}' expects {} type argument(s) but got {}",
+                resolved
+                    .symbol(symbol_id)
+                    .map(|symbol| symbol.name.as_str())
+                    .unwrap_or("?"),
+                generic_params.len(),
+                arg_types.len()
+            ),
+            origin,
+        ));
+    }
+    let generic_constraints = typed_symbol.generic_constraints.clone();
+    // The template (the declaration's structural body) may not be recorded yet
+    // when a generic type references itself inside its own body
+    // (`typ Node(T): rec = { next: Node[T] }`): its `declared_type` lands only
+    // after the body is fully lowered.
+    let template = typed_symbol.declared_type;
+
+    // Nominal identity: intern the instantiation as a `Declared` node carrying
+    // its type arguments, so `Box[int]` and `Cup[int]` are distinct types
+    // (different `symbol`) and `Box[int]`/`Box[str]` differ (different `args`).
+    let display_name = resolved
+        .symbol(symbol_id)
+        .map(|symbol| symbol.name.clone())
+        .unwrap_or_else(|| "?".to_string());
+    let kind = match resolved.symbol(symbol_id).map(|symbol| symbol.kind) {
+        Some(SymbolKind::Alias) => DeclaredTypeKind::Alias,
+        _ => DeclaredTypeKind::Type,
+    };
+    let instance = typed.type_table_mut().intern(CheckedType::Declared {
+        symbol: symbol_id,
+        name: display_name,
+        kind,
+        args: arg_types.to_vec(),
+    });
+
+    // No template yet (self-reference while the type's own body is still being
+    // lowered), or this instance is already being expanded higher on the stack
+    // (a recursive instantiation): the interned nominal node is the answer. Its
+    // concrete structural shape is filled in when the type is instantiated at a
+    // real use site, and the cycle guard keeps that expansion finite.
+    let Some(template) = template else {
+        return Ok(instance);
+    };
+    if !typed.begin_instantiation(instance) {
+        return Ok(instance);
+    }
+
+    let bindings = generic_params
+        .iter()
+        .copied()
+        .zip(arg_types.iter().copied())
+        .collect::<BTreeMap<_, _>>();
+    let result = (|| {
+        validate_generic_bindings_against_constraints(
+            typed,
+            &bindings,
+            &generic_constraints,
+            format!(
+                "generic type instantiation '{}'",
+                resolved
+                    .symbol(symbol_id)
+                    .map(|symbol| symbol.name.as_str())
+                    .unwrap_or("?")
+            ),
+            origin.clone(),
+        )?;
+        // The substituted structural shape is computed once and registered as
+        // the node's apparent type, so every consumer that resolves through
+        // `apparent_type_id` (field access, record-literal checking,
+        // assignability, dispatch) transparently sees the concrete record/entry.
+        substitute_generic_checked_type(typed, template, &bindings, origin.clone())
+    })();
+    typed.end_instantiation(instance);
+    let structural = result?;
+    if instance != structural {
+        typed.record_apparent_type_override(instance, structural);
+    }
+    Ok(instance)
+}
+
+/// Reject a type whose structural body transitively references its own
+/// declaring symbol. The structural runtime model has no nominal/named lowered
+/// type, so a recursive shape has no finite representation and would loop the
+/// backend forever; catch it here with a located diagnostic. Covers direct
+/// (`{ next: Node[T] }`), container-indirected (`{ kids: vec[Node] }`), and
+/// mutual recursion through other declared types.
+fn reject_recursive_type_definition(
+    typed: &TypedProgram,
+    symbol_id: SymbolId,
+    type_id: CheckedTypeId,
+    origin: Option<SyntaxOrigin>,
+    resolved: &ResolvedProgram,
+) -> Result<(), TypecheckError> {
+    let mut visited = std::collections::BTreeSet::new();
+    if !checked_type_references_symbol(typed, type_id, symbol_id, &mut visited) {
+        return Ok(());
+    }
+    let name = resolved
+        .symbol(symbol_id)
+        .map(|symbol| symbol.name.clone())
+        .unwrap_or_else(|| "?".to_string());
+    let message = format!(
+        "recursive type '{name}' is not yet supported: a type whose fields refer back to \
+         itself (directly or through a container/another type) has no finite runtime shape in \
+         the current model; break the cycle or model the link with a later ownership/pointer type"
+    );
+    Err(match origin {
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+        }
+        None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+    })
+}
+
+/// Walk a checked type's structure looking for a reference back to `target`.
+/// Follows record fields, entry variants, container element/member/key/value
+/// types, optional/error inner types, generic arguments, and — for a nested
+/// declared type — that type's own structural body (for mutual recursion). The
+/// `visited` set keeps the walk finite.
+fn checked_type_references_symbol(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    target: SymbolId,
+    visited: &mut std::collections::BTreeSet<CheckedTypeId>,
+) -> bool {
+    if !visited.insert(type_id) {
+        return false;
+    }
+    let Some(checked) = typed.type_table().get(type_id).cloned() else {
+        return false;
+    };
+    let refers = |inner: CheckedTypeId, visited: &mut std::collections::BTreeSet<CheckedTypeId>| {
+        checked_type_references_symbol(typed, inner, target, visited)
+    };
+    match checked {
+        CheckedType::Declared { symbol, kind, args, .. } => {
+            if matches!(kind, DeclaredTypeKind::Type | DeclaredTypeKind::Alias)
+                && symbol == target
+            {
+                return true;
+            }
+            if args.iter().any(|arg| refers(*arg, visited)) {
+                return true;
+            }
+            // Descend into the referenced type's structural body (mutual
+            // recursion), preferring the concrete apparent shape when present.
+            let inner = typed
+                .apparent_type_override(type_id)
+                .or_else(|| typed.typed_symbol(symbol).and_then(|s| s.declared_type));
+            inner.is_some_and(|inner| refers(inner, visited))
+        }
+        CheckedType::Record { fields } => {
+            fields.values().any(|field| refers(*field, visited))
+        }
+        CheckedType::Entry { variants } => variants
+            .values()
+            .filter_map(|variant| *variant)
+            .any(|variant| refers(variant, visited)),
+        CheckedType::Array { element_type, .. }
+        | CheckedType::Vector { element_type }
+        | CheckedType::Sequence { element_type } => refers(element_type, visited),
+        CheckedType::Set { member_types } => {
+            member_types.iter().any(|member| refers(*member, visited))
+        }
+        CheckedType::Map { key_type, value_type } => {
+            refers(key_type, visited) || refers(value_type, visited)
+        }
+        CheckedType::Optional { inner } => refers(inner, visited),
+        CheckedType::Error { inner } => inner.is_some_and(|inner| refers(inner, visited)),
+        CheckedType::Builtin(_) | CheckedType::Routine(_) => false,
+    }
+}
+
+pub(crate) fn substitute_generic_checked_type(
+    typed: &mut TypedProgram,
+    type_id: CheckedTypeId,
+    bindings: &BTreeMap<SymbolId, CheckedTypeId>,
+    origin: Option<SyntaxOrigin>,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let checked = typed
+        .type_table()
+        .get(type_id)
+        .cloned()
+        .ok_or_else(|| internal_error("generic type substitution lost a checked type", origin.clone()))?;
+    match checked {
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::GenericParameter,
+            ..
+        } => bindings.get(&symbol).copied().ok_or_else(|| {
+            invalid_input_error(
+                format!("generic type substitution left parameter '{}' unbound", symbol.0),
+                origin.clone(),
+            )
+        }),
+        // A generic instantiation (`Box[T]`, args non-empty) inside a
+        // template must substitute its arguments and re-instantiate so the
+        // apparent structural shape is recomputed for the concrete args.
+        // Without this, an alias `typ MaybeBox(T): Box[T]` never turns `T`
+        // into `int` when instantiated.
+        CheckedType::Declared {
+            symbol,
+            name,
+            kind,
+            args,
+        } if !args.is_empty() => {
+            let substituted_args = args
+                .iter()
+                .map(|arg| substitute_generic_checked_type(typed, *arg, bindings, origin.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let template = typed.typed_symbol(symbol).and_then(|s| s.declared_type);
+            let generic_params = typed
+                .typed_symbol(symbol)
+                .map(|s| s.generic_params.clone())
+                .unwrap_or_default();
+            let instance = typed.type_table_mut().intern(CheckedType::Declared {
+                symbol,
+                name,
+                kind,
+                args: substituted_args.clone(),
+            });
+            // Recompute the concrete structural shape unless this instance is
+            // already being expanded higher on the stack — a recursive type
+            // (`typ Node(T) = { next: Node[T] }`) reaches its own instantiation
+            // while substituting its body, and the interned nominal node is the
+            // fixpoint the recursion resolves to.
+            if let Some(template) = template {
+                if generic_params.len() == substituted_args.len()
+                    && typed.begin_instantiation(instance)
+                {
+                    let inner: BTreeMap<SymbolId, CheckedTypeId> =
+                        generic_params.into_iter().zip(substituted_args).collect();
+                    let structural =
+                        substitute_generic_checked_type(typed, template, &inner, origin.clone());
+                    typed.end_instantiation(instance);
+                    let structural = structural?;
+                    if instance != structural {
+                        typed.record_apparent_type_override(instance, structural);
+                    }
+                }
+            }
+            Ok(instance)
+        }
+        CheckedType::Declared { .. } | CheckedType::Builtin(_) => Ok(type_id),
+        CheckedType::Array { element_type, size } => {
+            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Array { element_type, size }))
+        }
+        CheckedType::Vector { element_type } => {
+            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Vector { element_type }))
+        }
+        CheckedType::Sequence { element_type } => {
+            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Sequence { element_type }))
+        }
+        CheckedType::Set { member_types } => {
+            let member_types = member_types
+                .into_iter()
+                .map(|member| substitute_generic_checked_type(typed, member, bindings, origin.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Set { member_types }))
+        }
+        CheckedType::Map { key_type, value_type } => {
+            let key_type = substitute_generic_checked_type(typed, key_type, bindings, origin.clone())?;
+            let value_type =
+                substitute_generic_checked_type(typed, value_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Map { key_type, value_type }))
+        }
+        CheckedType::Optional { inner } => {
+            let inner = substitute_generic_checked_type(typed, inner, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Optional { inner }))
+        }
+        CheckedType::Error { inner } => {
+            let inner = inner
+                .map(|inner| substitute_generic_checked_type(typed, inner, bindings, origin.clone()))
+                .transpose()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Error { inner }))
+        }
+        CheckedType::Record { fields } => {
+            let fields = fields
+                .into_iter()
+                .map(|(field_name, field_type)| {
+                    substitute_generic_checked_type(typed, field_type, bindings, origin.clone())
+                        .map(|field_type| (field_name, field_type))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Record { fields }))
+        }
+        CheckedType::Entry { variants } => {
+            let variants = variants
+                .into_iter()
+                .map(|(variant_name, variant_type)| {
+                    variant_type
+                        .map(|variant_type| {
+                            substitute_generic_checked_type(typed, variant_type, bindings, origin.clone())
+                        })
+                        .transpose()
+                        .map(|variant_type| (variant_name, variant_type))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Entry { variants }))
+        }
+        CheckedType::Routine(signature) => {
+            let params = signature
+                .params
+                .into_iter()
+                .map(|param| substitute_generic_checked_type(typed, param, bindings, origin.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let return_type = signature
+                .return_type
+                .map(|return_type| {
+                    substitute_generic_checked_type(typed, return_type, bindings, origin.clone())
+                })
+                .transpose()?;
+            let error_type = signature
+                .error_type
+                .map(|error_type| {
+                    substitute_generic_checked_type(typed, error_type, bindings, origin.clone())
+                })
+                .transpose()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Routine(RoutineType {
+                generic_params: Vec::new(),
+                generic_constraints: BTreeMap::new(),
+                param_names: signature.param_names,
+                param_defaults: signature.param_defaults,
+                variadic_index: signature.variadic_index,
+                params,
+                return_type,
+                error_type,
+            })))
+        }
+    }
+}
+
+/// Unify a routine's receiver template against a concrete object type,
+/// binding any generic parameters from `generic_params` along the way.
+///
+/// Returns `Some(bindings)` iff the object type is structurally compatible
+/// with the template and every generic parameter that appears in the
+/// template has a consistent binding. Used by method resolution to match
+/// a `fun (Box[T])...` receiver against a call-site `Box[int]`.
+pub(crate) fn unify_receiver_with_object(
+    typed: &TypedProgram,
+    template: CheckedTypeId,
+    object: CheckedTypeId,
+    generic_params: &[SymbolId],
+) -> Option<BTreeMap<SymbolId, CheckedTypeId>> {
+    let mut bindings: BTreeMap<SymbolId, CheckedTypeId> = BTreeMap::new();
+    if unify_checked_type(typed, template, object, generic_params, &mut bindings) {
+        Some(bindings)
+    } else {
+        None
+    }
+}
+
+fn unify_checked_type(
+    typed: &TypedProgram,
+    template: CheckedTypeId,
+    object: CheckedTypeId,
+    generic_params: &[SymbolId],
+    bindings: &mut BTreeMap<SymbolId, CheckedTypeId>,
+) -> bool {
+    if template == object {
+        return true;
+    }
+    let template_checked = match typed.type_table().get(template) {
+        Some(checked) => checked,
+        None => return false,
+    };
+    if let CheckedType::Declared {
+        symbol,
+        kind: DeclaredTypeKind::GenericParameter,
+        ..
+    } = template_checked
+    {
+        if generic_params.contains(symbol) {
+            match bindings.get(symbol) {
+                Some(existing) => return *existing == object,
+                None => {
+                    bindings.insert(*symbol, object);
+                    return true;
+                }
+            }
+        }
+    }
+    let object_checked = match typed.type_table().get(object) {
+        Some(checked) => checked,
+        None => return false,
+    };
+    match (template_checked.clone(), object_checked.clone()) {
+        (CheckedType::Builtin(a), CheckedType::Builtin(b)) => a == b,
+        (
+            CheckedType::Declared {
+                symbol: a,
+                kind: DeclaredTypeKind::Type,
+                args: template_args,
+                ..
+            },
+            CheckedType::Declared {
+                symbol: b,
+                kind: DeclaredTypeKind::Type,
+                args: object_args,
+                ..
+            },
+        )
+        | (
+            CheckedType::Declared {
+                symbol: a,
+                kind: DeclaredTypeKind::Alias,
+                args: template_args,
+                ..
+            },
+            CheckedType::Declared {
+                symbol: b,
+                kind: DeclaredTypeKind::Alias,
+                args: object_args,
+                ..
+            },
+        ) => {
+            // Nominal unification: same base declaration, and the type
+            // arguments unify pairwise (binds `T` from `Box[T]` vs `Box[int]`).
+            a == b
+                && template_args.len() == object_args.len()
+                && template_args
+                    .iter()
+                    .zip(object_args.iter())
+                    .all(|(t, o)| unify_checked_type(typed, *t, *o, generic_params, bindings))
+        }
+        (CheckedType::Array { element_type: t, size: ts }, CheckedType::Array { element_type: o, size: os }) => {
+            ts == os && unify_checked_type(typed, t, o, generic_params, bindings)
+        }
+        (CheckedType::Vector { element_type: t }, CheckedType::Vector { element_type: o })
+        | (CheckedType::Sequence { element_type: t }, CheckedType::Sequence { element_type: o })
+        | (CheckedType::Optional { inner: t }, CheckedType::Optional { inner: o }) => {
+            unify_checked_type(typed, t, o, generic_params, bindings)
+        }
+        (CheckedType::Error { inner: t }, CheckedType::Error { inner: o }) => match (t, o) {
+            (Some(t), Some(o)) => unify_checked_type(typed, t, o, generic_params, bindings),
+            (None, None) => true,
+            _ => false,
+        },
+        (CheckedType::Map { key_type: tk, value_type: tv }, CheckedType::Map { key_type: ok, value_type: ov }) => {
+            unify_checked_type(typed, tk, ok, generic_params, bindings)
+                && unify_checked_type(typed, tv, ov, generic_params, bindings)
+        }
+        (CheckedType::Set { member_types: t }, CheckedType::Set { member_types: o }) => {
+            t.len() == o.len()
+                && t.iter()
+                    .zip(o.iter())
+                    .all(|(a, b)| unify_checked_type(typed, *a, *b, generic_params, bindings))
+        }
+        (CheckedType::Record { fields: t }, CheckedType::Record { fields: o }) => {
+            t.len() == o.len()
+                && t.iter().all(|(name, t_ty)| match o.get(name) {
+                    Some(o_ty) => {
+                        unify_checked_type(typed, *t_ty, *o_ty, generic_params, bindings)
+                    }
+                    None => false,
+                })
+        }
+        (CheckedType::Entry { variants: t }, CheckedType::Entry { variants: o }) => {
+            t.len() == o.len()
+                && t.iter().all(|(name, t_ty)| match o.get(name) {
+                    Some(o_ty) => match (t_ty, o_ty) {
+                        (Some(t_ty), Some(o_ty)) => {
+                            unify_checked_type(typed, *t_ty, *o_ty, generic_params, bindings)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    },
+                    None => false,
+                })
+        }
+        _ => false,
     }
 }
 
@@ -691,6 +2949,25 @@ fn lower_declared_symbol(
         SymbolKind::Type => DeclaredTypeKind::Type,
         SymbolKind::Alias => DeclaredTypeKind::Alias,
         SymbolKind::GenericParameter => DeclaredTypeKind::GenericParameter,
+        SymbolKind::Standard => {
+            return Err(match symbol.origin.clone() {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "standard '{}' is a static contract, not a value type; use it as a generic constraint instead",
+                        symbol.name
+                    ),
+                    origin,
+                ),
+                None => TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "standard '{}' is a static contract, not a value type; use it as a generic constraint instead",
+                        symbol.name
+                    ),
+                ),
+            });
+        }
         _ => {
             return Err(internal_error(
                 "type reference resolved to a non-type symbol",
@@ -703,6 +2980,7 @@ fn lower_declared_symbol(
         symbol: symbol_id,
         name: symbol.name.clone(),
         kind,
+        args: Vec::new(),
     }))
 }
 
@@ -802,6 +3080,41 @@ fn find_routine_symbol_id(
         })
 }
 
+fn find_routine_symbol_id_in_scope(
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    name: &str,
+    params: &[Parameter],
+) -> Result<SymbolId, TypecheckError> {
+    let canonical_name = canonical_identifier_key(name);
+    let params = params
+        .iter()
+        .map(|param| routine_type_key(&param.param_type))
+        .collect::<Vec<_>>()
+        .join(",");
+    let duplicate_key = format!("routine#{canonical_name}#_#{params}");
+
+    resolved
+        .symbols
+        .iter_with_ids()
+        .find(|(_, symbol)| {
+            symbol.source_unit == source_unit_id
+                && symbol.scope == scope_id
+                && symbol.kind == SymbolKind::Routine
+                && symbol.duplicate_key == duplicate_key
+        })
+        .map(|(symbol_id, _)| symbol_id)
+        .ok_or_else(|| {
+            internal_error(
+                format!(
+                    "resolved standard routine symbol '{name}' with duplicate key '{duplicate_key}' is missing from typed lowering"
+                ),
+                None,
+            )
+        })
+}
+
 pub(crate) fn find_symbol_id_in_scope(
     resolved: &ResolvedProgram,
     source_unit_id: SourceUnitId,
@@ -895,6 +3208,65 @@ fn record_symbol_receiver_type(
     Ok(())
 }
 
+fn record_symbol_generic_params(
+    typed: &mut TypedProgram,
+    symbol_id: SymbolId,
+    generic_params: Vec<SymbolId>,
+) -> Result<(), TypecheckError> {
+    let symbol = typed.typed_symbol_mut(symbol_id).ok_or_else(|| {
+        TypecheckError::new(
+            TypecheckErrorKind::SymbolTableCorrupted,
+            format!(
+                "symbol table corrupted: symbol {} is missing while recording generic params",
+                symbol_id.0
+            ),
+        )
+    })?;
+    symbol.generic_params = generic_params;
+    Ok(())
+}
+
+fn record_symbol_generic_constraints(
+    typed: &mut TypedProgram,
+    symbol_id: SymbolId,
+    generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
+) -> Result<(), TypecheckError> {
+    let symbol = typed.typed_symbol_mut(symbol_id).ok_or_else(|| {
+        TypecheckError::new(
+            TypecheckErrorKind::SymbolTableCorrupted,
+            format!(
+                "symbol table corrupted: generic constraint owner {} disappeared",
+                symbol_id.0
+            ),
+        )
+    })?;
+    symbol.generic_constraints = generic_constraints;
+    Ok(())
+}
+
+fn lower_generic_constraints_for_params(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    generics: &[Generic],
+    generic_params: &[SymbolId],
+) -> Result<BTreeMap<SymbolId, Vec<GenericConstraint>>, TypecheckError> {
+    let mut generic_constraints = BTreeMap::new();
+    for (generic, symbol_id) in generics.iter().zip(generic_params.iter().copied()) {
+        let lowered_constraints = generic
+            .constraints
+            .iter()
+            .map(|constraint| {
+                lower_standard_constraint_for_contract(typed, resolved, scope_id, constraint)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if !lowered_constraints.is_empty() {
+            generic_constraints.insert(symbol_id, lowered_constraints);
+        }
+    }
+    Ok(generic_constraints)
+}
+
 fn binding_names(pattern: &BindingPattern) -> Vec<String> {
     match pattern {
         BindingPattern::Name(name) | BindingPattern::Rest(name) => vec![name.clone()],
@@ -959,19 +3331,9 @@ fn unsupported_v1_decl_with_origin(
         AstNode::VarDecl { options, .. } | AstNode::LabDecl { options, .. } => {
             unsupported_binding_surface_message(options)
         }
-        AstNode::FunDecl { generics, .. }
-        | AstNode::ProDecl { generics, .. }
-        | AstNode::LogDecl { generics, .. }
-            if !generics.is_empty() =>
-        {
-            Some("generic routines are not yet supported")
-        }
         AstNode::FunDecl { params, .. }
         | AstNode::ProDecl { params, .. }
         | AstNode::LogDecl { params, .. } => unsupported_routine_param_surface_message(params),
-        AstNode::TypeDecl { contracts, .. } if !contracts.is_empty() => {
-            Some("type contract conformance is planned for a future release")
-        }
         AstNode::TypeDecl { options, .. }
             if options
                 .iter()
@@ -979,29 +3341,13 @@ fn unsupported_v1_decl_with_origin(
         {
             Some("type extension declarations are planned for a future release")
         }
-        AstNode::TypeDecl { generics, .. } if !generics.is_empty() => {
-            Some("generic types are not yet supported")
-        }
         AstNode::DefDecl { .. } => {
             Some("definition/meta declarations are planned for a future release")
         }
         AstNode::SegDecl { .. } => {
             Some("segment declarations are planned for a future release")
         }
-        AstNode::ImpDecl { .. } => {
-            Some("implementation declarations are planned for a future release")
-        }
-        AstNode::StdDecl { kind, .. } => Some(match kind {
-            fol_parser::ast::StandardKind::Protocol => {
-                "protocol standards are planned for a future release"
-            }
-            fol_parser::ast::StandardKind::Blueprint => {
-                "blueprint standards are planned for a future release"
-            }
-            fol_parser::ast::StandardKind::Extended => {
-                "extended standards are planned for a future release"
-            }
-        }),
+        AstNode::StdDecl { .. } => None,
         _ => None,
     }?;
 
@@ -1011,6 +3357,93 @@ fn unsupported_v1_decl_with_origin(
         }
         None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
     })
+}
+
+fn find_top_level_type_decl_scope(
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    item: &ParsedTopLevel,
+    _symbol_id: SymbolId,
+) -> Result<ScopeId, TypecheckError> {
+    let parent_scope = resolved
+        .source_unit(source_unit_id)
+        .map(|source_unit| source_unit.scope_id)
+        .ok_or_else(|| internal_error("resolved source unit disappeared during type lowering", None))?;
+    let decl_origin = resolved.syntax_index().origin(item.node_id).cloned();
+    let source_unit = resolved
+        .syntax()
+        .source_units
+        .get(source_unit_id.0)
+        .ok_or_else(|| internal_error("resolved source unit disappeared during type lowering", None))?;
+    let type_scope_index = source_unit
+        .items
+        .iter()
+        .filter(|candidate| {
+            matches!(
+                candidate.node,
+                AstNode::TypeDecl { .. }
+            )
+        })
+        .position(|candidate| candidate.node_id == item.node_id)
+        .ok_or_else(|| {
+            internal_error(
+                "type declaration disappeared from source unit while lowering signatures",
+                decl_origin.clone(),
+            )
+        })?;
+
+    let candidate_scopes = resolved
+        .scopes
+        .iter_with_ids()
+        .filter_map(|(scope_id, scope)| {
+            (matches!(scope.kind, fol_resolver::ScopeKind::TypeDeclaration)
+                && scope.parent == Some(parent_scope)
+                && scope.source_unit == Some(source_unit_id))
+                .then_some(scope_id)
+        })
+        .collect::<Vec<_>>();
+
+    candidate_scopes
+        .get(type_scope_index)
+        .copied()
+        .ok_or_else(|| {
+            internal_error(
+                "type declaration lost its resolver-owned declaration scope",
+                decl_origin,
+            )
+        })
+}
+
+fn generic_params_in_scope(
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    item: &ParsedTopLevel,
+    generics: &[Generic],
+) -> Result<Vec<SymbolId>, TypecheckError> {
+    let decl_origin = resolved.syntax_index().origin(item.node_id).cloned();
+    let generic_symbols = resolved
+        .scope(scope_id)
+        .ok_or_else(|| {
+            internal_error(
+                "type declaration resolved to an unknown declaration scope",
+                decl_origin.clone(),
+            )
+        })?
+        .symbols
+        .iter()
+        .filter_map(|symbol_id| resolved.symbol(*symbol_id))
+        .filter(|symbol| symbol.kind == SymbolKind::GenericParameter)
+        .map(|symbol| symbol.id)
+        .collect::<Vec<_>>();
+
+    if generic_symbols.len() != generics.len() {
+        return Err(internal_error(
+            "generic type declaration lost its resolver-owned parameter scope",
+            decl_origin,
+        ));
+    }
+
+    Ok(generic_symbols)
 }
 
 pub(crate) fn unsupported_routine_param_surface_message(

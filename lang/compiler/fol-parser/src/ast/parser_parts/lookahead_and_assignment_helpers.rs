@@ -300,6 +300,9 @@ impl AstParser {
         match self.previous_significant_key(tokens) {
             None => true,
             Some(KEYWORD::Symbol(SYMBOL::CurlyO)) => true,
+            // Block-terminated statements (when/loop/for bodies) end at `}`
+            // with no `;`, so a following identifier starts a new statement.
+            Some(KEYWORD::Symbol(SYMBOL::CurlyC)) => true,
             Some(KEYWORD::Symbol(SYMBOL::Semi)) => true,
             Some(key) if key.is_terminal() => true,
             _ => false,
@@ -421,7 +424,7 @@ impl AstParser {
                     if key.is_eof() {
                         break;
                     }
-                    // is_assign() covers Use, Def, Seg, Var, Fun, Pro, Typ, Ali, Imp, Lab, Con.
+                    // is_assign() covers Use, Def, Seg, Var, Fun, Pro, Typ, Ali, Lab, Con.
                     // Also stop on Std, Log, and Let which are declaration starters
                     // not covered by is_assign().
                     if key.is_assign()

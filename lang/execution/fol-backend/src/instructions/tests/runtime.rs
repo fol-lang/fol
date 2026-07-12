@@ -34,7 +34,7 @@ fn runtime_shaped_instruction_rendering_emits_length_via_runtime_prelude() {
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r7__l1__count = rt::len(&l__pkg__entry__app__r7__l0__items);"
+        "l__pkg__entry__app__r7__l1__count = rt::len(&l__pkg__entry__app__r7__l0__items);"
     );
 }
 
@@ -68,7 +68,7 @@ fn runtime_shaped_instruction_rendering_emits_echo_via_runtime_hook() {
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r8__l1__shown = rt::echo(l__pkg__entry__app__r8__l0__value.clone());"
+        "l__pkg__entry__app__r8__l1__shown = rt::echo(l__pkg__entry__app__r8__l0__value.clone());"
     );
 }
 
@@ -99,7 +99,7 @@ fn runtime_shaped_instruction_rendering_emits_check_recoverable_via_runtime_help
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r9__l1__failed = rt::check_recoverable(&l__pkg__entry__app__r9__l0__value);"
+        "l__pkg__entry__app__r9__l1__failed = rt::check_recoverable(&l__pkg__entry__app__r9__l0__value);"
     );
 }
 
@@ -130,7 +130,7 @@ fn runtime_shaped_instruction_rendering_emits_unwrap_recoverable_success_lane() 
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r10__l1__unwrapped = l__pkg__entry__app__r10__l0__value.clone().into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
+        "l__pkg__entry__app__r10__l1__unwrapped = l__pkg__entry__app__r10__l0__value.clone().into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
     );
 }
 
@@ -160,7 +160,7 @@ fn runtime_shaped_instruction_rendering_emits_recoverable_error_extraction() {
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r11__l1__error = l__pkg__entry__app__r11__l0__value.clone().into_error().expect(\"extract of recoverable error failed: result contains a value\");"
+        "l__pkg__entry__app__r11__l1__error = l__pkg__entry__app__r11__l0__value.clone().into_error().expect(\"extract of recoverable error failed: result contains a value\");"
     );
 }
 
@@ -211,11 +211,11 @@ fn runtime_shaped_instruction_rendering_emits_optional_shell_construction() {
 
     assert_eq!(
         some_rendered,
-        "let l__pkg__entry__app__r12__l1__maybe = rt::FolOption::some(l__pkg__entry__app__r12__l0__value.clone());"
+        "l__pkg__entry__app__r12__l1__maybe = rt::FolOption::some(l__pkg__entry__app__r12__l0__value.clone());"
     );
     assert_eq!(
         nil_rendered,
-        "let l__pkg__entry__app__r12__l2__empty = rt::FolOption::nil();"
+        "l__pkg__entry__app__r12__l2__empty = rt::FolOption::nil();"
     );
 }
 
@@ -252,7 +252,7 @@ fn runtime_shaped_instruction_rendering_emits_error_shell_construction() {
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r13__l1__error = rt::FolError::new(l__pkg__entry__app__r13__l0__value.clone());"
+        "l__pkg__entry__app__r13__l1__error = rt::FolError::new(l__pkg__entry__app__r13__l0__value.clone());"
     );
 }
 
@@ -306,11 +306,11 @@ fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_err
 
     assert_eq!(
         optional_rendered,
-        "let l__pkg__entry__app__r14__l2__a = rt::unwrap_optional_shell(l__pkg__entry__app__r14__l0__maybe.clone()).unwrap();"
+        "l__pkg__entry__app__r14__l2__a = rt::unwrap_optional_shell(l__pkg__entry__app__r14__l0__maybe.clone()).unwrap();"
     );
     assert_eq!(
         error_rendered,
-        "let l__pkg__entry__app__r14__l3__b = rt::unwrap_error_shell(l__pkg__entry__app__r14__l1__err.clone());"
+        "l__pkg__entry__app__r14__l3__b = rt::unwrap_error_shell(l__pkg__entry__app__r14__l1__err.clone());"
     );
 }
 
@@ -433,14 +433,14 @@ fn runtime_shaped_instruction_snapshot_stays_stable() {
     assert_eq!(
         rendered,
         concat!(
-            "let l__pkg__entry__app__r15__l4__count = rt::len(&l__pkg__entry__app__r15__l2__maybe);\n",
-            "let l__pkg__entry__app__r15__l5__shown = rt::echo(l__pkg__entry__app__r15__l0__value.clone());\n",
-            "let l__pkg__entry__app__r15__l6__failed = rt::check_recoverable(&l__pkg__entry__app__r15__l1__recover);\n",
-            "let l__pkg__entry__app__r15__l7__ok = l__pkg__entry__app__r15__l1__recover.clone().into_value().expect(\"unwrap of recoverable value failed: result contains an error\");\n",
-            "let l__pkg__entry__app__r15__l8__bad = l__pkg__entry__app__r15__l1__recover.clone().into_error().expect(\"extract of recoverable error failed: result contains a value\");\n",
-            "let l__pkg__entry__app__r15__l2__maybe = rt::FolOption::some(l__pkg__entry__app__r15__l0__value.clone());\n",
-            "let l__pkg__entry__app__r15__l3__err = rt::FolError::new(l__pkg__entry__app__r15__l0__value.clone());\n",
-            "let l__pkg__entry__app__r15__l7__ok = rt::unwrap_optional_shell(l__pkg__entry__app__r15__l2__maybe.clone()).unwrap();"
+            "l__pkg__entry__app__r15__l4__count = rt::len(&l__pkg__entry__app__r15__l2__maybe);\n",
+            "l__pkg__entry__app__r15__l5__shown = rt::echo(l__pkg__entry__app__r15__l0__value.clone());\n",
+            "l__pkg__entry__app__r15__l6__failed = rt::check_recoverable(&l__pkg__entry__app__r15__l1__recover);\n",
+            "l__pkg__entry__app__r15__l7__ok = l__pkg__entry__app__r15__l1__recover.clone().into_value().expect(\"unwrap of recoverable value failed: result contains an error\");\n",
+            "l__pkg__entry__app__r15__l8__bad = l__pkg__entry__app__r15__l1__recover.clone().into_error().expect(\"extract of recoverable error failed: result contains a value\");\n",
+            "l__pkg__entry__app__r15__l2__maybe = rt::FolOption::some(l__pkg__entry__app__r15__l0__value.clone());\n",
+            "l__pkg__entry__app__r15__l3__err = rt::FolError::new(l__pkg__entry__app__r15__l0__value.clone());\n",
+            "l__pkg__entry__app__r15__l7__ok = rt::unwrap_optional_shell(l__pkg__entry__app__r15__l2__maybe.clone()).unwrap();"
         )
     );
 }

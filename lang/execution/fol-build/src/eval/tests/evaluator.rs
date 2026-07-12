@@ -216,6 +216,7 @@ fn build_evaluator_replays_option_declarations_and_input_overrides() {
         package_root: "/pkg".to_string(),
         inputs: BuildEvaluationInputs {
             working_directory: "/tmp/pkg".to_string(),
+            install_prefix: String::new(),
             target: None,
             optimize: None,
             options: BTreeMap::from([

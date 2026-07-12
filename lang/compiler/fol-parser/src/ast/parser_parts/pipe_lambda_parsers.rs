@@ -92,6 +92,7 @@ impl AstParser {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),
                     is_mutex: false,
+                    is_variadic,
                     name,
                     param_type: param_type.clone(),
                     default: default.clone(),

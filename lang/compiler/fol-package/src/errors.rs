@@ -190,7 +190,7 @@ mod tests {
         );
         let mut report = DiagnosticReport::new();
 
-        report.add_error(&error, error.diagnostic_location());
+        report.add_from(&error);
 
         assert!(report.has_errors());
         let rendered = report.output(fol_diagnostics::OutputFormat::Json);
@@ -240,12 +240,12 @@ mod tests {
         );
         let mut report = DiagnosticReport::new();
 
-        report.add_error(&error, error.diagnostic_location());
+        report.add_from(&error);
 
         let rendered = report.output(fol_diagnostics::OutputFormat::Human);
         let _ = std::fs::remove_file(&path);
 
-        assert!(rendered.contains("error: duplicate package metadata field"));
+        assert!(rendered.contains("error[K1001]: duplicate package metadata field"));
         assert!(rendered.contains("| name: json"));
         assert!(rendered.contains("| ^^^^"));
     }

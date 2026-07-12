@@ -105,18 +105,29 @@ To use a record after we’ve defined it, we create an instance of that record b
 
 ## Accessing
 
-To get a specific value from a record, we can use dot notation or the access brackets. If we wanted just this user’s email address, we could use `user1.email` or `user1[email]` wherever we wanted to use this value. If the instance is mutable, we can change a value by assigning into a particular field. Note that the entire instance must be mutable; FOL doesn’t allow us to mark only certain fields as mutable. 
-```
-@var[mut] user1: user = {
+To get a specific value from a record, use dot notation: if we wanted just
+this user's email address, we can use `user1.email` wherever we want that
+value. If the instance is mutable, we can change a value by assigning into a
+particular field. Note that the entire instance must be mutable; FOL doesn't
+allow us to mark only certain fields as mutable.
+
+```fol
+var user1: user = {
     email = "someone@example.com",
     username = "someusername123",
     active = true,
     sign_in_count = 1,
 };
 
-user1.email = "new.mail@example.com"
-user1[username] = "anotherusername"
+user1.email = "new.mail@example.com";
 ```
+
+Current boundaries:
+
+- assignment targets a single field of a mutable binding (`user1.email = ...`);
+  nested targets such as `a.b.c = ...` are not part of the current surface
+- bracket field access (`user1[email]`) is a later design surface, not part of
+  the current compiler contract
 ## Returning
 
 As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. As specified [in function return](/docs/spec/functions/#return), the final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (here is defined as `user`) and this can be used only in one statement body. Here we have declared only one variable `user1` and that itslef spanc into multi rows:

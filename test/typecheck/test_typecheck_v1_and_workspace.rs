@@ -37,6 +37,215 @@ fn cast_policy_rejects_as_and_cast_surfaces_in_v1() {
 }
 
 #[test]
+fn v1_boundary_rejects_additional_lower_only_operator_surfaces_early() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(flag: bol, value: int): bol = {\n\
+             var seen: bol = value is value;\n\
+             return seen;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("type testing operator 'is' is not yet supported")
+        }),
+        "Expected the unsupported 'is' diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_template_calls_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: int = 1;\n\
+             return value$;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("template instantiation is not yet supported")
+        }),
+        "Expected template-call rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_anonymous_routines_with_captures_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): non = {\n\
+             var keep = fun[](value: int)[outer;]: int = {\n\
+                 return value;\n\
+             };\n\
+             return;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("anonymous routines with captures are not yet supported")
+        }),
+        "Expected anonymous capture rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_complex_anonymous_routine_types_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): non = {\n\
+             var keep = fun[](items: vec[int]): int = {\n\
+                 return .len(items);\n\
+             };\n\
+             return;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("complex type annotation in anonymous routine is not yet supported")
+        }),
+        "Expected complex anonymous-type rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_type_matching_when_of_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Box: rec = {\n\
+             value: int\n\
+         };\n\
+         fun[] main(value: Box): int = {\n\
+             when(value) {\n\
+                 of(Box) { return 1; }\n\
+                 { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("type-matching when/of branches are not yet supported in V1")
+        }),
+        "Expected when/of type-matching rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_procedure_style_method_calls_as_values_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Box: rec = {\n\
+             value: int\n\
+         };\n\
+         pro (Box)reset(): non = {\n\
+             return;\n\
+         };\n\
+         fun[] main(box: Box): int = {\n\
+             var kept: int = box.reset();\n\
+             return kept;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("initializer for 'kept' does not have a type")
+        }),
+        "Expected procedure-style method value rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_procedure_style_free_calls_as_values_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "pro greet(): non = {\n\
+             return;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var kept: int = greet();\n\
+             return kept;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("initializer for 'kept' does not have a type")
+        }),
+        "Expected procedure-style free-call value rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_pipe_loop_stages_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun decide(value: int): int = {\n\
+             return value | while(true) {\n\
+                 break;\n\
+             };\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("binary operator right operand does not have a type")
+        }),
+        "Expected pipe-loop rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_rejects_pipe_block_stages_before_lowering() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] block_stage(value: int): int = {\n\
+             return value | {\n\
+                 value\n\
+             };\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error
+                    .message()
+                    .contains("pipe operator '|>' is not yet supported")
+        }),
+        "Expected pipe-block rejection before lowering, got: {errors:?}"
+    );
+}
+
+#[test]
 fn literal_family_policy_accepts_matching_integer_and_float_sites() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
@@ -89,10 +298,7 @@ fn literal_family_policy_accepts_matching_integer_and_float_sites() {
 fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-         "fun demo(T)(value: int): int = {\n\
-             return value;\n\
-         };\n\
-         typ Bound: rec = {\n\
+         "typ Bound: rec = {\n\
          };\n\
          typ Box(T: Bound): rec = {\n\
              value: int\n\
@@ -103,24 +309,6 @@ fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
          };\n",
     )]);
 
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic routines are not yet supported")
-        }),
-        "Expected a generic-routine boundary diagnostic, got: {errors:?}"
-    );
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("generic types are not yet supported")
-        }),
-        "Expected a generic-type boundary diagnostic, got: {errors:?}"
-    );
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
@@ -142,21 +330,66 @@ fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
 }
 
 #[test]
-fn v1_boundary_rejects_contract_and_conformance_surfaces() {
+fn v1_boundary_rejects_generic_routine_constraints_in_all_supported_header_kinds() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "typ geo: rec = {\n\
+        "typ Bound: rec = {\n\
          };\n\
-         typ Shape(geo): rec[] = {\n\
-             value: int\n\
+         fun pick(T: Bound)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         pro apply(T: Bound)(value: T): T = {\n\
+             return value;\n\
+         };\n\
+         log check(T: Bound)(value: T): bol = {\n\
+             return true;\n\
+         };\n",
+    )]);
+
+    let generic_routine_errors = errors
+        .iter()
+        .filter(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error.message().contains("must resolve to a standard declaration")
+        })
+        .count();
+
+    assert!(
+        generic_routine_errors >= 3,
+        "Expected non-standard generic constraints to be rejected across headers, got: {errors:?}"
+    );
+}
+
+#[test]
+fn v1_boundary_accepts_generic_error_types() {
+    // Generic error types are now part of the shipped V2 contract.
+    // Confirm the routine lowers cleanly and retains a typed signature.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun pick(T)(value: T): int / T = {\n\
+             report(value);\n\
+             return 1;\n\
+         };\n",
+    )]);
+    let (_pick_id, pick_symbol) = find_typed_symbol(&typed, "pick", SymbolKind::Routine);
+    assert!(pick_symbol.declared_type.is_some());
+}
+
+#[test]
+fn v1_boundary_keeps_protocol_conformance_while_rejecting_later_surfaces() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Shape()(geo): rec = {\n\
+             var value: int;\n\
+         };\n\
+         fun (Shape)area(): int = {\n\
+             return 1;\n\
          };\n\
          typ[ext] StrExt: str;\n\
          typ Box: rec = {\n\
-         };\n\
-         imp Self: Box = {\n\
-             fun ready(): bol = {\n\
-                 return true;\n\
-             }\n\
          };\n\
          std geometry: blu = {\n\
              var width: int;\n\
@@ -168,36 +401,19 @@ fn v1_boundary_rejects_contract_and_conformance_surfaces() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("type contract conformance is planned for a future release")
-        }),
-        "Expected a type-contract boundary diagnostic, got: {errors:?}"
-    );
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
                     .contains("type extension declarations are planned for a future release")
         }),
         "Expected a type-extension boundary diagnostic, got: {errors:?}"
     );
+    // Blueprints are now part of the shipped V2 contract; the standalone
+    // `std geometry: blu` with no conformer should simply typecheck.
     assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("implementation declarations are planned for a future release")
+        !errors.iter().any(|error| {
+            error
+                .message()
+                .contains("blueprint standards are planned for a future release")
         }),
-        "Expected an implementation boundary diagnostic, got: {errors:?}"
-    );
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("blueprint standards are planned for a future release")
-        }),
-        "Expected a blueprint-standard boundary diagnostic, got: {errors:?}"
+        "Blueprint standards should no longer surface a 'planned' diagnostic, got: {errors:?}"
     );
 }
 
@@ -474,6 +690,8 @@ fn workspace_typechecking_imports_mounted_value_and_routine_types_from_foreign_p
         .type_table()
         .get(bump.declared_type.expect("mounted imported routines should keep translated signatures")),
         Some(&CheckedType::Routine(RoutineType {
+            generic_params: Vec::new(),
+            generic_constraints: BTreeMap::new(),
             param_names: vec!["value".to_string()],
             param_defaults: vec![None],
             variadic_index: None,
@@ -532,6 +750,7 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
             symbol: direct_count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -542,6 +761,7 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
             symbol: direct_count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 
@@ -563,6 +783,7 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
             symbol: workspace_count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -573,6 +794,7 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
             symbol: workspace_count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -617,6 +839,7 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     let signature = match shared
@@ -634,6 +857,7 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -644,6 +868,7 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }

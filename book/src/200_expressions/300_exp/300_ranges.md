@@ -1,5 +1,14 @@
 # Ranges
 
+Current boundary:
+
+- range expressions are not part of the current compiler surface; the compiler
+  rejects them with a "not yet supported" diagnostic (T1002)
+- range-based loop headers and range matching described in other chapters
+  inherit this boundary and are not executable today
+- everything below describes intended design, not current behavior
+- this is later design work, not part of the current V1 compiler surface
+
 There are two range expressions:
 
 - Defined ranges

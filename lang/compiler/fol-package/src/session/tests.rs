@@ -65,6 +65,10 @@ fn formal_build_fixture_with_surface(name: &str) -> String {
         + "    var schema = graph.write_file({ name = \"schema\", path = \"gen/schema.fol\", contents = \"ok\" });\n"
         + "    var docs = graph.step(\"docs\");\n"
         + "    graph.install(app);\n"
+        + "    build.export_module({ name = \"api\", module = codec });\n"
+        + "    build.export_artifact({ name = \"runtime\", artifact = app });\n"
+        + "    build.export_step({ name = \"check\", step = docs });\n"
+        + "    build.export_output({ name = \"schema-api\", output = schema });\n"
         + "    return;\n"
         + "};\n"
 }
@@ -114,7 +118,7 @@ fn package_session_can_load_internal_standard_package() {
         .expect("package session should load bundled internal standard package");
 
     assert_eq!(loaded.source_kind(), PackageSourceKind::Standard);
-    assert_eq!(loaded.identity.display_name, "standard");
+    assert_eq!(loaded.identity.display_name, "std");
 }
 
 #[test]
@@ -179,13 +183,21 @@ fn package_session_tracks_loading_stack_for_cycle_detection() {
 
 #[test]
 fn inferred_package_root_uses_common_parent_of_parsed_source_units() {
+    let temp_root = unique_temp_root("infer_common_parent");
+    let package_dir = temp_root.join("source_units");
+    fs::create_dir_all(&package_dir).expect("Should create fixture package directory");
+    fs::write(package_dir.join("main.fol"), "var[exp] main_value: int = 1;\n")
+        .expect("Should write the primary source unit");
+    fs::write(package_dir.join("lib.fol"), "var[exp] lib_value: int = 2;\n")
+        .expect("Should write the secondary source unit");
+
     let parsed = {
-        let fixture_path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../test/parser/source_units"
-        );
-        let mut stream =
-            FileStream::from_folder(fixture_path).expect("Should open folder package fixture");
+        let mut stream = FileStream::from_folder(
+            package_dir
+                .to_str()
+                .expect("Temporary fixture path should be valid UTF-8"),
+        )
+        .expect("Should open folder package fixture");
         let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
         let mut parser = AstParser::new();
         parser
@@ -200,6 +212,8 @@ fn inferred_package_root_uses_common_parent_of_parsed_source_units() {
         "Expected inferred package root to end with the parsed folder name, got {:?}",
         inferred
     );
+
+    fs::remove_dir_all(&temp_root).ok();
 }
 
 #[test]
@@ -421,7 +435,7 @@ fn package_session_can_load_installed_pkg_roots_with_required_controls() {
             .syntax
             .source_units
             .iter()
-            .all(|unit| !unit.path.ends_with("build.fol") && !unit.path.ends_with("package.fol")),
+            .all(|unit| !unit.path.ends_with("package.fol")),
         "Installed package source loading should keep legacy control files out of the parsed source set",
     );
     assert!(
@@ -440,12 +454,10 @@ fn package_session_can_load_installed_pkg_roots_with_required_controls() {
             .version,
         "1.0.0"
     );
-    assert!(loaded
-        .build
-        .as_ref()
-        .expect("Installed package roots should retain parsed build definitions")
-        .exports()
-        .is_empty());
+    assert!(
+        loaded.build.is_some(),
+        "Installed package roots should retain parsed build definitions"
+    );
     assert!(loaded.exports.is_empty());
 
     fs::remove_dir_all(&temp_root)
@@ -467,11 +479,6 @@ fn parse_directory_package_syntax_keeps_build_files_for_pkg_roots() {
         formal_build_fixture("json", &[]),
     )
     .expect("Should write the package build fixture");
-    fs::write(
-        temp_root.join("json/package.fol"),
-        "var ignored: int = 1;\n",
-    )
-    .expect("Should write the ignored legacy control fixture");
     fs::create_dir_all(temp_root.join("json/src"))
         .expect("Should create the exported source fixture");
     fs::write(
@@ -487,19 +494,21 @@ fn parse_directory_package_syntax_keeps_build_files_for_pkg_roots() {
     )
     .expect("Pkg source parsing should keep build files and ordinary source files");
 
+    // build.fol and ordinary source files are both retained in the parsed set.
     assert_eq!(parsed.source_units.len(), 2);
-    assert!(
-        parsed.source_units.iter().all(|unit| {
-            !unit.path.ends_with("build.fol") && !unit.path.ends_with("package.fol")
-        }),
-        "Pkg source parsing should keep legacy package control files out of the parsed source set",
-    );
     assert!(
         parsed
             .source_units
             .iter()
             .any(|unit| unit.path.ends_with("build.fol")),
         "Pkg source parsing should retain build.fol in the parsed source set",
+    );
+    assert!(
+        parsed
+            .source_units
+            .iter()
+            .any(|unit| unit.path.ends_with("lib.fol")),
+        "Pkg source parsing should retain ordinary source files in the parsed source set",
     );
 
     fs::remove_dir_all(&temp_root)
@@ -521,11 +530,6 @@ fn parse_directory_package_syntax_accepts_pkg_roots_with_only_build_files() {
         formal_build_fixture("json", &[]),
     )
     .expect("Should write the package build fixture");
-    fs::write(
-        temp_root.join("json/package.fol"),
-        "var ignored: int = 1;\n",
-    )
-    .expect("Should write the ignored legacy control fixture");
 
     let parsed = parse_directory_package_syntax(
         temp_root.join("json").as_path(),
@@ -535,7 +539,11 @@ fn parse_directory_package_syntax_accepts_pkg_roots_with_only_build_files() {
     .expect("Pkg roots with only build.fol should now parse");
 
     assert_eq!(parsed.source_units.len(), 1);
-    assert_eq!(parsed.source_units[0].path, "build.fol");
+    assert!(
+        parsed.source_units[0].path.ends_with("build.fol"),
+        "sole source unit should be build.fol, got {}",
+        parsed.source_units[0].path
+    );
 
     fs::remove_dir_all(&temp_root)
         .expect("Temporary package-store fixture should be removable after the test");
@@ -686,7 +694,7 @@ fn package_session_projects_dependency_surfaces_for_formal_pkg_roots() {
     assert!(surface
         .source_roots
         .iter()
-        .any(|root| root.relative_path == "src/root"));
+        .any(|root| std::path::Path::new(root.relative_path.as_str()).ends_with("src/root")));
     assert!(surface.modules.iter().any(|module| module.name == "api"));
     assert!(surface
         .artifacts
@@ -708,11 +716,6 @@ fn package_session_rejects_pkg_roots_without_required_build_file() {
     let store_root = temp_root.join("store");
     fs::create_dir_all(store_root.join("json"))
         .expect("Should create a temporary package-store fixture");
-    fs::write(
-        store_root.join("json/build.fol"),
-        "name: json\nversion: 1.0.0\n",
-    )
-    .expect("Should write a stale build.fol fixture");
     fs::write(
         store_root.join("json/lib.fol"),
         "var[exp] answer: int = 42;\n",

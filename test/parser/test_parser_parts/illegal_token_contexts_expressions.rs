@@ -504,26 +504,6 @@ fn test_segment_declaration_illegal_name_reports_offending_token_location() {
 }
 
 #[test]
-fn test_implementation_declaration_illegal_name_reports_offending_token_location() {
-    let (message, line, column) =
-        parse_error_snapshot("test/parser/simple_imp_illegal_name.fol");
-
-    assert!(
-        message.contains("Parser encountered illegal token"),
-        "Illegal implementation names should surface as explicit illegal-token diagnostics, got: {}",
-        message
-    );
-    assert_eq!(
-        line, 1,
-        "Illegal implementation names should report the declaration line"
-    );
-    assert!(
-        column > 0,
-        "Illegal implementation names should retain a concrete source column"
-    );
-}
-
-#[test]
 fn test_standard_declaration_illegal_name_reports_offending_token_location() {
     let (message, line, column) =
         parse_error_snapshot("test/parser/simple_std_illegal_name.fol");

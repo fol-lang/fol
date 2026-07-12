@@ -5,6 +5,22 @@ use crate::{
 use fol_build::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
 use std::{fs, path::Path};
 
+/// Write an executed program's captured stdout/stderr through to the
+/// frontend's own streams so `run` stays transparent to child output.
+fn forward_child_output(stdout: &[u8], stderr: &[u8]) {
+    use std::io::Write;
+    if !stdout.is_empty() {
+        let mut out = std::io::stdout();
+        let _ = out.write_all(stdout);
+        let _ = out.flush();
+    }
+    if !stderr.is_empty() {
+        let mut err = std::io::stderr();
+        let _ = err.write_all(stderr);
+        let _ = err.flush();
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -33,12 +49,25 @@ pub(crate) fn effective_runtime_model_for_package(
     root: &std::path::Path,
     fol_model: fol_backend::BackendFolModel,
 ) -> fol_backend::BackendFolModel {
+    // The bundled std package IS the hosted substrate; its own units are
+    // the layer that legally reaches hosted intrinsics like `.echo`.
+    if is_bundled_std_root(root) {
+        return fol_backend::BackendFolModel::Std;
+    }
     match fol_model {
         fol_backend::BackendFolModel::Memo if package_declares_bundled_std(root) => {
             fol_backend::BackendFolModel::Std
         }
         other => other,
     }
+}
+
+fn is_bundled_std_root(root: &std::path::Path) -> bool {
+    fol_package::available_bundled_std_root()
+        .and_then(|std_root| std_root.canonicalize().ok())
+        .zip(root.canonicalize().ok())
+        .map(|(std_root, root)| std_root == root)
+        .unwrap_or(false)
 }
 
 fn declared_capability_model_for_package(root: &std::path::Path) -> fol_backend::BackendFolModel {
@@ -74,6 +103,54 @@ fn declared_capability_model_for_package(root: &std::path::Path) -> fol_backend:
     } else {
         fol_backend::BackendFolModel::Memo
     }
+}
+
+/// Verify each declared artifact's `root` points at a real source file, so
+/// `check` surfaces a missing entry instead of reporting a false clean and
+/// deferring the failure to `build`.
+fn validate_declared_artifact_roots(root: &std::path::Path) -> FrontendResult<()> {
+    let build_path = root.join("build.fol");
+    let Some(source) = fs::read_to_string(&build_path).ok() else {
+        return Ok(());
+    };
+    let evaluated = evaluate_build_source(
+        &BuildEvaluationRequest {
+            package_root: root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: root.display().to_string(),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        },
+        &build_path,
+        &source,
+    )
+    .ok()
+    .flatten();
+    let Some(evaluated) = evaluated else {
+        return Ok(());
+    };
+
+    for artifact in &evaluated.evaluated.artifacts {
+        // Roots are folder-relative source-file selectors (e.g.
+        // "src/main.fol"); an entry root that names no file cannot build.
+        if artifact.root_module.trim().is_empty() {
+            continue;
+        }
+        let candidate = root.join(&artifact.root_module);
+        if !candidate.is_file() {
+            return Err(FrontendError::new(
+                FrontendErrorKind::InvalidInput,
+                format!(
+                    "artifact '{}' declares root '{}' but no such source file exists in package '{}'",
+                    artifact.name,
+                    artifact.root_module,
+                    root.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn summarize_capability_modes<I>(models: I) -> String
@@ -127,7 +204,16 @@ pub fn check_workspace_with_config(
         crate::fetch_workspace_with_config(workspace, config)?;
     }
     for member in &workspace.members {
-        compile_member_workspace(workspace, config, &member.root)?;
+        // A declared entry root that names no file is a build-blocking error
+        // that check should surface, not defer.
+        validate_declared_artifact_roots(&member.root)?;
+        // Check under the member's declared capability model so core/memo
+        // legality surfaces at check time, not first at build time.
+        let fol_model = effective_runtime_model_for_package(
+            &member.root,
+            declared_capability_model_for_package(&member.root),
+        );
+        compile_member_workspace_for_model(workspace, config, &member.root, fol_model)?;
     }
 
     let mut result = FrontendCommandResult::new(
@@ -324,11 +410,11 @@ pub fn run_workspace_with_args_and_config(
         .output()
         .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
 
+    // Forward the executed program's own output; `run` should be
+    // transparent to the child's stdout/stderr, not swallow it.
+    forward_child_output(&output.stdout, &output.stderr);
+
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
-            eprint!("{stderr}");
-        }
         return Err(FrontendError::new(
             FrontendErrorKind::CommandFailed,
             format!(
@@ -405,11 +491,11 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
         .output()
         .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
 
+    // Forward the executed program's own output; `run` should be
+    // transparent to the child's stdout/stderr, not swallow it.
+    forward_child_output(&output.stdout, &output.stderr);
+
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
-            eprint!("{stderr}");
-        }
         return Err(FrontendError::new(
             FrontendErrorKind::CommandFailed,
             format!(

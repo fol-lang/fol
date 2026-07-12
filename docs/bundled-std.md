@@ -165,3 +165,30 @@ Use an explicit `--std-root <DIR>` override only when you deliberately want to:
 - compare bundled std against a temporary experimental root
 
 That override is for development and tests. It is not the normal user workflow.
+
+## Shipped V2 Example Execution
+
+The shipped executable `V2` examples that use bundled `std` are:
+
+- `examples/generic_type_exec_m1m2`
+- `examples/generic_standard_constraint_m1m2`
+
+Their checked-in `build.fol` files use the normal bundled-`std` declaration:
+
+```fol
+build.add_dep({
+    alias = "std",
+    source = "internal",
+    target = "standard",
+});
+```
+
+Normal local execution should run from the example root with ordinary frontend
+commands:
+
+- `fol code build`
+- `fol code run`
+
+The normal user path does not require `--package-store-root` or `--std-root`.
+Those flags exist for harnesses, fixture isolation, and explicit override work,
+not as part of the shipped V2 example contract.

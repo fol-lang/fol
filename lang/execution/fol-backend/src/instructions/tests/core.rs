@@ -59,9 +59,9 @@ fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes()
         render_core_instruction(&package_identity, &table, &routine, &store_local)
             .expect("store");
 
-    assert!(const_rendered.contains("let l__pkg__entry__app__r0__l0__value = 7_i64;"));
+    assert!(const_rendered.contains("l__pkg__entry__app__r0__l0__value = 7_i64;"));
     assert!(load_local_rendered.contains(
-        "let l__pkg__entry__app__r0__l1__other = l__pkg__entry__app__r0__l0__value.clone();"
+        "l__pkg__entry__app__r0__l1__other = l__pkg__entry__app__r0__l0__value.clone();"
     ));
     assert!(store_local_rendered.contains(
         "l__pkg__entry__app__r0__l0__value = l__pkg__entry__app__r0__l1__other.clone();"
@@ -127,7 +127,7 @@ fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_site
     .expect("call");
 
     assert!(rendered.contains(
-        "let l__pkg__entry__app__r3__l1__result = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r9__callee("
+        "l__pkg__entry__app__r3__l1__result = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r9__callee("
     ));
     assert!(rendered.contains("l__pkg__entry__app__r3__l0__value"));
 }
@@ -162,7 +162,7 @@ fn core_instruction_rendering_emits_record_field_accesses_as_native_member_reads
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r4__l1__age = l__pkg__entry__app__r4__l0__user.age.clone();"
+        "l__pkg__entry__app__r4__l1__age = l__pkg__entry__app__r4__l0__user.age.clone();"
     );
 }
 
@@ -222,12 +222,96 @@ fn core_instruction_rendering_emits_scalar_intrinsics_as_native_rust_ops() {
 
     assert_eq!(
         eq_rendered,
-        "let l__pkg__entry__app__r5__l3__same = l__pkg__entry__app__r5__l0__lhs == l__pkg__entry__app__r5__l1__rhs;"
+        "l__pkg__entry__app__r5__l3__same = l__pkg__entry__app__r5__l0__lhs == l__pkg__entry__app__r5__l1__rhs;"
     );
     assert_eq!(
         not_rendered,
-        "let l__pkg__entry__app__r5__l4__flipped = !l__pkg__entry__app__r5__l2__flag;"
+        "l__pkg__entry__app__r5__l4__flipped = !l__pkg__entry__app__r5__l2__flag;"
     );
+}
+
+#[test]
+fn workspace_global_rendering_uses_fol_default_initializers_for_mutable_globals() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(15), "main", LoweredBlockId(0));
+    let value_local = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(int_id),
+        name: Some("value".to_string()),
+    });
+    let result_local = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("loaded".to_string()),
+    });
+
+    let load = LoweredInstr {
+        id: LoweredInstrId(20),
+        result: Some(result_local),
+        kind: LoweredInstrKind::LoadGlobal {
+            global: fol_lower::LoweredGlobalId(0),
+        },
+    };
+    let store = LoweredInstr {
+        id: LoweredInstrId(21),
+        result: None,
+        kind: LoweredInstrKind::StoreGlobal {
+            global: fol_lower::LoweredGlobalId(0),
+            value: value_local,
+        },
+    };
+
+    let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
+    package.source_units.push(LoweredSourceUnit {
+        source_unit_id: SourceUnitId(0),
+        path: "app/main.fol".to_string(),
+        package: "app".to_string(),
+        namespace: "app".to_string(),
+    });
+    package.global_decls.insert(
+        fol_lower::LoweredGlobalId(0),
+        fol_lower::LoweredGlobal {
+            id: fol_lower::LoweredGlobalId(0),
+            symbol_id: SymbolId(20),
+            source_unit_id: SourceUnitId(0),
+            name: "counter".to_string(),
+            type_id: int_id,
+            mutable: true,
+        },
+    );
+    let workspace = LoweredWorkspace::new(
+        package_identity.clone(),
+        BTreeMap::from([(package_identity.clone(), package)]),
+        Vec::new(),
+        table.clone(),
+        LoweredSourceMap::new(),
+        LoweredRecoverableAbi::v1(int_id),
+    );
+
+    let load_rendered = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &load,
+    )
+    .expect("load global");
+    let store_rendered = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &store,
+    )
+    .expect("store global");
+
+    assert!(load_rendered.contains("get_or_init(|| std::sync::Mutex::new(0_i64))"));
+    assert!(load_rendered.contains(".lock().unwrap_or_else(|e| e.into_inner()).clone()"));
+    assert!(store_rendered.contains(
+        "*crate::packages::pkg__entry__app::root::g__pkg__entry__app__g0__counter.get_or_init(|| std::sync::Mutex::new(0_i64)).lock().unwrap_or_else(|e| e.into_inner()) = l__pkg__entry__app__r15__l0__value.clone();"
+    ));
 }
 
 #[test]
@@ -352,13 +436,13 @@ fn combined_core_instruction_snapshot_stays_stable() {
     assert_eq!(
         rendered,
         concat!(
-            "let l__pkg__entry__app__r6__l3__tmp = 7_i64;\n",
-            "let l__pkg__entry__app__r6__l0__lhs = l__pkg__entry__app__r6__l3__tmp.clone();\n",
+            "l__pkg__entry__app__r6__l3__tmp = 7_i64;\n",
+            "l__pkg__entry__app__r6__l0__lhs = l__pkg__entry__app__r6__l3__tmp.clone();\n",
             "l__pkg__entry__app__r6__l1__rhs = l__pkg__entry__app__r6__l0__lhs.clone();\n",
-            "let l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs, l__pkg__entry__app__r6__l1__rhs);\n",
-            "let l__pkg__entry__app__r6__l4__same = l__pkg__entry__app__r6__l0__lhs == l__pkg__entry__app__r6__l1__rhs;\n",
-            "let l__pkg__entry__app__r6__l4__same = !l__pkg__entry__app__r6__l2__flag;\n",
-            "let l__pkg__entry__app__r6__l3__tmp = l__pkg__entry__app__r6__l1__rhs.count.clone();"
+            "l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs, l__pkg__entry__app__r6__l1__rhs);\n",
+            "l__pkg__entry__app__r6__l4__same = l__pkg__entry__app__r6__l0__lhs == l__pkg__entry__app__r6__l1__rhs;\n",
+            "l__pkg__entry__app__r6__l4__same = !l__pkg__entry__app__r6__l2__flag;\n",
+            "l__pkg__entry__app__r6__l3__tmp = l__pkg__entry__app__r6__l1__rhs.count.clone();"
         )
     );
 }
@@ -467,7 +551,7 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
 
     assert_eq!(
         rendered,
-        "let l__pkg__entry__app__r12__l2__out = l__pkg__entry__app__r12__l0__callback(l__pkg__entry__app__r12__l1__arg);"
+        "l__pkg__entry__app__r12__l2__out = l__pkg__entry__app__r12__l0__callback(l__pkg__entry__app__r12__l1__arg);"
     );
 
     let void_indirect = LoweredInstr {
@@ -488,4 +572,3 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
         "l__pkg__entry__app__r12__l0__callback(l__pkg__entry__app__r12__l1__arg);"
     );
 }
-

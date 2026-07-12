@@ -33,8 +33,7 @@ fn test_alias_declaration_accepts_quoted_names() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target,
-                    } if name == "Result"
+                        target, .. } if name == "Result"
                         && fol_type_has_qualified_segments(target, &["pkg", "Value"])
                 )
             }));
@@ -73,8 +72,7 @@ fn test_alias_declaration_preserves_inner_opposite_quote_chars() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target,
-                    } if name == "re'sult"
+                        target, .. } if name == "re'sult"
                         && fol_type_has_qualified_segments(target, &["pkg", "Value"])
                 )
             }));
@@ -83,8 +81,7 @@ fn test_alias_declaration_preserves_inner_opposite_quote_chars() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target,
-                    } if name == "quo\"te"
+                        target, .. } if name == "quo\"te"
                         && fol_type_has_qualified_segments(target, &["pkg", "Other"])
                 )
             }));

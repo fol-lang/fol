@@ -7,6 +7,7 @@ mod errors;
 pub mod exprs;
 pub mod ids;
 pub mod model;
+mod mono;
 pub mod render;
 pub mod session;
 pub mod types;
@@ -14,8 +15,8 @@ mod verify;
 
 pub use boundaries::{v1_lowering_boundaries, UnsupportedLoweringSurface};
 pub use control::{
-    LoweredBinaryOp, LoweredBlock, LoweredInstr, LoweredInstrKind, LoweredLocal, LoweredOperand,
-    LoweredRoutine, LoweredTerminator, LoweredUnaryOp,
+    LoweredBinaryOp, LoweredBlock, LoweredInstr, LoweredInstrKind, LoweredLinearKind,
+    LoweredLocal, LoweredOperand, LoweredRoutine, LoweredTerminator, LoweredUnaryOp,
 };
 pub use errors::{LoweringError, LoweringErrorKind};
 pub use ids::{
@@ -23,9 +24,10 @@ pub use ids::{
     LoweredRoutineId, LoweredTypeId,
 };
 pub use model::{
-    LoweredEntryCandidate, LoweredExportMount, LoweredFieldLayout, LoweredGlobal, LoweredPackage,
-    LoweredRecoverableAbi, LoweredSourceMap, LoweredSourceMapEntry, LoweredSourceSymbol,
-    LoweredSourceUnit, LoweredSymbolOwnership, LoweredTypeDecl, LoweredTypeDeclKind,
+    LoweredConformance, LoweredEntryCandidate, LoweredExportMount, LoweredFieldLayout,
+    LoweredGlobal, LoweredPackage, LoweredRecoverableAbi, LoweredSourceMap,
+    LoweredSourceMapEntry, LoweredSourceSymbol, LoweredSourceUnit, LoweredStandard,
+    LoweredStandardRoutine, LoweredSymbolOwnership, LoweredTypeDecl, LoweredTypeDeclKind,
     LoweredVariantLayout, LoweredWorkspace,
 };
 pub use render::render_lowered_workspace;

@@ -26,6 +26,21 @@ fun[options] name: return_type = (params) { body }
 
 This chapter family covers parameters, calls, defaults, variadics, return values, and routine-specific semantics.
 
+Current `V1` routine model:
+
+- values are returned with an explicit `return`; there is no implicit `result`
+  variable in the current compiler
+- the short form that omits the return type is not current; the return type
+  must be declared
+- last-expression / implicit-tail return is not current
+- routine overloading is not supported; duplicate routine names are rejected
+- a routine that declares a recoverable error type (`: T / E`) must have both a
+  return path and a `report` path
+
+The sections further down that show `result = ...`, short-form omission,
+last-expression return, and same-name overloading describe earlier design, not
+the current compiler surface.
+
 ## Types
 There are two main types of routines in fol:
 

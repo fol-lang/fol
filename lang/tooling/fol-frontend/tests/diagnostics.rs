@@ -68,10 +68,10 @@ fn frontend_workspace_discovery_failures_render_consistently_across_output_modes
     .render_error(&error)
     .expect("json render should succeed");
 
-    assert!(human.contains("FrontendWorkspaceNotFound"));
-    assert!(human.contains("fol init --bin"));
-    assert!(plain.contains("note: run `fol init --workspace`"));
-    assert!(json.contains("\"kind\": \"FrontendWorkspaceNotFound\""));
+    assert!(human.contains("F1002"));
+    assert!(human.contains("fol work init --bin"));
+    assert!(plain.contains("note: run `fol work init --workspace`"));
+    assert!(json.contains("\"code\": \"F1002\""));
     assert!(json.contains("\"notes\": ["));
 
     fs::remove_dir_all(root).ok();
@@ -79,8 +79,8 @@ fn frontend_workspace_discovery_failures_render_consistently_across_output_modes
 
 #[test]
 fn frontend_parse_failures_keep_structured_help_notes() {
-    let error =
-        run_command_from_args_in_dir(["fol", "emit", "wat"], std::env::temp_dir()).unwrap_err();
+    let error = run_command_from_args_in_dir(["fol", "code", "emit", "wat"], std::env::temp_dir())
+        .unwrap_err();
     let json = FrontendOutput::new(FrontendOutputConfig {
         mode: OutputMode::Json,
         ..FrontendOutputConfig::default()
@@ -88,7 +88,7 @@ fn frontend_parse_failures_keep_structured_help_notes() {
     .render_error(&error)
     .expect("json render should succeed");
 
-    assert!(error.message().contains("invalid value"));
+    assert!(error.message().contains("unknown emit subcommand"));
     assert!(json.contains("fol --help"));
 }
 
@@ -102,7 +102,8 @@ fn locked_fetch_mismatch_failures_render_consistently_across_output_modes() {
     create_git_package_repo(&remote_b, "logtiny", "0.1.1");
     create_app_with_git_dep(&app, &remote_a);
 
-    run_command_from_args_in_dir(["fol", "fetch"], &app).expect("initial fetch should succeed");
+    run_command_from_args_in_dir(["fol", "pack", "fetch"], &app)
+        .expect("initial fetch should succeed");
     fs::write(
         app.join("build.fol"),
         format!(
@@ -122,7 +123,7 @@ fn locked_fetch_mismatch_failures_render_consistently_across_output_modes() {
     )
     .expect("should rewrite manifest");
 
-    let error = run_command_from_args_in_dir(["fol", "fetch", "--locked"], &app)
+    let error = run_command_from_args_in_dir(["fol", "pack", "fetch", "--locked"], &app)
         .expect_err("locked fetch should fail when the manifest changes");
 
     let human = FrontendOutput::new(FrontendOutputConfig::default())
@@ -144,10 +145,10 @@ fn locked_fetch_mismatch_failures_render_consistently_across_output_modes() {
     assert!(human.contains("fol.lock"));
     assert!(human.contains("build.fol"));
     assert!(human.contains(
-        "use `fol fetch --locked` only when build.fol and fol.lock are intentionally in sync"
+        "use `fol pack fetch --locked` only when build.fol and fol.lock are intentionally in sync"
     ));
-    assert!(plain.contains("note: run `fol fetch` or `fol update` to refresh fol.lock"));
-    assert!(json.contains("\"kind\": \"FrontendInvalidInput\""));
+    assert!(plain.contains("note: run `fol pack fetch` or `fol pack update` to refresh fol.lock"));
+    assert!(json.contains("\"code\": \"F1001\""));
     assert!(json.contains("\"notes\": ["));
 
     fs::remove_dir_all(root).ok();

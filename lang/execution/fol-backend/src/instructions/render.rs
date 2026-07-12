@@ -10,8 +10,8 @@ use fol_resolver::PackageIdentity;
 use super::helpers::{
     render_clone_expr, render_global_load, render_local_list, render_local_name,
     render_native_intrinsic_expression, render_namespace_module_path, render_operand,
-    render_routine_path, render_type_path, rendered_result_local, resolve_global_decl,
-    resolve_routine_decl, resolve_type_decl,
+    render_routine_path, render_type_default_expr_in_workspace, render_type_path,
+    rendered_result_local, resolve_global_decl, resolve_routine_decl, resolve_type_decl,
 };
 
 pub fn render_core_instruction(
@@ -31,26 +31,40 @@ pub fn render_core_instruction_in_workspace(
     instruction: &LoweredInstr,
 ) -> BackendResult<String> {
     match &instruction.kind {
+        LoweredInstrKind::ConstraintCall { method, .. } => {
+            return Err(BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "constraint call '{method}' reached backend emission without being monomorphized"
+                ),
+            ))
+        }
         LoweredInstrKind::Const(operand) => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            Ok(format!("let {result} = {};", render_operand(operand)?))
+            Ok(format!("{result} = {};", render_operand(operand)?))
         }
         LoweredInstrKind::LoadLocal { local } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let source = render_local_name(package_identity, routine, *local)?;
-            Ok(format!("let {result} = {source}.clone();"))
+            Ok(format!("{result} = {source}.clone();"))
         }
         LoweredInstrKind::StoreLocal { local, value } => {
             let target = render_local_name(package_identity, routine, *local)?;
             let value = render_local_name(package_identity, routine, *value)?;
             Ok(format!("{target} = {value}.clone();"))
         }
+        LoweredInstrKind::StoreField { base, field, value } => {
+            let base = render_local_name(package_identity, routine, *base)?;
+            let value = render_local_name(package_identity, routine, *value)?;
+            let field = crate::escape_rust_field_ident(field);
+            Ok(format!("{base}.{field} = {value}.clone();"))
+        }
         LoweredInstrKind::LoadGlobal { global } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let (global_identity, global_decl) = resolve_global_decl(workspace, *global)?;
             Ok(format!(
-                "let {result} = {};",
-                render_global_load(workspace, global_identity, global_decl)?
+                "{result} = {};",
+                render_global_load(workspace, type_table, global_identity, global_decl)?
             ))
         }
         LoweredInstrKind::StoreGlobal { global, value } => {
@@ -74,8 +88,10 @@ pub fn render_core_instruction_in_workspace(
                 )?,
                 crate::mangle_global_name(global_identity, *global, &global_decl.name)
             );
+            let default_expr =
+                render_type_default_expr_in_workspace(workspace, type_table, global_decl.type_id)?;
             Ok(format!(
-                "*{global_path}.get_or_init(|| std::sync::Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()) = {value}.clone();",
+                "*{global_path}.get_or_init(|| std::sync::Mutex::new({default_expr})).lock().unwrap_or_else(|e| e.into_inner()) = {value}.clone();",
             ))
         }
         LoweredInstrKind::Call {
@@ -93,7 +109,7 @@ pub fn render_core_instruction_in_workspace(
             match instruction.result {
                 Some(_) => {
                     let result = rendered_result_local(package_identity, routine, instruction)?;
-                    Ok(format!("let {result} = {callee_name}({rendered_args});"))
+                    Ok(format!("{result} = {callee_name}({rendered_args});"))
                 }
                 None => Ok(format!("{callee_name}({rendered_args});")),
             }
@@ -113,7 +129,7 @@ pub fn render_core_instruction_in_workspace(
             match instruction.result {
                 Some(_) => {
                     let result = rendered_result_local(package_identity, routine, instruction)?;
-                    Ok(format!("let {result} = {callee_name}({rendered_args});"))
+                    Ok(format!("{result} = {callee_name}({rendered_args});"))
                 }
                 None => Ok(format!("{callee_name}({rendered_args});")),
             }
@@ -121,7 +137,8 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::FieldAccess { base, field } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let base = render_local_name(package_identity, routine, *base)?;
-            Ok(format!("let {result} = {base}.{field}.clone();"))
+            let field = crate::escape_rust_field_ident(field);
+            Ok(format!("{result} = {base}.{field}.clone();"))
         }
         LoweredInstrKind::IntrinsicCall { intrinsic, args } => {
             let entry = intrinsic_by_id(*intrinsic).ok_or_else(|| {
@@ -138,7 +155,7 @@ pub fn render_core_instruction_in_workspace(
             match instruction.result {
                 Some(_) => {
                     let result = rendered_result_local(package_identity, routine, instruction)?;
-                    Ok(format!("let {result} = {expression};"))
+                    Ok(format!("{result} = {expression};"))
                 }
                 None => Ok(format!("{expression};")),
             }
@@ -146,7 +163,7 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::LengthOf { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand = render_local_name(package_identity, routine, *operand)?;
-            Ok(format!("let {result} = rt::len(&{operand});"))
+            Ok(format!("{result} = rt::len(&{operand});"))
         }
         LoweredInstrKind::RuntimeHook { intrinsic, args } => {
             let entry = intrinsic_by_id(*intrinsic).ok_or_else(|| {
@@ -163,7 +180,7 @@ pub fn render_core_instruction_in_workspace(
                         Some(_) => {
                             let result =
                                 rendered_result_local(package_identity, routine, instruction)?;
-                            Ok(format!("let {result} = {rendered};"))
+                            Ok(format!("{result} = {rendered};"))
                         }
                         None => Ok(format!("{rendered};")),
                     }
@@ -177,20 +194,20 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::CheckRecoverable { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand = render_local_name(package_identity, routine, *operand)?;
-            Ok(format!("let {result} = rt::check_recoverable(&{operand});"))
+            Ok(format!("{result} = rt::check_recoverable(&{operand});"))
         }
         LoweredInstrKind::UnwrapRecoverable { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand = render_local_name(package_identity, routine, *operand)?;
             Ok(format!(
-                "let {result} = {operand}.clone().into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
+                "{result} = {operand}.clone().into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
             ))
         }
         LoweredInstrKind::ExtractRecoverableError { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand = render_local_name(package_identity, routine, *operand)?;
             Ok(format!(
-                "let {result} = {operand}.clone().into_error().expect(\"extract of recoverable error failed: result contains a value\");"
+                "{result} = {operand}.clone().into_error().expect(\"extract of recoverable error failed: result contains a value\");"
             ))
         }
         LoweredInstrKind::ConstructOptional { value, .. } => {
@@ -202,7 +219,7 @@ pub fn render_core_instruction_in_workspace(
                 }
                 None => "rt::FolOption::nil()".to_string(),
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::ConstructError { value, .. } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -211,9 +228,11 @@ pub fn render_core_instruction_in_workspace(
                     let value = render_local_name(package_identity, routine, *value)?;
                     format!("rt::FolError::new({value}.clone())")
                 }
-                None => "rt::FolError::new(())".to_string(),
+                // Leave the payload type to inference from the assignment
+                // target, exactly like FolOption::nil().
+                None => "rt::FolError::default()".to_string(),
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::UnwrapShell { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -247,7 +266,7 @@ pub fn render_core_instruction_in_workspace(
                     ),
                 )),
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::ConstructLinear { kind, elements, .. } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -261,13 +280,13 @@ pub fn render_core_instruction_in_workspace(
                     format!("rt_model::FolSeq::from_items(vec![{elements}])")
                 }
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::ConstructSet { members, .. } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let members = render_local_list(package_identity, routine, members)?;
             Ok(format!(
-                "let {result} = rt_model::FolSet::from_items(vec![{members}]);"
+                "{result} = rt_model::FolSet::from_items(vec![{members}]);"
             ))
         }
         LoweredInstrKind::ConstructMap { entries, .. } => {
@@ -284,7 +303,7 @@ pub fn render_core_instruction_in_workspace(
                 .collect::<BackendResult<Vec<_>>>()?
                 .join(", ");
             Ok(format!(
-                "let {result} = rt_model::FolMap::from_pairs(vec![{entries}]);"
+                "{result} = rt_model::FolMap::from_pairs(vec![{entries}]);"
             ))
         }
         LoweredInstrKind::IndexAccess { container, index } => {
@@ -326,7 +345,7 @@ pub fn render_core_instruction_in_workspace(
                     ))
                 }
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::SliceAccess {
             container,
@@ -366,7 +385,7 @@ pub fn render_core_instruction_in_workspace(
                     ))
                 }
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::ConstructRecord { type_id, fields } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -376,14 +395,15 @@ pub fn render_core_instruction_in_workspace(
                 .iter()
                 .map(|(field, local)| {
                     Ok(format!(
-                        "{field}: {}",
+                        "{}: {}",
+                        crate::escape_rust_field_ident(field),
                         render_clone_expr(package_identity, routine, *local)?
                     ))
                 })
                 .collect::<BackendResult<Vec<_>>>()?
                 .join(", ");
             Ok(format!(
-                "let {result} = {type_name} {{ {rendered_fields} }};"
+                "{result} = {type_name} {{ {rendered_fields} }};"
             ))
         }
         LoweredInstrKind::ConstructEntry {
@@ -394,6 +414,7 @@ pub fn render_core_instruction_in_workspace(
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let (type_identity, type_decl) = resolve_type_decl(workspace, *type_id)?;
             let type_name = render_type_path(workspace, type_identity, type_decl)?;
+            let variant = crate::escape_rust_field_ident(variant);
             let expression = match payload {
                 Some(payload) => format!(
                     "{type_name}::{variant}({})",
@@ -401,7 +422,7 @@ pub fn render_core_instruction_in_workspace(
                 ),
                 None => format!("{type_name}::{variant}"),
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::BinaryOp { op, left, right } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -441,7 +462,7 @@ pub fn render_core_instruction_in_workspace(
                 LoweredBinaryOp::Or => format!("{left} || {right}"),
                 LoweredBinaryOp::Xor => format!("{left} ^ {right}"),
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::UnaryOp { op, operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -450,7 +471,7 @@ pub fn render_core_instruction_in_workspace(
                 LoweredUnaryOp::Neg => format!("-{operand}"),
                 LoweredUnaryOp::Not => format!("!{operand}"),
             };
-            Ok(format!("let {result} = {expression};"))
+            Ok(format!("{result} = {expression};"))
         }
         LoweredInstrKind::Cast { operand, target_type } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -458,7 +479,7 @@ pub fn render_core_instruction_in_workspace(
             let target = crate::types::render_rust_type_in_workspace(
                 workspace, type_table, *target_type,
             )?;
-            Ok(format!("let {result} = {operand} as {target};"))
+            Ok(format!("{result} = {operand} as {target};"))
         }
         LoweredInstrKind::RoutineRef { routine: callee } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -473,7 +494,7 @@ pub fn render_core_instruction_in_workspace(
             let fn_type = crate::types::render_rust_type_in_workspace(
                 workspace, type_table, callee_signature,
             )?;
-            Ok(format!("let {result} = {callee_name} as {fn_type};"))
+            Ok(format!("{result} = {callee_name} as {fn_type};"))
         }
         LoweredInstrKind::CallIndirect {
             callee,
@@ -489,7 +510,7 @@ pub fn render_core_instruction_in_workspace(
             match instruction.result {
                 Some(_) => {
                     let result = rendered_result_local(package_identity, routine, instruction)?;
-                    Ok(format!("let {result} = {callee_name}({rendered_args});"))
+                    Ok(format!("{result} = {callee_name}({rendered_args});"))
                 }
                 None => Ok(format!("{callee_name}({rendered_args});")),
             }

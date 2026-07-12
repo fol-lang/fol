@@ -267,12 +267,15 @@ fn semantic_type_table_covers_declared_and_structural_shapes() {
         symbol: SymbolId(9),
         name: "Meters".to_string(),
         kind: DeclaredTypeKind::Alias,
+        args: Vec::new(),
     });
 
     let mut fields = BTreeMap::new();
     fields.insert("value".to_string(), alias_id);
     let record = table.intern(CheckedType::Record { fields });
     let routine = table.intern(CheckedType::Routine(RoutineType {
+        generic_params: Vec::new(),
+        generic_constraints: BTreeMap::new(),
         param_names: vec!["value".to_string()],
         param_defaults: vec![None],
         variadic_index: None,
@@ -288,6 +291,7 @@ fn semantic_type_table_covers_declared_and_structural_shapes() {
             symbol: SymbolId(9),
             name: "Meters".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -336,6 +340,8 @@ fn render_type_handles_routines() {
     let int_id = table.intern_builtin(BuiltinType::Int);
     let str_id = table.intern_builtin(BuiltinType::Str);
     let routine_id = table.intern(CheckedType::Routine(RoutineType {
+        generic_params: Vec::new(),
+        generic_constraints: BTreeMap::new(),
         param_names: vec!["left".to_string(), "right".to_string()],
         param_defaults: vec![None, None],
         variadic_index: None,
@@ -357,7 +363,6 @@ fn symbol_kind_display_name_covers_all_variants() {
     assert_eq!(SymbolKind::Capture.display_name(), "capture");
     assert_eq!(SymbolKind::ImportAlias.display_name(), "namespace");
     assert_eq!(SymbolKind::Segment.display_name(), "segment");
-    assert_eq!(SymbolKind::Implementation.display_name(), "implementation");
     assert_eq!(SymbolKind::Standard.display_name(), "standard");
 }
 
@@ -411,6 +416,7 @@ fn declaration_signature_lowering_records_top_level_type_facts() {
             symbol: distance_id,
             name: "Distance".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -419,6 +425,7 @@ fn declaration_signature_lowering_records_top_level_type_facts() {
             symbol: person_id,
             name: "Person".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
     assert_eq!(typed.resolved().source_units.get(SourceUnitId(0)).map(|unit| unit.package.as_str()), Some(typed.package_name()));
@@ -453,6 +460,7 @@ fn declaration_signature_lowering_keeps_named_types_as_declared_symbols() {
             symbol: point_id,
             name: "Point".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
 }
@@ -473,6 +481,7 @@ fn declaration_signature_lowering_keeps_alias_references_as_alias_symbols() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -1502,6 +1511,164 @@ fn expression_typing_rejects_field_access_on_non_records() {
 }
 
 #[test]
+fn record_initializer_omits_fields_that_declare_a_default() {
+    // A field with a declared default may be omitted from a named
+    // initializer; the default supplies its value.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int = 2\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { total = 3 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn record_initializer_rejects_missing_field_without_default() {
+    // Fields without a default stay required.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { total = 3 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.message().contains("missing required fields: step")
+        }),
+        "Expected a missing-required-field diagnostic for the non-default field, got: {errors:?}"
+    );
+}
+
+#[test]
+fn record_initializer_rejects_default_type_mismatch() {
+    // A default whose expression mismatches the field type is rejected with a
+    // located diagnostic at the declaration.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             flag: bol = 7\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { total = 3 };\n\
+             return c.total;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("default for record field 'flag'")
+        }),
+        "Expected a default-type-mismatch diagnostic, got: {errors:?}"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic_location().is_some()),
+        "Default-type-mismatch diagnostic should be located, got: {errors:?}"
+    );
+}
+
+#[test]
+fn positional_record_initializer_binds_fields_in_declaration_order() {
+    // `{ v0, v1 }` binds values to fields in declaration order when the
+    // expected type is a record.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { 3, 4 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn positional_record_initializer_fills_trailing_defaults() {
+    // Fields uncovered by positional values fall back to their defaults.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int = 2\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { 5 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn positional_record_initializer_rejects_too_many_values() {
+    // Supplying more positional values than the record has fields is a clean
+    // located arity diagnostic.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int;\n\
+             step: int\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var c: Counter = { 3, 4, 5 };\n\
+             return c.total + c.step;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.message().contains("positional record initializer has 3 value(s)")
+                && error.message().contains("2 field(s)")
+        }),
+        "Expected a positional arity diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
 fn expression_typing_expands_alias_record_shells_for_field_access() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
@@ -1853,8 +2020,12 @@ fn propagation_typing_rejects_incompatible_error_types_in_plain_value_contexts()
 }
 
 #[test]
-fn self_referential_record_type_does_not_panic_during_typecheck() {
-    let typed = typecheck_fixture_folder(&[(
+fn self_referential_record_type_is_rejected_without_panicking() {
+    // A self-referential record has no finite runtime shape in the structural
+    // model (a direct `next: Node` field would be infinitely sized). The
+    // checker rejects it with an honest, located diagnostic rather than
+    // accepting an unbuildable type or overflowing the stack during lowering.
+    let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "typ Node: rec = {\n\
              value: int;\n\
@@ -1865,9 +2036,544 @@ fn self_referential_record_type_does_not_panic_during_typecheck() {
          };\n",
     )]);
 
-    let (_node_id, node) = find_typed_symbol(&typed, "Node", SymbolKind::Type);
     assert!(
-        node.declared_type.is_some(),
-        "Self-referential record types should typecheck via Declared reference indirection"
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error.message().contains("recursive type 'Node' is not yet supported")
+        }),
+        "Expected a self-referential record to be rejected with an honest boundary, got: {errors:?}"
     );
+}
+
+#[test]
+fn single_element_double_quoted_literals_follow_the_expected_type() {
+    // The book allows a double-quoted single element as BOTH a character and
+    // a single-element string; the expected type decides.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var s: str = \"l\";\n\
+             var c: chr = \"z\";\n\
+             var s2: str = \"many\";\n\
+             return .len(s) + .len(s2);\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn casting_surfaces_fail_with_the_explicit_boundary_not_resolver_noise() {
+    // The book: casting parses but is not part of supported V1 semantics;
+    // the failure must be the explicit typecheck boundary, not an
+    // "unresolved name" resolver error for the target type.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var n: int = 3 as int;\n\
+             return n;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("'as' is not yet supported")),
+        "casting should fail with the explicit unsupported-operator boundary: {errors:#?}"
+    );
+    assert!(
+        !errors
+            .iter()
+            .any(|error| error.message().contains("could not resolve name 'int'")),
+        "the cast target must not be misreported as an unresolved value name: {errors:#?}"
+    );
+}
+
+#[test]
+fn array_literals_must_match_the_declared_size() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var values: arr[int, 2] = {1, 2, 3};\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("array literal has 3 element(s)")),
+        "array size mismatches should fail typecheck cleanly: {errors:#?}"
+    );
+}
+
+#[test]
+fn var_declarations_inside_when_case_bodies_typecheck() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             when(true) {\n\
+                 case(true) {\n\
+                     var local: int = 3;\n\
+                     return local;\n\
+                 }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn field_assignment_into_mutable_record_binding_typechecks() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+             var[mut] counter: Counter = { total = 1 };\n\
+             counter.total = 5;\n\
+             return counter.total;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        "field assignment into a mutable record should keep the routine's return type",
+    );
+}
+
+#[test]
+fn field_assignment_into_immutable_record_binding_is_rejected() {
+    // `con` binds an immutable constant (plain `var` is mutable by default in
+    // the current parser model); assigning into its field must be rejected.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+             con counter: Counter = { total = 1 };\n\
+             counter.total = 5;\n\
+             return counter.total;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error.message().contains("immutable binding 'counter'")
+                && error.message().contains("var[mut]")
+        }),
+        "Expected immutable field-assignment rejection, got: {errors:?}"
+    );
+}
+
+#[test]
+fn field_assignment_to_unknown_field_is_rejected() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+             var[mut] counter: Counter = { total = 1 };\n\
+             counter.missing = 5;\n\
+             return counter.total;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error
+                .message()
+                .contains("does not expose a field named 'missing'")
+        }),
+        "Expected unknown-field rejection, got: {errors:?}"
+    );
+}
+
+#[test]
+fn field_assignment_type_mismatch_is_rejected() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Counter: rec = {\n\
+             total: int\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+             var[mut] counter: Counter = { total = 1 };\n\
+             counter.total = true;\n\
+             return counter.total;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::IncompatibleType }),
+        "Expected field-assignment type mismatch rejection, got: {errors:?}"
+    );
+}
+
+#[test]
+fn when_membership_arms_stay_on_the_explicit_v1_boundary() {
+    // `has`/`in`/`on` when-arms are declared syntax whose semantics are
+    // later-milestone; they must be rejected cleanly instead of silently
+    // lowering as equality checks against the subject.
+    let has_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var values: arr[int, 3] = {1, 2, 3};\n\
+             when(values) {\n\
+                 has(2) { return 1; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    assert!(
+        has_errors
+            .iter()
+            .any(|error| error.message().contains("when/has branches are not yet supported")),
+        "has arms should hit the explicit boundary: {has_errors:#?}"
+    );
+
+    let in_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             when(5) {\n\
+                 in(3) { return 1; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    assert!(
+        in_errors
+            .iter()
+            .any(|error| error.message().contains("when/in branches are not yet supported")),
+        "in arms should hit the explicit boundary: {in_errors:#?}"
+    );
+
+    // Equality arms stay fully supported in both spellings.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var picked: int = when(3) {\n\
+                 is 3 -> 7;\n\
+                 * -> 0;\n\
+             };\n\
+             when(picked) {\n\
+                 is (7) { return picked; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn immutable_bindings_reject_whole_binding_reassignment() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             con locked: int = 5;\n\
+             locked = 6;\n\
+             return locked;\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("cannot reassign immutable binding 'locked'")),
+        "con bindings should refuse reassignment: {errors:#?}"
+    );
+}
+
+#[test]
+fn panic_terminates_when_arms_and_stays_out_of_defer() {
+    // A when arm that panics terminates like return/report.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             when(true) {\n\
+                 case(true) { panic \"boom\"; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+
+    // Deferred blocks replay at every exit; panic cannot lower there.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             defer { panic \"cleanup\"; };\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("panic is not allowed inside deferred blocks")),
+        "defer should keep an explicit panic boundary: {errors:#?}"
+    );
+}
+
+#[test]
+fn map_index_keys_follow_the_declared_key_type() {
+    // Single-character double-quoted literals width-classify as chr in the
+    // parser; index expressions must adopt the container's key type.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var m: map[str, int] = {{\"x\", 5}};\n\
+             return m[\"x\"];\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn var_declarations_inside_for_loop_bodies_lower_into_the_binder_scope() {
+    // Regression: a `var` declared in a for-in loop body lives in the loop's
+    // dedicated binder scope, not the routine scope. The nested-declaration
+    // pre-pass must lower it against that scope, otherwise the binding is
+    // absent from typed lowering (T1099). An if/else or when-case body already
+    // worked; the loop-body arm mirrors that mechanism.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var xs: seq[int] = {1, 2, 4};\n\
+             var total: int = 0;\n\
+             for (x in xs) {\n\
+                 var extra: int = 1;\n\
+                 total = total + x + extra;\n\
+             }\n\
+             return total;\n\
+         };\n",
+    )]);
+    let (_extra_id, extra) = find_typed_symbol(&typed, "extra", SymbolKind::ValueBinding);
+    assert_eq!(
+        extra
+            .declared_type
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        "loop-body binding 'extra' should carry its declared type in typed lowering"
+    );
+}
+
+#[test]
+fn generic_call_infers_entry_type_from_a_bare_variant_argument() {
+    // Regression: a bare entry-variant access (`Status.OK`) with no concrete
+    // expectation denotes a value of the ENTRY type, not the variant payload.
+    // Argument-driven generic inference must therefore bind the type parameter
+    // to `Status`, so the `Status`-typed initializer matches (previously T
+    // bound to the payload `int`, producing a T1003 initializer mismatch).
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Status: ent = {\n\
+             var OK: int = 1;\n\
+             var BAD: int = 2;\n\
+         };\n\
+         fun pick(T)(v: T): T = {\n\
+             return v;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var s: Status = pick(Status.OK);\n\
+             return 0;\n\
+         };\n",
+    )]);
+    let (status_id, _status) = find_typed_symbol(&typed, "Status", SymbolKind::Type);
+    let (_s_id, s) = find_typed_symbol(&typed, "s", SymbolKind::ValueBinding);
+    assert_eq!(
+        s.declared_type
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Declared {
+            symbol: status_id,
+            name: "Status".to_string(),
+            kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
+        }),
+        "the entry-typed binding 's' should keep its declared entry type"
+    );
+}
+
+#[test]
+fn statements_after_block_terminated_statements_parse_as_statements() {
+    // Block-terminated statements (`when`/`loop`) end at `}` without `;`;
+    // the following qualified call and assignment must start fresh
+    // statements instead of falling into expression parsing.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] seven(): int = {\n\
+             return 7;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var total: int = 0;\n\
+             loop(false) {\n\
+                 var extra: int = 1;\n\
+             }\n\
+             total = seven();\n\
+             when(true) {\n\
+                 case(true) { var a: int = 1; }\n\
+                 * { var b: int = 2; }\n\
+             }\n\
+             return total;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn inline_container_literals_are_iterable() {
+    // Bare array literals intern with their actual length so loop lowering
+    // can resolve the sized container shape.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var total: int = 0;\n\
+             for (i in {1, 2}) {\n\
+                 total = total + i;\n\
+             }\n\
+             return total;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn type_mismatch_diagnostics_render_fol_surface_syntax() {
+    // User-facing type mismatches must read as FOL syntax (int, bol,
+    // vec[int]) rather than the internal Rust Debug form (Builtin(Int),
+    // Vector { element_type: CheckedTypeId(0) }).
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var v: vec[int] = 5;\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            let m = error.message();
+            m.contains("vec[int]") && m.contains("int") && !m.contains("Builtin(") && !m.contains("Vector {")
+        }),
+        "mismatch should render FOL surface types: {errors:#?}"
+    );
+}
+
+#[test]
+fn routines_keep_their_own_parameter_names_across_interning() {
+    // Two routines with identical shapes but different parameter names must
+    // not collapse to one interned signature: named-argument binding reads
+    // the names, so each declaration keeps its own (param_names is part of
+    // routine identity), while routine VALUES stay assignable by shape.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] alpha(aaa: int): int = {\n\
+             return aaa;\n\
+         };\n\
+         fun[] beta(bbb: int): int = {\n\
+             return bbb;\n\
+         };\n\
+         fun[] apply(op: {fun (n: int): int}, v: int): int = {\n\
+             return op(v);\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var x: int = beta(bbb = 2);\n\
+             var y: int = apply(alpha, 3);\n\
+             return x + y;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert_eq!(
+        typed
+            .typed_node(main)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] alpha(aaa: int): int = {\n\
+             return aaa;\n\
+         };\n\
+         fun[] beta(bbb: int): int = {\n\
+             return bbb;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return beta(aaa = 2);\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("does not have a parameter named 'aaa'")),
+        "the wrong name must fail at typecheck: {errors:#?}"
+    );
+}
+
+#[test]
+fn pathological_nesting_is_rejected_with_a_clean_diagnostic() {
+    // Recursive descent follows user nesting; the parser bounds syntactic
+    // nesting with a clean located diagnostic instead of letting the native
+    // stack overflow (SIGABRT), and legitimate nesting depths still parse
+    // (typecheck/resolve/lowering grow their stacks in segments).
+    let ok_parens = format!(
+        "fun[] main(): int = {{\n    return {}1{};\n}};\n",
+        "(".repeat(50),
+        ")".repeat(50)
+    );
+    let typed = typecheck_fixture_folder(&[("main.fol", ok_parens.as_str())]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
 }

@@ -90,32 +90,55 @@ impl FrontendOutput {
         }))
     }
 
-    pub fn render_json_error(&self, error: &FrontendError) -> Result<String, serde_json::Error> {
+    /// Build a diagnostic report from a frontend error. When the error
+    /// carries real diagnostics it is a wrapper (e.g. "compilation failed
+    /// with N error(s)") whose own message just summarizes those
+    /// diagnostics; including it would double-count. Render only the real
+    /// diagnostics in that case, and fall back to the error's own diagnostic
+    /// when it carries none.
+    fn report_for_error(error: &FrontendError) -> DiagnosticReport {
         let mut report = DiagnosticReport::new();
-        report.add_diagnostic(error.to_diagnostic());
-        for d in error.diagnostics() {
-            report.add_diagnostic(d.clone());
+        if error.diagnostics().is_empty() {
+            report.add_diagnostic(Self::annotate_diagnostic(error.to_diagnostic()));
+        } else {
+            for d in error.diagnostics() {
+                report.add_diagnostic(Self::annotate_diagnostic(d.clone()));
+            }
         }
-        Ok(report.output(OutputFormat::Json))
+        report
+    }
+
+    /// Attach an actionable frontend hint to a compiler diagnostic when it
+    /// points at a declared-but-unmaterialized dependency. The compiler
+    /// crates report the missing path; the `fol pack fetch` verb is a
+    /// frontend concern, so the suggestion is added at this layer.
+    fn annotate_diagnostic(mut diagnostic: fol_diagnostics::Diagnostic) -> fol_diagnostics::Diagnostic {
+        let looks_unfetched = diagnostic.message.contains("/.fol/pkg/")
+            && diagnostic.message.contains("does not exist");
+        if looks_unfetched
+            && !diagnostic
+                .helps
+                .iter()
+                .any(|help| help.contains("fol pack fetch"))
+        {
+            diagnostic
+                .helps
+                .push("run 'fol pack fetch' to materialize declared dependencies".to_string());
+        }
+        diagnostic
+    }
+
+    pub fn render_json_error(&self, error: &FrontendError) -> Result<String, serde_json::Error> {
+        Ok(Self::report_for_error(error).output(OutputFormat::Json))
     }
 
     pub fn render_human_error(&self, error: &FrontendError) -> String {
-        let mut report = DiagnosticReport::new();
-        report.add_diagnostic(error.to_diagnostic());
-        for d in error.diagnostics() {
-            report.add_diagnostic(d.clone());
-        }
-        let plain = report.output(OutputFormat::Human);
+        let plain = Self::report_for_error(error).output(OutputFormat::Human);
         crate::colorize::colorize_diagnostics(&plain)
     }
 
     pub fn render_plain_error(&self, error: &FrontendError) -> String {
-        let mut report = DiagnosticReport::new();
-        report.add_diagnostic(error.to_diagnostic());
-        for d in error.diagnostics() {
-            report.add_diagnostic(d.clone());
-        }
-        report.output(OutputFormat::Human)
+        Self::report_for_error(error).output(OutputFormat::Human)
     }
 
     pub fn render_command_summary(
@@ -182,6 +205,43 @@ mod tests {
         assert_eq!(output.config().mode, OutputMode::Human);
         assert!(!output.is_machine_readable());
         assert!(output.should_use_color());
+    }
+
+    #[test]
+    fn error_count_omits_the_wrapper_when_real_diagnostics_exist() {
+        use fol_diagnostics::{Diagnostic, Severity};
+
+        let real = Diagnostic::new(Severity::Error, "R1003", "could not resolve name 'x'");
+        let error = FrontendError::from_errors(vec![real]);
+        let output = FrontendOutput::new(FrontendOutputConfig {
+            mode: OutputMode::Plain,
+        });
+        let rendered = output.render_plain_error(&error);
+        assert!(rendered.contains("found 1 error"), "rendered: {rendered}");
+        assert!(
+            !rendered.contains("compilation failed with"),
+            "the redundant wrapper should not appear: {rendered}"
+        );
+    }
+
+    #[test]
+    fn unfetched_dependency_errors_suggest_fol_pack_fetch() {
+        use fol_diagnostics::{Diagnostic, Severity};
+
+        let missing = Diagnostic::new(
+            Severity::Error,
+            "R1001",
+            "resolver pkg import target '/w/.fol/pkg/std' does not exist",
+        );
+        let error = FrontendError::from_errors(vec![missing]);
+        let output = FrontendOutput::new(FrontendOutputConfig {
+            mode: OutputMode::Plain,
+        });
+        let rendered = output.render_plain_error(&error);
+        assert!(
+            rendered.contains("fol pack fetch"),
+            "unfetched dependency errors should hint at fetch: {rendered}"
+        );
     }
 
     #[test]

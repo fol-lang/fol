@@ -12,4 +12,4 @@ The declaration families include:
 - contract-like declarations:
   `std`
 
-Module-like forms such as `use`, `def`, `seg`, and `imp` are covered in the modules chapter because they primarily define source layout, namespace, and composition boundaries.
+Module-like forms such as `use`, `def`, and `seg` are covered in the modules chapter because they primarily define source layout, namespace, and composition boundaries.

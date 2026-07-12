@@ -190,7 +190,7 @@ pub(super) fn build_evaluated_program(
                                                 crate::BuildOptionKind::Optimize => "optimize",
                                                 crate::BuildOptionKind::Bool => "bool",
                                                 crate::BuildOptionKind::Int => "int",
-                                                crate::BuildOptionKind::String => "string",
+                                                crate::BuildOptionKind::String => "str",
                                                 crate::BuildOptionKind::Enum => "enum",
                                                 crate::BuildOptionKind::Path => "path",
                                             };

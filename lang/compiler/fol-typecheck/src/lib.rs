@@ -26,11 +26,13 @@ pub use editor::{
 };
 pub use fol_parser::ast::ParsedSourceUnitKind;
 pub use model::{
-    RecoverableCallEffect, TypedExportMount, TypedNode, TypedPackage, TypedProgram, TypedReference,
-    TypedSourceUnit, TypedSymbol, TypedWorkspace,
+    RecordFieldLayout, RecoverableCallEffect, TypedConformance, TypedConformanceClaim,
+    TypedExportMount, TypedNode, TypedPackage, TypedProgram, TypedReference, TypedSourceUnit,
+    TypedStandard, TypedStandardField, TypedStandardRoutine, TypedSymbol, TypedWorkspace,
 };
 pub use types::{
-    BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType, TypeTable,
+    BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind, GenericConstraint, RoutineType,
+    TypeTable,
 };
 
 pub type TypecheckResult<T> = Result<T, Vec<TypecheckError>>;
@@ -74,9 +76,39 @@ mod tests {
         ParsedSourceUnitKind, TypecheckCapabilityModel, TypecheckConfig, TypecheckError,
         TypecheckErrorKind, Typechecker,
     };
+    use fol_parser::ast::AstParser;
     use fol_parser::ast::SyntaxOrigin;
     use fol_resolver::resolve_package;
     use fol_stream::FileStream;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn write_typecheck_fixture(contents: &str) -> std::path::PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be monotonic enough for tmp names")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("fol_typecheck_lib_{stamp}"));
+        fs::create_dir_all(&dir).expect("should create typecheck fixture dir");
+        let path = dir.join("main.fol");
+        fs::write(&path, contents).expect("should write typecheck fixture");
+        path
+    }
+
+    fn typecheck_fixture_errors(contents: &str) -> Vec<TypecheckError> {
+        let path = write_typecheck_fixture(contents);
+        let mut stream =
+            FileStream::from_file(path.to_str().expect("utf8 temp path")).expect("open fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("fixture should parse");
+        let resolved = resolve_package(syntax).expect("fixture should resolve");
+        Typechecker::new()
+            .check_resolved_program(resolved)
+            .expect_err("fixture should be rejected")
+    }
 
     #[test]
     fn typechecker_foundation_can_be_constructed() {
@@ -143,6 +175,20 @@ mod tests {
         assert_eq!(
             ParsedSourceUnitKind::Build,
             fol_parser::ast::ParsedSourceUnitKind::Build
+        );
+    }
+
+    #[test]
+    fn when_expressions_require_a_default_branch_before_lowering() {
+        let errors = typecheck_fixture_errors(
+            "fun[] main(): int = {\n    return when(1) {\n        is 1 -> 1\n    };\n};\n",
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains("when expressions require a default branch")),
+            "typecheck should reject missing-default when expressions before lowering: {errors:#?}"
         );
     }
 }

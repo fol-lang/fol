@@ -1,6 +1,11 @@
 # Macros
 
+Current boundary:
 
+- the `def`-based meta family (macros, alternatives, defaults, templates) is
+  planned for a future release; none of it is part of the current compiler
+  surface
+- everything below describes intended design, not current behavior
 
 Are a very complicated system, and yet can be used as simply as in-place replacement. A lot of build-in macros exist in the language to make the code more easy to type. Below are some system defined macros. 
 

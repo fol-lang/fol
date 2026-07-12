@@ -1,0 +1,11 @@
+std shape: blu = {
+    var size: int;
+};
+
+typ Rect()(shape): rec = {
+    var width: int;
+};
+
+fun[] main(): int = {
+    return 0;
+};

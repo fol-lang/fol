@@ -2,7 +2,7 @@ use std::fmt;
 
 /// Declaration keyword names used by syntax tooling and tree-sitter.
 pub const DECLARATION_KEYWORDS: &[&str] = &[
-    "fun", "var", "def", "typ", "pro", "log", "seg", "ali", "imp", "lab", "con", "use", "std",
+    "fun", "var", "def", "typ", "pro", "log", "seg", "ali", "lab", "con", "use", "std",
 ];
 
 /// Control flow keyword names.
@@ -38,7 +38,6 @@ pub enum BUILDIN {
     Typ,
     Std,
     Ali,
-    Imp,
     Lab,
 
     Not,
@@ -99,7 +98,6 @@ impl fmt::Display for BUILDIN {
             BUILDIN::Typ => "typ",
             BUILDIN::Std => "std",
             BUILDIN::Ali => "ali",
-            BUILDIN::Imp => "imp",
             BUILDIN::Lab => "lab",
             BUILDIN::Not => "not",
             BUILDIN::Or => "or",

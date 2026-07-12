@@ -20,6 +20,37 @@ Import reminder:
 - only `std` is an importable source-level library namespace
 - `core` and `memo` are compiler/runtime capability choices, not `use` targets
 
+## The three concepts
+
+Everything in this document reduces to three separate ideas. Keeping them
+apart is what makes the model coherent:
+
+1. **Declared capability mode** — the `fol_model` string on each artifact in
+   `build.fol`. There are exactly two: `core` and `memo`.
+2. **Bundled `std` dependency** — an explicit
+   `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
+   declaration. It is a package dependency, never a third `fol_model`.
+3. **Effective runtime tier** — what the artifact actually typechecks and
+   links against. Derived, never written by hand:
+
+| Declared mode | Bundled `std` declared? | Effective tier | `.echo` substrate |
+|---------------|--------------------------|----------------|-------------------|
+| `core`        | (not allowed)            | `core`         | forbidden         |
+| `memo`        | no                       | `memo`         | forbidden         |
+| `memo`        | yes                      | hosted (`std`) | legal             |
+
+The promotion in the last row is the one rule people trip over: declaring the
+bundled internal `standard` dependency upgrades the artifact's effective
+capability to hosted. That is what lets the bundled std wrappers (which are
+built on the hosted `.echo(...)` primitive) typecheck — and it also legalizes
+direct `.echo(...)` in your own source as the raw substrate
+(`examples/std_substrate_echo` pins exactly this). Style still says ordinary
+hosted code goes through `std.io`, but legality is decided by the dependency
+declaration, not the spelling.
+
+The build output reports both halves explicitly, for example:
+`capability_mode=memo, bundled_std=1/1`.
+
 Recommended style:
 
 - spell `fol_model` explicitly when the artifact is `core`
@@ -98,7 +129,8 @@ Adds:
 - `map[...]`
 - dynamic/string `.len(...)`
 
-Still forbidden:
+Still forbidden **unless the bundled internal `standard` dependency is
+declared** (which upgrades the effective tier to hosted):
 
 - `.echo(...)`
 - process/console/filesystem/network services
@@ -117,7 +149,7 @@ fun[] label(prefix: str, extras: ... str): str = {
 };
 ```
 
-Forbidden example:
+Forbidden example (a `memo` artifact with no bundled std dependency):
 
 ```fol
 fun[] main(): int = {
@@ -206,7 +238,8 @@ build.add_dep({
 Direct boundary reminder:
 
 - a `core` artifact must not declare `str`, `seq`, `vec`, `set`, or `map`
-- a `memo` artifact must not call `.echo(...)`
+- a `memo` artifact without the bundled `standard` dependency must not call
+  `.echo(...)`
 - a `core` or `memo` artifact may still be runnable without bundled std if it
   does not import bundled std APIs
 
@@ -247,7 +280,9 @@ The consuming artifact model always wins.
 
 Implemented today:
 
-- `.echo(...)` requires hosted std support
+- `.echo(...)` requires hosted std support; declaring the bundled internal
+  `standard` dependency on a `memo` artifact provides it (the whole
+  consuming workspace typechecks at the hosted capability)
 - `str`, `vec`, `seq`, `set`, and `map` are rejected in `core`
 - array `.len(...)` stays valid in `core`
 - dynamic/string `.len(...)` requires `memo`

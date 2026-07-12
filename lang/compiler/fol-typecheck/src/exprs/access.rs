@@ -44,26 +44,31 @@ pub(crate) fn type_field_access(
                 )
             }),
         Some(CheckedType::Entry { variants }) => {
+            if !variants.contains_key(field) {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!("entry receiver does not expose a variant named '{field}'"),
+                ));
+            }
+            // A bare entry-variant access denotes a value of the entry type
+            // itself. It may additionally coerce to its stored payload type
+            // when an explicit non-entry expectation asks for it (e.g.
+            // returning `Color.BLUE` as `str`). Without such an expectation
+            // the natural type is the entry, which is what generic argument
+            // inference and ordinary assignability both need.
             if let Some(expected_type) = expected_type {
                 let expected_apparent = apparent_type_id(typed, expected_type)?;
-                if expected_apparent == resolved_type && variants.contains_key(field) {
+                if expected_apparent == resolved_type {
                     return Ok(TypedExpr::value(expected_type)
                         .with_optional_effect(object_expr.recoverable_effect));
                 }
+                if let Some(payload) = variants.get(field).copied().flatten() {
+                    return Ok(TypedExpr::value(payload)
+                        .with_optional_effect(object_expr.recoverable_effect));
+                }
             }
-            variants
-                .get(field)
-                .copied()
-                .flatten()
-                .map(|type_id| {
-                    TypedExpr::value(type_id).with_optional_effect(object_expr.recoverable_effect)
-                })
-                .ok_or_else(|| {
-                    TypecheckError::new(
-                        TypecheckErrorKind::InvalidInput,
-                        format!("entry receiver does not expose a variant named '{field}'"),
-                    )
-                })
+            Ok(TypedExpr::value(object_type)
+                .with_optional_effect(object_expr.recoverable_effect))
         }
         _ => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
@@ -90,7 +95,26 @@ pub(crate) fn type_index_access(
         node_origin(resolved, container),
         "index access receiver",
     )?;
-    let index_raw = type_node(typed, resolved, context, index)?;
+    let container_type =
+        container_expr.required_value("index access does not have a typed container")?;
+    let resolved_type = apparent_type_id(typed, container_type)?;
+    // Type the index against the container's key type so literals settle on
+    // the expected shape (a single-character string key must stay str).
+    let expected_index_type = match typed.type_table().get(resolved_type) {
+        Some(CheckedType::Map { key_type, .. }) => Some(*key_type),
+        Some(CheckedType::Array { .. })
+        | Some(CheckedType::Vector { .. })
+        | Some(CheckedType::Sequence { .. })
+        | Some(CheckedType::Set { .. }) => Some(typed.builtin_types().int),
+        _ => None,
+    };
+    let index_raw = super::type_node_with_expectation(
+        typed,
+        resolved,
+        context,
+        index,
+        expected_index_type,
+    )?;
     let index_expr = plain_value_expr(
         typed,
         context,
@@ -98,11 +122,8 @@ pub(crate) fn type_index_access(
         node_origin(resolved, index),
         "index expression",
     )?;
-    let container_type =
-        container_expr.required_value("index access does not have a typed container")?;
     let index_type =
         index_expr.required_value("index access does not have a typed index expression")?;
-    let resolved_type = apparent_type_id(typed, container_type)?;
     let merged_effect = merge_recoverable_effects(
         typed,
         node_origin(resolved, container).or_else(|| node_origin(resolved, index)),

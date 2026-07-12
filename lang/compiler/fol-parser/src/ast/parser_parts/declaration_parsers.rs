@@ -173,6 +173,18 @@ impl AstParser {
 
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
+        let options = self.parse_type_options(tokens)?;
+        if options
+            .iter()
+            .any(|option| !matches!(option, TypeOption::Export))
+        {
+            let token = tokens.curr(false)?;
+            return Err(ParseError::from_token(
+                &token,
+                "Alias declarations support only the export option".to_string(),
+            ));
+        }
+        self.skip_ignorable(tokens)?;
 
         let name_token = tokens.curr(false)?;
         let name = Self::expect_named_label(&name_token, "Expected alias declaration name")?;
@@ -191,7 +203,11 @@ impl AstParser {
         self.skip_ignorable(tokens)?;
         let target = self.parse_type_reference_tokens(tokens)?;
 
-        Ok(AstNode::AliasDecl { name, target })
+        Ok(AstNode::AliasDecl {
+            options,
+            name,
+            target,
+        })
     }
 
     pub(super) fn parse_type_decl(
@@ -304,6 +320,7 @@ impl AstParser {
                 options: options.clone(),
                 generics: generics.clone(),
                 contracts,
+                explicit_contracts: explicit_contracts.clone(),
                 name,
                 type_def,
             });
@@ -349,6 +366,7 @@ impl AstParser {
                 return Ok(TypeDefinition::Record {
                     fields: HashMap::new(),
                     field_meta: HashMap::new(),
+                    field_order: Vec::new(),
                     members: Vec::new(),
                 });
             }
@@ -544,6 +562,7 @@ impl AstParser {
                 "get" => TypeOption::Get,
                 "nothing" | "non" => TypeOption::Nothing,
                 "ext" => TypeOption::Extension,
+                "ali" => TypeOption::Alias,
                 _ => {
                     return Err(ParseError::from_token(
                         &token,

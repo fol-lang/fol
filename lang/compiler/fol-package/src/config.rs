@@ -39,8 +39,11 @@ mod tests {
     fn bundled_std_root_points_at_repo_library_tree() {
         let root = bundled_std_root();
 
-        assert!(root.ends_with("lang/library/std"));
         assert!(root.is_dir(), "bundled std root should exist in the repo");
+        let canonical = root
+            .canonicalize()
+            .expect("bundled std root should canonicalize");
+        assert!(canonical.ends_with("lang/library/std"));
     }
 
     #[test]

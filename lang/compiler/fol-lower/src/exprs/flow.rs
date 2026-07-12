@@ -48,7 +48,7 @@ fn node_always_terminates(node: &AstNode) -> bool {
         AstNode::Comment { .. } => false,
         AstNode::Commented { node, .. } => node_always_terminates(node),
         AstNode::Return { .. } => true,
-        AstNode::FunctionCall { name, .. } if name == "report" => true,
+        AstNode::FunctionCall { name, .. } if name == "report" || name == "panic" => true,
         AstNode::Block { statements, .. } => body_always_terminates(statements),
         AstNode::When { cases, default, .. } => when_always_terminates(cases, default.as_deref()),
         _ => false,
@@ -751,19 +751,13 @@ pub(crate) fn when_case_condition_and_body(
         | fol_parser::ast::WhenCase::Is {
             value: condition,
             body,
-        }
-        | fol_parser::ast::WhenCase::In {
-            range: condition,
-            body,
-        }
-        | fol_parser::ast::WhenCase::Has {
-            member: condition,
-            body,
-        }
-        | fol_parser::ast::WhenCase::On {
-            channel: condition,
-            body,
         } => Ok((condition, body.as_slice())),
+        fol_parser::ast::WhenCase::In { .. }
+        | fol_parser::ast::WhenCase::Has { .. }
+        | fol_parser::ast::WhenCase::On { .. } => Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            "membership and channel when branches are not lowered in V1; typecheck should have rejected them",
+        )),
         fol_parser::ast::WhenCase::Of { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
             "type-matching when/of branches are not lowered in this slice yet",

@@ -152,7 +152,7 @@ cascade into dozens of unrelated errors.
 
 When a declaration parse fails, the parser calls `sync_to_next_declaration` to
 skip forward to the next declaration-start keyword (`fun`, `var`, `def`, `typ`,
-`pro`, `log`, `seg`, `ali`, `imp`, `lab`, `con`, `use`) or EOF. This means:
+`pro`, `log`, `seg`, `ali`, `lab`, `con`, `use`) or EOF. This means:
 
 - `fun[exp] emit(...) = { ... }` produces exactly 1 error, not 20+
 - two broken declarations separated by a good one produce 2 errors, and the

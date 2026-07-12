@@ -1,5 +1,13 @@
 # Rolling
 
+Current boundary:
+
+- rolling / list-comprehension expressions are not part of the current compiler
+  surface; the compiler rejects them with an explicit "not yet supported"
+  diagnostic
+- everything below describes intended design, not current behavior
+- this is later design work, not part of the current V1 compiler surface
+
 Rolling or list comprehension is a syntactic construct available FOL for creating a list based on existing lists. It follows the form of the mathematical set-builder notation - set comprehension.
 
 

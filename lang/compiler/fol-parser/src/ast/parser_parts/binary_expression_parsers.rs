@@ -5,7 +5,14 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<AstNode, ParseError> {
-        self.parse_pipe_expression(tokens)
+        let _nesting = self.enter_nesting(tokens)?;
+        // Recursive descent follows user nesting; grow the stack in
+        // segments (rustc's ensure_sufficient_stack pattern) so legal
+        // nesting never overflows small worker-thread stacks. The nesting
+        // guard above still bounds pathological depth semantically.
+        stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+            self.parse_pipe_expression(tokens)
+        })
     }
 
     pub(super) fn parse_logical_or_expression(

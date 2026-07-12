@@ -135,11 +135,11 @@ impl TypecheckSession {
                 package.program.clone(),
                 self.config.capability_model,
             );
-            if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed) {
-                errors.append(&mut package_errors);
-            } else if let Err(mut package_errors) =
+            if let Err(mut package_errors) =
                 self.hydrate_mounted_symbol_types(&mut typed, typed_packages)
             {
+                errors.append(&mut package_errors);
+            } else if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed) {
                 errors.append(&mut package_errors);
             } else if let Err(mut package_errors) = exprs::type_program(&mut typed) {
                 errors.append(&mut package_errors);
@@ -314,6 +314,8 @@ impl TypecheckSession {
         })?;
         typed_symbol.declared_type = Some(translated);
         typed_symbol.receiver_type = translated_receiver;
+        typed_symbol.generic_params = foreign_type.generic_params.clone();
+        typed_symbol.generic_constraints = foreign_type.generic_constraints.clone();
         Ok(())
     }
 
@@ -349,8 +351,30 @@ impl TypecheckSession {
             CheckedType::Builtin(builtin) => {
                 target_program.type_table_mut().intern_builtin(builtin)
             }
-            CheckedType::Declared { symbol, name, kind } => {
-                if let Some(translated_symbol) = translated_symbol_id(
+            CheckedType::Declared { symbol, name, kind, args } => {
+                // A generic instantiation carries type args in the SOURCE
+                // program; translate each into the target program so the
+                // imported instance keeps its nominal `(symbol, args)` identity.
+                let translated_args = args
+                    .iter()
+                    .map(|arg| {
+                        self.import_type_id(
+                            target_program,
+                            source_identity,
+                            source_program,
+                            *arg,
+                            mounted_symbol_map,
+                            imported_cache,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if kind == crate::DeclaredTypeKind::GenericParameter {
+                    // Generic parameters are opaque placeholders; expanding
+                    // their declared type would chase a self-reference.
+                    target_program
+                        .type_table_mut()
+                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args })
+                } else if let Some(translated_symbol) = translated_symbol_id(
                     source_identity,
                     source_program,
                     symbol,
@@ -362,6 +386,7 @@ impl TypecheckSession {
                             symbol: translated_symbol,
                             name,
                             kind,
+                            args: translated_args,
                         })
                 } else if let Some(expanded_type) = source_program
                     .typed_symbol(symbol)
@@ -369,21 +394,33 @@ impl TypecheckSession {
                 {
                     let shell_type = target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind });
+                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args });
+                    // Guard against cyclic declared types: cache the shell
+                    // before expanding so re-entry terminates.
+                    imported_cache
+                        .insert((source_identity.clone(), source_type_id), shell_type);
+                    // A generic instantiation's apparent shape is the source's
+                    // own apparent override (its substituted record), not the
+                    // generic template; import that if present, else the body.
+                    let source_apparent = source_program
+                        .apparent_type_override(source_type_id)
+                        .unwrap_or(expanded_type);
                     let apparent_type = self.import_type_id(
                         target_program,
                         source_identity,
                         source_program,
-                        expanded_type,
+                        source_apparent,
                         mounted_symbol_map,
                         imported_cache,
                     )?;
-                    target_program.record_apparent_type_override(shell_type, apparent_type);
+                    if apparent_type != shell_type {
+                        target_program.record_apparent_type_override(shell_type, apparent_type);
+                    }
                     shell_type
                 } else {
                     target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind })
+                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args })
                 }
             }
             CheckedType::Array { element_type, size } => {
@@ -584,6 +621,8 @@ impl TypecheckSession {
                 target_program
                     .type_table_mut()
                     .intern(CheckedType::Routine(crate::RoutineType {
+                        generic_params: Vec::new(),
+                        generic_constraints: BTreeMap::new(),
                         param_names: signature.param_names.clone(),
                         param_defaults: signature.param_defaults.clone(),
                         variadic_index: signature.variadic_index,

@@ -1,5 +1,6 @@
 use crate::{
-    RecoverableCallEffect, RoutineType, TypecheckError, TypecheckErrorKind, TypedProgram,
+    CheckedType, CheckedTypeId, DeclaredTypeKind, RecoverableCallEffect, RoutineType,
+    TypecheckError, TypecheckErrorKind, TypedProgram,
 };
 use fol_intrinsics::{
     boolean_operand_contract, comparison_operand_contract, query_operand_contract, select_intrinsic,
@@ -8,6 +9,7 @@ use fol_intrinsics::{
 };
 use fol_parser::ast::{AstNode, QualifiedPath, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{ReferenceId, ReferenceKind, ResolvedProgram, SymbolId, SymbolKind};
+use std::collections::BTreeMap;
 
 use super::helpers::{
     apparent_type_id, describe_type, ensure_assignable, internal_error, is_error_shell_type,
@@ -23,6 +25,7 @@ pub(crate) fn type_function_call(
     resolved: &ResolvedProgram,
     context: TypeContext,
     name: &str,
+    type_args: &[fol_parser::ast::FolType],
     args: &[AstNode],
     syntax_id: Option<SyntaxNodeId>,
 ) -> Result<TypedExpr, TypecheckError> {
@@ -40,7 +43,20 @@ pub(crate) fn type_function_call(
         reference_id,
         origin_for(resolved, syntax_id),
     )?;
-    let arg_effect = check_call_arguments(
+    let signature = if type_args.is_empty() {
+        signature
+    } else {
+        instantiate_signature_with_explicit_type_args(
+            typed,
+            resolved,
+            context,
+            &signature,
+            name,
+            type_args,
+            origin_for(resolved, syntax_id),
+        )?
+    };
+    let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
         context,
@@ -644,7 +660,7 @@ pub(crate) fn type_qualified_function_call(
         reference_id,
         origin_for(resolved, syntax_id),
     )?;
-    let arg_effect = check_call_arguments(
+    let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
         context,
@@ -702,8 +718,14 @@ pub(crate) fn type_method_call(
         "method receiver for '{method}' does not have a type"
     ))?;
     let origin = node_origin(resolved, node).or_else(|| node_origin(resolved, object));
-    let signature = routine_signature_for_method(typed, method, object_type, origin.clone())?;
-    let arg_effect = check_call_arguments(
+    let signature = routine_signature_for_method(
+        typed,
+        method,
+        object_type,
+        origin.clone(),
+        node.syntax_id(),
+    )?;
+    let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
         context,
@@ -726,6 +748,14 @@ pub(crate) fn type_method_call(
                 .map(|error_type| RecoverableCallEffect { error_type }),
         ],
     )?;
+    if let Some(syntax_id) = node.syntax_id() {
+        if let Some(return_type) = signature.return_type {
+            typed.record_node_type(syntax_id, context.source_unit_id, return_type)?;
+        }
+        if let Some(effect) = merged {
+            typed.record_node_recoverable_effect(syntax_id, context.source_unit_id, effect)?;
+        }
+    }
     Ok(TypedExpr::maybe_value(signature.return_type).with_optional_effect(merged))
 }
 
@@ -806,8 +836,17 @@ fn routine_signature_for_method(
     method: &str,
     object_type: crate::CheckedTypeId,
     origin: Option<SyntaxOrigin>,
+    call_syntax_id: Option<SyntaxNodeId>,
 ) -> Result<RoutineType, TypecheckError> {
-    let mut matches = Vec::new();
+    let mut matches: Vec<(SymbolId, RoutineType)> = Vec::new();
+    // Candidates matched by unifying a *generic* receiver template against the
+    // concrete object. Two distinct generic types with the same structure
+    // (`Box(T){value:T}` and `Cup(T){value:T}`) instantiate to the identical
+    // structural record, so a value of that shape genuinely cannot say which
+    // base it came from — nominal identity of generic instantiations is not yet
+    // tracked. We detect that case below and gate it with an honest diagnostic
+    // rather than silently choosing one conformer.
+    let mut generic_receiver_matches = 0usize;
 
     let candidate_ids = typed
         .resolved()
@@ -819,22 +858,191 @@ fn routine_signature_for_method(
         .collect::<Vec<_>>();
 
     for symbol_id in candidate_ids {
-        if typed
+        let receiver_type = typed
             .typed_symbol(symbol_id)
-            .and_then(|symbol| symbol.receiver_type)
-            .is_some_and(|receiver_type| receiver_type == object_type)
-        {
-            matches.push(routine_signature_for_symbol(
-                typed,
-                typed.resolved(),
+            .and_then(|symbol| symbol.receiver_type);
+        let Some(receiver_type) = receiver_type else {
+            continue;
+        };
+        if receiver_type == object_type {
+            matches.push((
                 symbol_id,
-                origin.clone(),
-            )?);
+                routine_signature_for_symbol(typed, typed.resolved(), symbol_id, origin.clone())?,
+            ));
+            continue;
+        }
+        // Try to unify the routine's generic receiver template against the
+        // concrete object type. If it unifies, bind the routine generics and
+        // monomorphize the signature here so downstream argument checking
+        // sees a fully-concrete signature.
+        let signature = routine_signature_for_symbol(
+            typed,
+            typed.resolved(),
+            symbol_id,
+            origin.clone(),
+        )?;
+        if signature.generic_params.is_empty() {
+            continue;
+        }
+        let Some(bindings) = crate::decls::unify_receiver_with_object(
+            typed,
+            receiver_type,
+            object_type,
+            &signature.generic_params,
+        ) else {
+            continue;
+        };
+        let instantiated =
+            instantiate_generic_signature(typed, &signature, &bindings, method, origin.clone())?;
+        matches.push((symbol_id, instantiated));
+        generic_receiver_matches += 1;
+    }
+
+    // Constrained generic receivers: `fun measure(T: sized)(thing: T)` may
+    // call any routine the constraint standard requires. The concrete callee
+    // is only known after monomorphization, so record the call site as a
+    // deferred constraint call and type it from the requirement signature.
+    if matches.is_empty() {
+        if let Some(CheckedType::Declared {
+            kind: crate::DeclaredTypeKind::GenericParameter,
+            symbol: param_symbol,
+            ..
+        }) = typed.type_table().get(object_type).cloned()
+        {
+            // A generic parameter's bound can be recorded on more than one
+            // typed symbol (the declaring routine/type and the parameter's own
+            // self-entry), so dedupe before turning each constraint into a
+            // constraint-call candidate; otherwise the same requirement would
+            // register twice and read as ambiguous. Each constraint carries the
+            // standard's type arguments so a generic standard's own parameters
+            // (`fun fetch(): Item` on `Holder[int]`) are substituted to the
+            // instantiation type before the call site is typed.
+            let constraints = typed
+                .all_typed_symbols()
+                .flat_map(|typed_symbol| typed_symbol.generic_constraints.get(&param_symbol))
+                .flatten()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            for constraint in constraints {
+                let Some(standard) = typed.typed_standard(constraint.standard).cloned() else {
+                    continue;
+                };
+                // Bind the standard's own generic parameters to the constraint
+                // arguments; empty for a non-generic standard.
+                let bindings: BTreeMap<SymbolId, CheckedTypeId> =
+                    if standard.generic_params.len() == constraint.args.len() {
+                        standard
+                            .generic_params
+                            .iter()
+                            .copied()
+                            .zip(constraint.args.iter().copied())
+                            .collect()
+                    } else {
+                        BTreeMap::new()
+                    };
+                for requirement in &standard.required_routines {
+                    if requirement.name != method {
+                        continue;
+                    }
+                    let params = requirement
+                        .params
+                        .iter()
+                        .map(|type_id| {
+                            crate::decls::substitute_generic_checked_type(
+                                typed, *type_id, &bindings, None,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let return_type = requirement
+                        .return_type
+                        .map(|type_id| {
+                            crate::decls::substitute_generic_checked_type(
+                                typed, type_id, &bindings, None,
+                            )
+                        })
+                        .transpose()?;
+                    let error_type = requirement
+                        .error_type
+                        .map(|type_id| {
+                            crate::decls::substitute_generic_checked_type(
+                                typed, type_id, &bindings, None,
+                            )
+                        })
+                        .transpose()?;
+                    let param_names = (0..params.len())
+                        .map(|index| format!("arg{index}"))
+                        .collect::<Vec<_>>();
+                    let param_defaults = vec![None; params.len()];
+                    let signature = RoutineType {
+                        generic_params: Vec::new(),
+                        generic_constraints: BTreeMap::new(),
+                        param_names,
+                        param_defaults,
+                        variadic_index: None,
+                        params,
+                        return_type,
+                        error_type,
+                    };
+                    if let Some(syntax_id) = call_syntax_id {
+                        typed.record_constraint_call_site(syntax_id);
+                    }
+                    matches.push((requirement.symbol_id, signature));
+                }
+            }
+        }
+    }
+
+    // Fallback: the conformer may inherit this method from a standard
+    // default body. We only look for defaults when no direct receiver
+    // routine was found, so explicit conformer overrides always win.
+    if matches.is_empty() {
+        if let Some(type_symbol_id) =
+            crate::decls::conformance_subject_symbol(typed, object_type)
+        {
+            if let Some(conformance) = typed.typed_conformance(type_symbol_id).cloned() {
+                for standard_symbol_id in conformance.standard_symbol_ids {
+                    let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
+                        continue;
+                    };
+                    for requirement in &standard.required_routines {
+                        if !requirement.has_default_body || requirement.name != method {
+                            continue;
+                        }
+                        // Surface the default body as a method signature.
+                        // FOL receiver routines keep the receiver separate
+                        // from the explicit `params` list, so we mirror
+                        // that shape: `params` stays exactly as declared
+                        // in the standard and the call-site receiver is
+                        // implicit.
+                        let param_names = (0..requirement.params.len())
+                            .map(|index| format!("arg{index}"))
+                            .collect::<Vec<_>>();
+                        let param_defaults = vec![None; requirement.params.len()];
+                        let signature = RoutineType {
+                            generic_params: Vec::new(),
+                            generic_constraints: BTreeMap::new(),
+                            param_names,
+                            param_defaults,
+                            variadic_index: None,
+                            params: requirement.params.clone(),
+                            return_type: requirement.return_type,
+                            error_type: requirement.error_type,
+                        };
+                        matches.push((requirement.symbol_id, signature));
+                    }
+                }
+            }
         }
     }
 
     match matches.len() {
-        1 => Ok(matches.remove(0)),
+        1 => {
+            let (chosen_symbol, signature) = matches.remove(0);
+            if let Some(syntax_id) = call_syntax_id {
+                typed.record_method_call_target(syntax_id, chosen_symbol);
+            }
+            Ok(signature)
+        }
         0 => Err(origin.clone().map_or_else(
             || {
                 TypecheckError::new(
@@ -850,21 +1058,16 @@ fn routine_signature_for_method(
                 )
             },
         )),
-        _ => Err(origin.map_or_else(
-            || {
-                TypecheckError::new(
-                    TypecheckErrorKind::InvalidInput,
-                    format!("method '{method}' is ambiguous for the receiver type"),
-                )
-            },
-            |origin| {
-                TypecheckError::with_origin(
-                    TypecheckErrorKind::InvalidInput,
-                    format!("method '{method}' is ambiguous for the receiver type"),
-                    origin,
-                )
-            },
-        )),
+        _ => {
+            let _ = generic_receiver_matches;
+            let message = format!("method '{method}' is ambiguous for the receiver type");
+            Err(match origin {
+                Some(origin) => {
+                    TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+                }
+                None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+            })
+        }
     }
 }
 
@@ -878,7 +1081,7 @@ pub(crate) fn check_call_arguments(
     origin: Option<SyntaxOrigin>,
     allow_named: bool,
     allow_defaults: bool,
-) -> Result<Option<RecoverableCallEffect>, TypecheckError> {
+) -> Result<(RoutineType, Option<RecoverableCallEffect>), TypecheckError> {
     let ordered_args = bind_call_arguments(
         signature,
         args,
@@ -888,30 +1091,33 @@ pub(crate) fn check_call_arguments(
         allow_defaults,
     )?;
 
+    let mut generic_bindings = BTreeMap::new();
     let mut arg_effects = Vec::new();
     for (expected, arg) in signature.params.iter().zip(ordered_args.iter()) {
         match arg {
             BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
-                let actual_expr = type_node_with_expectation(
-                    typed,
-                    resolved,
-                    context,
-                    arg,
-                    Some(*expected),
-                )
+                let contains_generics =
+                    crate::decls::checked_type_contains_generic_param(typed, *expected);
+                let actual_expr = if contains_generics {
+                    type_node(typed, resolved, context, arg)
+                } else {
+                    type_node_with_expectation(typed, resolved, context, arg, Some(*expected))
+                }
                 .map_err(|error| {
                     origin
                         .clone()
                         .or_else(|| node_origin(resolved, arg))
                         .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
                 })?;
-                reject_recoverable_error_shell_conversion(
-                    typed,
-                    *expected,
-                    &actual_expr,
-                    origin.clone().or_else(|| node_origin(resolved, arg)),
-                    format!("call to '{callee}'"),
-                )?;
+                if !contains_generics {
+                    reject_recoverable_error_shell_conversion(
+                        typed,
+                        *expected,
+                        &actual_expr,
+                        origin.clone().or_else(|| node_origin(resolved, arg)),
+                        format!("call to '{callee}'"),
+                    )?;
+                }
                 let actual_expr = plain_value_expr(
                     typed,
                     context,
@@ -922,13 +1128,24 @@ pub(crate) fn check_call_arguments(
                 let actual = actual_expr
                     .required_value(format!("argument for '{callee}' does not have a type"))?;
                 arg_effects.push(actual_expr.recoverable_effect);
-                ensure_assignable(
-                    typed,
-                    *expected,
-                    actual,
-                    format!("call to '{callee}'"),
-                    origin.clone(),
-                )?;
+                if contains_generics {
+                    infer_generic_bindings_from_argument(
+                        typed,
+                        *expected,
+                        actual,
+                        &mut generic_bindings,
+                        format!("call to '{callee}'"),
+                        origin.clone().or_else(|| node_origin(resolved, arg)),
+                    )?;
+                } else {
+                    ensure_assignable(
+                        typed,
+                        *expected,
+                        apparent_type_id(typed, actual)?,
+                        format!("call to '{callee}'"),
+                        origin.clone(),
+                    )?;
+                }
             }
             BoundCallArg::VariadicPack(args) => {
                 let element_type = match typed.type_table().get(*expected) {
@@ -943,19 +1160,28 @@ pub(crate) fn check_call_arguments(
                     }
                 };
                 for arg in args {
-                    let actual_expr = type_node_with_expectation(
-                        typed,
-                        resolved,
-                        context,
-                        arg,
-                        Some(element_type),
-                    )
+                    let contains_generics =
+                        crate::decls::checked_type_contains_generic_param(typed, element_type);
+                    let actual_expr = if contains_generics {
+                        type_node(typed, resolved, context, arg)
+                    } else {
+                        type_node_with_expectation(typed, resolved, context, arg, Some(element_type))
+                    }
                     .map_err(|error| {
                         origin
                             .clone()
                             .or_else(|| node_origin(resolved, arg))
                             .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
                     })?;
+                    if !contains_generics {
+                        reject_recoverable_error_shell_conversion(
+                            typed,
+                            element_type,
+                            &actual_expr,
+                            origin.clone().or_else(|| node_origin(resolved, arg)),
+                            format!("call to '{callee}'"),
+                        )?;
+                    }
                     let actual_expr = plain_value_expr(
                         typed,
                         context,
@@ -967,20 +1193,554 @@ pub(crate) fn check_call_arguments(
                         "variadic argument for '{callee}' does not have a type"
                     ))?;
                     arg_effects.push(actual_expr.recoverable_effect);
-                    ensure_assignable(
-                        typed,
-                        element_type,
-                        actual,
-                        format!("call to '{callee}'"),
-                        origin.clone(),
-                    )?;
+                    if contains_generics {
+                        infer_generic_bindings_from_argument(
+                            typed,
+                            element_type,
+                            actual,
+                            &mut generic_bindings,
+                            format!("call to '{callee}'"),
+                            origin.clone().or_else(|| node_origin(resolved, arg)),
+                        )?;
+                    } else {
+                        ensure_assignable(
+                            typed,
+                            element_type,
+                            apparent_type_id(typed, actual)?,
+                            format!("call to '{callee}'"),
+                            origin.clone(),
+                        )?;
+                    }
                 }
             }
             BoundCallArg::Default => {}
         }
     }
 
-    merge_recoverable_effects(typed, origin, "call arguments", arg_effects)
+    let instantiated =
+        instantiate_generic_signature(typed, signature, &generic_bindings, callee, origin.clone())?;
+    Ok((
+        instantiated,
+        merge_recoverable_effects(typed, origin, "call arguments", arg_effects)?,
+    ))
+}
+
+fn infer_generic_bindings_from_argument(
+    typed: &TypedProgram,
+    expected: CheckedTypeId,
+    actual: CheckedTypeId,
+    bindings: &mut BTreeMap<SymbolId, CheckedTypeId>,
+    surface: String,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    // Nominal fast-path: if the parameter is a generic instantiation like
+    // `Box[T]` and the argument is `Box[Rect]` (same base declaration), bind
+    // the type parameters by unifying the arguments pairwise, BEFORE stripping
+    // to the structural record (which would hide the nominal args).
+    if let (
+        Some(CheckedType::Declared {
+            symbol: expected_symbol,
+            args: expected_args,
+            ..
+        }),
+        Some(CheckedType::Declared {
+            symbol: actual_symbol,
+            args: actual_args,
+            ..
+        }),
+    ) = (
+        typed.type_table().get(expected).cloned(),
+        typed.type_table().get(actual).cloned(),
+    ) {
+        if !expected_args.is_empty()
+            && expected_symbol == actual_symbol
+            && expected_args.len() == actual_args.len()
+        {
+            for (expected_arg, actual_arg) in expected_args.iter().zip(actual_args.iter()) {
+                infer_generic_bindings_from_argument(
+                    typed,
+                    *expected_arg,
+                    *actual_arg,
+                    bindings,
+                    surface.clone(),
+                    origin.clone(),
+                )?;
+            }
+            return Ok(());
+        }
+    }
+
+    let expected = apparent_type_id(typed, expected)?;
+    let actual_apparent = apparent_type_id(typed, actual)?;
+
+    match (typed.type_table().get(expected), typed.type_table().get(actual_apparent)) {
+        (
+            Some(CheckedType::Declared {
+                symbol,
+                kind: DeclaredTypeKind::GenericParameter,
+                ..
+            }),
+            _,
+        ) => bind_generic_parameter(typed, *symbol, actual, bindings, surface, origin),
+        (
+            Some(CheckedType::Array {
+                element_type: expected_element,
+                size: expected_size,
+            }),
+            Some(CheckedType::Array {
+                element_type: actual_element,
+                size: actual_size,
+            }),
+        ) if expected_size == actual_size => infer_generic_bindings_from_argument(
+            typed,
+            *expected_element,
+            *actual_element,
+            bindings,
+            surface,
+            origin,
+        ),
+        (
+            Some(CheckedType::Vector {
+                element_type: expected_element,
+            }),
+            Some(CheckedType::Vector {
+                element_type: actual_element,
+            }),
+        )
+        | (
+            Some(CheckedType::Sequence {
+                element_type: expected_element,
+            }),
+            Some(CheckedType::Sequence {
+                element_type: actual_element,
+            }),
+        )
+        | (
+            Some(CheckedType::Optional {
+                inner: expected_element,
+            }),
+            Some(CheckedType::Optional {
+                inner: actual_element,
+            }),
+        ) => infer_generic_bindings_from_argument(
+            typed,
+            *expected_element,
+            *actual_element,
+            bindings,
+            surface,
+            origin,
+        ),
+        (
+            Some(CheckedType::Error {
+                inner: expected_inner,
+            }),
+            Some(CheckedType::Error {
+                inner: actual_inner,
+            }),
+        ) => match (expected_inner, actual_inner) {
+            (Some(expected_inner), Some(actual_inner)) => infer_generic_bindings_from_argument(
+                typed,
+                *expected_inner,
+                *actual_inner,
+                bindings,
+                surface,
+                origin,
+            ),
+            (None, None) => Ok(()),
+            _ => ensure_assignable(typed, expected, actual_apparent, surface, origin),
+        },
+        // An instantiated generic named type (`Box[T]`) is a structural
+        // record/entry: recurse field-by-field so the concrete argument
+        // (`Box[Rect]`) binds the routine's generic parameters. Without this the
+        // parameter type keeps its raw `T` and the call fails to type-check.
+        (
+            Some(CheckedType::Record {
+                fields: expected_fields,
+            }),
+            Some(CheckedType::Record {
+                fields: actual_fields,
+            }),
+        ) if expected_fields.len() == actual_fields.len() => {
+            let pairs = expected_fields
+                .iter()
+                .map(|(name, expected_field)| {
+                    actual_fields
+                        .get(name)
+                        .map(|actual_field| (*expected_field, *actual_field))
+                })
+                .collect::<Option<Vec<_>>>();
+            match pairs {
+                Some(pairs) => {
+                    for (expected_field, actual_field) in pairs {
+                        infer_generic_bindings_from_argument(
+                            typed,
+                            expected_field,
+                            actual_field,
+                            bindings,
+                            surface.clone(),
+                            origin.clone(),
+                        )?;
+                    }
+                    Ok(())
+                }
+                None => ensure_assignable(typed, expected, actual_apparent, surface, origin),
+            }
+        }
+        (
+            Some(CheckedType::Entry {
+                variants: expected_variants,
+            }),
+            Some(CheckedType::Entry {
+                variants: actual_variants,
+            }),
+        ) if expected_variants.len() == actual_variants.len() => {
+            let pairs = expected_variants
+                .iter()
+                .map(|(name, expected_payload)| {
+                    actual_variants
+                        .get(name)
+                        .map(|actual_payload| (*expected_payload, *actual_payload))
+                })
+                .collect::<Option<Vec<_>>>();
+            match pairs {
+                Some(pairs) => {
+                    for (expected_payload, actual_payload) in pairs {
+                        if let (Some(expected_payload), Some(actual_payload)) =
+                            (expected_payload, actual_payload)
+                        {
+                            infer_generic_bindings_from_argument(
+                                typed,
+                                expected_payload,
+                                actual_payload,
+                                bindings,
+                                surface.clone(),
+                                origin.clone(),
+                            )?;
+                        }
+                    }
+                    Ok(())
+                }
+                None => ensure_assignable(typed, expected, actual_apparent, surface, origin),
+            }
+        }
+        (
+            Some(CheckedType::Map {
+                key_type: expected_key,
+                value_type: expected_value,
+            }),
+            Some(CheckedType::Map {
+                key_type: actual_key,
+                value_type: actual_value,
+            }),
+        ) => {
+            let (expected_key, expected_value) = (*expected_key, *expected_value);
+            let (actual_key, actual_value) = (*actual_key, *actual_value);
+            infer_generic_bindings_from_argument(
+                typed,
+                expected_key,
+                actual_key,
+                bindings,
+                surface.clone(),
+                origin.clone(),
+            )?;
+            infer_generic_bindings_from_argument(
+                typed,
+                expected_value,
+                actual_value,
+                bindings,
+                surface,
+                origin,
+            )
+        }
+        _ => ensure_assignable(typed, expected, actual_apparent, surface, origin),
+    }
+}
+
+fn bind_generic_parameter(
+    typed: &TypedProgram,
+    symbol: SymbolId,
+    actual: CheckedTypeId,
+    bindings: &mut BTreeMap<SymbolId, CheckedTypeId>,
+    surface: String,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    if let Some(bound) = bindings.get(&symbol).copied() {
+        ensure_assignable(typed, bound, actual, surface, origin)
+    } else {
+        bindings.insert(symbol, actual);
+        Ok(())
+    }
+}
+
+/// Substitute a generic routine signature with the explicit type
+/// arguments supplied at the call site via turbofish syntax
+/// (`pick::[int](x)`). Runs constraint validation in the same way as
+/// argument-driven inference.
+fn instantiate_signature_with_explicit_type_args(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    signature: &RoutineType,
+    callee: &str,
+    type_args: &[fol_parser::ast::FolType],
+    origin: Option<SyntaxOrigin>,
+) -> Result<RoutineType, TypecheckError> {
+    if signature.generic_params.is_empty() {
+        return Err(match origin.clone() {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "explicit generic type arguments supplied to '{callee}', which is not a generic routine"
+                ),
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "explicit generic type arguments supplied to '{callee}', which is not a generic routine"
+                ),
+            ),
+        });
+    }
+    if type_args.len() != signature.generic_params.len() {
+        let message = format!(
+            "explicit generic call to '{callee}' expects {} type argument(s) but got {}",
+            signature.generic_params.len(),
+            type_args.len()
+        );
+        return Err(match origin {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                message,
+                origin,
+            ),
+            None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+        });
+    }
+    let mut bindings: BTreeMap<SymbolId, CheckedTypeId> = BTreeMap::new();
+    for (symbol_id, type_arg) in signature.generic_params.iter().zip(type_args.iter()) {
+        let lowered = crate::decls::lower_type(typed, resolved, context.scope_id, type_arg)?;
+        bindings.insert(*symbol_id, lowered);
+    }
+    instantiate_generic_signature(typed, signature, &bindings, callee, origin)
+}
+
+fn instantiate_generic_signature(
+    typed: &mut TypedProgram,
+    signature: &RoutineType,
+    bindings: &BTreeMap<SymbolId, CheckedTypeId>,
+    callee: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<RoutineType, TypecheckError> {
+    if signature.generic_params.is_empty() {
+        return Ok(signature.clone());
+    }
+
+    let params = signature
+        .params
+        .iter()
+        .map(|param| substitute_generic_type(typed, *param, bindings, callee, origin.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let return_type = signature
+        .return_type
+        .map(|ty| substitute_generic_type(typed, ty, bindings, callee, origin.clone()))
+        .transpose()?;
+    let error_type = signature
+        .error_type
+        .map(|ty| substitute_generic_type(typed, ty, bindings, callee, origin.clone()))
+        .transpose()?;
+    crate::decls::validate_generic_bindings_against_constraints(
+        typed,
+        bindings,
+        &signature.generic_constraints,
+        format!("call to '{callee}'"),
+        origin.clone(),
+    )?;
+
+    Ok(RoutineType {
+        generic_params: Vec::new(),
+        generic_constraints: BTreeMap::new(),
+        param_names: signature.param_names.clone(),
+        param_defaults: signature.param_defaults.clone(),
+        variadic_index: signature.variadic_index,
+        params,
+        return_type,
+        error_type,
+    })
+}
+
+fn substitute_generic_type(
+    typed: &mut TypedProgram,
+    type_id: CheckedTypeId,
+    bindings: &BTreeMap<SymbolId, CheckedTypeId>,
+    callee: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let Some(checked) = typed.type_table().get(type_id).cloned() else {
+        return Err(internal_error("generic substitution lost a checked type", origin));
+    };
+
+    match checked {
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::GenericParameter,
+            ..
+        } => bindings.get(&symbol).copied().ok_or_else(|| {
+            let generic_name = typed
+                .resolved()
+                .symbol(symbol)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("?");
+            TypecheckError::with_origin(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "call to '{callee}' leaves generic parameter '{generic_name}' underconstrained in V2 Milestone 1; inference only uses call arguments, so add an argument whose type mentions '{generic_name}' or make the routine stop depending on '{generic_name}' outside the argument list"
+                ),
+                origin.unwrap_or(SyntaxOrigin {
+                    file: None,
+                    line: 1,
+                    column: 1,
+                    length: callee.len(),
+                }),
+            )
+        }),
+        CheckedType::Array { element_type, size } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Array { element_type, size }))
+        }
+        CheckedType::Vector { element_type } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Vector { element_type }))
+        }
+        CheckedType::Sequence { element_type } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Sequence { element_type }))
+        }
+        CheckedType::Optional { inner } => {
+            let inner = substitute_generic_type(typed, inner, bindings, callee, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Optional { inner }))
+        }
+        CheckedType::Error { inner } => {
+            let inner = inner
+                .map(|inner| substitute_generic_type(typed, inner, bindings, callee, origin))
+                .transpose()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Error { inner }))
+        }
+        CheckedType::Set { member_types } => {
+            let member_types = member_types
+                .into_iter()
+                .map(|member_type| {
+                    substitute_generic_type(typed, member_type, bindings, callee, origin.clone())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Set { member_types }))
+        }
+        CheckedType::Map {
+            key_type,
+            value_type,
+        } => {
+            let key_type =
+                substitute_generic_type(typed, key_type, bindings, callee, origin.clone())?;
+            let value_type =
+                substitute_generic_type(typed, value_type, bindings, callee, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Map {
+                key_type,
+                value_type,
+            }))
+        }
+        // An instantiated generic named type (e.g. `Box[T]`) is a structural
+        // record/entry whose fields still mention the routine's generic
+        // parameters. Recurse so the concrete call binding replaces them; a
+        // missed field is exactly the P3 leak where a call to `wrap` returned
+        // `Box[T]` instead of `Box[int]`.
+        CheckedType::Record { fields } => {
+            let fields = fields
+                .into_iter()
+                .map(|(name, field_type)| {
+                    substitute_generic_type(typed, field_type, bindings, callee, origin.clone())
+                        .map(|field_type| (name, field_type))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Record { fields }))
+        }
+        CheckedType::Entry { variants } => {
+            let variants = variants
+                .into_iter()
+                .map(|(name, variant_type)| {
+                    variant_type
+                        .map(|variant_type| {
+                            substitute_generic_type(
+                                typed,
+                                variant_type,
+                                bindings,
+                                callee,
+                                origin.clone(),
+                            )
+                        })
+                        .transpose()
+                        .map(|variant_type| (name, variant_type))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Entry { variants }))
+        }
+        // A generic instantiation carries its type args nominally
+        // (`Box[T]` = Declared{Box, args:[T]}). Substitute the args and
+        // re-instantiate so the node keeps nominal identity AND its apparent
+        // structural shape is recomputed for the concrete args — otherwise a
+        // call to `wrap` returns `Box[T]` instead of `Box[int]` (the P3 leak).
+        CheckedType::Declared {
+            symbol,
+            name,
+            kind,
+            args,
+        } if !args.is_empty() => {
+            let substituted_args = args
+                .iter()
+                .map(|arg| substitute_generic_type(typed, *arg, bindings, callee, origin.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let template = typed
+                .typed_symbol(symbol)
+                .and_then(|s| s.declared_type);
+            let generic_params = typed
+                .typed_symbol(symbol)
+                .map(|s| s.generic_params.clone())
+                .unwrap_or_default();
+            let instance = typed.type_table_mut().intern(CheckedType::Declared {
+                symbol,
+                name,
+                kind,
+                args: substituted_args.clone(),
+            });
+            if let Some(template) = template {
+                if generic_params.len() == substituted_args.len() {
+                    let inner_bindings: BTreeMap<SymbolId, CheckedTypeId> = generic_params
+                        .into_iter()
+                        .zip(substituted_args)
+                        .collect();
+                    let structural = crate::decls::substitute_generic_checked_type(
+                        typed,
+                        template,
+                        &inner_bindings,
+                        origin.clone(),
+                    )?;
+                    if instance != structural {
+                        typed.record_apparent_type_override(instance, structural);
+                    }
+                }
+            }
+            Ok(instance)
+        }
+        other => Ok(typed.type_table_mut().intern(other)),
+    }
 }
 
 enum BoundCallArg<'a> {
@@ -1192,10 +1952,19 @@ pub(crate) fn type_for_reference(
     reference_id: ReferenceId,
     origin: Option<SyntaxOrigin>,
 ) -> Result<TypedExpr, TypecheckError> {
-    let symbol_id = resolved
-        .reference(reference_id)
-        .and_then(|reference| reference.resolved)
-        .ok_or_else(|| {
+    let reference = resolved.reference(reference_id).ok_or_else(|| {
+        TypecheckError::with_origin(
+            TypecheckErrorKind::InvalidInput,
+            "resolved reference disappeared before typechecking",
+            origin.clone().unwrap_or(SyntaxOrigin {
+                file: None,
+                line: 1,
+                column: 1,
+                length: 1,
+            }),
+        )
+    })?;
+    let symbol_id = reference.resolved.ok_or_else(|| {
             TypecheckError::with_origin(
                 TypecheckErrorKind::InvalidInput,
                 "resolved reference lost its target symbol",
@@ -1208,6 +1977,26 @@ pub(crate) fn type_for_reference(
             )
         })?;
     let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
+    if let Some(CheckedType::Routine(signature)) = typed.type_table().get(type_id) {
+        if !signature.generic_params.is_empty() {
+            let symbol_name = resolved
+                .symbol(symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("<generic-routine>");
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "generic routine '{symbol_name}' cannot be used as a plain routine value in V2 Milestone 1; call it directly instead"
+                ),
+                origin.clone().unwrap_or(SyntaxOrigin {
+                    file: None,
+                    line: 1,
+                    column: 1,
+                    length: 1,
+                }),
+            ));
+        }
+    }
     let typed_reference = typed.typed_reference_mut(reference_id).ok_or_else(|| {
         TypecheckError::with_origin(
             TypecheckErrorKind::Internal,

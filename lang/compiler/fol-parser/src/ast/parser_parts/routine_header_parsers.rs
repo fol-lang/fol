@@ -116,6 +116,7 @@ impl AstParser {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: function_type,
+                    is_variadic: false,
                     is_borrowable: param_name.chars().all(|ch| {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),
@@ -224,6 +225,7 @@ impl AstParser {
                 params.push(Parameter {
                     name: name.clone(),
                     param_type: param_type.clone(),
+                    is_variadic,
                     is_borrowable: name.chars().all(|ch| {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),
@@ -576,6 +578,7 @@ impl AstParser {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: function_type,
+                    is_variadic: false,
                     is_borrowable: param_name.chars().all(|ch| {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),
@@ -687,6 +690,7 @@ impl AstParser {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: param_type.clone(),
+                    is_variadic,
                     is_borrowable: param_name.chars().all(|ch| {
                         !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
                     }),
@@ -742,7 +746,7 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_name_message: &str,
-    ) -> Result<(Option<FolType>, String), ParseError> {
+    ) -> Result<(Option<FolType>, String, fol_lexer::lexer::stage3::element::Element), ParseError> {
         let mut receiver_type = None;
         let current = tokens.curr(false)?;
 
@@ -790,6 +794,6 @@ impl AstParser {
         let name_token = tokens.curr(false)?;
         let name = Self::expect_named_label(&name_token, missing_name_message)?;
         let _ = tokens.bump();
-        Ok((receiver_type, name))
+        Ok((receiver_type, name, name_token))
     }
 }

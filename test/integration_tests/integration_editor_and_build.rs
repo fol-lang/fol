@@ -129,6 +129,20 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) {
     }
 }
 
+fn write_temp_app(root_name: &str, main_source: &str) -> std::path::PathBuf {
+    let root = unique_temp_root(root_name);
+    std::fs::create_dir_all(root.join("src")).expect("temp app src should exist");
+    std::fs::write(
+        root.join("build.fol"),
+        format!(
+            "pro[] build(): non = {{\n    var build = .build();\n    build.meta({{\n        name = \"{root_name}\",\n        version = \"0.1.0\",\n    }});\n\n    var graph = build.graph();\n    graph.add_exe({{\n        name = \"{root_name}\",\n        root = \"src/main.fol\",\n        fol_model = \"memo\",\n    }});\n    return;\n}};\n"
+        ),
+    )
+    .expect("temp app build file should write");
+    std::fs::write(root.join("src/main.fol"), main_source).expect("temp app main source should write");
+    root
+}
+
 fn temp_example_root(example_path: &str) -> std::path::PathBuf {
     let source = repo_root().join(example_path);
     let temp_root = unique_temp_root(&format!("example_copy_{}", example_path.replace('/', "_")));
@@ -179,6 +193,1016 @@ fn positive_runtime_model_examples() -> &'static [(&'static str, &'static str)] 
         ("examples/std_surface_showcase", "std"),
         ("examples/mixed_models_workspace", "std"),
     ]
+}
+
+#[test]
+fn test_generic_routine_m1_example_opens_cleanly_and_dumps_lowered() {
+    let root = temp_example_root("examples/generic_routine_m1");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text = std::fs::read_to_string(&main).expect("generic routine example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "generic routine M1 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_fol_in_dir(&root, &["--dump-lowered", "."]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        build.status.success(),
+        "generic routine M1 example should dump lowered output: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(
+        combined.contains("GenericParameter"),
+        "generic routine M1 example should surface lowered generic parameter types: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+#[test]
+fn test_generic_routine_pair_m1_example_opens_cleanly_and_dumps_lowered() {
+    let root = temp_example_root("examples/generic_routine_pair_m1");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text =
+        std::fs::read_to_string(&main).expect("generic pair routine example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "generic pair M1 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_fol_in_dir(&root, &["--dump-lowered", "."]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(build.status.success());
+    assert!(
+        combined.contains("GenericParameter"),
+        "generic pair M1 example should surface lowered generic parameter types: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+#[test]
+fn test_generic_routine_cross_file_m1_example_opens_cleanly_and_dumps_lowered() {
+    let root = temp_example_root("examples/generic_routine_cross_file_m1");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text = std::fs::read_to_string(&main)
+        .expect("cross-file generic routine example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "cross-file generic M1 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_fol_in_dir(&root, &["--dump-lowered", "."]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(build.status.success());
+    assert!(
+        combined.contains("GenericParameter"),
+        "cross-file generic M1 example should surface lowered generic parameter types: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+#[test]
+fn test_generic_routine_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_routine_m1");
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic routine M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
+fn test_generic_routine_pair_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_routine_pair_m1");
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic pair M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
+fn test_generic_routine_cross_file_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_routine_cross_file_m1");
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "cross-file generic M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
+fn test_receiver_qualified_generic_routines_build_and_run() {
+    let root = write_temp_app(
+        "receiver_generic_m1",
+        "typ Box: rec = {\n    value: int\n};\n\nvar current: Box = { value = 1 };\n\nfun (Box)pick(T)(value: T): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return current.pick(7);\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "receiver-qualified generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_instantiated_generic_receiver_routines_build_and_run() {
+    let root = write_temp_app(
+        "receiver_generic_type_exec",
+        "typ Box(T): rec = {\n    value: T\n};\n\nfun (Box[int])area(): int = {\n    return 1;\n};\n\nfun[] main(): int = {\n    var box: Box[int] = { value = 7 };\n    return box.area();\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "instantiated generic receiver routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_default_argument_generic_routines_build_and_run() {
+    let root = write_temp_app(
+        "default_generic_m1",
+        "fun pick(T)(value: T, fallback: int = 1): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return pick(7);\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "default-argument generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_recoverable_generic_routines_with_concrete_error_types_build_and_run() {
+    let root = write_temp_app(
+        "recoverable_generic_m1",
+        "fun pick(T)(value: T): T = {\n    return value;\n};\n\nfun bounce(T)(value: T, fail: bol): T / str = {\n    when(fail) {\n        case(true) { report(\"bad\"); }\n        * { return pick(value); }\n    }\n};\n\nfun[] main(): int = {\n    when(check(bounce(7, false))) {\n        case(true) { return 0; }\n        * { return 1; }\n    }\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "recoverable generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_generic_type_semantic_m1m2_example_semantic_check_passes() {
+    let root = temp_example_root("examples/generic_type_semantic_m1m2");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    assert!(
+        check.status.success(),
+        "generic type example should pass semantic checking now: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
+fn test_fail_generic_misuse_m1_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_generic_misuse_m1");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        !check.status.success(),
+        "generic misuse M1 example should fail semantic checking: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        combined.contains("must resolve to a standard declaration")
+            || combined.contains("template instantiation is not yet supported"),
+        "generic misuse M1 example should keep explicit misuse boundaries: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_fail_generic_cross_file_m1_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_generic_cross_file_m1");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text =
+        std::fs::read_to_string(&main).expect("cross-file generic misuse example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    let all_messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        all_messages
+            .iter()
+            .any(|message| message.contains("leaves generic parameter 'T' underconstrained")),
+        "cross-file generic misuse example should surface the explicit underconstrained diagnostic in editor: {all_messages:#?}"
+    );
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("leaves generic parameter 'T' underconstrained"),
+        "cross-file generic misuse example should keep the explicit underconstrained boundary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_standards_protocol_m2_example_opens_cleanly_and_runs() {
+    let root = temp_example_root("examples/standards_protocol_m2");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text = std::fs::read_to_string(&main).expect("standards example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "standards M2 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_example_compile(&root, true);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&build.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&build.stderr));
+    assert!(
+        build.status.success(),
+        "standards M2 example should now build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("built standards example should run");
+    assert!(run.status.success(), "stdout=\n{stdout}\nstderr=\n{stderr}");
+}
+
+#[test]
+fn test_standards_protocol_pair_m2_example_opens_cleanly_and_runs() {
+    let root = temp_example_root("examples/standards_protocol_pair_m2");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text =
+        std::fs::read_to_string(&main).expect("multi-routine standards example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "multi-routine standards M2 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_example_compile(&root, true);
+    assert!(build.status.success());
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("built standards pair example should run");
+    assert!(run.status.success());
+}
+
+#[test]
+fn test_standards_protocol_multi_m2_example_opens_cleanly_and_runs() {
+    let root = temp_example_root("examples/standards_protocol_multi_m2");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text =
+        std::fs::read_to_string(&main).expect("multi-standard standards example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()),
+        "multi-standard standards M2 example should stay editor-clean before lowering: {diagnostics:#?}"
+    );
+
+    let build = run_example_compile(&root, true);
+    assert!(build.status.success());
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("built multi-standard example should run");
+    assert!(run.status.success());
+}
+
+#[test]
+fn test_fail_standard_missing_routine_m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_standard_missing_routine_m2");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("missing required routine 'perimeter'"),
+        "missing-routine standards example should keep the explicit conformance diagnostic: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_fail_standard_signature_m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_standard_signature_m2");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("routine 'area' has incompatible signature"),
+        "signature-mismatch standards example should keep the explicit conformance diagnostic: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_fail_standard_import_ambiguity_m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_standard_import_ambiguity_m2");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text =
+        std::fs::read_to_string(&main).expect("imported-standard ambiguity example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    let all_messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        all_messages
+            .iter()
+            .any(|message| message.contains("standard 'geo' is ambiguous in lexical scope")),
+        "imported-standard ambiguity example should surface the resolver ambiguity in editor: {all_messages:#?}"
+    );
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("standard 'geo' is ambiguous in lexical scope"),
+        "imported-standard ambiguity example should keep the resolver ambiguity boundary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_fail_standard_blueprint_m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_standard_blueprint_m2");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        !check.status.success(),
+        "negative standards M2 example should fail semantic checking: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        combined.contains(
+            "type 'Rect' does not satisfy blueprint standard 'shape': missing required field 'size: int'",
+        ),
+        "fail_standard_blueprint_m2 should now surface the missing-field diagnostic: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_fail_generic_standard_constraint_m1m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_generic_standard_constraint_m1m2");
+
+    let main = root.join("src/main.fol");
+    let uri = format!("file://{}", main.display());
+    let text = std::fs::read_to_string(&main)
+        .expect("generic-standard seam example source should load");
+    let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
+    let diagnostics = server
+        .handle_notification(fol_editor::JsonRpcNotification {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(
+                serde_json::to_value(fol_editor::LspDidOpenTextDocumentParams {
+                    text_document: fol_editor::LspTextDocumentItem {
+                        uri,
+                        language_id: "fol".to_string(),
+                        version: 1,
+                        text: text.clone(),
+                    },
+                })
+                .expect("didOpen params should serialize"),
+            ),
+        })
+        .expect("didOpen should succeed");
+    let all_messages = diagnostics
+        .iter()
+        .flat_map(|published| published.diagnostics.iter())
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        all_messages.iter().any(|message| {
+            message.contains("requires type 'Plain' to satisfy standard 'geo'")
+        }),
+        "generic-standard seam example should surface the conformance failure in editor: {all_messages:#?}"
+    );
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("requires type 'Plain' to satisfy standard 'geo'"),
+        "generic-standard seam example should surface the generic conformance failure: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_standards_generic_m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/standards_generic_m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic standards example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic standards example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic standards example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+#[test]
+fn test_standards_extended_m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/standards_extended_m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "extended standards example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("extended standards example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "extended standards example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+#[test]
+fn test_standards_blueprint_m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/standards_blueprint_m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "blueprint example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("blueprint example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "blueprint example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+#[test]
+fn test_standards_default_body_m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/standards_default_body_m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "default standard body example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("default standard body example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "default standard body example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("7") || stderr.contains("7"));
+}
+
+#[test]
+fn test_generic_error_m1m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_error_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic error type example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic error type example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic error type example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+#[test]
+fn test_generic_type_constrained_m1m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_type_constrained_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "constrained generic type example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("constrained generic type example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "constrained generic type example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("4") || stderr.contains("4"));
+}
+
+#[test]
+fn test_generic_turbofish_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_turbofish_m1");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic turbofish example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic turbofish example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic turbofish example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+#[test]
+fn test_generic_receiver_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_receiver_m1");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic receiver example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic receiver example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic receiver example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") && stdout.contains("boxed"));
+}
+
+#[test]
+fn test_generic_receiver_overload_m1m2_example_builds_and_runs() {
+    // Nominal identity: `Box[int]` and `Cup[int]` share a field shape but stay
+    // distinct types, so `.tag()` dispatches to each type's own receiver
+    // routine instead of gating as ambiguous.
+    let root = temp_example_root("examples/generic_receiver_overload_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic receiver overload example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic receiver overload example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic receiver overload example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    // Box.tag() -> 10, Cup.tag() -> 20, Box[str].get() -> "boxed": each shared
+    // method name dispatches to its own base's receiver routine.
+    assert!(stdout.contains("10") && stdout.contains("20") && stdout.contains("boxed"));
+}
+
+#[test]
+fn test_generic_receiver_cross_file_m1_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_receiver_cross_file_m1");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "cross-file generic receiver example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("cross-file generic receiver example should run");
+    assert!(run.status.success());
+}
+
+#[test]
+fn test_fail_generic_recursive_m1m2_example_rejects_cleanly() {
+    // A recursive generic type (`typ Tree(T) = { kids: vec[Tree[T]] }`) has no
+    // finite runtime shape: the checker rejects it with an honest boundary
+    // diagnostic instead of overflowing the stack during lowering.
+    let root = temp_example_root("examples/fail_generic_recursive_m1m2");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        !check.status.success(),
+        "recursive generic type example should fail semantic checking: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(
+        combined.contains("recursive type") && combined.contains("not yet supported"),
+        "recursive generic type should keep the honest boundary diagnostic: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
+#[test]
+fn test_fail_generic_receiver_m1_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_generic_receiver_m1");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        !check.status.success(),
+        "generic receiver misuse example should fail semantic checking: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        combined.contains("underconstrained"),
+        "generic receiver misuse should keep the argument-driven inference boundary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn test_generic_type_exec_m1m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_type_exec_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic type execution example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic type execution example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic type execution example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("42") || stderr.contains("42"));
+}
+
+
+#[test]
+fn test_nested_generic_types_build_and_run() {
+    let root = write_temp_app(
+        "nested_generic_type_exec",
+        "typ Box(T): rec = {\n    value: T\n};\n\nfun[] take(value: Box[Box[int]]): int = {\n    return value.value.value;\n};\n\nfun[] main(): int = {\n    var inner: Box[int] = { value = 7 };\n    var outer: Box[Box[int]] = { value = inner };\n    return take(outer);\n};\n",
+    );
+    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "nested generic types should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_generic_standard_constraint_m1m2_example_builds_and_runs() {
+    let root = temp_example_root("examples/generic_standard_constraint_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "constrained generic execution example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("constrained generic execution example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "constrained generic execution example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("1") || stderr.contains("1"));
+}
+
+#[test]
+fn test_generic_standard_constraint_generic_m1m2_example_builds_and_runs() {
+    // A generic standard used as a generic-parameter constraint
+    // (`drive(T: Holder[int])`): the constraint call `box.fetch()` substitutes
+    // the standard's own `Item` parameter to `int`, so the program builds and
+    // runs, echoing `cell.fetch()` == 7.
+    let root = temp_example_root("examples/generic_standard_constraint_generic_m1m2");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic-standard constraint example should build cleanly: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic-standard constraint example should run");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "generic-standard constraint example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert!(stdout.contains("7"));
+}
+
+#[test]
+fn test_fail_standard_as_type_m2_example_rejects_cleanly() {
+    let root = temp_example_root("examples/fail_standard_as_type_m2");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(!check.status.success());
+    assert!(
+        combined.contains("standard 'geo' is a static contract, not a value type; use it as a generic constraint instead"),
+        "negative standards-as-type example should keep the permanent rejection message: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
 }
 
 fn init_git_repo(root: &std::path::Path) {
@@ -395,6 +1419,47 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
         .as_str()
         .expect("symbols summary should be a string")
         .contains("xtra/logtiny/build.fol"));
+}
+
+#[test]
+fn test_editor_file_commands_cover_standards_m2_example_sources() {
+    let parse = run_fol(&[
+        "tool",
+        "--output",
+        "json",
+        "parse",
+        "examples/standards_protocol_m2/src/main.fol",
+    ]);
+    assert!(
+        parse.status.success(),
+        "standards M2 example parse should succeed: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&parse.stdout),
+        String::from_utf8_lossy(&parse.stderr)
+    );
+
+    let highlight = run_fol(&[
+        "tool",
+        "--output",
+        "json",
+        "highlight",
+        "examples/standards_protocol_m2/src/main.fol",
+    ]);
+    assert!(
+        highlight.status.success(),
+        "standards M2 example highlight should succeed: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&highlight.stdout),
+        String::from_utf8_lossy(&highlight.stderr)
+    );
+    let highlight_json = parse_cli_json(&highlight);
+    assert_eq!(highlight_json["command"], "highlight");
+    assert!(highlight_json["summary"]
+        .as_str()
+        .expect("highlight summary should be a string")
+        .contains("capture_count="));
+    assert!(highlight_json["summary"]
+        .as_str()
+        .expect("highlight summary should be a string")
+        .contains("examples/standards_protocol_m2/src/main.fol"));
 }
 
 #[test]
@@ -3489,6 +4554,759 @@ fn test_docs_reference_real_example_packages() {
 }
 
 #[test]
+fn test_book_summary_includes_the_build_direction_page() {
+    let summary = std::fs::read_to_string(repo_root().join("book/src/SUMMARY.md"))
+        .expect("book summary should exist");
+
+    assert!(
+        summary.contains("./055_build/900_direction.md"),
+        "book summary should include the build direction page"
+    );
+}
+
+#[test]
+fn test_v2_current_subset_inventory_stays_honest() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let versions =
+        std::fs::read_to_string(repo_root().join("plan/VERSIONS.md"))
+            .expect("version note should load");
+
+    assert!(generics_note.contains("examples/generic_routine_m1"));
+    assert!(generics_note.contains("examples/generic_routine_pair_m1"));
+    assert!(generics_note.contains("examples/generic_routine_cross_file_m1"));
+    assert!(generics_note.contains("examples/generic_type_semantic_m1m2"));
+    assert!(generics_note.contains("examples/fail_generic_misuse_m1"));
+    assert!(generics_note.contains("examples/fail_generic_cross_file_m1"));
+    assert!(generics_note.contains("examples/fail_generic_standard_constraint_m1m2"));
+    assert!(generics_note.contains("examples/generic_type_exec_m1m2"));
+    assert!(generics_note.contains("examples/generic_standard_constraint_m1m2"));
+    assert!(generics_note.contains("generic routine lowering now succeeds"));
+    assert!(generics_note.contains("backend execution now works for the shipped positive"));
+    assert!(generics_note.contains("receiver-qualified generic routines"));
+    assert!(generics_note.contains("imported and cross-file generic routine calls"));
+
+    assert!(standards_note.contains("examples/standards_protocol_m2"));
+    assert!(standards_note.contains("examples/standards_protocol_pair_m2"));
+    assert!(standards_note.contains("examples/standards_protocol_multi_m2"));
+    assert!(standards_note.contains("examples/fail_standard_blueprint_m2"));
+    assert!(standards_note.contains("examples/fail_standard_as_type_m2"));
+    assert!(standards_note.contains("examples/fail_standard_missing_routine_m2"));
+    assert!(standards_note.contains("examples/fail_standard_signature_m2"));
+    assert!(standards_note.contains("examples/fail_standard_import_ambiguity_m2"));
+    assert!(standards_note.contains("lowering now preserves protocol-standard and conformance metadata"));
+    assert!(standards_note.contains("ordinary receiver-qualified routine emission"));
+    assert!(standards_note.contains("not through a second"));
+    assert!(standards_note.contains("multi-standard conformance on one type"));
+    assert!(standards_note.contains("imported-standard conformance truth"));
+
+    assert!(versions.contains("Milestone 1"));
+    assert!(versions.contains("generic routine core"));
+    assert!(versions.contains("Milestone 2"));
+    assert!(versions.contains("protocol standards only"));
+}
+
+#[test]
+fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+
+    assert!(contract.contains("executable generic routines"));
+    assert!(contract.contains("generic types"));
+    assert!(contract.contains("executable protocol standards"));
+    assert!(contract.contains("standards-as-constraints"));
+    assert!(contract.contains("blueprint standards"));
+    assert!(contract.contains("extended standards"));
+    assert!(contract.contains("broad dispatch driven by standards"));
+}
+
+#[test]
+fn test_v2_runtime_strategy_note_freezes_monomorphization() {
+    let strategy =
+        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+            .expect("V2 runtime strategy note should load");
+
+    assert!(strategy.contains("monomorphization for executable generic routines"));
+    assert!(strategy.contains("monomorphization for generic type instantiations"));
+    assert!(strategy.contains("no dictionary passing for the current `V2` target"));
+    assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
+}
+
+#[test]
+fn test_runtime_crate_docs_align_with_the_v2_monomorphization_boundary() {
+    let runtime_docs =
+        std::fs::read_to_string(repo_root().join("lang/execution/fol-runtime/src/lib.rs"))
+            .expect("runtime crate docs should load");
+    let strategy =
+        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+            .expect("V2 runtime strategy note should load");
+
+    assert!(runtime_docs.contains("a runtime-owned generic reification model"));
+    assert!(runtime_docs.contains("object-style standards/dispatch machinery"));
+    assert!(runtime_docs.contains("Full `V2` generics, generic types, and procedural standards still execute"));
+    assert!(runtime_docs.contains("does not define a second witness/dictionary system"));
+    assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
+}
+
+#[test]
+fn test_v2_standards_docs_keep_execution_semantics_procedural() {
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+
+    assert!(standards_note.contains("ordinary receiver-qualified routine emission"));
+    assert!(standards_note.contains("docs must not imply that lowered protocol metadata creates a runtime witness"));
+    assert!(standards_book.contains("ordinary receiver-qualified routine calls, not through a runtime object model"));
+}
+
+#[test]
+fn test_v2_standards_execution_stays_free_of_runtime_dispatch_artifacts() {
+    let strategy =
+        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+            .expect("V2 runtime strategy note should load");
+
+    for example in [
+        "examples/standards_protocol_m2",
+        "examples/generic_standard_constraint_m1m2",
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(
+            build.status.success(),
+            "standards execution example '{example}' should build cleanly: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let generated = find_file_by_name(&emitted_crate_root(&build), "main.rs")
+            .expect("generated backend source should exist");
+        let source = std::fs::read_to_string(&generated)
+            .expect("generated backend source should load");
+        for forbidden in ["dyn ", "vtable", "witness", "dictionary"] {
+            assert!(
+                !source.contains(forbidden),
+                "standards example '{example}' should stay procedural without '{forbidden}' in {:?}:\n{}",
+                generated,
+                source
+            );
+        }
+    }
+
+    assert!(strategy.contains("ordinary emitted receiver-qualified"));
+}
+
+#[test]
+fn test_editor_docs_track_the_current_shipped_v2_subset() {
+    let editor_sync =
+        std::fs::read_to_string(repo_root().join("docs/editor-sync.md"))
+            .expect("editor sync note should load");
+    let lsp_book =
+        std::fs::read_to_string(repo_root().join("book/src/050_tooling/500_lsp.md"))
+            .expect("LSP book chapter should load");
+
+    assert!(editor_sync.contains("generic-type"));
+    assert!(editor_sync.contains("constrained-generic"));
+    assert!(lsp_book.contains("generic-type"));
+    assert!(lsp_book.contains("constrained-generic"));
+    assert!(lsp_book.contains("- generic types"));
+    assert!(lsp_book.contains("- constrained generics"));
+    for example in [
+        "examples/generic_type_exec_m1m2",
+        "examples/generic_standard_constraint_m1m2",
+        "examples/standards_protocol_m2",
+    ] {
+        assert!(
+            editor_sync.contains(example),
+            "editor sync docs should name the tested positive V2 example '{example}'"
+        );
+        assert!(
+            lsp_book.contains(example),
+            "LSP docs should name the tested positive V2 example '{example}'"
+        );
+    }
+}
+
+#[test]
+fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+
+    assert!(contract.contains("Full `V2` includes generic types."));
+    assert!(contract.contains("typ Box(T: item): rec = { ... };"));
+    assert!(contract.contains("generic records and generic aliases are part of the target"));
+    assert!(generics_book.contains("Full `V2` now includes generic type declarations and explicit instantiation."));
+    assert!(generics_book.contains("typ Box(T: item): rec = {"));
+    assert!(generics_book.contains("typ Pair(T: left, U: right): map[T, U];"));
+}
+
+#[test]
+fn test_v2_constraint_surface_is_frozen_as_standards_only() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+
+    assert!(contract.contains("Full `V2` includes standards-as-constraints."));
+    assert!(contract.contains("protocol standards are the only constraint surface"));
+    assert!(contract.contains("dispatch or inference driven by constraints"));
+    assert!(generics_book.contains("Full `V2` includes standards-as-constraints, but not broad dispatch semantics."));
+    assert!(generics_book.contains("protocol standards are the only generic-constraint surface"));
+}
+
+#[test]
+fn test_standards_book_keeps_standards_as_constraints_in_current_v2_contract() {
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+
+    assert!(!standards_book.contains("- generic constraints using standards"));
+    assert!(standards_book.contains("standards-as-constraints through protocol standards"));
+    assert!(standards_book.contains("procedural constrained-generic call binding"));
+    assert!(standards_book.contains("static conformance checking for those constraints"));
+}
+
+#[test]
+fn test_v2_contract_ships_blueprint_standards() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+
+    assert!(contract.contains("Blueprint standards are part of the shipped full `V2` contract"));
+    assert!(contract.contains("examples/standards_blueprint_m2"));
+    assert!(standards_book.contains("blueprint standards (`std X: blu`) as static field contracts"));
+}
+
+#[test]
+fn test_v2_contract_ships_extended_standards() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+
+    assert!(contract.contains("Extended standards are part of the shipped full `V2` contract"));
+    assert!(contract.contains("examples/standards_extended_m2"));
+    assert!(standards_book.contains("extended standards (`std X: ext`) combining required routines and fields"));
+}
+
+#[test]
+fn test_tree_sitter_suite_tracks_all_shipped_v2_example_roots() {
+    let tree_sitter_tests =
+        std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/tree_sitter.rs"))
+            .expect("tree-sitter test module should exist");
+
+    for relative_path in [
+        "examples/generic_routine_m1/src/main.fol",
+        "examples/generic_routine_pair_m1/src/main.fol",
+        "examples/generic_routine_cross_file_m1/src/main.fol",
+        "examples/generic_routine_cross_file_m1/src/shared.fol",
+        "examples/generic_turbofish_m1/src/main.fol",
+        "examples/generic_type_constrained_m1m2/src/main.fol",
+        "examples/generic_error_m1m2/src/main.fol",
+        "examples/standards_protocol_m2/src/main.fol",
+        "examples/standards_protocol_pair_m2/src/main.fol",
+        "examples/standards_protocol_multi_m2/src/main.fol",
+        "examples/standards_protocol_multi_m2/src/contracts.fol",
+        "examples/standards_protocol_multi_m2/src/rect.fol",
+        "examples/standards_default_body_m2/src/main.fol",
+        "examples/standards_blueprint_m2/src/main.fol",
+        "examples/standards_extended_m2/src/main.fol",
+        "examples/standards_generic_m2/src/main.fol",
+        "examples/generic_type_semantic_m1m2/src/main.fol",
+        "examples/fail_generic_misuse_m1/src/main.fol",
+        "examples/fail_generic_standard_constraint_m1m2/src/main.fol",
+        "examples/fail_standard_blueprint_m2/src/main.fol",
+        "examples/fail_standard_as_type_m2/src/main.fol",
+        "examples/fail_standard_missing_routine_m2/src/main.fol",
+        "examples/fail_standard_signature_m2/src/main.fol",
+        "examples/fail_standard_import_ambiguity_m2/src/main.fol",
+    ] {
+        assert!(
+            tree_sitter_tests.contains(relative_path),
+            "tree-sitter tests should keep shipped V2 example query coverage for '{}'",
+            relative_path
+        );
+    }
+}
+
+#[test]
+fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+
+    assert!(contract.contains("Broader dispatch and inference semantics are not part of the full `V2` target."));
+    assert!(contract.contains("full `V2` does not include standards-driven dispatch"));
+    assert!(standards_book.contains("broader dispatch and inference semantics stay"));
+}
+
+#[test]
+fn test_v2_milestone_notes_are_retained_as_transition_notes() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+
+    assert!(generics_note.contains("Historical transition note:"));
+    assert!(generics_note.contains("not the full `V2`"));
+    assert!(generics_note.contains("docs/v2-full-contract.md"));
+    assert!(standards_note.contains("Historical transition note:"));
+    assert!(standards_note.contains("not the full `V2`"));
+    assert!(standards_note.contains("docs/v2-full-contract.md"));
+}
+
+#[test]
+fn test_v2_surface_freeze_is_now_explicit_across_plan_docs_and_book() {
+    let contract =
+        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+            .expect("full V2 contract note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+
+    assert!(contract.contains("Current full `V2` target:"));
+    assert!(contract.contains("Still out of scope for this `V2` target:"));
+    assert!(generics_book.contains("Full `V2` now includes generic type declarations"));
+    assert!(standards_book.contains("For the current full `V2` target"));
+    assert!(generics_note.contains("Historical transition note:"));
+    assert!(standards_note.contains("Historical transition note:"));
+}
+
+#[test]
+fn test_v2_m1_example_matrix_stays_honest() {
+    let actual_examples = [
+        "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
+        "examples/generic_type_exec_m1m2",
+        "examples/generic_standard_constraint_m1m2",
+        "examples/generic_type_semantic_m1m2",
+        "examples/fail_generic_misuse_m1",
+        "examples/fail_generic_cross_file_m1",
+        "examples/fail_generic_standard_constraint_m1m2",
+    ]
+    .into_iter()
+    .map(|path| path.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
+    let docs = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+        .expect("generic milestone note should load");
+
+    for example in &actual_examples {
+        assert!(repo_root().join(example).is_dir(), "generic example should exist: {example}");
+        assert!(docs.contains(example), "generic docs should mention {example}");
+    }
+}
+
+#[test]
+fn test_v2_m2_example_matrix_stays_honest() {
+    let actual_examples = [
+        "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
+        "examples/standards_protocol_multi_m2",
+        "examples/fail_standard_blueprint_m2",
+        "examples/fail_standard_as_type_m2",
+        "examples/fail_standard_missing_routine_m2",
+        "examples/fail_standard_signature_m2",
+        "examples/fail_standard_import_ambiguity_m2",
+    ]
+    .into_iter()
+    .map(|path| path.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
+    let docs = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+        .expect("standards milestone note should load");
+
+    for example in &actual_examples {
+        assert!(repo_root().join(example).is_dir(), "standards example should exist: {example}");
+        assert!(docs.contains(example), "standards docs should mention {example}");
+    }
+}
+
+#[test]
+fn test_v2_example_inventory_by_naming_convention_stays_visible() {
+    let examples_root = repo_root().join("examples");
+    let actual_generics = std::fs::read_dir(&examples_root)
+        .expect("examples directory should load")
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            ((name.starts_with("generic_") && (name.ends_with("_m1") || name.ends_with("_m1m2")))
+                || (name.starts_with("fail_generic_")
+                    && (name.ends_with("_m1") || name.ends_with("_m1m2"))))
+            .then(|| format!("examples/{name}"))
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual_standards = std::fs::read_dir(&examples_root)
+        .expect("examples directory should load")
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            ((name.starts_with("standards_") || name.starts_with("fail_standard_"))
+                && name.ends_with("_m2"))
+            .then(|| format!("examples/{name}"))
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let documented_generics = [
+        "examples/generic_error_m1m2",
+        "examples/generic_receiver_m1",
+        "examples/generic_receiver_cross_file_m1",
+        "examples/generic_receiver_overload_m1m2",
+        "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
+        "examples/generic_turbofish_m1",
+        "examples/generic_type_constrained_m1m2",
+        "examples/generic_type_exec_m1m2",
+        "examples/generic_standard_constraint_m1m2",
+        "examples/generic_standard_constraint_generic_m1m2",
+        "examples/generic_type_semantic_m1m2",
+        "examples/fail_generic_misuse_m1",
+        "examples/fail_generic_cross_file_m1",
+        "examples/fail_generic_receiver_m1",
+        "examples/fail_generic_recursive_m1m2",
+        "examples/fail_generic_standard_constraint_m1m2",
+    ]
+    .into_iter()
+    .map(|path| path.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
+    let documented_standards = [
+        "examples/standards_blueprint_m2",
+        "examples/standards_default_body_m2",
+        "examples/standards_extended_m2",
+        "examples/standards_generic_m2",
+        "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
+        "examples/standards_protocol_multi_m2",
+        "examples/fail_standard_blueprint_m2",
+        "examples/fail_standard_as_type_m2",
+        "examples/fail_standard_missing_routine_m2",
+        "examples/fail_standard_signature_m2",
+        "examples/fail_standard_import_ambiguity_m2",
+    ]
+    .into_iter()
+    .map(|path| path.to_string())
+    .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(actual_generics, documented_generics);
+    assert_eq!(actual_standards, documented_standards);
+}
+
+#[test]
+fn test_v2_docs_and_book_track_the_current_example_matrix() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+
+    for example in [
+        "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
+        "examples/generic_type_semantic_m1m2",
+        "examples/fail_generic_misuse_m1",
+        "examples/fail_generic_cross_file_m1",
+        "examples/fail_generic_standard_constraint_m1m2",
+    ] {
+        assert!(generics_note.contains(example), "generics milestone note should mention {example}");
+        assert!(generics_book.contains(example), "generics book chapter should mention {example}");
+    }
+
+    for example in [
+        "examples/standards_protocol_m2",
+        "examples/standards_protocol_pair_m2",
+        "examples/standards_protocol_multi_m2",
+        "examples/fail_standard_blueprint_m2",
+        "examples/fail_standard_as_type_m2",
+        "examples/fail_standard_missing_routine_m2",
+        "examples/fail_standard_signature_m2",
+        "examples/fail_standard_import_ambiguity_m2",
+    ] {
+        assert!(standards_note.contains(example), "standards milestone note should mention {example}");
+        assert!(standards_book.contains(example), "standards book chapter should mention {example}");
+    }
+}
+
+#[test]
+fn test_v2_generics_docs_retag_generic_type_example_honestly() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+
+    assert!(!generics_note.contains("generic types remain unsupported"));
+    assert!(!generics_note.contains("- negative\n  - `examples/generic_type_semantic_m1m2`"));
+    assert!(!generics_note.contains("historical example name `examples/fail_generic_type_m1`"));
+    assert!(generics_note.contains("- `examples/generic_type_semantic_m1m2`"));
+    assert!(!generics_book.contains("historical name retained"));
+    assert!(generics_book.contains("examples/generic_type_semantic_m1m2"));
+    assert!(generics_book.contains("positive semantic-check"));
+}
+
+#[test]
+fn test_bundled_std_docs_pin_the_normal_v2_example_execution_path() {
+    let bundled_std =
+        std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
+            .expect("bundled std docs should load");
+
+    for example in [
+        "examples/generic_type_exec_m1m2",
+        "examples/generic_standard_constraint_m1m2",
+    ] {
+        assert!(
+            bundled_std.contains(example),
+            "bundled std docs should mention shipped V2 std-consuming example {example}"
+        );
+    }
+
+    assert!(bundled_std.contains("build.add_dep({"));
+    assert!(bundled_std.contains("alias = \"std\""));
+    assert!(bundled_std.contains("source = \"internal\""));
+    assert!(bundled_std.contains("target = \"standard\""));
+    assert!(bundled_std.contains("fol code build"));
+    assert!(bundled_std.contains("fol code run"));
+    assert!(bundled_std.contains("does not require `--package-store-root` or `--std-root`"));
+}
+
+#[test]
+fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
+    let generics_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+            .expect("generic milestone note should load");
+    let generics_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
+            .expect("generics book chapter should load");
+    let standards_note =
+        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+            .expect("standards milestone note should load");
+    let standards_book =
+        std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
+            .expect("standards book chapter should load");
+
+    assert!(generics_note.contains("underconstrained generic calls are rejected"));
+    assert!(generics_note.contains("generic routines are not first-class routine values"));
+    assert!(generics_note.contains("generic error shells remain unsupported"));
+    assert!(generics_book.contains("generic error shells remain outside the current shipped Milestone 1 routine subset"));
+    assert!(generics_note.contains("recursive generic type instantiation remains rejected"));
+    assert!(generics_note.contains("implementation slice with parser, typecheck, editor, doc, and example updates"));
+
+    assert!(standards_note.contains("required routine-signature surface"));
+    assert!(standards_note.contains("generic required routine signatures remain unsupported"));
+    assert!(standards_note.contains("receiver-qualified required routine signatures remain unsupported"));
+    assert!(standards_note.contains("capturing required routine signatures remain unsupported"));
+    assert!(standards_book.contains("richer requirement forms such as generic, receiver-qualified, and capturing"));
+    assert!(standards_note.contains("standards cannot be used as ordinary value types"));
+    assert!(standards_note.contains("default standard implementations remain unsupported"));
+    assert!(standards_note.contains("implementation slice with compiler, backend, editor, doc, and example work"));
+
+
+}
+
+#[test]
+fn test_agents_md_keeps_current_v2_milestone_truth() {
+    let agents =
+        std::fs::read_to_string(repo_root().join("AGENTS.md"))
+            .expect("AGENTS.md should load");
+
+    assert!(agents.contains("generic routine lowering/backend execution now exist"));
+    assert!(agents.contains("protocol standards now lower and the shipped positive protocol examples"));
+    assert!(agents.contains("execute through ordinary procedural emission"));
+    assert!(!agents.contains("no generic lowering yet"));
+    assert!(!agents.contains("no standards lowering/backend support yet"));
+}
+
+#[test]
+fn test_tooling_docs_keep_workspace_symbols_root_scoped() {
+    let lsp = std::fs::read_to_string(repo_root().join("book/src/050_tooling/500_lsp.md"))
+        .expect("LSP chapter should load");
+    let editor = std::fs::read_to_string(repo_root().join("book/src/050_tooling/300_editor.md"))
+        .expect("editor tooling chapter should load");
+    let lsp_impl =
+        std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/lsp/mod.rs"))
+            .expect("LSP implementation should load");
+
+    assert!(lsp.contains(
+        "workspace symbols across discovered `.fol` files under the mapped workspace root"
+    ));
+    assert!(editor.contains(
+        "workspace symbols across discovered `.fol` files under the mapped workspace root"
+    ));
+    assert!(!lsp.contains("workspace symbols for current open workspace members"));
+    assert!(!editor.contains("workspace symbols for current open workspace members"));
+    assert!(lsp_impl.contains("fn collect_fol_files(root: &std::path::Path) -> Vec<std::path::PathBuf>"));
+    assert!(lsp_impl.contains("visit(root, &mut files);"));
+}
+
+#[test]
+fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
+    let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
+        .expect("V2 quality gates note should load");
+
+    for required in [
+        "## Compiler Pipeline Gate",
+        "parser coverage in `test/parser`",
+        "resolver coverage in `test/resolver`",
+        "typecheck coverage in `test/typecheck`",
+        "lowering coverage in `lang/compiler/fol-lower`",
+        "backend or emitted-Rust coverage in `test/integration_tests`",
+        "compile-and-run app or example coverage in `test/apps` or `test/integration_tests`",
+        "test/parser/test_parser_parts/v2_generics_m1.rs",
+        "test/resolver/test_resolver_parts/generic_routines.rs",
+        "test/typecheck/test_typecheck_generics_m1.rs",
+        "test/typecheck/test_typecheck_standards_m2.rs",
+        "lang/compiler/fol-lower/src/decls/tests.rs",
+        "test/integration_tests/integration_editor_and_build.rs",
+        "test/apps/test_apps.rs",
+    ] {
+        assert!(gates.contains(required), "compiler gate contract should mention {required}");
+    }
+
+    for path in [
+        "test/parser/test_parser_parts/v2_generics_m1.rs",
+        "test/resolver/test_resolver_parts/generic_routines.rs",
+        "test/typecheck/test_typecheck_generics_m1.rs",
+        "test/typecheck/test_typecheck_standards_m2.rs",
+        "lang/compiler/fol-lower/src/decls/tests.rs",
+        "test/integration_tests/integration_editor_and_build.rs",
+        "test/apps/test_apps.rs",
+    ] {
+        assert!(repo_root().join(path).is_file(), "compiler gate path should exist: {path}");
+    }
+}
+
+#[test]
+fn test_v2_quality_gate_tooling_is_tracked_in_repo_contract() {
+    let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
+        .expect("V2 quality gates note should load");
+    let lsp_tests = std::fs::read_to_string(
+        repo_root().join("lang/tooling/fol-editor/src/lsp/tests/example_models.rs"),
+    )
+    .expect("V2 LSP example-model tests should load");
+    let tree_sitter_tests =
+        std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/tree_sitter.rs"))
+            .expect("tree-sitter query tests should load");
+
+    for required in [
+        "## Tooling Gate",
+        "editor-opened example coverage",
+        "hover and definition coverage for new declarations",
+        "tree-sitter query coverage for the shipped example matrix",
+        "lang/tooling/fol-editor/src/lsp/tests/example_models.rs",
+        "lang/tooling/fol-editor/src/tree_sitter.rs",
+        "test/integration_tests/integration_editor_and_build.rs",
+    ] {
+        assert!(gates.contains(required), "tooling gate contract should mention {required}");
+    }
+
+    for path in [
+        "lang/tooling/fol-editor/src/lsp/tests/example_models.rs",
+        "lang/tooling/fol-editor/src/tree_sitter.rs",
+        "test/integration_tests/integration_editor_and_build.rs",
+    ] {
+        assert!(repo_root().join(path).is_file(), "tooling gate path should exist: {path}");
+    }
+
+    for example in [
+        "examples/generic_routine_m1",
+        "examples/generic_routine_pair_m1",
+        "examples/generic_routine_cross_file_m1",
+        "examples/standards_protocol_multi_m2",
+    ] {
+        assert!(lsp_tests.contains(example), "tooling gate LSP tests should mention {example}");
+    }
+
+    for source in [
+        "examples/generic_routine_cross_file_m1/src/main.fol",
+        "examples/generic_routine_cross_file_m1/src/shared.fol",
+        "examples/standards_protocol_multi_m2/src/main.fol",
+        "examples/standards_protocol_multi_m2/src/contracts.fol",
+        "examples/standards_protocol_multi_m2/src/rect.fol",
+    ] {
+        assert!(
+            tree_sitter_tests.contains(source),
+            "tooling gate tree-sitter tests should mention {source}"
+        );
+    }
+}
+
+#[test]
+fn test_v2_quality_gate_contract_is_tracked_in_repo_contract() {
+    let gates = std::fs::read_to_string(repo_root().join("docs/v2-quality-gates.md"))
+        .expect("V2 quality gates note should load");
+
+    for required in [
+        "## Contract Gate",
+        "the relevant book chapter updated",
+        "docs notes updated or deleted",
+        "the example matrix updated",
+        "negative examples updated when the semantic boundary changes",
+        "docs/v2-full-contract.md",
+        "docs/v2-generics-m1.md",
+        "docs/v2-standards-m2.md",
+        "book/src/500_items/500_generics.md",
+        "book/src/500_items/400_standards.md",
+        "examples",
+        "test/integration_tests/integration_editor_and_build.rs",
+    ] {
+        assert!(gates.contains(required), "contract gate contract should mention {required}");
+    }
+
+    for path in [
+        "docs/v2-full-contract.md",
+        "docs/v2-generics-m1.md",
+        "docs/v2-standards-m2.md",
+        "book/src/500_items/500_generics.md",
+        "book/src/500_items/400_standards.md",
+        "examples",
+        "test/integration_tests/integration_editor_and_build.rs",
+    ] {
+        assert!(repo_root().join(path).exists(), "contract gate path should exist: {path}");
+    }
+}
+
+#[test]
 fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
     let bundled_std_docs = std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
         .expect("bundled std docs should exist");
@@ -4341,6 +6159,140 @@ fn test_cli_code_build_rejects_missing_source_root() {
     );
 
     std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn test_build_evaluator_rejects_unknown_expression_nodes_during_cli_build() {
+    let temp_root = unique_temp_root("build_unknown_expression_node");
+    let root = temp_root.join("demo");
+    std::fs::create_dir_all(root.join("src")).expect("should create source root");
+    std::fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var keep = 1 + 2;\n",
+            "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
+            "    graph.install(app);\n",
+            "};\n",
+        ),
+    )
+    .expect("should write build file");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
+    )
+    .expect("should write app source");
+
+    let output = run_fol_in_dir(&root, &["code", "build"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "unknown build expression nodes should fail the CLI build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(
+        stderr.contains("build evaluation does not support expression node 'binary_op'"),
+        "CLI build should preserve the explicit unknown-expression diagnostic: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+
+    std::fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn test_build_evaluator_rejects_condition_based_loops_during_cli_build() {
+    let temp_root = unique_temp_root("build_condition_loop");
+    let root = temp_root.join("demo");
+    std::fs::create_dir_all(root.join("src")).expect("should create source root");
+    std::fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    loop(true) {\n",
+            "        return;\n",
+            "    };\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write build file");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
+    )
+    .expect("should write app source");
+
+    let output = run_fol_in_dir(&root, &["code", "build"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "condition-based build loops should fail the CLI build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(
+        stderr.contains("condition-based loops are not supported in build evaluation"),
+        "CLI build should preserve the explicit loop-boundary diagnostic: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+
+    std::fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn test_build_evaluator_rejects_unknown_condition_nodes_during_cli_build() {
+    let temp_root = unique_temp_root("build_unknown_condition_node");
+    let root = temp_root.join("demo");
+    std::fs::create_dir_all(root.join("src")).expect("should create source root");
+    std::fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    when(\"ready\") {\n",
+            "        {\n",
+            "            return;\n",
+            "        }\n",
+            "    };\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write build file");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
+    )
+    .expect("should write app source");
+
+    let output = run_fol_in_dir(&root, &["code", "build"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "unknown build condition nodes should fail the CLI build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(
+        stderr.contains("build evaluation does not support condition node 'literal'"),
+        "CLI build should preserve the explicit unknown-condition diagnostic: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+
+    std::fs::remove_dir_all(&temp_root).ok();
 }
 
 #[test]

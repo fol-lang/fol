@@ -773,7 +773,7 @@ fn test_if_flow_type_module_bodies_parsing() {
                             if matches!(body.as_slice(), [AstNode::SegDecl { .. }])
                         )
                         && matches!(default, Some(default_body)
-                            if matches!(default_body.as_slice(), [AstNode::ImpDecl { .. }]))
+                            if matches!(default_body.as_slice(), [AstNode::AliasDecl { .. }]))
                     ))
             )));
         }

@@ -1,0 +1,36 @@
+use std: pkg = {"std"};
+
+// Two generic types with an identical field shape. Nominal identity keeps
+// `Box[int]` and `Cup[int]` distinct even though both denote `{ value: int }`,
+// so a method shared by name dispatches to each type's own receiver routine.
+typ Box(T): rec = {
+    value: T
+};
+
+typ Cup(T): rec = {
+    value: T
+};
+
+fun (Box[T])tag(T)(): int = {
+    return 10;
+};
+
+fun (Cup[T])tag(T)(): int = {
+    return 20;
+};
+
+fun (Box[T])get(T)(): T = {
+    return self.value;
+};
+
+fun[] main(): int = {
+    var b: Box[int] = { value = 3 };
+    var c: Cup[int] = { value = 4 };
+    var words: Box[str] = { value = "boxed" };
+
+    var bt: int = std::io::echo_int(b.tag());
+    var ct: int = std::io::echo_int(c.tag());
+    var text: str = std::io::echo_str(words.get());
+
+    return b.tag() + c.tag();
+};

@@ -260,6 +260,326 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_typecheck_accepts_generic_types_through_semantic_check() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_type_m1_boundary");
+        fs::create_dir_all(temp_root.join("src")).expect("Should create temp generic-type fixture root");
+        fs::write(
+            temp_root.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"generic_type_check\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"generic_type_check\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
+        )
+        .expect("Should write generic type build fixture");
+        fs::write(
+            temp_root.join("src/main.fol"),
+            "typ Box(T): rec = {\n    value: T\n};\nfun[] main(value: Box[int]): int = {\n    return value.value;\n};\n",
+        )
+        .expect("Should write generic type fixture");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "check"]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "CLI semantic check should accept generic types now: stdout=\n{}\nstderr=\n{}",
+            stdout,
+            stderr
+        );
+        assert!(
+            !stdout.contains("generic types are not yet supported"),
+            "CLI semantic check should no longer report the stale generic-type typecheck boundary"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_non_standard_generic_constraints() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_constraint_m1_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic-constraint fixture root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "typ Bound: rec = {\n};\n\
+             fun pick(T: Bound)(value: T): T = {\n    return value;\n};\n",
+        )
+        .expect("Should write generic routine constraint fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI generic-constraint fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject non-standard generic constraints"
+        );
+        assert!(
+            stdout.contains("must resolve to a standard declaration"),
+            "CLI should surface the generic constraint validation message"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_standard_signature_mismatches_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standard_signature_mismatch_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards M2 fixture root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n\
+         fun (Rect)area(scale: int): int = {\n\
+             return scale;\n\
+         };\n",
+        )
+        .expect("Should write standards M2 signature mismatch fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI standards M2 fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject standard signature mismatches in M2");
+        assert!(
+            stdout.contains("routine 'area' has incompatible signature")
+                && stdout.contains("expected fun area(): int")
+                && stdout.contains("found fun area(int): int"),
+            "CLI should surface the explicit standard signature mismatch wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_standards_as_ordinary_types_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standard_type_boundary_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards type boundary root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "std geo: pro = {\n\
+             fun area(): int;\n\
+         };\n\
+         fun use(value: geo): int = {\n\
+             return 1;\n\
+         };\n",
+        )
+        .expect("Should write standards type boundary fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI standards type boundary path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject standards as ordinary types in M2");
+        assert!(
+            stdout.contains("standard 'geo' is a static contract, not a value type; use it as a generic constraint instead"),
+            "CLI should surface the permanent standards-as-type rejection wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_accepts_blueprint_and_extended_standards_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_extended_standards_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp extended standards root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "std shape: blu = {\n\
+             var size: int;\n\
+         };\n\
+         std display: ext = {\n\
+             fun draw(): int;\n\
+         };\n",
+        )
+        .expect("Should write extended standards fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI extended standards path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(output.status.success(), "CLI should accept blueprint and extended standards");
+        assert!(
+            !stdout.contains("blueprint standards are planned for a future release")
+                && !stdout.contains("extended standards are planned for a future release"),
+            "Blueprint and extended standards are now supported in V2"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_duplicate_protocol_members_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_duplicate_protocol_members_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp duplicate protocol root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "std geo: pro = {\n\
+             fun area(): int;\n\
+             fun area(): int;\n\
+         };\n",
+        )
+        .expect("Should write duplicate protocol member fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI duplicate protocol path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject duplicate protocol members in M2");
+        assert!(
+            stdout.contains("Duplicate standard member 'area#0'"),
+            "CLI should preserve the duplicate protocol member parser wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_unknown_standard_contract_headers_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_unknown_standard_contract_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp unknown contract root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "typ Rect()(geo): rec = {\n\
+             var width: int;\n\
+         };\n",
+        )
+        .expect("Should write unknown-contract fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI unknown contract path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(!output.status.success(), "CLI should reject unknown standard contract headers");
+        assert!(
+            stdout.contains("could not resolve standard 'geo'"),
+            "CLI should preserve the unknown-contract resolver wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_non_standard_contract_headers_for_m2() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_non_standard_contract_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp non-standard contract root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "typ Geo: rec = {\n\
+             var size: int;\n\
+         };\n\
+         typ Rect()(Geo): rec = {\n\
+             var width: int;\n\
+         };\n",
+        )
+        .expect("Should write non-standard contract fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI non-standard contract path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject non-standard contract headers"
+        );
+        assert!(
+            stdout.contains("could not resolve standard 'Geo'"),
+            "CLI should preserve the non-standard contract resolver wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_template_style_generic_calls_for_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_template_call_m1_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic-call fixture root");
+        fs::write(
+            temp_root.join("main.fol"),
+            "fun pick(T)(value: T): T = {\n    return value;\n};\n\
+             fun[] main(): int = {\n    return pick$(1);\n};\n",
+        )
+        .expect("Should write template-style generic call fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("CLI generic-call fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject template-style generic calls in M1"
+        );
+        assert!(
+            stdout.contains("template instantiation is not yet supported"),
+            "CLI should preserve the explicit template-instantiation boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_when_expressions_without_default_before_lowering() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_typecheck_when_default_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp when-default fixture dir");
+        fs::write(
+            temp_root.join("main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    return when(1) {\n",
+                "        is 1 -> 1;\n",
+                "    };\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write when-default boundary fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("when-default fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject when expressions without defaults before lowering"
+        );
+        assert!(
+            stdout.contains("when expressions require a default branch"),
+            "CLI should preserve the missing-default boundary wording"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_typecheck_rejects_invalid_check_calls_full_chain() {
         use std::fs;
 
@@ -287,6 +607,49 @@ use super::*;
         assert!(
             stdout.contains("main.fol"),
             "CLI diagnostics should preserve the failing source-unit path"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_typecheck_rejects_standard_declarations_inside_routine_bodies() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_typecheck_std_decl_body_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp standard-body fixture dir");
+        fs::write(
+            temp_root.join("main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    when(true) {\n",
+                "        case(true) {\n",
+                "            std geo: pro = {\n",
+                "                fun area(): int;\n",
+                "            };\n",
+                "        }\n",
+                "        * {\n",
+                "            return 0;\n",
+                "        }\n",
+                "    }\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write standard-body boundary fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("standard-body fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(
+            !output.status.success(),
+            "CLI should reject standard declarations inside routine bodies"
+        );
+        assert!(
+            stdout.contains("standard declarations are not supported in executable bodies"),
+            "CLI should preserve the standard-declaration body boundary wording"
         );
 
         fs::remove_dir_all(&temp_root).ok();

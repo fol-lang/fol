@@ -1,0 +1,17 @@
+std geo: pro = {
+    fun area(): int;
+};
+
+typ Plain(): rec = {
+    var value: int;
+};
+
+fun pick(T: geo)(value: T): T = {
+    return value;
+};
+
+fun[] main(): int = {
+    var plain: Plain = { value = 1 };
+    pick(plain);
+    return 0;
+};

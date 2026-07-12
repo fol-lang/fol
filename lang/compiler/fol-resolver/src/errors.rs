@@ -223,7 +223,6 @@ pub(crate) fn symbol_kind_label(kind: SymbolKind) -> &'static str {
         SymbolKind::Alias => "alias",
         SymbolKind::Definition => "definition",
         SymbolKind::Segment => "segment",
-        SymbolKind::Implementation => "implementation",
         SymbolKind::Standard => "standard",
         SymbolKind::ImportAlias => "import alias",
         SymbolKind::GenericParameter => "generic parameter",
@@ -237,7 +236,7 @@ pub(crate) fn symbol_kind_label(kind: SymbolKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{resolver_package_message, ResolverError, ResolverErrorKind};
-    use fol_diagnostics::{DiagnosticCode, DiagnosticReport};
+    use fol_diagnostics::{DiagnosticCode, DiagnosticReport, ToDiagnostic};
     use fol_parser::ast::SyntaxOrigin;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -291,7 +290,7 @@ mod tests {
         );
         let mut report = DiagnosticReport::new();
 
-        report.add_error(&error, error.diagnostic_location());
+        report.add_error(error.to_string(), error.diagnostic_location());
 
         assert!(report.has_errors());
         let rendered = report.output(fol_diagnostics::OutputFormat::Json);
@@ -367,7 +366,7 @@ mod tests {
         );
         let mut report = DiagnosticReport::new();
 
-        report.add_error(&error, error.diagnostic_location());
+        report.add_error(error.to_string(), error.diagnostic_location());
 
         let rendered = report.output(fol_diagnostics::OutputFormat::Human);
         let _ = std::fs::remove_file(&path);

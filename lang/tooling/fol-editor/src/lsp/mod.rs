@@ -35,8 +35,9 @@ fn serialize_result(value: &impl serde::Serialize) -> EditorResult<serde_json::V
         EditorError::new(EditorErrorKind::Internal, format!("LSP response serialization failed: {e}"))
     })
 }
-use analysis::{analyze_document_diagnostics, analyze_document_semantics};
+use analysis::analyze_document_semantics;
 use completion_helpers::completion_context_with_lsp;
+use std::fs;
 use std::sync::Arc;
 use transport::from_params;
 use crate::workspace::discover_workspace_roots;
@@ -384,7 +385,12 @@ impl EditorLspServer {
         let hit = snapshot
             .reference_at(position)
             .as_ref()
-            .and_then(|reference| snapshot.hover_for_reference(reference));
+            .and_then(|reference| snapshot.hover_for_reference(reference))
+            .or_else(|| {
+                snapshot
+                    .method_target_symbol_at(position)
+                    .and_then(|symbol_id| snapshot.hover_for_symbol(symbol_id))
+            });
         Ok(hit)
     }
 
@@ -398,7 +404,12 @@ impl EditorLspServer {
         Ok(snapshot
             .reference_at(position)
             .as_ref()
-            .and_then(|reference| snapshot.definition_for_reference(reference)))
+            .and_then(|reference| snapshot.definition_for_reference(reference))
+            .or_else(|| {
+                snapshot
+                    .method_target_symbol_at(position)
+                    .and_then(|symbol_id| snapshot.definition_for_symbol(symbol_id))
+            }))
     }
 
     pub fn signature_help(
@@ -475,26 +486,24 @@ impl EditorLspServer {
         &mut self,
         query: &str,
     ) -> EditorResult<Vec<LspWorkspaceSymbol>> {
-        let open_documents = self
-            .session
-            .documents
-            .iter()
-            .map(|(uri, document)| (EditorDocumentUri::parse(uri), document.clone()))
-            .collect::<Vec<_>>();
+        let workspace_documents = self.workspace_symbol_documents()?;
         let mut symbols = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
 
-        for (uri, document) in open_documents {
-            let uri = uri?;
+        for (uri, document) in workspace_documents {
             let snapshot = self.semantic_snapshot(&uri, &document)?;
             for symbol in snapshot.workspace_symbols(query) {
+                // A workspace symbol is uniquely identified by its kind and
+                // source location. The container name is derived from the
+                // per-request analysis overlay root, so it varies between the
+                // separate document analyses that surface the same declaration;
+                // excluding it keeps the same symbol from appearing twice.
                 let key = (
                     symbol.name.clone(),
                     symbol.kind,
                     symbol.location.uri.clone(),
                     symbol.location.range.start.line,
                     symbol.location.range.start.character,
-                    symbol.container_name.clone(),
                 );
                 if seen.insert(key) {
                     symbols.push(symbol);
@@ -517,6 +526,42 @@ impl EditorLspServer {
                 )
         });
         Ok(symbols)
+    }
+
+    fn workspace_symbol_documents(
+        &mut self,
+    ) -> EditorResult<Vec<(EditorDocumentUri, EditorDocument)>> {
+        let mut open_documents = Vec::new();
+        for (uri, document) in self.session.documents.iter() {
+            open_documents.push((EditorDocumentUri::parse(uri)?, document.clone()));
+        }
+        let mut documents = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+
+        for (uri, document) in &open_documents {
+            if seen.insert(uri.clone()) {
+                documents.push((uri.clone(), document.clone()));
+            }
+        }
+
+        for (_, document) in &open_documents {
+            let mapping = self.cached_document_mapping(document.path.as_path())?;
+            for path in collect_fol_files(&mapping.analysis_root) {
+                let uri = EditorDocumentUri::from_file_path(path.clone())?;
+                if seen.contains(&uri) {
+                    continue;
+                }
+                let text = match fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(_) => continue,
+                };
+                let document = EditorDocument::new(uri.clone(), 0, text)?;
+                seen.insert(uri.clone());
+                documents.push((uri, document));
+            }
+        }
+
+        Ok(documents)
     }
 
     pub fn completion(
@@ -634,8 +679,12 @@ impl EditorLspServer {
             }
         }
 
-        let mapping = self.document_mapping(document, uri)?;
-        let diagnostics = analyze_document_diagnostics(document, &mapping)?;
+        // Diagnostics come from the same compiler-backed analysis as every
+        // semantic request, so build (and cache) the shared semantic snapshot
+        // once and reuse it for both.
+        analysis::note_diagnostic_snapshot_build();
+        let snapshot = self.semantic_snapshot(uri, document)?;
+        let diagnostics = snapshot.diagnostics.clone();
         self.session.diagnostic_snapshots.insert(
             uri.as_str().to_string(),
             analysis::CachedDiagnosticSnapshot {
@@ -645,6 +694,32 @@ impl EditorLspServer {
         );
         Ok(diagnostics)
     }
+}
+
+fn collect_fol_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fn visit(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                visit(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "fol") {
+                out.push(path);
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    visit(root, &mut files);
+    files.sort();
+    files
 }
 
 

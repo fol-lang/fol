@@ -17,11 +17,6 @@ fn test_declarations_accept_semicolon_visibility_option_separators() {
         AstNode::Program { declarations } => {
             assert!(declarations.iter().any(|node| matches!(
                 node,
-                AstNode::ImpDecl { name, options, .. }
-                if name == "Self" && options == &vec![DeclOption::Export]
-            )));
-            assert!(declarations.iter().any(|node| matches!(
-                node,
                 AstNode::StdDecl { name, options, .. }
                 if name == "geometry" && options == &vec![DeclOption::Export]
             )));

@@ -2,6 +2,7 @@
 name = "fol-intrinsics"
 version = "0.1.4"
 edition = "2021"
+authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 description = "Shared intrinsic registry for the FOL compiler"
 
 [lib]

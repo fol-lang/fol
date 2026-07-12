@@ -1,13 +1,47 @@
 # Standards
 
-This chapter describes later `V2` contract and conformance design, not current
-`V1` compiler behavior.
+This chapter now has a split status:
 
-Current milestone note:
+- one narrow `V2` Milestone 2 subset is implemented
+- the broader standards design is still future `V2`
 
-- standards are not part of the implemented `V1` typechecker
-- blueprints and extensions are not part of the implemented `V1` typechecker
-- examples here are future design sketches only
+Current implemented Milestone 2 subset:
+
+- protocol standards declared with `std name: pro = { ... }`
+- required receiver-qualified routine signatures only
+- type-side conformance claims through the existing contract-header shape
+- exact routine-signature matching for conformance
+- current hardened example set for that subset is:
+  - `examples/standards_protocol_m2`
+  - `examples/standards_protocol_pair_m2`
+  - `examples/standards_protocol_multi_m2`
+  - `examples/fail_standard_blueprint_m2`
+  - `examples/fail_standard_as_type_m2`
+  - `examples/fail_standard_missing_routine_m2`
+  - `examples/fail_standard_signature_m2`
+  - `examples/fail_standard_import_ambiguity_m2`
+
+Still future:
+
+- blueprint standards as real semantic contracts
+- extended standards as real semantic contracts
+- required data-member conformance
+- standards as ordinary concrete types
+- dispatch/inference driven by standards
+- object-style method semantics
+
+Part of the current shipped full-`V2` contract:
+
+- standards-as-constraints through protocol standards
+- procedural constrained-generic call binding
+- static conformance checking for those constraints
+- calling a constraint's required routines on the constrained generic
+  parameter itself: `fun measure(T: sized)(thing: T): int = { return
+  thing.size(); };` monomorphizes per instantiation, dispatching to each
+  conformer's own receiver routine (or the standard's default body) at
+  compile time
+- blueprint standards (`std X: blu`) as static field contracts
+- extended standards (`std X: ext`) combining required routines and fields
 
 The intent of standards is procedural and data-oriented. They are not class
 hierarchies, inheritance trees, or object systems.
@@ -25,7 +59,7 @@ std geometry: pro = {
 };
 ```
 
-The planned forms are:
+The shipped forms are:
 
 - protocol `pro[]` for required routines
 - blueprint `blu[]` for required data
@@ -52,9 +86,43 @@ std geometry: ext = {
 
 ## Contract
 
-Later milestones may allow a type to declare that it satisfies a standard. The
-compiler would then check that the required data and receiver-qualified
-routines exist.
+Current Milestone 2 support allows a type to declare that it satisfies a
+protocol standard and requires matching receiver-qualified routines.
+
+Current implemented shape:
+
+```fol
+std geo: pro = {
+    fun area(): int;
+};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun (Rect)area(): int = {
+    return 1;
+};
+```
+
+This subset is intentionally narrow:
+
+- only `pro` is semantic today
+- only required routines are semantic today
+- richer requirement forms such as generic, receiver-qualified, and capturing
+  standard requirements remain unsupported
+- the type claim is checked procedurally
+- lowering preserves protocol-standard and conformance metadata for audits and
+  procedural backend lowering
+- backend execution works for the checked-in positive protocol examples through
+  ordinary receiver-qualified routine calls, not through a runtime object model
+- editor hardening now covers contract-header hover/definition on checked-in
+  standards examples while keeping broader required-routine hover support out
+  of the claimed contract
+
+The broader design remains future work. Later milestones may allow a type to
+declare that it satisfies richer standards and check required data and
+receiver-qualified routines together.
 
 ```fol
 std geo: pro = {
@@ -76,5 +144,8 @@ fun (rect)area(): flt[64] = { result = self.width + self.heigh }
 fun (rect)perim(): flt[64] = { result = 2 * self.width + 2 * self.heigh }
 ```
 
-The goal is still procedural. A call like `shape.area()` would remain sugar
-for a receiver-qualified routine call, not an object-owned virtual method.
+The goal is still procedural. A call like `shape.area()` remains sugar for a
+receiver-qualified routine call, not an object-owned virtual method.
+
+For the current full `V2` target, broader dispatch and inference semantics stay
+outside the shipped contract.

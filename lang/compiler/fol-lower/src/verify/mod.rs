@@ -173,6 +173,8 @@ fn verify_routine(
         }
     }
 
+    verify_no_generic_parameter_leak(workspace, routine, errors);
+
     verify_routine_blocks(
         workspace,
         package,
@@ -181,6 +183,77 @@ fn verify_routine(
         valid_routine_ids,
         errors,
     );
+}
+
+/// The backend derives a routine's Rust generic clause solely from its
+/// signature (parameters, return, error) and receiver. Any generic parameter
+/// that survives lowering in a *local* or instruction type without appearing in
+/// that clause would emit as an unbound Rust type parameter (`FolSeq<t>` with
+/// `t` never declared). Monomorphization is supposed to erase such leaks; this
+/// is the safety net that rejects a routine before the backend ever sees it.
+fn verify_no_generic_parameter_leak(
+    workspace: &LoweredWorkspace,
+    routine: &crate::LoweredRoutine,
+    errors: &mut Vec<LoweringError>,
+) {
+    let type_table = workspace.type_table();
+    let mut declared = BTreeSet::new();
+    if let Some(signature) = routine.signature {
+        type_table.collect_generic_parameter_names(signature, &mut declared);
+    }
+    if let Some(receiver_type) = routine.receiver_type {
+        type_table.collect_generic_parameter_names(receiver_type, &mut declared);
+    }
+
+    let mut leaked = BTreeSet::new();
+    let check = |type_id: crate::LoweredTypeId, leaked: &mut BTreeSet<String>| {
+        let mut names = BTreeSet::new();
+        type_table.collect_generic_parameter_names(type_id, &mut names);
+        for name in names {
+            if !declared.contains(&name) {
+                leaked.insert(name);
+            }
+        }
+    };
+
+    for local in routine.locals.iter() {
+        if let Some(type_id) = local.type_id {
+            check(type_id, &mut leaked);
+        }
+    }
+    for instr in routine.instructions.iter() {
+        match &instr.kind {
+            crate::LoweredInstrKind::Call { error_type, .. }
+            | crate::LoweredInstrKind::CallIndirect { error_type, .. } => {
+                if let Some(error_type) = error_type {
+                    check(*error_type, &mut leaked);
+                }
+            }
+            crate::LoweredInstrKind::ConstructRecord { type_id, .. }
+            | crate::LoweredInstrKind::ConstructEntry { type_id, .. }
+            | crate::LoweredInstrKind::ConstructLinear { type_id, .. }
+            | crate::LoweredInstrKind::ConstructSet { type_id, .. }
+            | crate::LoweredInstrKind::ConstructMap { type_id, .. }
+            | crate::LoweredInstrKind::ConstructOptional { type_id, .. }
+            | crate::LoweredInstrKind::ConstructError { type_id, .. }
+            | crate::LoweredInstrKind::Cast {
+                target_type: type_id,
+                ..
+            } => check(*type_id, &mut leaked),
+            _ => {}
+        }
+    }
+
+    for name in leaked {
+        errors.push(LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!(
+                "lowered routine '{}' leaks generic parameter '{}' not bound by its signature; \
+                 monomorphization must erase it before backend emission",
+                routine.name, name
+            ),
+        ));
+    }
 }
 
 fn verify_routine_blocks(

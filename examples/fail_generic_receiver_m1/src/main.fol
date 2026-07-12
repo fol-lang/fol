@@ -1,0 +1,12 @@
+typ Box(T): rec = {
+    value: T
+};
+
+fun (Box[T])stash(T, U)(extra: T): U = {
+    return extra;
+};
+
+fun[] main(): int = {
+    var boxed: Box[int] = { value = 5 };
+    return boxed.stash(1);
+};

@@ -361,6 +361,7 @@ mod tests {
     };
     use crate::artifact::BuildArtifactFolModel;
     use crate::dependency::DependencyBuildEvaluationMode;
+    use std::collections::BTreeMap;
 
     #[test]
     fn runtime_programs_record_the_chosen_execution_representation() {

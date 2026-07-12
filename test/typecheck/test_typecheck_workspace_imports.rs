@@ -31,7 +31,7 @@ fn workspace_expression_typing_rejects_plain_imported_call_argument_mismatches()
             error.kind() == TypecheckErrorKind::IncompatibleType
                 && error
                     .message()
-                    .contains("call to 'emit' expects 'Builtin(Int)'")
+                    .contains("call to 'emit' expects 'int'")
         }),
         "Expected imported-call argument mismatch diagnostic, got: {errors:?}"
     );
@@ -1420,6 +1420,7 @@ fn declaration_signature_lowering_resolves_qualified_named_types() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -1496,6 +1497,7 @@ fn declaration_signature_lowering_keeps_alias_target_types_exact() {
             symbol: alias_id,
             name: "PathLabel".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -1539,6 +1541,7 @@ fn declaration_signature_lowering_allows_forward_cross_file_alias_references() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -1571,6 +1574,7 @@ fn declaration_signature_lowering_allows_cross_file_named_type_references_in_rou
             symbol: user_id,
             name: "User".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -1581,6 +1585,7 @@ fn declaration_signature_lowering_allows_cross_file_named_type_references_in_rou
             symbol: user_id,
             name: "User".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
 }

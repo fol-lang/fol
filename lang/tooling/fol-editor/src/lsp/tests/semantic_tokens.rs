@@ -53,10 +53,15 @@ fn lsp_server_returns_semantic_tokens_for_source_files() {
     let tokens: LspSemanticTokens = serde_json::from_value(response.result.unwrap()).unwrap();
     let decoded = decode_semantic_tokens(&tokens.data);
 
-    assert!(decoded.iter().any(|token| *token == (0, 6, 5, 1, 0)));
-    assert!(decoded.iter().any(|token| *token == (3, 6, 6, 2, 0)));
-    assert!(decoded.iter().any(|token| *token == (3, 13, 5, 3, 0)));
-    assert!(decoded.iter().any(|token| *token == (4, 8, 5, 4, 0)));
+    // Routine declarations anchor at their NAME (helper at 4:6); type
+    // declarations still anchor at the `typ` keyword until TypeDecl carries
+    // a name syntax id. Locals and parameters tokenize at their resolved
+    // reference sites.
+    assert!(decoded.iter().any(|token| *token == (0, 0, 3, 1, 0)));
+    assert!(decoded.iter().any(|token| *token == (4, 6, 6, 2, 0)));
+    assert!(decoded.iter().any(|token| *token == (5, 15, 5, 1, 0)));
+    assert!(decoded.iter().any(|token| *token == (5, 23, 5, 3, 0)));
+    assert!(decoded.iter().any(|token| *token == (6, 11, 5, 4, 0)));
 }
 
 #[test]
@@ -84,13 +89,11 @@ fn lsp_server_returns_semantic_tokens_for_build_files() {
     let tokens: LspSemanticTokens = serde_json::from_value(response.result.unwrap()).unwrap();
     let decoded = decode_semantic_tokens(&tokens.data);
 
+    // The `build` routine anchors at its name; the untyped `build`/`graph`
+    // locals tokenize at their resolved reference sites.
     assert!(decoded.iter().any(|token| *token == (0, 6, 5, 2, 0)));
-    assert!(decoded.iter().any(|token| *token == (0, 12, 5, 3, 0)));
-    assert!(
-        decoded
-            .iter()
-            .any(|token| token.0 == 0 && token.3 == 1 && token.2 >= 5)
-    );
+    assert!(decoded.iter().any(|token| *token == (2, 4, 5, 4, 0)));
+    assert!(decoded.iter().any(|token| token.3 == 4));
 }
 
 #[test]
@@ -101,6 +104,7 @@ fn lsp_server_keeps_build_file_semantic_tokens_for_all_model_declarations() {
         concat!(
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
             "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
             "    var graph = build.graph();\n",
             "    graph.add_static_lib({ name = \"corelib\", root = \"src/main.fol\", fol_model = \"core\" });\n",
@@ -132,10 +136,73 @@ fn lsp_server_keeps_build_file_semantic_tokens_for_all_model_declarations() {
     let tokens: LspSemanticTokens = serde_json::from_value(response.result.unwrap()).unwrap();
     let decoded = decode_semantic_tokens(&tokens.data);
 
-    assert!(
-        decoded.iter().filter(|token| token.0 >= 2 && token.0 <= 4).count() >= 6,
-        "build files with core/memo/std declarations should keep semantic tokens on all model lines: {decoded:?}"
-    );
+    for line in [5, 6, 7] {
+        assert!(
+            decoded.iter().any(|token| token.0 == line),
+            "build files with core/memo/std declarations should keep semantic tokens on artifact line {line}: {decoded:?}"
+        );
+    }
 
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_keeps_more_specific_semantic_tokens_for_v2_examples() {
+    let cases = [
+        (
+            "semantic_tokens_v2_generic_example",
+            "fun pick(T)(value: T): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return pick(7);\n};\n",
+            vec![
+                (0, 4, 4, 2, 0),   // pick declaration name
+                (0, 19, 1, 3, 0),  // T tokenized in generic signature position
+                (0, 23, 1, 3, 0),  // T tokenized in generic signature position
+                (1, 11, 5, 3, 0),  // value parameter reference
+                (4, 6, 4, 2, 0),   // main declaration name
+                (5, 11, 4, 2, 0),  // pick call
+            ],
+        ),
+        (
+            "semantic_tokens_v2_standards_example",
+            "std geo: pro = {\n    fun area(): int;\n};\n\ntyp Rect()(geo): rec = {\n    var width: int;\n};\n\nfun (Rect)area(): int = {\n    return 1;\n};\n",
+            vec![
+                (4, 0, 3, 1, 0),  // typ (type decls still anchor at the keyword)
+                (8, 10, 4, 2, 0), // area declaration name
+                (8, 5, 4, 1, 0),  // Rect receiver type
+            ],
+        ),
+    ];
+
+    for (label, source, expected_tokens) in cases {
+        let (root, uri) = sample_package_root(label);
+        fs::write(root.join("src/main.fol"), source).unwrap();
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let response = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(954),
+                method: "textDocument/semanticTokens/full".to_string(),
+                params: Some(
+                    serde_json::to_value(LspSemanticTokensParams {
+                        text_document: LspTextDocumentIdentifier { uri },
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let tokens: LspSemanticTokens = serde_json::from_value(response.result.unwrap()).unwrap();
+        let decoded = decode_semantic_tokens(&tokens.data);
+
+        for expected in expected_tokens {
+            assert!(
+                decoded.iter().any(|token| *token == expected),
+                "semantic tokens for '{label}' should include {expected:?}, got: {decoded:?}"
+            );
+        }
+
+        fs::remove_dir_all(root).ok();
+    }
 }

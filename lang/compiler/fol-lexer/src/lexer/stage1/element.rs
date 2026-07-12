@@ -422,7 +422,6 @@ impl Element {
             "typ" => self.set_key(Keyword(BUILDIN::Typ)),
             "std" => self.set_key(Keyword(BUILDIN::Std)),
             "ali" => self.set_key(Keyword(BUILDIN::Ali)),
-            "imp" => self.set_key(Keyword(BUILDIN::Imp)),
             "lab" => self.set_key(Keyword(BUILDIN::Lab)),
             "not" => self.set_key(Keyword(BUILDIN::Not)),
             "or" => self.set_key(Keyword(BUILDIN::Or)),

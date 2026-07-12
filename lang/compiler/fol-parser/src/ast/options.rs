@@ -27,7 +27,7 @@ pub enum CallSurface {
     KeywordIntrinsic,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardKind {
     Protocol,
     Blueprint,
@@ -164,6 +164,7 @@ pub enum TypeOption {
     Get,       // get
     Nothing,   // nothing
     Extension, // ext
+    Alias,     // ali — the book's typ[ali] aliasing marker
 }
 
 /// Use declaration options
@@ -188,6 +189,14 @@ pub fn decl_visibility(options: &[DeclOption]) -> ParsedDeclVisibility {
     } else {
         ParsedDeclVisibility::Normal
     }
+}
+
+/// Whether a `var`/`lab` binding was declared mutable (`var[mut]` / `var[~]`).
+/// Bindings are immutable by default per the variables chapter of the book.
+pub fn binding_is_mutable(options: &[VarOption]) -> bool {
+    options
+        .iter()
+        .any(|option| matches!(option, VarOption::Mutable))
 }
 
 pub fn var_decl_visibility(options: &[VarOption]) -> ParsedDeclVisibility {

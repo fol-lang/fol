@@ -197,7 +197,9 @@ fn lsp_server_filters_heap_type_surfaces_from_core_type_completion() {
         root.join("build.fol"),
             concat!(
                 "pro[] build(): non = {\n",
-                "    var graph = .build().graph();\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
                 "    graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"core\" });\n",
                 "};\n",
             ),
@@ -260,6 +262,7 @@ fn lsp_server_handles_completion_for_single_and_ambiguous_model_package_files() 
         concat!(
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
             "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
             "    var graph = build.graph();\n",
             "    graph.add_exe({ name = \"host\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
@@ -304,7 +307,7 @@ fn lsp_server_handles_completion_for_single_and_ambiguous_model_package_files() 
             params: Some(
                 serde_json::to_value(LspCompletionParams {
                     text_document: LspTextDocumentIdentifier { uri: std_uri.clone() },
-                    position: LspPosition { line: 1, character: 12 },
+                    position: LspPosition { line: 3, character: 12 },
                     context: None,
                 })
                 .unwrap(),
@@ -388,6 +391,7 @@ fn lsp_server_returns_build_surface_completions_in_build_files() {
         concat!(
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
             "    build.\n",
             "};\n",
         ),
@@ -407,7 +411,7 @@ fn lsp_server_returns_build_surface_completions_in_build_files() {
                 serde_json::to_value(LspCompletionParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
                     position: LspPosition {
-                        line: 2,
+                        line: 3,
                         character: 10,
                     },
                     context: None,
@@ -444,7 +448,9 @@ fn lsp_server_returns_graph_path_handle_completions_in_build_files() {
         &build_file,
         concat!(
             "pro[] build(): non = {\n",
-            "    var graph = .build().graph();\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
             "    graph.\n",
             "};\n",
         ),
@@ -464,7 +470,7 @@ fn lsp_server_returns_graph_path_handle_completions_in_build_files() {
                 serde_json::to_value(LspCompletionParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
                     position: LspPosition {
-                        line: 2,
+                        line: 4,
                         character: 10,
                     },
                     context: None,
@@ -573,7 +579,7 @@ fn lsp_server_returns_git_dependency_field_completions_in_build_files() {
                 serde_json::to_value(LspCompletionParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
                     position: LspPosition {
-                        line: 2,
+                        line: 3,
                         character: 96,
                     },
                     context: None,
@@ -606,7 +612,7 @@ fn lsp_server_returns_visible_named_type_completions_in_type_positions() {
     .unwrap();
     fs::write(
         root.join("shared/lib.fol"),
-        "typ[exp] Status: ent = {\n    case Pending;\n};\n\ntyp[exp] Report: rec = {\n    value: int;\n};\n",
+        "typ[exp] Status: ent = {\n    var Pending: int = 1;\n};\n\ntyp[exp] Report: rec = {\n    value: int;\n};\n",
     )
     .unwrap();
     let text = fs::read_to_string(root.join("app/src/main.fol")).unwrap();
@@ -655,7 +661,7 @@ fn lsp_server_locks_type_completion_matrix() {
     .unwrap();
     fs::write(
         root.join("shared/lib.fol"),
-        "typ[exp] Status: ent = {\n    case Pending;\n};\n\ntyp[exp] Report: rec = {\n    value: int;\n};\n",
+        "typ[exp] Status: ent = {\n    var Pending: int = 1;\n};\n\ntyp[exp] Report: rec = {\n    value: int;\n};\n",
     )
     .unwrap();
     let text = fs::read_to_string(root.join("app/src/main.fol")).unwrap();
@@ -736,7 +742,10 @@ fn lsp_server_prefers_builtin_types_ahead_of_named_type_items() {
         .filter(|item| matches!(item.label.as_str(), "int" | "Aardvark"))
         .map(|item| format!("{}:{}", item.label, item.detail.unwrap_or_default()))
         .collect::<Vec<_>>();
-    assert_eq!(summary, vec!["int:builtin type", "Aardvark:type"]);
+    // The document intentionally contains an incomplete binding, so named
+    // types surface through the marked fallback path while builtins stay
+    // authoritative.
+    assert_eq!(summary, vec!["int:builtin type", "Aardvark:type (fallback)"]);
 
     fs::remove_dir_all(root).ok();
 }

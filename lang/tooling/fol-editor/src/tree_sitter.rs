@@ -148,6 +148,11 @@ mod tests {
         fol_tree_sitter_query_snapshots, fol_tree_sitter_symbols_query,
         CHECKED_IN_HIGHLIGHTS_QUERY, HIGHLIGHTS_QUERY_BASE,
     };
+    use fol_lexer::token::buildin::{
+        CONTROL_KEYWORDS, DECLARATION_KEYWORDS, DIAGNOSTIC_KEYWORDS, LITERAL_KEYWORDS,
+        OPERATOR_KEYWORDS, OTHER_KEYWORDS,
+    };
+    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
@@ -223,16 +228,37 @@ mod tests {
             "doc_comment",
             "use_decl",
             "var_decl",
+            "con_decl",
+            "lab_decl",
             "fun_decl",
+            "pro_decl",
             "log_decl",
             "typ_decl",
             "ali_decl",
+            "def_decl",
+            "seg_decl",
+            "std_decl",
+            "standard_block",
+            "standard_requirement",
+            "standard_field_requirement",
             "block",
+            "generic_params",
+            "generic_type_expr",
+            "type_contract_claims",
+            "turbofish_type_args",
             "when_expr",
             "loop_expr",
+            "if_stmt",
+            "select_stmt",
+            "while_stmt",
+            "for_stmt",
+            "each_stmt",
             "return_stmt",
+            "yield_stmt",
+            "defer_stmt",
             "report_stmt",
             "panic_stmt",
+            "assert_stmt",
             "unreachable_stmt",
             "break_stmt",
         ] {
@@ -260,10 +286,26 @@ mod tests {
             "qualified_path",
             "dot_intrinsic",
             "check_expr",
+            "unary_expr",
+            "if_expr",
+            "select_expr",
+            "range_expr",
+            "anonymous_fun_expr",
+            "anonymous_pro_expr",
+            "anonymous_log_expr",
+            "routine_capture_list",
             "container_type",
             "shell_type",
             "nil_literal",
             "unwrap_expr",
+            "this_expr",
+            "self_expr",
+            "where_expr",
+            "get_expr",
+            "async_expr",
+            "await_expr",
+            "go_expr",
+            "do_expr",
         ] {
             assert!(
                 grammar.contains(needle),
@@ -394,6 +436,59 @@ mod tests {
     }
 
     #[test]
+    fn grammar_and_highlights_cover_compiler_operator_keywords() {
+        let grammar = fol_tree_sitter_grammar();
+        let query = fol_tree_sitter_highlights_query();
+
+        for keyword in OPERATOR_KEYWORDS {
+            let quoted = format!("\"{keyword}\"");
+            assert!(
+                grammar.contains(&format!("'{keyword}'")) || grammar.contains(&quoted),
+                "grammar is missing operator keyword coverage for '{keyword}'"
+            );
+            assert!(
+                query.contains(&format!("operator: {quoted} @operator")),
+                "highlight query is missing operator keyword coverage for '{keyword}'"
+            );
+        }
+    }
+
+    #[test]
+    fn grammar_references_every_compiler_keyword_surface() {
+        let grammar = fol_tree_sitter_grammar();
+        let all_keywords: BTreeSet<_> = DECLARATION_KEYWORDS
+            .iter()
+            .chain(CONTROL_KEYWORDS.iter())
+            .chain(OPERATOR_KEYWORDS.iter())
+            .chain(LITERAL_KEYWORDS.iter())
+            .chain(DIAGNOSTIC_KEYWORDS.iter())
+            .chain(OTHER_KEYWORDS.iter())
+            .copied()
+            .collect();
+
+        assert_eq!(
+            all_keywords.len(),
+            54,
+            "compiler keyword inventory changed; update editor summary coverage"
+        );
+
+        let missing = all_keywords
+            .iter()
+            .filter(|keyword| {
+                let single = format!("'{keyword}'");
+                let double = format!("\"{keyword}\"");
+                !grammar.contains(&single) && !grammar.contains(&double)
+            })
+            .copied()
+            .collect::<Vec<_>>();
+
+        assert!(
+            missing.is_empty(),
+            "grammar is missing compiler keywords: {missing:?}"
+        );
+    }
+
+    #[test]
     fn grammar_and_query_cover_bracketed_declaration_modifiers() {
         let grammar = fol_tree_sitter_grammar();
         let query = fol_tree_sitter_highlights_query();
@@ -411,15 +506,34 @@ mod tests {
         for needle in [
             "(use_decl \"use\" @keyword.import)",
             "(var_decl \"var\" @keyword)",
+            "(con_decl \"con\" @keyword)",
+            "(lab_decl \"lab\" @keyword)",
             "(fun_decl \"fun\" @keyword.function)",
+            "(pro_decl \"pro\" @keyword.function)",
             "(log_decl \"log\" @keyword.function)",
             "(typ_decl \"typ\" @keyword.type)",
             "(ali_decl \"ali\" @keyword.type)",
+            "(def_decl \"def\" @keyword.type)",
+            "(seg_decl \"seg\" @keyword.type)",
+            "(std_decl \"std\" @keyword.type)",
+            "(standard_field_requirement \"var\" @keyword)",
+            "(turbofish_type_args \"::[\" @punctuation.bracket \"]\" @punctuation.bracket)",
+            "(if_stmt \"if\" @keyword.conditional)",
+            "(if_expr \"if\" @keyword.conditional)",
+            "(if_expr \"else\" @keyword.conditional)",
+            "(select_stmt \"select\" @keyword.conditional)",
+            "(select_expr \"select\" @keyword.conditional)",
             "(when_expr \"when\" @keyword.conditional)",
             "(loop_expr \"loop\" @keyword.repeat)",
+            "(while_stmt \"while\" @keyword.repeat)",
+            "(for_stmt \"for\" @keyword.repeat)",
+            "(each_stmt \"each\" @keyword.repeat)",
             "(return_stmt \"return\" @keyword.return)",
+            "(yield_stmt \"yield\" @keyword.return)",
+            "(defer_stmt \"defer\" @keyword.repeat)",
             "(report_stmt \"report\" @keyword.exception)",
             "(panic_stmt \"panic\" @keyword.exception)",
+            "(assert_stmt \"assert\" @keyword.exception)",
             "(unreachable_stmt) @keyword.exception",
             "(check_expr \"check\" @keyword.exception)",
             "(break_stmt \"break\" @keyword.repeat)",
@@ -439,9 +553,13 @@ mod tests {
             "(typ_decl name: (identifier) @type.definition)",
             "(ali_decl name: (identifier) @type.definition)",
             "(fun_decl declaration: (plain_fun_decl name: (identifier) @function))",
+            "(pro_decl declaration: (plain_pro_decl name: (identifier) @function))",
             "(fun_decl declaration: (method_decl name: (identifier) @function.method))",
             "(log_decl declaration: (plain_log_decl name: (identifier) @function))",
             "(log_decl declaration: (method_decl name: (identifier) @function.method))",
+            "(anonymous_fun_expr \"fun\" @keyword.function)",
+            "(anonymous_pro_expr \"pro\" @keyword.function)",
+            "(anonymous_log_expr \"log\" @keyword.function)",
             "(typed_binding \":\" @punctuation.delimiter)",
             "(param \":\" @punctuation.delimiter)",
             "(return_type \":\" @punctuation.delimiter)",
@@ -468,13 +586,20 @@ mod tests {
             "(param type: (type_expr (qualified_path) @type))",
             "(return_type (type_expr (qualified_path) @type))",
             "(error_type \"/\" @operator)",
-            "(type_block (typed_binding name: (identifier) @property))",
+            "(record_field (typed_binding name: (identifier) @property))",
             "(var_decl (typed_binding name: (identifier) @constant)",
             "(var_decl (typed_binding name: (identifier) @variable)",
+            "(con_decl (typed_binding name: (identifier) @constant))",
+            "(lab_decl (typed_binding name: (identifier) @variable))",
             "(field_init name: (identifier) @property)",
             "(field_init \"=\" @operator)",
             "(field_access field: (identifier) @property)",
+            "(binary_expr operator: \"^\" @operator)",
+            "(range_expr \"..\" @operator)",
+            "(range_expr \"...\" @operator)",
             "(dot_intrinsic \".\" @operator)",
+            "(routine_capture_list \"[\" @punctuation.bracket \"]\" @punctuation.bracket)",
+            "(routine_capture_list \",\" @punctuation.delimiter)",
             "(unwrap_expr \"!\" @operator)",
             "(nil_literal) @constant.builtin",
             "(boolean_literal) @boolean",
@@ -551,17 +676,21 @@ mod tests {
         for needle in [
             "(fun_decl declaration: (plain_fun_decl name: (identifier) @local.definition.function))",
             "(fun_decl declaration: (method_decl name: (identifier) @local.definition.method))",
+            "(pro_decl declaration: (plain_pro_decl name: (identifier) @local.definition.function))",
+            "(pro_decl declaration: (method_decl name: (identifier) @local.definition.method))",
             "(log_decl declaration: (plain_log_decl name: (identifier) @local.definition.function))",
             "(log_decl declaration: (method_decl name: (identifier) @local.definition.method))",
             "(typ_decl name: (identifier) @local.definition.type)",
             "(ali_decl name: (identifier) @local.definition.type)",
+            "(con_decl (typed_binding name: (identifier) @local.definition))",
+            "(lab_decl (typed_binding name: (identifier) @local.definition))",
         ] {
             assert!(
                 query.contains(needle),
                 "locals query lost declaration-family capture: {needle}"
             );
         }
-        for keyword in ["fun", "log", "typ", "ali", "var"] {
+        for keyword in ["fun", "pro", "log", "typ", "ali", "var", "con", "lab"] {
             assert!(
                 fol_typecheck::editor_declaration_keywords().contains(&keyword),
                 "compiler declaration keyword surface drifted away from locals expectation for '{keyword}'"
@@ -592,11 +721,17 @@ mod tests {
         for needle in [
             "(fun_decl declaration: (plain_fun_decl name: (identifier) @symbol.function))",
             "(fun_decl declaration: (method_decl name: (identifier) @symbol.method))",
+            "(pro_decl declaration: (plain_pro_decl name: (identifier) @symbol.function))",
+            "(pro_decl declaration: (method_decl name: (identifier) @symbol.method))",
             "(log_decl declaration: (plain_log_decl name: (identifier) @symbol.function))",
             "(log_decl declaration: (method_decl name: (identifier) @symbol.method))",
             "(typ_decl name: (identifier) @symbol.type)",
             "(ali_decl name: (identifier) @symbol.type)",
             "(var_decl (typed_binding name: (identifier) @symbol.variable))",
+            "(con_decl (typed_binding name: (identifier) @symbol.variable))",
+            "(lab_decl (typed_binding name: (identifier) @symbol.variable))",
+            "(seg_decl name: (identifier) @symbol.namespace)",
+            "(std_decl name: (identifier) @symbol.type)",
             "(use_decl name: (identifier) @symbol.namespace)",
         ] {
             assert!(
@@ -604,7 +739,7 @@ mod tests {
                 "symbols query lost declaration-family capture: {needle}"
             );
         }
-        for keyword in ["fun", "log", "typ", "ali", "var", "use"] {
+        for keyword in ["fun", "pro", "log", "typ", "ali", "var", "con", "lab", "seg", "std", "use"] {
             assert!(
                 fol_typecheck::editor_declaration_keywords().contains(&keyword),
                 "compiler declaration keyword surface drifted away from symbols expectation for '{keyword}'"
@@ -635,6 +770,9 @@ mod tests {
         assert!(corpus
             .iter()
             .any(|case| case.source.contains("typ User: rec")));
+        assert!(corpus
+            .iter()
+            .any(|case| case.source.contains("ali IntBox: Box[int]")));
         assert!(corpus
             .iter()
             .any(|case| case.source.contains("true") || case.source.contains("false")));
@@ -723,10 +861,10 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("@local.definition.type"));
-        assert!(stdout.contains("@local.definition.method"));
-        assert!(stdout.contains("@local.definition.function"));
-        assert!(stdout.contains("@local.definition"));
+        assert!(stdout.contains("local.definition.type"));
+        assert!(stdout.contains("local.definition.method"));
+        assert!(stdout.contains("local.definition.function"));
+        assert!(stdout.contains("local.definition"));
 
         std::fs::remove_dir_all(root).ok();
     }
@@ -747,12 +885,142 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("@symbol.type"));
-        assert!(stdout.contains("@symbol.method"));
-        assert!(stdout.contains("@symbol.function"));
-        assert!(stdout.contains("@symbol.variable"));
+        assert!(stdout.contains("symbol.type"));
+        assert!(stdout.contains("symbol.method"));
+        assert!(stdout.contains("symbol.function"));
+        assert!(stdout.contains("symbol.variable"));
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn generated_bundle_locals_query_captures_v2_generic_example_bindings() {
+        let root = build_bundle_root("locals_v2_generic_example");
+        let output = run_tree_sitter_query(
+            &root,
+            &root.join("queries/fol/locals.scm"),
+            &repo_root().join("examples/generic_routine_pair_m1/src/main.fol"),
+        );
+
+        assert!(
+            output.status.success(),
+            "tree-sitter locals query failed for V2 generic example:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for needle in [
+            "local.definition.function",
+            "local.definition",
+            "pair",
+            "left",
+            "right",
+            "value",
+        ] {
+            assert!(
+                stdout.contains(needle),
+                "V2 generic example locals query lost capture '{needle}':\n{stdout}"
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn generated_bundle_symbols_query_captures_v2_standards_example_symbols() {
+        let root = build_bundle_root("symbols_v2_standards_example");
+        let output = run_tree_sitter_query(
+            &root,
+            &root.join("queries/fol/symbols.scm"),
+            &repo_root().join("examples/standards_protocol_pair_m2/src/main.fol"),
+        );
+
+        assert!(
+            output.status.success(),
+            "tree-sitter symbols query failed for V2 standards example:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for needle in [
+            "symbol.type",
+            "symbol.function",
+            "Rect",
+            "area",
+            "perimeter",
+            "main",
+        ] {
+            assert!(
+                stdout.contains(needle),
+                "V2 standards example symbols query lost capture '{needle}':\n{stdout}"
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn generated_bundle_v2_malformed_syntax_keeps_locals_and_symbols_sane() {
+        let root = build_bundle_root("malformed_v2_locals_symbols");
+        let source = root.join("fixtures/malformed_v2.fol");
+        std::fs::create_dir_all(source.parent().expect("fixture parent should exist")).unwrap();
+        std::fs::write(
+            &source,
+            concat!(
+                "std geo: pro = {\n",
+                "    fun area(: int;\n",
+                "};\n",
+                "fun pick(T)(value: T): T = {\n",
+                "    return value;\n",
+                "};\n",
+            ),
+        )
+        .unwrap();
+
+        for query_name in ["locals", "symbols"] {
+            let output = run_tree_sitter_query(
+                &root,
+                &root.join(format!("queries/fol/{query_name}.scm")),
+                &source,
+            );
+            assert!(
+                output.status.success(),
+                "tree-sitter {query_name} query failed on malformed V2 syntax:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                !stdout.contains("Query error") && !stdout.contains("Invalid node type"),
+                "tree-sitter {query_name} query should stay sane on malformed V2 syntax:\n{stdout}"
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn v2_tree_sitter_coverage_keeps_highlights_distinct_from_locals_and_symbols() {
+        let highlights = fol_tree_sitter_highlights_query();
+        let locals = fol_tree_sitter_locals_query();
+        let symbols = fol_tree_sitter_symbols_query();
+
+        assert!(
+            highlights.contains("@keyword") || highlights.contains("@function"),
+            "highlight query should keep visual capture coverage"
+        );
+        assert!(
+            locals.contains("@local.definition"),
+            "locals query should keep explicit local-definition coverage"
+        );
+        assert!(
+            symbols.contains("@symbol.function"),
+            "symbols query should keep explicit symbol coverage"
+        );
+        assert!(
+            !highlights.contains("@local.definition") && !highlights.contains("@symbol.function"),
+            "highlight-only audits must not be mistaken for locals/symbol coverage"
+        );
     }
 
     #[test]
@@ -782,7 +1050,10 @@ mod tests {
     #[test]
     fn generated_bundle_highlights_keep_real_bundled_std_import_examples_queryable() {
         let root = build_bundle_root("std_import_examples");
-        for relative in ["examples/std_bundled_fmt/src/main.fol", "examples/std_alias_pkg/src/main.fol"] {
+        for relative in [
+            "examples/std_bundled_fmt/src/main.fol",
+            "examples/std_alias_pkg/src/main.fol",
+        ] {
             let output = run_tree_sitter_query(
                 &root,
                 &root.join("queries/fol/highlights.scm"),
@@ -1187,7 +1458,7 @@ mod tests {
         let cases = [
             (
                 repo_root().join("test/apps/fixtures/defer_scope_exit/main.fol"),
-                ["keyword.exception", "punctuation.bracket"].as_slice(),
+                ["keyword.repeat", "punctuation.bracket"].as_slice(),
             ),
             (
                 repo_root().join("test/apps/fixtures/call_binding_stress/main.fol"),
@@ -1198,12 +1469,112 @@ mod tests {
                 ["function", "type.builtin"].as_slice(),
             ),
             (
+                repo_root().join("examples/generic_routine_m1/src/main.fol"),
+                ["function", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_routine_pair_m1/src/main.fol"),
+                ["function", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_routine_cross_file_m1/src/main.fol"),
+                ["function", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_routine_cross_file_m1/src/shared.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
                 repo_root().join("examples/memo_run_min/src/main.fol"),
                 ["function", "type.builtin"].as_slice(),
             ),
             (
+                repo_root().join("examples/generic_type_semantic_m1m2/src/main.fol"),
+                ["type", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_type_exec_m1m2/src/main.fol"),
+                ["keyword.import", "type", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_generic_misuse_m1/src/main.fol"),
+                ["type", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_generic_standard_constraint_m1m2/src/main.fol"),
+                ["type", "function"].as_slice(),
+            ),
+            (
                 repo_root().join("examples/core_defer/src/main.fol"),
-                ["keyword.exception", "type.builtin"].as_slice(),
+                ["keyword.repeat", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_pair_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_multi_m2/src/main.fol"),
+                ["function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_multi_m2/src/contracts.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_protocol_multi_m2/src/rect.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_blueprint_m2/src/main.fol"),
+                ["type", "keyword.type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_as_type_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_missing_routine_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_signature_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_standard_import_ambiguity_m2/src/main.fol"),
+                ["function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_turbofish_m1/src/main.fol"),
+                ["keyword.import", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_type_constrained_m1m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/generic_error_m1m2/src/main.fol"),
+                ["keyword.import", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_default_body_m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_blueprint_m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_extended_m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/standards_generic_m2/src/main.fol"),
+                ["keyword.import", "function", "type"].as_slice(),
             ),
             (
                 repo_root().join("examples/std_bundled_fmt/src/main.fol"),
@@ -1215,7 +1586,7 @@ mod tests {
             ),
             (
                 repo_root().join("examples/std_echo_min/src/main.fol"),
-                ["function.builtin", "operator"].as_slice(),
+                ["function", "operator"].as_slice(),
             ),
             (
                 repo_root().join("examples/std_substrate_echo/src/main.fol"),

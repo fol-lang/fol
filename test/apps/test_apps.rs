@@ -326,6 +326,30 @@ fn method_call_binding_stress_fixture_compiles_and_runs() {
 }
 
 #[test]
+fn generic_type_exec_fixture_compiles_and_runs() {
+    let fixture = fixture_root("generic_type_exec");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
+    assert_artifact_paths_exist(&compile_output);
+
+    let run_output = compile_and_run_app(&fixture);
+    assert_exit_code(&run_output, 0);
+    assert_output_contains(&run_output, "42");
+}
+
+#[test]
+fn generic_standard_constraint_exec_fixture_compiles_and_runs() {
+    let fixture = fixture_root("generic_standard_constraint_exec");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
+    assert_artifact_paths_exist(&compile_output);
+
+    let run_output = compile_and_run_app(&fixture);
+    assert_exit_code(&run_output, 0);
+    assert_output_contains(&run_output, "1");
+}
+
+#[test]
 fn defer_v1_showcase_example_compiles_and_runs() {
     let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("test/apps/showcases/defer_v1_showcase/app");
@@ -1270,10 +1294,15 @@ fn fail_defer_break_nested_fixture_fails_cleanly() {
 }
 
 #[test]
-fn fail_generic_routine_fixture_rejects_cleanly() {
+fn fail_generic_routine_fixture_now_executes_as_supported_generic_code() {
     let fixture = fixture_root("fail_generic_routine");
-    let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "generic");
+    let run_output = compile_and_run_app(&fixture);
+    assert!(
+        run_output.status.success(),
+        "supported generic routine fixture should execute cleanly\nstdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
 }
 
 #[test]
@@ -1337,8 +1366,8 @@ fn fail_unpack_non_sequence_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_unpack_non_sequence");
     let output = compile_app_expect_failure(&fixture);
     assert_output_contains(&output, "call to 'sum' expects");
-    assert_output_contains(&output, "Sequence");
-    assert_output_contains(&output, "Builtin(Int)");
+    assert_output_contains(&output, "seq[");
+    assert_output_contains(&output, "int");
 }
 
 #[test]
@@ -1353,8 +1382,8 @@ fn fail_variadic_method_type_mismatch_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_variadic_method_type_mismatch");
     let output = compile_app_expect_failure(&fixture);
     assert_output_contains(&output, "call to 'shift' expects");
-    assert_output_contains(&output, "Builtin(Int)");
-    assert_output_contains(&output, "Builtin(Str)");
+    assert_output_contains(&output, "int");
+    assert_output_contains(&output, "str");
 }
 
 #[test]

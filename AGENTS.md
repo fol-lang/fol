@@ -79,7 +79,8 @@ Expected surface:
 - `map[...]`
 - dynamic/string `.len(...)`
 
-Still forbidden:
+Still forbidden (unless the bundled internal `standard` dependency is
+declared, which upgrades the effective tier to hosted):
 
 - `.echo(...)`
 - host-executed `run` / `test` assumptions
@@ -202,9 +203,10 @@ Book references:
 - `book/src/050_tooling/500_lsp.md`
 - `book/src/050_tooling/450_feature_checklist.md`
 
-Current V1 editor non-goals:
+Current editor non-goals:
 
-- no V2-aware editor behavior
+- no broad V2-aware editor behavior beyond the checked-in shipped generic
+  routine and protocol-standard example subset
 - no range formatting
 - no broad rename beyond the current safe supported scope
 - no editor-owned semantic rules that compete with compiler-backed analysis
@@ -286,10 +288,55 @@ Examples already marked as V2-oriented in the book:
 - generics
 - broader contract-style language surfaces
 
+Current landed `V2` subset:
+
+- Milestone 1
+  - executable generic routines
+  - narrow argument-driven inference only
+  - generic types exist in the shipped full-`V2` contract, but they are not
+    part of the narrow Milestone 1 core itself
+  - generic routine lowering/backend execution now exist for the shipped
+    positive Milestone 1 examples
+  - deeper example-driven hover/definition and tree-sitter audit now exist for
+    the checked-in Milestone 1 examples
+- Milestone 2
+  - protocol standards only
+  - required receiver-qualified routines only
+  - explicit type-side conformance headers
+  - conformance checking in typecheck
+  - no blueprint or extended semantic support
+  - protocol standards now lower and the shipped positive protocol examples
+    execute through ordinary procedural emission
+  - deeper example-driven hover/definition and tree-sitter audit now exist for
+    the checked-in Milestone 2 examples
+
+When changing `V2` surfaces:
+
+- keep milestone docs honest
+- keep explicit lowering boundaries honest when later stages still do not exist
+- update examples and negative examples in the same change
+- audit `fol-editor` and tree-sitter in the same change set
+
 References:
 
 - `book/src/500_items/400_standards.md`
 - `book/src/500_items/500_generics.md`
+
+Current landed subset note:
+
+- the active `V2` Milestone 1 work currently covers only a narrow
+  generic-routine core
+- parser, resolver, typecheck, lowering, backend, and editor coverage are now
+  real for the shipped positive Milestone 1 examples
+- broader generic work beyond that narrow core should stay explicit in docs,
+  tests, and examples rather than being inferred from the milestone name
+- the active `V2` Milestone 2 work currently covers only protocol standards and
+  narrow procedural conformance
+- when hardening `V2`, keep the checked-in positive and negative example matrix
+  synchronized with milestone docs, editor coverage, and current execution
+  expectations
+- if V2 editor or tree-sitter coverage is expanded, keep semantic tokens,
+  locals, symbols, and example inventory checks aligned in the same change
 
 ### `V3`
 

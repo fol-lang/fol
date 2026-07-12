@@ -315,6 +315,7 @@ mod tests {
             build_root: PathBuf::from("/tmp/demo/.fol/build"),
             cache_root: PathBuf::from("/tmp/demo/.fol/cache"),
             git_cache_root: PathBuf::from("/tmp/demo/.fol/cache/git"),
+            install_prefix: PathBuf::from("/tmp/demo/.fol/install"),
         };
         let result = work_list(&workspace);
 
@@ -355,6 +356,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         };
 
         let result = work_deps(&workspace).unwrap();
@@ -387,6 +389,7 @@ mod tests {
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
+            install_prefix: root.join(".fol/install"),
         };
 
         let result = work_status(&workspace, &FrontendConfig::default()).unwrap();

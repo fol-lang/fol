@@ -253,7 +253,8 @@ fn assert_imported_declared_count_binding_and_routine(
                 SymbolKind::Alias => DeclaredTypeKind::Alias,
                 _ => DeclaredTypeKind::Type,
             },
-        })
+            args: Vec::new(),
+})
     );
 
     let signature = match typed.type_table().get(
@@ -274,7 +275,8 @@ fn assert_imported_declared_count_binding_and_routine(
                 SymbolKind::Alias => DeclaredTypeKind::Alias,
                 _ => DeclaredTypeKind::Type,
             },
-        })
+            args: Vec::new(),
+})
     );
     assert_eq!(
         signature
@@ -287,7 +289,8 @@ fn assert_imported_declared_count_binding_and_routine(
                 SymbolKind::Alias => DeclaredTypeKind::Alias,
                 _ => DeclaredTypeKind::Type,
             },
-        })
+            args: Vec::new(),
+})
     );
 }
 
@@ -346,3 +349,12 @@ mod typecheck_workspace_imports;
 #[cfg(test)]
 #[path = "test_typecheck_operators.rs"]
 mod typecheck_operators;
+
+#[cfg(test)]
+#[path = "test_typecheck_generics_m1.rs"]
+mod typecheck_generics_m1;
+#[path = "test_typecheck_generic_types_v2.rs"]
+mod typecheck_generic_types_v2;
+#[cfg(test)]
+#[path = "test_typecheck_standards_m2.rs"]
+mod typecheck_standards_m2;

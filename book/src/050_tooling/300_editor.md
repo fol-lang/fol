@@ -55,7 +55,7 @@ It is responsible for:
 - rename for same-file local and current-package top-level symbols
 - semantic tokens
 - document symbols
-- workspace symbols for current open workspace members
+- workspace symbols across discovered `.fol` files under the mapped workspace root
 - completion
 
 The currently supported v1 LSP surface is:
@@ -70,7 +70,7 @@ The currently supported v1 LSP surface is:
 - rename for same-file local and current-package top-level symbols
 - semantic tokens
 - document symbols
-- workspace symbols for current open workspace members
+- workspace symbols across discovered `.fol` files under the mapped workspace root
 - completion
 
 The server keeps diagnostics and semantic snapshots separately.

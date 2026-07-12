@@ -153,7 +153,7 @@ fn test_top_level_alias_parsing() {
             let has_text_alias = declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::AliasDecl { name, target: FolType::Named { name: target_name , ..} }
+                    AstNode::AliasDecl { name, target: FolType::Named { name: target_name , ..}, .. }
                     if name == "Text" && target_name == "str"
                 )
             });
@@ -163,8 +163,7 @@ fn test_top_level_alias_parsing() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target: FolType::Int { size: None, signed: true }
-                    }
+                        target: FolType::Int { size: None, signed: true }, .. }
                     if name == "Count"
                 )
             });
@@ -201,8 +200,7 @@ fn test_alias_parsing_supports_qualified_target_types() {
                         node,
                         AstNode::AliasDecl {
                             name,
-                            target
-                        } if name == "ResultAlias"
+                            target, .. } if name == "ResultAlias"
                             && fol_type_has_qualified_segments(target, &["pkg", "result", "Value"])
                     )
                 }),

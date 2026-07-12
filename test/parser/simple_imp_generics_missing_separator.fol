@@ -1,1 +1,0 @@
-imp[](T: item U) Self: Pair[T, U] = { };

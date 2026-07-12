@@ -158,6 +158,7 @@ impl AstParser {
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_close_message: &str,
     ) -> Result<Vec<AstNode>, ParseError> {
+        let _nesting = self.enter_nesting(tokens)?;
         let mut body = Vec::new();
         let mut anchor_token = None;
 
@@ -278,12 +279,6 @@ impl AstParser {
 
             if matches!(key, KEYWORD::Keyword(BUILDIN::Seg)) {
                 body.push(self.parse_seg_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-                body.push(self.parse_imp_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;
                 continue;
             }

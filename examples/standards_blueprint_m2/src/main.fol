@@ -1,0 +1,18 @@
+use std: pkg = {"std"};
+
+std sized: blu = {
+    var size: int;
+};
+
+typ Rect()(sized): rec = {
+    var size: int;
+};
+
+fun measure(T: sized)(value: T): int = {
+    return 42;
+};
+
+fun[] main(): int = {
+    var r: Rect = { size = 7 };
+    return std::io::echo_int(measure(r));
+};

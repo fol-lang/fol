@@ -147,8 +147,19 @@ impl Drop for ParseDepthGuard<'_> {
 pub struct AstParser {
     routine_depth: Cell<usize>,
     loop_depth: Cell<usize>,
+    nesting_depth: Cell<usize>,
     syntax_index: RefCell<Option<SyntaxIndex>>,
 }
+
+/// Hard ceiling on syntactic nesting (expressions, type references, and
+/// block bodies). Recursive descent otherwise follows user nesting one
+/// native stack frame chain per level and overflows the stack — a hard
+/// SIGABRT, not a diagnostic — at roughly 160 nested parentheses on an
+/// 8 MB main-thread stack, and (with large debug-build frames) at about
+/// 40 levels on 2 MB worker threads (test harnesses, LSP executors). The
+/// ceiling must stay safe on the SMALLEST stack the parser runs on while
+/// remaining far deeper than any real program's nesting.
+const MAX_NESTING_DEPTH: usize = 64;
 
 impl Default for AstParser {
     fn default() -> Self {
@@ -203,6 +214,37 @@ impl AstParser {
         tokens: &fol_lexer::lexer::stage3::Elements,
     ) -> Result<ParseDepthGuard<'_>, ParseError> {
         self.enter_depth(&self.loop_depth, tokens)
+    }
+
+    /// Bounded guard for syntactic nesting (expressions, type references,
+    /// block bodies). Returns a clean parse error past MAX_NESTING_DEPTH
+    /// instead of letting recursive descent overflow the native stack.
+    pub(super) fn enter_nesting(
+        &self,
+        tokens: &fol_lexer::lexer::stage3::Elements,
+    ) -> Result<ParseDepthGuard<'_>, ParseError> {
+        if self.nesting_depth.get() >= MAX_NESTING_DEPTH {
+            return Err(if let Ok(token) = tokens.curr(false) {
+                ParseError::from_token(
+                    &token,
+                    format!(
+                        "Nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})"
+                    ),
+                )
+            } else {
+                ParseError {
+                    kind: ParseErrorKind::Syntax,
+                    message: format!(
+                        "Nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})"
+                    ),
+                    file: None,
+                    line: 0,
+                    column: 0,
+                    length: 0,
+                }
+            });
+        }
+        self.enter_depth(&self.nesting_depth, tokens)
     }
 
     pub(super) fn is_inside_loop(&self) -> bool {
@@ -456,8 +498,6 @@ mod flow_body_parsers;
 mod grouped_binding_parsers;
 #[path = "parser_parts/grouped_type_parsers.rs"]
 mod grouped_type_parsers;
-#[path = "parser_parts/implementation_declaration_parsers.rs"]
-mod implementation_declaration_parsers;
 #[path = "parser_parts/inquiry_clause_parsers.rs"]
 mod inquiry_clause_parsers;
 #[path = "parser_parts/pipe_expression_parsers.rs"]

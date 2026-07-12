@@ -261,7 +261,36 @@ mod tests {
 
     #[test]
     fn editor_rename_command_keeps_public_summary_shape() {
-        let path = editor_fixture_path();
+        let root = temp_root("rename_summary_shape");
+        std::fs::create_dir_all(root.join("src")).expect("should create rename fixture src dir");
+        std::fs::write(
+            root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("should write rename fixture build file");
+        std::fs::write(
+            root.join("src/main.fol"),
+            concat!(
+                "fun[] helper(): int = {\n",
+                "    return 7;\n",
+                "};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    return helper();\n",
+                "};\n",
+            ),
+        )
+        .expect("should write rename fixture entry");
+        let path = root.join("src/main.fol").to_string_lossy().to_string();
         let rename = editor_rename_command(&path, 5, 11, "count")
             .expect("rename command should succeed");
 
@@ -269,6 +298,8 @@ mod tests {
         assert!(rename.summary.contains("edit_count="));
         assert!(rename.summary.contains("new_name=count"));
         assert!(rename.summary.contains("path="));
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

@@ -1,0 +1,20 @@
+std geo: pro = {
+    fun area(): int;
+};
+
+typ Rect()(geo): rec = {
+    value: int
+};
+
+fun (Rect)area(): int = {
+    return 1;
+};
+
+fun pick(T: geo)(value: T): T = {
+    return value;
+};
+
+fun[] main(): int = {
+    var rect: Rect = { value = 1 };
+    return .echo(pick(rect).area());
+};

@@ -263,6 +263,44 @@ mod tests {
     }
 
     #[test]
+    fn main_rs_emission_parses_bool_entry_params_from_cli_args() {
+        let fixture_root = temp_root("bool_entry_signature");
+        let fixture = write_fixture(
+            &fixture_root,
+            "fun[] main(flag: bol): bol = {\n    return .not(flag);\n};\n",
+        );
+        let lowered = lowered_workspace_from_entry_path(&fixture);
+        let session = BackendSession::new(lowered);
+
+        let emitted = emit_main_rs(&session).expect("bool entry should emit");
+
+        assert!(emitted.contents.contains("__fol_parse_bool"));
+        assert!(emitted
+            .contents
+            .contains("__fol_cli_arg(0).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()"));
+        assert!(emitted.contents.contains("let _ = packages::"));
+        let _ = fs::remove_dir_all(&fixture_root);
+    }
+
+    #[test]
+    fn main_rs_emission_rejects_receiver_entry_routines() {
+        let fixture_root = temp_root("bad_entry_receiver");
+        let fixture = write_fixture(
+            &fixture_root,
+            "typ App: rec = {\n    value: int;\n};\nfun (App)main(): int = {\n    return 0;\n};\n",
+        );
+        let lowered = lowered_workspace_from_entry_path(&fixture);
+        let session = BackendSession::new(lowered);
+
+        let error = emit_main_rs(&session).expect_err("receiver entry should fail");
+
+        assert!(error
+            .message()
+            .contains("entry routine 'main' must be a plain free routine"));
+        let _ = fs::remove_dir_all(&fixture_root);
+    }
+
+    #[test]
     fn package_module_emission_keeps_package_and_namespace_module_tree() {
         let session = BackendSession::new(sample_lowered_workspace());
 
@@ -330,6 +368,51 @@ mod tests {
         assert!(!emitted[0].contents.contains("use fol_runtime::memo"));
         assert!(!emitted[0].contents.contains("use fol_runtime::std"));
         assert!(emitted[0].contents.contains("rt_model::tier_name()"));
+    }
+
+    #[test]
+    fn namespace_module_emission_rejects_broken_routines_instead_of_emitting_todo_shells() {
+        let workspace = sample_lowered_workspace();
+        let mut packages = workspace
+            .packages()
+            .cloned()
+            .map(|package| (package.identity.clone(), package))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let entry_identity = workspace.entry_identity().clone();
+        let entry_package = packages
+            .get_mut(&entry_identity)
+            .expect("entry package should exist");
+        let main_routine = entry_package
+            .routine_decls
+            .get_mut(&fol_lower::LoweredRoutineId(0))
+            .expect("main routine should exist");
+        // Give main an entry block that is missing its terminator, mimicking a
+        // broken lowering the backend must reject rather than stub out.
+        let entry_block_id = main_routine.entry_block;
+        let pushed = main_routine.blocks.push(fol_lower::LoweredBlock {
+            id: entry_block_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        assert_eq!(pushed, entry_block_id);
+
+        let session = BackendSession::new(fol_lower::LoweredWorkspace::new(
+            entry_identity,
+            packages,
+            workspace.entry_candidates().to_vec(),
+            workspace.type_table().clone(),
+            workspace.source_map().clone(),
+            workspace.recoverable_abi().clone(),
+        ));
+        let error = emit_namespace_module_shells(&session)
+            .expect_err("broken routines should fail emission instead of falling back to stubs");
+
+        assert!(
+            error
+                .message()
+                .contains("lowered block LoweredBlockId(0) is missing a terminator"),
+            "namespace emission should surface the backend definition error: {error:?}"
+        );
     }
 
     #[test]
@@ -921,7 +1004,7 @@ mod tests {
         let crate_root =
             write_generated_crate(Path::new(&paths.build_root), &artifact).expect("write crate");
         let machine_target =
-            BackendMachineTarget::Triple("aarch64-macos-gnu".to_string());
+            BackendMachineTarget::Triple("x86_64-linux-gnu".to_string());
 
         let runtime_dir =
             backend_runtime_build_dir(&paths, &machine_target, BackendBuildProfile::Release);
@@ -944,14 +1027,14 @@ mod tests {
         )
         .expect("build artifact");
 
-        assert!(runtime_dir.ends_with("fol-backend/runtime/aarch64-apple-darwin/release"));
+        assert!(runtime_dir.ends_with("fol-backend/runtime/x86_64-unknown-linux-gnu/release"));
         assert!(binary
             .to_string_lossy()
-            .contains("/target/aarch64-apple-darwin/release/"));
+            .contains("/target/x86_64-unknown-linux-gnu/release/"));
         let BackendArtifact::CompiledBinary { binary_path, .. } = emitted else {
             panic!("expected compiled binary artifact");
         };
-        assert!(binary_path.contains("/bin/aarch64-apple-darwin/"));
+        assert!(binary_path.contains("/bin/x86_64-unknown-linux-gnu/"));
 
         let _ = fs::remove_dir_all(&temp_root);
     }
@@ -1069,25 +1152,14 @@ mod tests {
         let fixture_root = temp_root("workspace_runtime");
         let app_root = fixture_root.join("app");
         let shared_root = fixture_root.join("shared");
-        let std_root = fixture_root.join("std");
         let pkg_root = fixture_root.join("pkg");
+        let pkg_std_root = pkg_root.join("std");
         let pkg_math_root = pkg_root.join("math");
 
         fs::create_dir_all(&app_root).expect("app root");
         fs::create_dir_all(&shared_root).expect("shared root");
-        fs::create_dir_all(std_root.join("fmt")).expect("std root");
-        fs::create_dir_all(&pkg_math_root).expect("pkg root");
-        fs::write(
-            app_root.join("build.fol"),
-            concat!(
-                "pro[] build(): non = {\n",
-                "    var build = .build();\n",
-                "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
-                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
-                "};\n",
-            ),
-        )
-        .expect("app build");
+        fs::create_dir_all(pkg_std_root.join("fmt")).expect("pkg std root");
+        fs::create_dir_all(pkg_math_root.join("src")).expect("pkg math root");
         fs::write(
             app_root.join("main.fol"),
             concat!(
@@ -1106,38 +1178,45 @@ mod tests {
         )
         .expect("shared");
         fs::write(
-            std_root.join("fmt").join("lib.fol"),
+            pkg_std_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"std\", version = \"0.1.0\" });\n",
+                "};\n",
+            ),
+        )
+        .expect("pkg std build");
+        fs::write(
+            pkg_std_root.join("fmt").join("lib.fol"),
             "fun[exp] answer(): int = {\n    return 3;\n};\n",
         )
-        .expect("std");
+        .expect("pkg std source");
         fs::write(
             pkg_math_root.join("build.fol"),
-            "name: math\nversion: 0.1.0\n",
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"math\", version = \"0.1.0\" });\n",
+                "};\n",
+            ),
         )
-        .expect("pkg manifest");
-        fs::write(
-            pkg_math_root.join("build.fol"),
-            "pro[] build(): non = {\n    return;\n};\n",
-        )
-        .expect("pkg build");
-        fs::create_dir_all(pkg_math_root.join("src")).expect("pkg src");
+        .expect("pkg math build");
         fs::write(
             pkg_math_root.join("src").join("lib.fol"),
             "var[exp] pkg_answer: int = 4;\n",
         )
-        .expect("pkg source");
+        .expect("pkg math source");
 
         let output = build_and_run_workspace(
-            &app_root,
+            &app_root.join("main.fol"),
             PackageConfig {
-                std_root: Some(std_root.display().to_string()),
                 package_store_root: Some(pkg_root.display().to_string()),
-                package_cache_root: None,
-                package_git_cache_root: None,
+                ..PackageConfig::default()
             },
             ResolverConfig {
-                std_root: Some(std_root.display().to_string()),
                 package_store_root: Some(pkg_root.display().to_string()),
+                ..ResolverConfig::default()
             },
         );
 
@@ -1228,7 +1307,7 @@ mod tests {
             &fixture_root,
             concat!(
                 "fun[] main(): int = {\n",
-                "    .echo(\"std-hosted\");\n",
+                "    var shown: str = .echo(\"std-hosted\");\n",
                 "    return 0;\n",
                 "};\n",
             ),
@@ -1248,13 +1327,13 @@ mod tests {
         .expect("backend std artifact");
         let BackendArtifact::CompiledBinary {
             binary_path,
-            emitted_crate_root,
+            crate_root: emitted_crate_root,
         } = artifact
         else {
             panic!("expected compiled binary artifact");
         };
-        let main_rs =
-            fs::read_to_string(emitted_crate_root.join("src/main.rs")).expect("generated main.rs");
+        let main_rs = fs::read_to_string(Path::new(&emitted_crate_root).join("src/main.rs"))
+            .expect("generated main.rs");
         let output = Command::new(&binary_path)
             .output()
             .expect("run emitted std binary");
@@ -1306,25 +1385,14 @@ mod tests {
         let fixture_root = temp_root("workspace_graphs");
         let app_root = fixture_root.join("app");
         let shared_root = fixture_root.join("shared");
-        let std_root = fixture_root.join("std");
         let pkg_root = fixture_root.join("pkg");
+        let pkg_std_root = pkg_root.join("std");
         let pkg_math_root = pkg_root.join("math");
 
         fs::create_dir_all(&app_root).expect("app root");
         fs::create_dir_all(&shared_root).expect("shared root");
-        fs::create_dir_all(std_root.join("fmt")).expect("std root");
-        fs::create_dir_all(&pkg_math_root).expect("pkg root");
-        fs::write(
-            app_root.join("build.fol"),
-            concat!(
-                "pro[] build(): non = {\n",
-                "    var build = .build();\n",
-                "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
-                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
-                "};\n",
-            ),
-        )
-        .expect("app build");
+        fs::create_dir_all(pkg_std_root.join("fmt")).expect("pkg std root");
+        fs::create_dir_all(pkg_math_root.join("src")).expect("pkg math root");
 
         fs::write(
             app_root.join("main.fol"),
@@ -1344,38 +1412,45 @@ mod tests {
         )
         .expect("shared");
         fs::write(
-            std_root.join("fmt").join("lib.fol"),
+            pkg_std_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"std\", version = \"0.1.0\" });\n",
+                "};\n",
+            ),
+        )
+        .expect("pkg std build");
+        fs::write(
+            pkg_std_root.join("fmt").join("lib.fol"),
             "fun[exp] answer(): int = {\n    return 3;\n};\n",
         )
-        .expect("std");
+        .expect("pkg std source");
         fs::write(
             pkg_math_root.join("build.fol"),
-            "name: math\nversion: 0.1.0\n",
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"math\", version = \"0.1.0\" });\n",
+                "};\n",
+            ),
         )
-        .expect("pkg manifest");
-        fs::write(
-            pkg_math_root.join("build.fol"),
-            "pro[] build(): non = {\n    return;\n};\n",
-        )
-        .expect("pkg build");
-        fs::create_dir_all(pkg_math_root.join("src")).expect("pkg src");
+        .expect("pkg math build");
         fs::write(
             pkg_math_root.join("src").join("lib.fol"),
             "var[exp] pkg_answer: int = 4;\n",
         )
-        .expect("pkg source");
+        .expect("pkg math source");
 
         let output = build_and_run_workspace(
-            &app_root,
+            &app_root.join("main.fol"),
             PackageConfig {
-                std_root: Some(std_root.display().to_string()),
                 package_store_root: Some(pkg_root.display().to_string()),
-                package_cache_root: None,
-                package_git_cache_root: None,
+                ..PackageConfig::default()
             },
             ResolverConfig {
-                std_root: Some(std_root.display().to_string()),
                 package_store_root: Some(pkg_root.display().to_string()),
+                ..ResolverConfig::default()
             },
         );
 

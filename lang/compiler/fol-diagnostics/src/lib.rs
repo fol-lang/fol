@@ -16,6 +16,14 @@ pub trait ToDiagnostic {
     fn to_diagnostic(&self) -> Diagnostic;
 }
 
+/// A diagnostic is trivially convertible to itself, so already-built
+/// diagnostics can flow through the same `ToDiagnostic`-based plumbing.
+impl ToDiagnostic for Diagnostic {
+    fn to_diagnostic(&self) -> Diagnostic {
+        self.clone()
+    }
+}
+
 /// Output format for diagnostics
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutputFormat {

@@ -59,6 +59,30 @@ pub fn traverse_node(
     is_top_level_node: bool,
     routine_context: Option<RoutineContext>,
 ) -> Result<(), ResolverError> {
+    // Traversal recurses with the AST; grow the stack in segments so deep
+    // (but legal) nesting cannot overflow small worker-thread stacks.
+    stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+        traverse_node_inner(
+            session,
+            program,
+            source_unit_id,
+            scope_id,
+            node,
+            is_top_level_node,
+            routine_context,
+        )
+    })
+}
+
+fn traverse_node_inner(
+    session: &mut ResolverSession,
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    node: &AstNode,
+    is_top_level_node: bool,
+    routine_context: Option<RoutineContext>,
+) -> Result<(), ResolverError> {
     match semantic_node(node) {
         AstNode::FunDecl {
             syntax_id,
@@ -181,7 +205,7 @@ pub fn traverse_node(
         AstNode::QualifiedIdentifier { path } => {
             record_qualified_identifier_reference(program, source_unit_id, scope_id, path)?;
         }
-        AstNode::BinaryOp { left, right, .. } => {
+        AstNode::BinaryOp { op, left, right } => {
             traverse_node(
                 session,
                 program,
@@ -191,15 +215,24 @@ pub fn traverse_node(
                 false,
                 routine_context,
             )?;
-            traverse_node(
-                session,
-                program,
-                source_unit_id,
-                scope_id,
-                right,
-                false,
-                routine_context,
-            )?;
+            // `as` / `cast` right-hand sides are type positions, not value
+            // references; typecheck owns the explicit unsupported-casting
+            // boundary, so the resolver must not misreport them as
+            // unresolved value names.
+            if !matches!(
+                op,
+                fol_parser::ast::BinaryOperator::As | fol_parser::ast::BinaryOperator::Cast
+            ) {
+                traverse_node(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    right,
+                    false,
+                    routine_context,
+                )?;
+            }
         }
         AstNode::UnaryOp { operand, .. } => {
             traverse_node(
@@ -613,7 +646,7 @@ pub fn traverse_node(
                 )?;
             }
             if !is_top_level_node {
-                insert_local_symbol(
+                let symbol_id = insert_local_symbol(
                     program,
                     source_unit_id,
                     scope_id,
@@ -621,6 +654,13 @@ pub fn traverse_node(
                     SymbolKind::ValueBinding,
                     format!("symbol#{}", fol_types::canonical_identifier_key(name)),
                 )?;
+                if let AstNode::VarDecl { options, .. } = semantic_node(node) {
+                    if fol_parser::ast::binding_is_mutable(options) {
+                        if let Some(symbol) = program.symbols.get_mut(symbol_id) {
+                            symbol.is_mutable = true;
+                        }
+                    }
+                }
             }
         }
         AstNode::LabDecl { name, value, .. } => {
@@ -643,7 +683,7 @@ pub fn traverse_node(
                 )?;
             }
             if !is_top_level_node {
-                insert_local_symbol(
+                let symbol_id = insert_local_symbol(
                     program,
                     source_unit_id,
                     scope_id,
@@ -651,6 +691,13 @@ pub fn traverse_node(
                     SymbolKind::LabelBinding,
                     format!("symbol#{}", fol_types::canonical_identifier_key(name)),
                 )?;
+                if let AstNode::LabDecl { options, .. } = semantic_node(node) {
+                    if fol_parser::ast::binding_is_mutable(options) {
+                        if let Some(symbol) = program.symbols.get_mut(symbol_id) {
+                            symbol.is_mutable = true;
+                        }
+                    }
+                }
             }
         }
         AstNode::DestructureDecl { pattern, value, .. } => {
@@ -803,7 +850,7 @@ pub fn traverse_node(
         }
         AstNode::TypeDecl {
             generics,
-            contracts,
+            explicit_contracts,
             type_def,
             ..
         } => {
@@ -821,10 +868,49 @@ pub fn traverse_node(
                     )?;
                 }
             }
-            for contract in contracts {
-                types::resolve_type_reference(session, program, source_unit_id, type_scope, contract)?;
+            for contract in explicit_contracts {
+                types::resolve_contract_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    type_scope,
+                    contract,
+                )?;
             }
             types::resolve_type_definition(session, program, source_unit_id, type_scope, type_def)?;
+        }
+        AstNode::StdDecl {
+            syntax_id,
+            generics,
+            body,
+            ..
+        } => {
+            let standard_scope =
+                program.add_scope(ScopeKind::StandardDeclaration, scope_id, source_unit_id);
+            program.record_scope_for_syntax(*syntax_id, standard_scope);
+            insert_generic_symbols(program, source_unit_id, standard_scope, generics)?;
+            for generic in generics {
+                for constraint in &generic.constraints {
+                    types::resolve_type_reference(
+                        session,
+                        program,
+                        source_unit_id,
+                        standard_scope,
+                        constraint,
+                    )?;
+                }
+            }
+            for member in body {
+                traverse_node(
+                    session,
+                    program,
+                    source_unit_id,
+                    standard_scope,
+                    member,
+                    false,
+                    None,
+                )?;
+            }
         }
         AstNode::AliasDecl { target, .. } => {
             types::resolve_type_reference(session, program, source_unit_id, scope_id, target)?;
@@ -846,40 +932,7 @@ pub fn traverse_node(
         AstNode::SegDecl { seg_type, .. } => {
             types::resolve_type_reference(session, program, source_unit_id, scope_id, seg_type)?;
         }
-        AstNode::ImpDecl {
-            generics,
-            target,
-            body,
-            ..
-        } => {
-            let impl_scope =
-                program.add_scope(ScopeKind::TypeDeclaration, scope_id, source_unit_id);
-            insert_generic_symbols(program, source_unit_id, impl_scope, generics)?;
-            for generic in generics {
-                for constraint in &generic.constraints {
-                    types::resolve_type_reference(
-                        session,
-                        program,
-                        source_unit_id,
-                        impl_scope,
-                        constraint,
-                    )?;
-                }
-            }
-            types::resolve_type_reference(session, program, source_unit_id, impl_scope, target)?;
-            for member in body {
-                traverse_node(
-                    session,
-                    program,
-                    source_unit_id,
-                    impl_scope,
-                    member,
-                    false,
-                    routine_context,
-                )?;
-            }
-        }
-        AstNode::StdDecl { .. } | AstNode::Literal(_) | AstNode::PatternWildcard => {}
+        AstNode::Literal(_) | AstNode::PatternWildcard => {}
         AstNode::UseDecl {
             name,
             path_type,

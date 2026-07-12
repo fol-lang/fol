@@ -126,6 +126,7 @@ impl AstParser {
             syntax_id,
             surface: crate::ast::CallSurface::KeywordIntrinsic,
             name,
+            type_args: Vec::new(),
             args,
         })
     }
@@ -891,6 +892,7 @@ impl AstParser {
                 syntax_id: path.syntax_id(),
                 surface: crate::ast::CallSurface::Plain,
                 name: path.joined(),
+                type_args: Vec::new(),
                 args,
             }
         })
@@ -931,6 +933,7 @@ impl AstParser {
         let args = self.parse_open_paren_and_call_args(tokens, "Expected '(' after method name")?;
 
         Ok(AstNode::MethodCall {
+            syntax_id: self.record_syntax_origin(&method_token),
             object: Box::new(object),
             method,
             args,

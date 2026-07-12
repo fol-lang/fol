@@ -97,6 +97,36 @@ pub(crate) fn lower_expression_observed(
     expected_type: Option<LoweredTypeId>,
     node: &AstNode,
 ) -> Result<LoweredValue, LoweringError> {
+    // Expression lowering recurses with the AST; grow the stack in segments
+    // so deep (but legal) nesting cannot overflow worker-thread stacks.
+    stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+        lower_expression_observed_inner(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            expected_type,
+            node,
+        )
+    })
+}
+
+fn lower_expression_observed_inner(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    expected_type: Option<LoweredTypeId>,
+    node: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
     let lowered = match node {
         AstNode::Literal(Literal::Nil) => lower_nil_literal(type_table, cursor, expected_type),
         AstNode::Literal(literal) => {
@@ -107,7 +137,26 @@ pub(crate) fn lower_expression_observed(
                         "literal expression does not retain a lowering-owned type",
                     )
                 })?;
-            cursor.lower_literal(literal, type_id)
+            {
+                // A width-classified character literal may have been typed as
+                // a single-element string by the expected-type rule; lower it
+                // as the string it denotes.
+                let expected_is_str = expected_type.is_some_and(|expected| {
+                    type_table.get(expected).is_some_and(|ty| {
+                        matches!(
+                            ty,
+                            crate::LoweredType::Builtin(crate::LoweredBuiltinType::Str)
+                        )
+                    })
+                });
+                match literal {
+                    Literal::Character(value) if expected_is_str => cursor.lower_literal(
+                        &Literal::String(value.to_string()),
+                        expected_type.expect("expected str type is present"),
+                    ),
+                    _ => cursor.lower_literal(literal, type_id),
+                }
+            }
         }
         AstNode::UnaryOp {
             op: fol_parser::ast::UnaryOperator::Unwrap,
@@ -312,6 +361,7 @@ pub(crate) fn lower_expression_observed(
             args,
         ),
         AstNode::MethodCall {
+            syntax_id,
             object,
             method,
             args,
@@ -327,15 +377,71 @@ pub(crate) fn lower_expression_observed(
                 scope_id,
                 object,
             )?;
-            let (callee, result_type, error_type) = resolve_method_target(
+            // Constraint calls on generic parameters defer callee resolution
+            // to monomorphization.
+            if syntax_id
+                .is_some_and(|syntax_id| typed_package.program.is_constraint_call_site(syntax_id))
+            {
+                let typed_node =
+                    syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+                let result_type = typed_node
+                    .and_then(|node| node.inferred_type)
+                    .and_then(|checked_type| checked_type_map.get(&checked_type).copied());
+                let error_type = typed_node
+                    .and_then(|node| node.recoverable_effect)
+                    .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
+                let mut lowered_args = vec![receiver.local_id];
+                for arg in args {
+                    let value = lower_expression(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        arg,
+                    )?;
+                    lowered_args.push(value.local_id);
+                }
+                let result_type = result_type.ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::Unsupported,
+                        format!(
+                            "constraint call '{method}' cannot be used as an expression without a result type"
+                        ),
+                    )
+                })?;
+                let result_local = cursor.allocate_local(result_type, None);
+                cursor.push_instr(
+                    Some(result_local),
+                    crate::control::LoweredInstrKind::ConstraintCall {
+                        method: method.clone(),
+                        args: lowered_args,
+                        error_type,
+                    },
+                )?;
+                return Ok(LoweredValue {
+                    local_id: result_local,
+                    type_id: result_type,
+                    recoverable_error_type: error_type,
+                });
+            }
+            let callee = resolve_method_target(
                 typed_package,
                 checked_type_map,
                 current_identity,
                 decl_index,
                 method,
                 receiver.type_id,
+                *syntax_id,
             )?;
-            let result_type = result_type.ok_or_else(|| {
+            let typed_node = syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+            let result_type = typed_node
+                .and_then(|node| node.inferred_type)
+                .and_then(|checked_type| checked_type_map.get(&checked_type).copied())
+                .ok_or_else(|| {
                 LoweringError::with_kind(
                     LoweringErrorKind::Unsupported,
                     format!(
@@ -343,7 +449,16 @@ pub(crate) fn lower_expression_observed(
                     ),
                 )
             })?;
-            let mut lowered_args = vec![receiver.local_id];
+            let error_type = typed_node
+                .and_then(|node| node.recoverable_effect)
+                .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
+            let callee_has_receiver = decl_index.routine_has_receiver(callee);
+            let mut lowered_args = if callee_has_receiver {
+                vec![receiver.local_id]
+            } else {
+                Vec::new()
+            };
+            let receiver_skip: usize = if callee_has_receiver { 1 } else { 0 };
             let param_types = decl_index
                 .routine_param_types(callee)
                 .ok_or_else(|| {
@@ -372,9 +487,11 @@ pub(crate) fn lower_expression_observed(
                 })?;
             let ordered_args = super::calls::bind_lowered_call_arguments(
                 args,
-                param_names.get(1..).unwrap_or(&[]),
-                param_defaults.defaults.get(1..).unwrap_or(&[]),
-                param_defaults.variadic_index.map(|index| index.saturating_sub(1)),
+                param_names.get(receiver_skip..).unwrap_or(&[]),
+                param_defaults.defaults.get(receiver_skip..).unwrap_or(&[]),
+                param_defaults
+                    .variadic_index
+                    .map(|index| index.saturating_sub(receiver_skip)),
                 method,
             )?;
             lowered_args.extend(
@@ -382,7 +499,7 @@ pub(crate) fn lower_expression_observed(
                     .iter()
                     .enumerate()
                     .map(|(index, arg)| {
-                        let expected = param_types.get(index + 1).copied();
+                        let expected = param_types.get(index + receiver_skip).copied();
                         match arg {
                             super::calls::BoundLoweredCallArg::Explicit(arg) => {
                                 lower_expression_expected(
@@ -520,7 +637,9 @@ pub(crate) fn lower_expression_observed(
                 scope_id,
                 container,
             )?;
-            let lowered_index = lower_expression(
+            let expected_index_type =
+                super::containers::index_key_type(type_table, lowered_container.type_id);
+            let lowered_index = lower_expression_observed(
                 typed_package,
                 type_table,
                 checked_type_map,
@@ -529,6 +648,7 @@ pub(crate) fn lower_expression_observed(
                 cursor,
                 source_unit_id,
                 scope_id,
+                expected_index_type,
                 index,
             )?;
             let Some(result_type) = index_access_type(type_table, lowered_container.type_id, index)
@@ -952,7 +1072,6 @@ pub(crate) fn lower_expression_observed(
         | AstNode::AliasDecl { .. }
         | AstNode::DefDecl { .. }
         | AstNode::SegDecl { .. }
-        | AstNode::ImpDecl { .. }
         | AstNode::StdDecl { .. }
         | AstNode::LabDecl { .. }
         | AstNode::Comment { .. }

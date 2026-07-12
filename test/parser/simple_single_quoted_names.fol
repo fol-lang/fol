@@ -2,12 +2,6 @@ seg 'core': mod = {
     def helper: blk[];
 };
 
-imp 'math': Number = {
-    fun run(): int = {
-        return 1;
-    }
-};
-
 use 'warn': mod = {'std/warn'};
 
 var 'state': str = ready;

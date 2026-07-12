@@ -319,6 +319,7 @@ impl AstParser {
 
         let mut fields = HashMap::new();
         let mut field_meta = HashMap::new();
+        let mut field_order = Vec::new();
         let mut members = Vec::new();
         let mut seen_field_names = HashSet::new();
         let mut seen_members = HashSet::new();
@@ -331,6 +332,7 @@ impl AstParser {
                 return Ok(TypeDefinition::Record {
                     fields,
                     field_meta,
+                    field_order,
                     members,
                 });
             }
@@ -361,6 +363,7 @@ impl AstParser {
                     return Ok(TypeDefinition::Record {
                         fields,
                         field_meta,
+                        field_order,
                         members,
                     });
                 }
@@ -390,6 +393,7 @@ impl AstParser {
                     return Ok(TypeDefinition::Record {
                         fields,
                         field_meta,
+                        field_order,
                         members,
                     });
                 }
@@ -419,6 +423,7 @@ impl AstParser {
                     return Ok(TypeDefinition::Record {
                         fields,
                         field_meta,
+                        field_order,
                         members,
                     });
                 }
@@ -449,6 +454,7 @@ impl AstParser {
                     return Ok(TypeDefinition::Record {
                         fields,
                         field_meta,
+                        field_order,
                         members,
                     });
                 }
@@ -556,6 +562,7 @@ impl AstParser {
                 if !seen_members.insert(canonical_identifier_key(&field_name)) {
                     return Err(self.duplicate_type_member_error(&name_token, &field_name));
                 }
+                field_order.push(field_name.clone());
                 field_meta.insert(
                     field_name,
                     RecordFieldMeta {
@@ -578,6 +585,7 @@ impl AstParser {
                 return Ok(TypeDefinition::Record {
                     fields,
                     field_meta,
+                    field_order,
                     members,
                 });
             }

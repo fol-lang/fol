@@ -9,6 +9,27 @@ use super::resolve::{
     resolve_visible_symbol,
 };
 
+fn instantiated_type_base(name: &str) -> Option<&str> {
+    let mut square_depth = 0usize;
+
+    for (idx, ch) in name.char_indices() {
+        match ch {
+            '[' => {
+                if square_depth == 0 {
+                    return Some(name[..idx].trim_end());
+                }
+                square_depth += 1;
+            }
+            ']' => {
+                square_depth = square_depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 pub fn record_identifier_reference(
     program: &mut ResolvedProgram,
     source_unit_id: SourceUnitId,
@@ -22,6 +43,7 @@ pub fn record_identifier_reference(
         id: ReferenceId(0),
         kind: ReferenceKind::Identifier,
         syntax_id,
+        anchor_syntax_id: None,
         name: name.to_string(),
         scope: scope_id,
         source_unit: source_unit_id,
@@ -57,6 +79,7 @@ pub fn record_function_call_reference(
         id: ReferenceId(0),
         kind: ReferenceKind::FunctionCall,
         syntax_id,
+        anchor_syntax_id: None,
         name: name.to_string(),
         scope: scope_id,
         source_unit: source_unit_id,
@@ -86,6 +109,7 @@ pub fn record_qualified_identifier_reference(
         id: ReferenceId(0),
         kind: ReferenceKind::QualifiedIdentifier,
         syntax_id: path.syntax_id(),
+        anchor_syntax_id: path.final_syntax_id(),
         name: path.joined(),
         scope: scope_id,
         source_unit: source_unit_id,
@@ -115,6 +139,7 @@ pub fn record_qualified_function_call_reference(
         id: ReferenceId(0),
         kind: ReferenceKind::QualifiedFunctionCall,
         syntax_id: path.syntax_id(),
+        anchor_syntax_id: path.final_syntax_id(),
         name: path.joined(),
         scope: scope_id,
         source_unit: source_unit_id,
@@ -134,22 +159,76 @@ pub fn record_named_type_reference(
     syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
     origin: Option<fol_parser::ast::SyntaxOrigin>,
 ) -> Result<ReferenceId, ResolverError> {
+    let resolved_name = instantiated_type_base(name).unwrap_or(name);
+    let (kind, symbol_id) = if resolved_name.contains("::") {
+        let symbol_id = resolve_qualified_symbol(
+            program,
+            scope_id,
+            &QualifiedPath::with_syntax_id(
+                resolved_name
+                    .split("::")
+                    .map(|segment| segment.to_string())
+                    .collect(),
+                syntax_id,
+            ),
+            &[SymbolKind::Type, SymbolKind::Alias, SymbolKind::Standard],
+            "qualified type",
+            origin,
+        )?;
+        (ReferenceKind::QualifiedTypeName, symbol_id)
+    } else {
+        let symbol_id = resolve_visible_or_imported_symbol_of_kinds(
+            program,
+            scope_id,
+            resolved_name,
+            &[
+                SymbolKind::Type,
+                SymbolKind::Alias,
+                SymbolKind::GenericParameter,
+                SymbolKind::Standard,
+            ],
+            Some("type"),
+            origin,
+        )?;
+        (ReferenceKind::TypeName, symbol_id)
+    };
+    let reference_id = program.references.push(ResolvedReference {
+        id: ReferenceId(0),
+        kind,
+        syntax_id,
+        anchor_syntax_id: None,
+        name: name.to_string(),
+        scope: scope_id,
+        source_unit: source_unit_id,
+        resolved: Some(symbol_id),
+    });
+    if let Some(reference) = program.references.get_mut(reference_id) {
+        reference.id = reference_id;
+    }
+    Ok(reference_id)
+}
+
+pub fn record_contract_reference(
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    name: &str,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
+    origin: Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<ReferenceId, ResolverError> {
     let symbol_id = resolve_visible_or_imported_symbol_of_kinds(
         program,
         scope_id,
         name,
-        &[
-            SymbolKind::Type,
-            SymbolKind::Alias,
-            SymbolKind::GenericParameter,
-        ],
-        Some("type"),
+        &[SymbolKind::Standard],
+        Some("standard"),
         origin,
     )?;
     let reference_id = program.references.push(ResolvedReference {
         id: ReferenceId(0),
         kind: ReferenceKind::TypeName,
         syntax_id,
+        anchor_syntax_id: None,
         name: name.to_string(),
         scope: scope_id,
         source_unit: source_unit_id,
@@ -172,6 +251,7 @@ pub fn record_inquiry_target_reference(
         id: ReferenceId(0),
         kind: ReferenceKind::InquiryTarget,
         syntax_id: None,
+        anchor_syntax_id: None,
         name: name.to_string(),
         scope: scope_id,
         source_unit: source_unit_id,
@@ -193,7 +273,7 @@ pub fn record_qualified_type_reference(
         program,
         scope_id,
         path,
-        &[SymbolKind::Type, SymbolKind::Alias],
+        &[SymbolKind::Type, SymbolKind::Alias, SymbolKind::Standard],
         "qualified type",
         qualified_path_origin(program, path),
     )?;
@@ -201,6 +281,7 @@ pub fn record_qualified_type_reference(
         id: ReferenceId(0),
         kind: ReferenceKind::QualifiedTypeName,
         syntax_id: path.syntax_id(),
+        anchor_syntax_id: None,
         name: path.joined(),
         scope: scope_id,
         source_unit: source_unit_id,

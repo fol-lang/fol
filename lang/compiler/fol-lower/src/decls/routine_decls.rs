@@ -6,7 +6,7 @@ use fol_parser::ast::{AstNode, ParsedSourceUnitKind};
 use fol_resolver::{SourceUnitId, SymbolId, SymbolKind};
 use fol_typecheck::CheckedType;
 
-use super::symbol_lookup::{find_local_symbol_id, find_symbol_in_scope_or_descendants};
+use super::symbol_lookup::{find_routine_symbol_for_item, find_symbol_in_scope_or_descendants};
 use super::type_decls::lower_symbol_signature;
 
 pub fn lower_routine_signatures(
@@ -28,15 +28,50 @@ pub fn lower_routine_signatures(
         }
         let source_unit_id = SourceUnitId(source_unit_index);
         for item in &source_unit.items {
+            if let AstNode::StdDecl { body, .. } = &item.node {
+                // Lower default-body routines inside standards so they are
+                // visible to method resolution as regular routine decls.
+                for member in body {
+                    let Some(name) = routine_name(member) else {
+                        continue;
+                    };
+                    let has_default_body = match member {
+                        AstNode::FunDecl { body, .. }
+                        | AstNode::ProDecl { body, .. }
+                        | AstNode::LogDecl { body, .. } => !body.is_empty(),
+                        _ => false,
+                    };
+                    if !has_default_body {
+                        continue;
+                    }
+                    let Some(symbol_id) = find_routine_symbol_for_item(
+                        &typed_package.program,
+                        source_unit_id,
+                        name,
+                        member.syntax_id(),
+                    ) else {
+                        continue;
+                    };
+                    match lower_symbol_signature(typed_package, lowered_package, symbol_id) {
+                        Ok(signature_type) => {
+                            lowered_package
+                                .routine_signatures
+                                .insert(symbol_id, signature_type);
+                        }
+                        Err(error) => errors.push(error),
+                    }
+                }
+                continue;
+            }
             let Some(name) = routine_name(&item.node) else {
                 continue;
             };
 
-            match find_local_symbol_id(
+            match find_routine_symbol_for_item(
                 &typed_package.program,
                 source_unit_id,
-                SymbolKind::Routine,
                 name,
+                item.node.syntax_id(),
             ) {
                 Some(symbol_id) => {
                     match lower_symbol_signature(typed_package, lowered_package, symbol_id) {
@@ -102,14 +137,75 @@ pub fn lower_routine_declarations(
                     params,
                     ..
                 } => (name.as_str(), *syntax_id, params.as_slice()),
+                AstNode::StdDecl { body, .. } => {
+                    // Standard default bodies: walk the inner routines and
+                    // lower them as regular routines so method resolution
+                    // can dispatch calls to their default implementations.
+                    for member in body {
+                        let (name, syntax_id, params, member_body) = match member {
+                            AstNode::FunDecl {
+                                name,
+                                syntax_id,
+                                params,
+                                body,
+                                ..
+                            }
+                            | AstNode::ProDecl {
+                                name,
+                                syntax_id,
+                                params,
+                                body,
+                                ..
+                            }
+                            | AstNode::LogDecl {
+                                name,
+                                syntax_id,
+                                params,
+                                body,
+                                ..
+                            } => (name.as_str(), *syntax_id, params.as_slice(), body.as_slice()),
+                            _ => continue,
+                        };
+                        if member_body.is_empty() {
+                            // Signature-only requirement — no default body
+                            // to lower.
+                            continue;
+                        }
+                        let Some(symbol_id) = find_routine_symbol_for_item(
+                            &typed_package.program,
+                            source_unit_id,
+                            name,
+                            syntax_id,
+                        ) else {
+                            continue;
+                        };
+                        match lower_routine_decl(
+                            typed_package,
+                            lowered_package,
+                            symbol_id,
+                            source_unit_id,
+                            name,
+                            syntax_id,
+                            params,
+                            next_routine_index,
+                        ) {
+                            Ok(routine) => {
+                                lowered_package.routines.push(routine.id);
+                                lowered_package.routine_decls.insert(routine.id, routine);
+                            }
+                            Err(error) => errors.push(error),
+                        }
+                    }
+                    continue;
+                }
                 _ => continue,
             };
 
-            match find_local_symbol_id(
+            match find_routine_symbol_for_item(
                 &typed_package.program,
                 source_unit_id,
-                SymbolKind::Routine,
                 name,
+                syntax_id,
             ) {
                 Some(symbol_id) => match lower_routine_decl(
                     typed_package,
@@ -214,6 +310,17 @@ pub fn lower_routine_decl(
     let routine_scope_id = syntax_id
         .and_then(|syntax_id| typed_package.program.resolved().scope_for_syntax(syntax_id))
         .unwrap_or(typed_symbol.scope_id);
+    if routine.receiver_type.is_some() {
+        if let Some(self_symbol_id) = find_symbol_in_scope_or_descendants(
+            &typed_package.program,
+            source_unit_id,
+            routine_scope_id,
+            SymbolKind::Parameter,
+            "self",
+        ) {
+            routine.local_symbols.insert(self_symbol_id, routine.params[0]);
+        }
+    }
     let checked_signature = typed_symbol.declared_type.ok_or_else(|| {
         LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,

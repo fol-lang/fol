@@ -21,6 +21,9 @@ pub struct LoweredRoutineType {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LoweredType {
     Builtin(LoweredBuiltinType),
+    GenericParameter {
+        name: String,
+    },
     Array {
         element_type: LoweredTypeId,
         size: Option<usize>,
@@ -93,6 +96,170 @@ impl LoweredTypeTable {
 
     pub fn intern_builtin(&mut self, builtin: LoweredBuiltinType) -> LoweredTypeId {
         self.intern(LoweredType::Builtin(builtin))
+    }
+
+    /// Whether `id` mentions an unbound generic parameter anywhere in its
+    /// structure. Used both to select monomorphization templates and to detect
+    /// generic parameters that leaked into concrete positions.
+    pub(crate) fn contains_generic_parameter(&self, id: LoweredTypeId) -> bool {
+        let Some(lowered_type) = self.get(id) else {
+            return false;
+        };
+        match lowered_type {
+            LoweredType::GenericParameter { .. } => true,
+            LoweredType::Builtin(_) => false,
+            LoweredType::Array { element_type, .. }
+            | LoweredType::Vector { element_type }
+            | LoweredType::Sequence { element_type }
+            | LoweredType::Optional {
+                inner: element_type,
+            } => self.contains_generic_parameter(*element_type),
+            LoweredType::Error { inner } => {
+                inner.is_some_and(|inner| self.contains_generic_parameter(inner))
+            }
+            LoweredType::Set { member_types } => member_types
+                .iter()
+                .any(|member_type| self.contains_generic_parameter(*member_type)),
+            LoweredType::Map {
+                key_type,
+                value_type,
+            } => {
+                self.contains_generic_parameter(*key_type)
+                    || self.contains_generic_parameter(*value_type)
+            }
+            LoweredType::Record { fields } => fields
+                .values()
+                .any(|field_type| self.contains_generic_parameter(*field_type)),
+            LoweredType::Entry { variants } => variants
+                .values()
+                .flatten()
+                .any(|variant_type| self.contains_generic_parameter(*variant_type)),
+            LoweredType::Routine(signature) => {
+                signature
+                    .params
+                    .iter()
+                    .any(|param| self.contains_generic_parameter(*param))
+                    || signature
+                        .return_type
+                        .is_some_and(|return_type| self.contains_generic_parameter(return_type))
+                    || signature
+                        .error_type
+                        .is_some_and(|error_type| self.contains_generic_parameter(error_type))
+            }
+        }
+    }
+
+    /// Whether `id` contains a record or entry shell that itself mentions a
+    /// generic parameter (e.g. `Box[T]` lowered to `Record { value: T }`).
+    ///
+    /// Such a type needs a backend type declaration, but a declaration mentioning
+    /// a generic parameter would require emitting a Rust generic struct, which
+    /// the FOL-side monomorphization model forbids. A routine using one must be
+    /// monomorphized so the structural type becomes concrete first. Bare generic
+    /// parameters and runtime containers (`seq[T]`, `opt[T]`, ...) do not count:
+    /// those ride the ordinary Rust-generics path.
+    pub(crate) fn contains_generic_structural_type(&self, id: LoweredTypeId) -> bool {
+        let Some(lowered_type) = self.get(id) else {
+            return false;
+        };
+        match lowered_type {
+            LoweredType::Record { .. } | LoweredType::Entry { .. } => {
+                self.contains_generic_parameter(id)
+            }
+            LoweredType::Array { element_type, .. }
+            | LoweredType::Vector { element_type }
+            | LoweredType::Sequence { element_type }
+            | LoweredType::Optional {
+                inner: element_type,
+            } => self.contains_generic_structural_type(*element_type),
+            LoweredType::Error { inner } => {
+                inner.is_some_and(|inner| self.contains_generic_structural_type(inner))
+            }
+            LoweredType::Set { member_types } => member_types
+                .iter()
+                .any(|member_type| self.contains_generic_structural_type(*member_type)),
+            LoweredType::Map {
+                key_type,
+                value_type,
+            } => {
+                self.contains_generic_structural_type(*key_type)
+                    || self.contains_generic_structural_type(*value_type)
+            }
+            LoweredType::Routine(signature) => {
+                signature
+                    .params
+                    .iter()
+                    .any(|param| self.contains_generic_structural_type(*param))
+                    || signature
+                        .return_type
+                        .is_some_and(|return_type| self.contains_generic_structural_type(return_type))
+                    || signature
+                        .error_type
+                        .is_some_and(|error_type| self.contains_generic_structural_type(error_type))
+            }
+            LoweredType::Builtin(_) | LoweredType::GenericParameter { .. } => false,
+        }
+    }
+
+    /// Collect the names of every generic parameter mentioned by `id`.
+    pub(crate) fn collect_generic_parameter_names(
+        &self,
+        id: LoweredTypeId,
+        out: &mut std::collections::BTreeSet<String>,
+    ) {
+        let Some(lowered_type) = self.get(id) else {
+            return;
+        };
+        match lowered_type {
+            LoweredType::GenericParameter { name } => {
+                out.insert(name.clone());
+            }
+            LoweredType::Builtin(_) => {}
+            LoweredType::Array { element_type, .. }
+            | LoweredType::Vector { element_type }
+            | LoweredType::Sequence { element_type }
+            | LoweredType::Optional {
+                inner: element_type,
+            } => self.collect_generic_parameter_names(*element_type, out),
+            LoweredType::Error { inner } => {
+                if let Some(inner) = inner {
+                    self.collect_generic_parameter_names(*inner, out);
+                }
+            }
+            LoweredType::Set { member_types } => {
+                for member_type in member_types {
+                    self.collect_generic_parameter_names(*member_type, out);
+                }
+            }
+            LoweredType::Map {
+                key_type,
+                value_type,
+            } => {
+                self.collect_generic_parameter_names(*key_type, out);
+                self.collect_generic_parameter_names(*value_type, out);
+            }
+            LoweredType::Record { fields } => {
+                for field_type in fields.values() {
+                    self.collect_generic_parameter_names(*field_type, out);
+                }
+            }
+            LoweredType::Entry { variants } => {
+                for variant_type in variants.values().flatten() {
+                    self.collect_generic_parameter_names(*variant_type, out);
+                }
+            }
+            LoweredType::Routine(signature) => {
+                for param in &signature.params {
+                    self.collect_generic_parameter_names(*param, out);
+                }
+                if let Some(return_type) = signature.return_type {
+                    self.collect_generic_parameter_names(return_type, out);
+                }
+                if let Some(error_type) = signature.error_type {
+                    self.collect_generic_parameter_names(error_type, out);
+                }
+            }
+        }
     }
 }
 

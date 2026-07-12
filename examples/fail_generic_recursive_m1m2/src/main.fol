@@ -1,0 +1,13 @@
+// Negative boundary: a generic type whose field refers back to itself
+// (`kids: vec[Tree[T]]`) has no finite runtime shape in the current structural
+// model. The checker rejects it with an honest "recursive type ... is not yet
+// supported" diagnostic instead of looping in lowering. Recursive/heap-linked
+// data belongs to the later ownership/pointer surface.
+typ Tree(T): rec = {
+    value: T,
+    kids: vec[Tree[T]]
+};
+
+fun[] main(): int = {
+    return 0;
+};
