@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-2459343d.css">
-        <link rel="stylesheet" href="../../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-0ba88dfd.js";
+            window.path_to_searchindex_js = "../../searchindex-2f96a772.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-aca3346a.js"></script>
+        <script src="../../toc-5e2af248.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -230,6 +230,8 @@ The dot form is only the call-site spelling.</p>
 <li>named arguments bind by declared parameter name</li>
 <li>defaulted parameters may be omitted</li>
 <li>a final variadic parameter may collect trailing arguments</li>
+<li>variadic collection comes only from the explicit <code>... T</code> marker; a plain
+<code>seq[T]</code> parameter takes one sequence value</li>
 <li><code>...sequence</code> may appear after named arguments when it feeds that final
 variadic parameter</li>
 </ul>
@@ -249,11 +251,25 @@ fun[] run(current: Counter, extras: seq[int]): int = {
 <p><code>V1</code> does not support indexed pseudo-arguments such as
 <code>current.shift(extras[0] = 1, ...extras)</code>. That spelling looks like assignment,
 not call binding, so the language keeps variadic binding explicit and simple.</p>
+<p>Inside a receiver-qualified routine body, the receiver value is available
+through <code>self</code>. <code>self</code> is typed as the receiver type and is lowered as the
+routine’s ordinary first argument; it does not introduce an object model.</p>
+<pre><code class="language-fol">typ Counter: rec = {
+    var total: int;
+};
+
+fun (Counter)read(): int = {
+    return self.total;
+}
+</code></pre>
+<p>Generic receiver types participate too: <code>fun (Box[T])get(T)(): T</code> can return
+<code>self.value</code>, and each concrete call site monomorphizes the routine.</p>
 <p>For record-focused V1 code, the intended reading is:</p>
 <ul>
 <li>records hold data</li>
 <li>routines stay separate</li>
-<li>the receiver clause only enables <code>value.method(...)</code> spelling</li>
+<li>the receiver clause enables <code>value.method(...)</code> spelling and gives the body
+procedural access to the receiver through <code>self</code></li>
 </ul>
 <p>Custom error routines also support reporting method call results when receiver-qualified signatures are available:</p>
 <pre><code class="language-fol">fun (parser)parse_err(code: int): str = {
@@ -310,11 +326,11 @@ fun run(tool: parser, code: int): int / str = {
 
         <script src="../../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../../mark-09e88c2c.min.js"></script>
-        <script src="../../searcher-c2a407aa.js"></script>
+        <script src="../../searcher-09f2665d.js"></script>
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-a0b12cfe.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
 

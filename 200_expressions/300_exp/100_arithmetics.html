@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-2459343d.css">
-        <link rel="stylesheet" href="../../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-0ba88dfd.js";
+            window.path_to_searchindex_js = "../../searchindex-2f96a772.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-aca3346a.js"></script>
+        <script src="../../toc-5e2af248.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,6 +175,12 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="calculations"><a class="header" href="#calculations">Calculations</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>the two-argument <code>assert(a, b)</code> form used in this chapter’s examples is
+illustrative; <code>assert</code> is registry-owned but deferred, and the intrinsic is
+not yet dispatchable in the current compiler (see the intrinsics chapter)</li>
+</ul>
 <p>In fol, every calcultaion, needs to be enclosed in rounded brackets <code>( //to evaluate )</code> - except in one line evaluating, the curly brackets are allowed too <code>{ // to evaluate }</code>:</p>
 <pre><code>fun adder(a, b: int): int = {
     retun a + b                                                 // this will throw an error 
@@ -218,6 +224,17 @@ assert((-5 * 14), -70);
 assert((14 / 3), 4);
 assert((100 % 7), 2);
 </code></pre>
+<p>Current integer semantics:</p>
+<ul>
+<li>division truncates toward zero (<code>-7 / 2</code> is <code>-3</code>)</li>
+<li>remainder takes the sign of the dividend (<code>-7 % 2</code> is <code>-1</code>)</li>
+<li>integers are 64-bit two’s-complement; overflow panics at runtime (debug)
+rather than wrapping, and division/modulo by zero panics</li>
+<li>declared widths such as <code>int[8]</code> currently share the 64-bit runtime
+representation and are not range-enforced yet</li>
+<li>floats follow IEEE-754: <code>1.0 / 0.0</code> is infinity, <code>0.0 / 0.0</code> is NaN (no panic)</li>
+</ul>
+<pre><code></code></pre>
 <h2 id="comparisons"><a class="header" href="#comparisons">Comparisons</a></h2>
 <p>Comparison operators are also defined both for primitive types and many type in the standard library. Parentheses are required when chaining comparison operators. For example, the expression <code>a == b == c</code> is invalid and may be written as <code>((a == b) == c)</code>.</p>
 <div class="table-wrapper">
@@ -228,8 +245,8 @@ assert((100 % 7), 2);
 <tbody>
 <tr><td>==</td><td>equal</td></tr>
 <tr><td>!=</td><td>not equal</td></tr>
-<tr><td>&gt;&gt;</td><td>greater than</td></tr>
-<tr><td>&lt;&lt;</td><td>Less than</td></tr>
+<tr><td>&gt;</td><td>greater than</td></tr>
+<tr><td>&lt;</td><td>Less than</td></tr>
 <tr><td>&gt;=</td><td>greater than or equal to</td></tr>
 <tr><td>&lt;=</td><td>Less than or equal to</td></tr>
 </tbody>
@@ -237,8 +254,8 @@ assert((100 % 7), 2);
 </div>
 <pre><code>assert((123 == 123));
 assert((23 != -12));
-assert((12.5 &gt;&gt; 12.2));
-assert(({1, 2, 3} &lt;&lt; {1, 3, 4}));
+assert((12.5 &gt; 12.2));
+assert((1 &lt; 3));
 assert(('A' &lt;= 'B'));
 assert(("World" &gt;= "Hello"));
 </code></pre>
@@ -253,6 +270,13 @@ assert(("World" &gt;= "Hello"));
 assert((true or false), true)
 assert((not true), false)
 </code></pre>
+<p>Current evaluation note:</p>
+<ul>
+<li><code>and</code>/<code>or</code> evaluate both operands eagerly; they do NOT short-circuit, so
+the right operand runs even when the left already decides the result
+(<code>(false) and (1/0 &gt; 0)</code> still evaluates <code>1/0</code>). Guard side-effecting or
+fallible right operands explicitly.</li>
+</ul>
 <h2 id="compounds"><a class="header" href="#compounds">Compounds</a></h2>
 <p>There are further assignment operators that can be used to modify the value of an existing variable. These are the compounds or aka compound assignments. A compound assignment operator is used to simplify the coding of some expressions. For example, using the operators described earlier we can increase a variable’s value by ten using the following code:</p>
 <pre><code>value = value + 10;
@@ -315,11 +339,11 @@ var value: int = 10;
 
         <script src="../../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../../mark-09e88c2c.min.js"></script>
-        <script src="../../searcher-c2a407aa.js"></script>
+        <script src="../../searcher-09f2665d.js"></script>
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-a0b12cfe.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
 

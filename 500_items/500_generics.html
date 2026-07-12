@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-0ba88dfd.js";
+            window.path_to_searchindex_js = "../searchindex-2f96a772.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-aca3346a.js"></script>
+        <script src="../toc-5e2af248.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,13 +175,88 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="generics"><a class="header" href="#generics">Generics</a></h1>
-<p>This chapter describes later generic-language design rather than current <code>V1</code>
+<p>This chapter describes <code>V2</code> generic-language work rather than current <code>V1</code>
 compiler behavior.</p>
 <p>Current milestone note:</p>
 <ul>
-<li>generic routines are not part of the implemented <code>V1</code> typechecker</li>
-<li>generic types are not part of the implemented <code>V1</code> typechecker</li>
-<li>examples here should be read as future <code>V2</code> design</li>
+<li>Milestone 1 now includes a narrow generic-routine subset through:
+<ul>
+<li>parser</li>
+<li>resolver</li>
+<li>typecheck</li>
+<li>editor audit</li>
+</ul>
+</li>
+<li>that current subset supports:
+<ul>
+<li>generic routine declarations</li>
+<li>type parameters</li>
+<li>generic parameter references in parameter and return types</li>
+<li>direct calls with narrow argument-driven inference</li>
+</ul>
+</li>
+<li>current hardened example set for that subset is:
+<ul>
+<li><code>examples/generic_routine_m1</code></li>
+<li><code>examples/generic_routine_pair_m1</code></li>
+<li><code>examples/generic_routine_cross_file_m1</code></li>
+<li><code>examples/generic_receiver_m1</code></li>
+<li><code>examples/generic_receiver_cross_file_m1</code></li>
+<li><code>examples/generic_receiver_overload_m1m2</code></li>
+<li><code>examples/generic_type_semantic_m1m2</code>
+<ul>
+<li>positive semantic-check fixture for generic type declarations</li>
+</ul>
+</li>
+<li><code>examples/generic_type_exec_m1m2</code></li>
+<li><code>examples/generic_standard_constraint_m1m2</code></li>
+<li><code>examples/generic_standard_constraint_generic_m1m2</code></li>
+<li><code>examples/fail_generic_misuse_m1</code></li>
+<li><code>examples/fail_generic_cross_file_m1</code></li>
+<li><code>examples/fail_generic_receiver_m1</code></li>
+<li><code>examples/fail_generic_standard_constraint_m1m2</code></li>
+</ul>
+</li>
+<li>generic routine lowering now succeeds for the shipped Milestone 1 example set</li>
+<li>generic routine backend execution now works for the shipped positive Milestone 1 examples</li>
+<li>receiver-qualified generic routines, matching default arguments, and
+concrete instantiated generic-type receivers and concrete recoverable error
+types are now part of the executable Milestone 1 subset</li>
+<li>generic receiver routines are now current contract: a routine such as
+<code>fun (Box[T])get(T)(): T</code> declares its generic parameters explicitly,
+binds them through the receiver and ordinary arguments at each call site,
+and monomorphizes into one concrete routine per instantiation</li>
+<li>receiver-qualified routine bodies read receiver state through <code>self</code>,
+which is typed as the receiver and lowered as the routine’s first argument</li>
+<li>generic type execution and constrained generic execution now have checked-in
+example packages too</li>
+<li>nested generic-type composition now works for the checked nested-record
+subset such as <code>Box[Box[int]]</code></li>
+<li>generic type instantiations carry nominal identity: <code>Box[int]</code> and <code>Cup[int]</code>
+are distinct types even with an identical field shape, so a method shared by
+name dispatches to each base’s own receiver routine rather than being
+rejected as ambiguous; <code>examples/generic_receiver_overload_m1m2</code> pins this</li>
+<li>broader Milestone 1 edge-case policy is still tracked separately from that
+shipped positive core</li>
+<li>current editor hardening covers hover/definition on checked-in generic
+examples without claiming broader generic-aware completion than the shipped
+editor currently provides</li>
+<li>generic error shells remain outside the current shipped Milestone 1 routine subset</li>
+<li>recursive type definitions are rejected with an honest boundary: a type whose
+fields refer back to itself — directly (<code>typ Node(T) = { next: Node[T] }</code>) or
+through a container/another type (<code>typ Tree(T) = { kids: vec[Tree[T]] }</code>) — has
+no finite shape in the current structural runtime model, so the checker rejects
+it (<code>recursive type '...' is not yet supported</code>) instead of looping in lowering;
+recursive/heap-linked data belongs to the later ownership/pointer surface, and
+<code>examples/fail_generic_recursive_m1m2</code> pins the boundary</li>
+<li>generic types are not part of <code>V1</code>; they now belong to the shipped narrow
+full-<code>V2</code> contract instead</li>
+<li>examples here should be read as:
+<ul>
+<li>current narrow <code>V2</code> Milestone 1 generic-routine work where noted</li>
+<li>otherwise later <code>V2</code> design</li>
+</ul>
+</li>
 </ul>
 <h2 id="types"><a class="header" href="#types">Types</a></h2>
 <h3 id="generic-functions"><a class="header" href="#generic-functions">Generic Functions</a></h3>
@@ -194,18 +269,41 @@ fun biggerFloat(a, b: flt[32]): flt[32] = { max(a, b) }
 fun biggerInteger(a, b: int[64]): int[64] = { max(a, b) }
 </code></pre>
 <h3 id="generic-types"><a class="header" href="#generic-types">Generic Types</a></h3>
-<p>Generic type surfaces are later-milestone design only. They are shown here as
-future syntax, not current <code>V1</code> behavior.</p>
-<pre><code>typ container[T: gen, N: int](): obj = {
-	var anarray: arr[T,N];
-	+fun getsize(): num = { result = N; }
+<p>Full <code>V2</code> now includes generic type declarations and explicit instantiation.</p>
+<p>Chosen contract:</p>
+<ul>
+<li>the canonical declaration surface follows the existing parser-owned shape</li>
+<li>generic records and generic aliases are in scope for full <code>V2</code></li>
+<li>generic arguments are explicit and arity-checked</li>
+<li>generic types use the same monomorphization-oriented execution strategy as
+generic routines</li>
+</ul>
+<p>Example declaration shapes:</p>
+<pre><code class="language-fol">typ Box(T: item): rec = {
+    value: T;
 };
-var aContainer: container[int, 5] = { anarray = {zero, one, two, three, four}; };
+
+typ Pair(T: left, U: right): map[T, U];
 </code></pre>
 <h2 id="generic-calls"><a class="header" href="#generic-calls">Generic Calls</a></h2>
-<p>This chapter does not define an object-dispatch system. If generics later use
-receiver-qualified routine syntax, that would still be procedural call binding,
-not virtual methods or inheritance.</p>
+<p>Full <code>V2</code> includes standards-as-constraints, but not broad dispatch semantics.</p>
+<p>Chosen constraint contract:</p>
+<ul>
+<li>protocol standards are the only generic-constraint surface in the full <code>V2</code>
+target</li>
+<li>a constraint may name a generic standard at concrete arguments
+(<code>fun drive(T: Holder[int])(...)</code>): the standard’s own generic parameters are
+bound to those arguments, so a constraint call substitutes them (a required
+<code>fun fetch(): Item</code> on <code>Holder[int]</code> types as <code>int</code>), and the conformer must
+claim the standard at the same arguments; <code>examples/generic_standard_constraint_generic_m1m2</code>
+pins this</li>
+<li>constrained generic calls remain procedural and are checked through declared
+conformance</li>
+<li>standards-as-constraints do not imply runtime object dispatch</li>
+</ul>
+<p>This chapter still does not define an object-dispatch system. If later work
+uses receiver-qualified routine syntax together with constraints, that remains a
+procedural call-binding rule unless the contract changes explicitly.</p>
 <pre><code class="language-fol">std foo: pro = { fun bar(); }
 
 typ[ext] int, str: int, str;
@@ -269,11 +367,11 @@ pro main: int = {
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
 

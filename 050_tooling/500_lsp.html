@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-0ba88dfd.js";
+            window.path_to_searchindex_js = "../searchindex-2f96a772.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-aca3346a.js"></script>
+        <script src="../toc-5e2af248.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,20 +187,31 @@
 <li>diagnostics</li>
 <li>hover</li>
 <li>go-to-definition</li>
+<li>go-to-type-definition (a value’s declared type, unwrapping optional/container shells)</li>
+<li>go-to-implementation (a protocol standard’s conforming types)</li>
+<li>document highlight (occurrences of the symbol under the cursor, current file)</li>
 <li>whole-document formatting</li>
 <li>code actions for compiler-suggested unresolved-name replacements</li>
 <li>signature help for plain and qualified routine calls</li>
 <li>references</li>
-<li>rename for same-file local and current-package top-level symbols</li>
+<li>rename for same-file local and current-package top-level symbols, with
+prepare-rename validation</li>
 <li>semantic tokens</li>
+<li>inlay hints (inferred type for <code>var</code>/<code>lab</code>/<code>con</code> bindings without an explicit
+annotation)</li>
+<li>code lens (a “Run” action above <code>fun[] main</code>)</li>
+<li>folding ranges (brace blocks)</li>
+<li>selection ranges (word -&gt; enclosing block -&gt; file)</li>
 <li>document symbols</li>
-<li>workspace symbols for current open workspace members</li>
-<li>completion</li>
+<li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
+<li>completion, including language-keyword suggestions and completion-item resolve</li>
 <li>the same compiler-backed behavior for ordinary source files and <code>build.fol</code></li>
 </ul>
-<p>This is a V1 surface only.
-The editor does not claim V2-aware language support, broad rename outside the
-documented safe classes, or range formatting.</p>
+<p>This is still primarily a V1 surface.
+The editor only claims shipped V2-aware behavior for the checked-in
+generic-routine, generic-type, constrained-generic, and protocol-standard
+examples, and it does not claim broad rename outside the documented safe
+classes or range formatting.</p>
 <p>That means build files should not need a separate editor mode.
 <code>build.fol</code> goes through the same language server entrypoint as the rest of the
 package.</p>
@@ -256,8 +267,26 @@ unresolved-name replacements only.</li>
 <li>rename for same-file local and current-package top-level symbols only</li>
 <li>semantic tokens for semantic identifier categories</li>
 <li>document symbols for the current file</li>
-<li>workspace symbols across the current open workspace members</li>
-<li>completion in ordinary source files and <code>build.fol</code></li>
+<li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
+<li>completion in ordinary source files and <code>build.fol</code>, including language
+keyword suggestions (declaration, control-flow, literal, and diagnostic
+keywords from the lexer’s keyword tables) alongside resolver-backed symbols in
+plain positions</li>
+<li>shipped V2 example diagnostics/navigation for:
+<ul>
+<li>generic routines</li>
+<li>generic types</li>
+<li>constrained generics</li>
+<li>protocol standards</li>
+</ul>
+</li>
+<li>current positive executable V2 example roots covered directly in editor tests:
+<ul>
+<li><code>examples/generic_type_exec_m1m2</code></li>
+<li><code>examples/generic_standard_constraint_m1m2</code></li>
+<li><code>examples/standards_protocol_m2</code></li>
+</ul>
+</li>
 </ul>
 <p>If the client is attached but you see no diagnostics at all, the likely issue is
 not Tree-sitter. It is the LSP request/attach path.</p>
@@ -308,11 +337,11 @@ behavior, see <a href="./350_compiler_integration.html">Compiler Integration</a>
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
 

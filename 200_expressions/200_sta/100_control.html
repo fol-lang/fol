@@ -15,8 +15,8 @@
         <link rel="icon" href="../../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-2459343d.css">
-        <link rel="stylesheet" href="../../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-0ba88dfd.js";
+            window.path_to_searchindex_js = "../../searchindex-2f96a772.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-aca3346a.js"></script>
+        <script src="../../toc-5e2af248.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -179,7 +179,8 @@
 <p>There are two types of control flow mechanisms:</p>
 <ul>
 <li>choice - <code>when</code></li>
-<li>loop - <code>loop</code></li>
+<li>loop - <code>loop</code> (with <code>while</code>, <code>for</code>, and <code>each</code> as loop-header spellings of
+the same mechanism)</li>
 </ul>
 <h2 id="choice-type"><a class="header" href="#choice-type">Choice type</a></h2>
 <pre><code>when(condition){ case(condition){} case(condition){} * {} };
@@ -189,6 +190,15 @@ when(iterable){ has (member){}; has (member){}; * {}; };
 when(generic){ of (type){}; of (type){}; * {}; };
 when(type){ on (channel){}; on (channel){}; };
 </code></pre>
+<p>Current boundary:</p>
+<ul>
+<li><code>case</code> and <code>is</code> arms (plus the required <code>*</code> default) are the current <code>V1</code>
+surface, in both statement bodies and the arrow expression form
+(<code>is 3 -&gt; 7;</code>)</li>
+<li><code>in</code> (range/set matching), <code>has</code> (membership), <code>of</code> (type matching), and
+<code>on</code> (channels) are declared syntax whose semantics are later-milestone
+work; the compiler rejects them with explicit boundary diagnostics</li>
+</ul>
 <h3 id="condition"><a class="header" href="#condition">Condition</a></h3>
 <pre><code>when(true) {
     case (x == 6){ // implementation }
@@ -304,11 +314,11 @@ loop( x in {..100} if ( x in somearra ) and ( x in anotherarray )){
 
         <script src="../../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../../mark-09e88c2c.min.js"></script>
-        <script src="../../searcher-c2a407aa.js"></script>
+        <script src="../../searcher-09f2665d.js"></script>
 
         <script src="../../clipboard-1626706a.min.js"></script>
         <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-a0b12cfe.js"></script>
+        <script src="../../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
 

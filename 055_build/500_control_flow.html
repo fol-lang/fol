@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-0ba88dfd.js";
+            window.path_to_searchindex_js = "../searchindex-2f96a772.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-aca3346a.js"></script>
+        <script src="../toc-5e2af248.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -233,6 +233,15 @@ used anywhere inside the body as a string value.</p>
 <p>The iterable is a container literal <code>{ elem1, elem2, ... }</code>. Currently only
 string lists are supported as loop iterables in <code>build.fol</code>.</p>
 <h2 id="helper-routines"><a class="header" href="#helper-routines">Helper Routines</a></h2>
+<p>Current boundary:</p>
+<ul>
+<li>defining helper <code>fun[]</code>/<code>pro[]</code> routines in <code>build.fol</code> and calling them from
+<code>build()</code> is not part of the current build surface; the evaluator cannot
+execute them today</li>
+<li>this section describes later design work, not current behavior</li>
+<li>the <code>when</code>, <code>loop</code>, and <code>case</code> build control flow above is the current build
+surface</li>
+</ul>
 <p><code>build.fol</code> can define helper <code>fun[]</code> and <code>pro[]</code> routines. They are visible
 only within the file — they are not exported to the package.</p>
 <h3 id="helper-function"><a class="header" href="#helper-function">Helper Function</a></h3>
@@ -359,11 +368,11 @@ pro[] build(): non = {
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
 

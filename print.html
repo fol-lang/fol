@@ -16,8 +16,8 @@
         <link rel="icon" href="favicon-de23e50b.svg">
         <link rel="shortcut icon" href="favicon-8114d1fc.png">
         <link rel="stylesheet" href="css/variables-8adf115d.css">
-        <link rel="stylesheet" href="css/general-2459343d.css">
-        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
         <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0ba88dfd.js";
+            window.path_to_searchindex_js = "searchindex-2f96a772.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-aca3346a.js"></script>
+        <script src="toc-5e2af248.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -188,14 +188,13 @@
 <li>routines</li>
 <li>type declarations</li>
 <li>module-like declarations</li>
-<li>standards and implementations</li>
+<li>standards</li>
 </ul>
 <h2 id="main-declaration-families"><a class="header" href="#main-declaration-families">Main Declaration Families</a></h2>
 <p>The main declaration families are:</p>
 <pre><code class="language-fol">use    // import declarations
 def    // named definitions such as modules, blocks, and tests
 seg    // segment/module-like declarations
-imp    // implementation declarations
 
 var    // mutable bindings
 let    // immutable local bindings
@@ -718,7 +717,7 @@ unresolved-name replacements where the compiler attached an exact replacement.</
 <li>rename for same-file local and current-package top-level symbols</li>
 <li>semantic tokens</li>
 <li>document symbols</li>
-<li>workspace symbols for current open workspace members</li>
+<li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
 <li>completion</li>
 </ul>
 <p>The currently supported v1 LSP surface is:</p>
@@ -733,7 +732,7 @@ unresolved-name replacements where the compiler attached an exact replacement.</
 <li>rename for same-file local and current-package top-level symbols</li>
 <li>semantic tokens</li>
 <li>document symbols</li>
-<li>workspace symbols for current open workspace members</li>
+<li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
 <li>completion</li>
 </ul>
 <p>The server keeps diagnostics and semantic snapshots separately.</p>
@@ -1264,20 +1263,31 @@ of copied by hand.</p>
 <li>diagnostics</li>
 <li>hover</li>
 <li>go-to-definition</li>
+<li>go-to-type-definition (a value’s declared type, unwrapping optional/container shells)</li>
+<li>go-to-implementation (a protocol standard’s conforming types)</li>
+<li>document highlight (occurrences of the symbol under the cursor, current file)</li>
 <li>whole-document formatting</li>
 <li>code actions for compiler-suggested unresolved-name replacements</li>
 <li>signature help for plain and qualified routine calls</li>
 <li>references</li>
-<li>rename for same-file local and current-package top-level symbols</li>
+<li>rename for same-file local and current-package top-level symbols, with
+prepare-rename validation</li>
 <li>semantic tokens</li>
+<li>inlay hints (inferred type for <code>var</code>/<code>lab</code>/<code>con</code> bindings without an explicit
+annotation)</li>
+<li>code lens (a “Run” action above <code>fun[] main</code>)</li>
+<li>folding ranges (brace blocks)</li>
+<li>selection ranges (word -&gt; enclosing block -&gt; file)</li>
 <li>document symbols</li>
-<li>workspace symbols for current open workspace members</li>
-<li>completion</li>
+<li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
+<li>completion, including language-keyword suggestions and completion-item resolve</li>
 <li>the same compiler-backed behavior for ordinary source files and <code>build.fol</code></li>
 </ul>
-<p>This is a V1 surface only.
-The editor does not claim V2-aware language support, broad rename outside the
-documented safe classes, or range formatting.</p>
+<p>This is still primarily a V1 surface.
+The editor only claims shipped V2-aware behavior for the checked-in
+generic-routine, generic-type, constrained-generic, and protocol-standard
+examples, and it does not claim broad rename outside the documented safe
+classes or range formatting.</p>
 <p>That means build files should not need a separate editor mode.
 <code>build.fol</code> goes through the same language server entrypoint as the rest of the
 package.</p>
@@ -1333,8 +1343,26 @@ unresolved-name replacements only.</li>
 <li>rename for same-file local and current-package top-level symbols only</li>
 <li>semantic tokens for semantic identifier categories</li>
 <li>document symbols for the current file</li>
-<li>workspace symbols across the current open workspace members</li>
-<li>completion in ordinary source files and <code>build.fol</code></li>
+<li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
+<li>completion in ordinary source files and <code>build.fol</code>, including language
+keyword suggestions (declaration, control-flow, literal, and diagnostic
+keywords from the lexer’s keyword tables) alongside resolver-backed symbols in
+plain positions</li>
+<li>shipped V2 example diagnostics/navigation for:
+<ul>
+<li>generic routines</li>
+<li>generic types</li>
+<li>constrained generics</li>
+<li>protocol standards</li>
+</ul>
+</li>
+<li>current positive executable V2 example roots covered directly in editor tests:
+<ul>
+<li><code>examples/generic_type_exec_m1m2</code></li>
+<li><code>examples/generic_standard_constraint_m1m2</code></li>
+<li><code>examples/standards_protocol_m2</code></li>
+</ul>
+</li>
 </ul>
 <p>If the client is attached but you see no diagnostics at all, the likely issue is
 not Tree-sitter. It is the LSP request/attach path.</p>
@@ -1645,6 +1673,14 @@ dependency-facing build surface this package exposes</li>
 </ul>
 <p>Do not put package metadata directly on the graph handle.</p>
 <h2 id="local-helpers"><a class="header" href="#local-helpers">Local Helpers</a></h2>
+<p>Current boundary:</p>
+<ul>
+<li>defining <code>fun</code>/<code>pro</code> helpers in <code>build.fol</code> and calling them from <code>build()</code>
+is not part of the current build surface; the evaluator cannot execute them
+today</li>
+<li>this section describes later design work, not current behavior</li>
+<li><code>when</code>, <code>loop</code>, and <code>case</code> in <code>build.fol</code> are the current build surface</li>
+</ul>
 <p><code>build.fol</code> can define helper functions visible only within itself:</p>
 <pre><code class="language-fol">fun[] make_lib(name: str, root: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = root });
@@ -2666,6 +2702,15 @@ used anywhere inside the body as a string value.</p>
 <p>The iterable is a container literal <code>{ elem1, elem2, ... }</code>. Currently only
 string lists are supported as loop iterables in <code>build.fol</code>.</p>
 <h2 id="helper-routines"><a class="header" href="#helper-routines">Helper Routines</a></h2>
+<p>Current boundary:</p>
+<ul>
+<li>defining helper <code>fun[]</code>/<code>pro[]</code> routines in <code>build.fol</code> and calling them from
+<code>build()</code> is not part of the current build surface; the evaluator cannot
+execute them today</li>
+<li>this section describes later design work, not current behavior</li>
+<li>the <code>when</code>, <code>loop</code>, and <code>case</code> build control flow above is the current build
+surface</li>
+</ul>
 <p><code>build.fol</code> can define helper <code>fun[]</code> and <code>pro[]</code> routines. They are visible
 only within the file — they are not exported to the package.</p>
 <h3 id="helper-function"><a class="header" href="#helper-function">Helper Function</a></h3>
@@ -3005,6 +3050,203 @@ each other.</p>
 inspection. That command is source emission, not the product binary build path.</p>
 <p>The binary build path remains direct <code>rustc</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="build-direction"><a class="header" href="#build-direction">Build Direction</a></h1>
+<p>This note records the near-term direction of the FOL build system.</p>
+<p>It is not a promise to copy another build system exactly. It is the current
+shape we intend to grow into from the existing <code>build.fol</code> surface.</p>
+<h2 id="current-shape"><a class="header" href="#current-shape">Current Shape</a></h2>
+<p>Today the public layering is:</p>
+<ul>
+<li><code>.build()</code> for the package build context</li>
+<li><code>build.meta({...})</code> for package metadata</li>
+<li><code>build.add_dep({...})</code> for direct dependencies</li>
+<li><code>build.graph()</code> for artifact and step graph mutation</li>
+</ul>
+<p>This already covers the core FOL build contract:</p>
+<ul>
+<li>one control file</li>
+<li>one canonical <code>pro[] build(): non</code></li>
+<li>package metadata and dependencies in the build language</li>
+<li>graph-based artifact construction</li>
+</ul>
+<h2 id="what-is-still-missing"><a class="header" href="#what-is-still-missing">What Is Still Missing</a></h2>
+<p>The next useful pieces are not more random graph methods. They are missing
+capability classes.</p>
+<h3 id="round-3-gap-audit"><a class="header" href="#round-3-gap-audit">Round 3 Gap Audit</a></h3>
+<p>The current public build surface is materially stronger than it was before:</p>
+<ul>
+<li>dependency handles are real values</li>
+<li>explicit build exports exist</li>
+<li>source file and source dir handles exist</li>
+<li>generated outputs use one composable handle family</li>
+<li>dependency modes are public</li>
+<li>install-prefix projection is real</li>
+<li>step descriptions are real</li>
+<li>typed system tools exist</li>
+</ul>
+<p>The remaining gaps that still matter are:</p>
+<ul>
+<li>no named dependency exports for source files, source dirs, or broader path
+values</li>
+<li>no dependency-handle queries for exported files, dirs, or general paths</li>
+<li>path capability is still split across multiple public handle families</li>
+<li>dependency modes are public and preserved end to end, but only package-store
+eager preloading is fully distinct today; deeper deferred preparation can
+still become more aggressive later</li>
+<li>CLI/help/reporting still under-exposes step, install, and output information</li>
+<li>there is still no typed system-library surface</li>
+<li>generated-directory workflows are still thin compared to generated-file flows</li>
+</ul>
+<h3 id="path-handle-split-today"><a class="header" href="#path-handle-split-today">Path Handle Split Today</a></h3>
+<p>The current path-like values are still exposed through separate concrete
+families:</p>
+<ul>
+<li><code>SourceFile</code></li>
+<li><code>SourceDir</code></li>
+<li><code>GeneratedFile</code></li>
+<li>dependency-generated output handles</li>
+</ul>
+<p>That split is honest today, but it is not the final intended feel. The next
+path round should preserve the strong producer distinctions while making path
+consumers behave as though they are working against one broader path capability.</p>
+<p>The intended public feel is:</p>
+<ul>
+<li>producers remain explicit</li>
+<li>consumers validate against one common path model</li>
+<li>diagnostics name both:
+<ul>
+<li>the required path class</li>
+<li>the actual path provenance when that matters</li>
+</ul>
+</li>
+</ul>
+<p>That means this round does not need to delete <code>SourceFile</code>, <code>SourceDir</code>, or
+<code>GeneratedFile</code> immediately. It does need to stop treating every consumer as a
+fresh handwritten branch over those concrete producers.</p>
+<h3 id="dependency-handles"><a class="header" href="#dependency-handles">Dependency Handles</a></h3>
+<p>Direct dependencies are now real build values instead of only metadata
+declarations.</p>
+<p>The current shape is:</p>
+<pre><code class="language-fol">var logtiny = build.add_dep({
+    alias = "logtiny",
+    source = "git",
+    target = "git+https://github.com/bresilla/logtiny.git",
+    version = "tag:v0.1.3",
+    hash = "b242d319644a",
+});
+</code></pre>
+<p>and then:</p>
+<pre><code class="language-fol">var logtiny_mod = logtiny.module("logtiny");
+var logtiny_lib = logtiny.artifact("logtiny");
+var logtiny_gen = logtiny.generated("bindings");
+</code></pre>
+<p>The current dependency import model stays explicit:</p>
+<ul>
+<li>ordinary source imports still resolve by alias projection under <code>.fol/pkg/&lt;alias&gt;</code></li>
+<li>dependency handles query the build-facing surface of that package</li>
+<li>dependency handles only see explicit exports from the dependency package</li>
+</ul>
+<p>That public contract is:</p>
+<pre><code class="language-fol">build.export_module({ name = "api", module = codec });
+build.export_artifact({ name = "runtime", artifact = lib });
+build.export_step({ name = "check", step = docs });
+build.export_output({ name = "schema", output = bindings });
+</code></pre>
+<p>This keeps source imports and build-surface queries separate instead of
+collapsing them into one implicit registry.</p>
+<h3 id="output-handles"><a class="header" href="#output-handles">Output Handles</a></h3>
+<p>Generated and copied files now use one output-handle family that can represent:</p>
+<ul>
+<li>files written by <code>graph.write_file(...)</code></li>
+<li>files copied by <code>graph.copy_file(...)</code></li>
+<li>captured stdout from run/system-tool/codegen steps</li>
+<li>generated files exported by dependency packages</li>
+</ul>
+<p>This behaves like one composable build value instead of a pile of unrelated
+string paths. The same handle family now covers local and dependency-generated
+outputs alike.</p>
+<h3 id="explicit-dependency-arguments"><a class="header" href="#explicit-dependency-arguments">Explicit Dependency Arguments</a></h3>
+<p>Dependencies now accept explicit forwarded build arguments:</p>
+<pre><code class="language-fol">var dep = build.add_dep({
+    alias = "json",
+    source = "pkg",
+    target = "json",
+    args = {
+        target = graph.standard_target(),
+        optimize = graph.standard_optimize(),
+        use_fast_parser = true,
+    },
+});
+</code></pre>
+<p>The important rule is explicitness:</p>
+<ul>
+<li>no ambient forwarding</li>
+<li>no hidden inheritance</li>
+<li>the package author chooses what to pass</li>
+</ul>
+<h3 id="install-prefix"><a class="header" href="#install-prefix">Install Prefix</a></h3>
+<p>The build graph now describes what gets installed, while the output prefix
+stays a user/tool choice rather than something hardcoded into the package.</p>
+<p>That means FOL should continue to separate:</p>
+<ul>
+<li>build/cache internals</li>
+<li>fetched dependency storage</li>
+<li>final installed outputs</li>
+</ul>
+<h3 id="step-execution"><a class="header" href="#step-execution">Step Execution</a></h3>
+<p>Step execution is still serial today. The current work is about making cache
+boundaries and reporting honest and explicit, not pretending the executor is
+already parallel.</p>
+<p>The current reporting direction is:</p>
+<ul>
+<li>requested</li>
+<li>executed</li>
+<li>skipped-from-cache</li>
+<li>skipped-by-foreign-run-policy</li>
+<li>produced outputs</li>
+</ul>
+<h3 id="system-integration"><a class="header" href="#system-integration">System Integration</a></h3>
+<p>System integration now exists as a narrow typed surface through
+<code>graph.add_system_tool({...})</code>.</p>
+<p>The current typed inputs are:</p>
+<ul>
+<li><code>tool</code></li>
+<li><code>args</code></li>
+<li><code>file_args</code></li>
+<li><code>env</code></li>
+<li><code>output</code></li>
+</ul>
+<p>That is intentionally smaller than a full native-toolchain DSL. It is enough
+to model external build tools without collapsing back into vague stringly build
+helpers.</p>
+<p>What is still missing here:</p>
+<ul>
+<li>first-class system-library requests</li>
+<li>provider selection</li>
+<li>richer native linking policy</li>
+<li>parallel command execution</li>
+</ul>
+<h2 id="what-this-does-not-mean"><a class="header" href="#what-this-does-not-mean">What This Does Not Mean</a></h2>
+<p>This direction does not mean:</p>
+<ul>
+<li>reintroducing public <code>Graph</code> or <code>Build</code> types</li>
+<li>collapsing package metadata back into YAML</li>
+<li>making dependency behavior implicit</li>
+<li>turning the graph API into a stringly catch-all</li>
+<li>introducing a separate build manifest file</li>
+<li>pretending step execution is parallel before it is</li>
+<li>adding compatibility string-path fallbacks beside typed path handles</li>
+<li>growing a broad shell-script DSL inside <code>build.fol</code></li>
+<li>reintroducing public build type names just to expose more features</li>
+</ul>
+<p>The current design constraint remains:</p>
+<ul>
+<li>package metadata through <code>build.meta</code></li>
+<li>direct dependencies through <code>build.add_dep</code></li>
+<li>graph mutation through <code>build.graph</code></li>
+</ul>
+<p>The next round should add richer values on top of that layering, not replace it.</p>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="lexical-structure"><a class="header" href="#lexical-structure">Lexical Structure</a></h1>
 <p>This section defines the smallest syntactic building blocks of FOL source code.</p>
 <p>All FOL source is interpreted as Unicode text encoded in UTF-8. The lexer groups raw characters into tokens such as:</p>
@@ -3237,7 +3479,7 @@ re-scanning raw source text.</p>
 <h1 id="strings"><a class="header" href="#strings">Strings</a></h1>
 <h2 id="characters"><a class="header" href="#characters">Characters</a></h2>
 <p>A character is a <strong>single</strong> Unicode element enclosed within quotes <code>U+0022</code> (<code>"</code>) with the exception of <code>U+0022</code> itself, which must be escaped by a preceding <code>U+005C</code> character (<code>\</code>).</p>
-<pre><code>var aCharacter: chr = "z\n"
+<pre><code>var aCharacter: chr = "\n"
 var anotherOne: str = "語\n"
 </code></pre>
 <h3 id="raw-characters"><a class="header" href="#raw-characters">Raw characters</a></h3>
@@ -3309,8 +3551,8 @@ separating underscores.</li>
 separating underscores.</li>
 </ul>
 <pre><code>var decimal: int = 45;
-var hexadec: int = 0x6HF53BD5;
-var octal: int = 0o822371;
+var hexadec: int = 0x6AF53BD5;
+var octal: int = 0o722371;
 var binary: int = 0b010010010;
 </code></pre>
 <h3 id="underscore"><a class="header" href="#underscore">Underscore</a></h3>
@@ -3418,7 +3660,8 @@ for (item in items) { .echo(item) }
 <p>There are two types of control flow mechanisms:</p>
 <ul>
 <li>choice - <code>when</code></li>
-<li>loop - <code>loop</code></li>
+<li>loop - <code>loop</code> (with <code>while</code>, <code>for</code>, and <code>each</code> as loop-header spellings of
+the same mechanism)</li>
 </ul>
 <h2 id="choice-type"><a class="header" href="#choice-type">Choice type</a></h2>
 <pre><code>when(condition){ case(condition){} case(condition){} * {} };
@@ -3428,6 +3671,15 @@ when(iterable){ has (member){}; has (member){}; * {}; };
 when(generic){ of (type){}; of (type){}; * {}; };
 when(type){ on (channel){}; on (channel){}; };
 </code></pre>
+<p>Current boundary:</p>
+<ul>
+<li><code>case</code> and <code>is</code> arms (plus the required <code>*</code> default) are the current <code>V1</code>
+surface, in both statement bodies and the arrow expression form
+(<code>is 3 -&gt; 7;</code>)</li>
+<li><code>in</code> (range/set matching), <code>has</code> (membership), <code>of</code> (type matching), and
+<code>on</code> (channels) are declared syntax whose semantics are later-milestone
+work; the compiler rejects them with explicit boundary diagnostics</li>
+</ul>
 <h3 id="condition"><a class="header" href="#condition">Condition</a></h3>
 <pre><code>when(true) {
     case (x == 6){ // implementation }
@@ -3519,6 +3771,12 @@ loop( x in {..100} if ( x in somearra ) and ( x in anotherarray )){
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="calculations"><a class="header" href="#calculations">Calculations</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>the two-argument <code>assert(a, b)</code> form used in this chapter’s examples is
+illustrative; <code>assert</code> is registry-owned but deferred, and the intrinsic is
+not yet dispatchable in the current compiler (see the intrinsics chapter)</li>
+</ul>
 <p>In fol, every calcultaion, needs to be enclosed in rounded brackets <code>( //to evaluate )</code> - except in one line evaluating, the curly brackets are allowed too <code>{ // to evaluate }</code>:</p>
 <pre><code>fun adder(a, b: int): int = {
     retun a + b                                                 // this will throw an error 
@@ -3562,6 +3820,17 @@ assert((-5 * 14), -70);
 assert((14 / 3), 4);
 assert((100 % 7), 2);
 </code></pre>
+<p>Current integer semantics:</p>
+<ul>
+<li>division truncates toward zero (<code>-7 / 2</code> is <code>-3</code>)</li>
+<li>remainder takes the sign of the dividend (<code>-7 % 2</code> is <code>-1</code>)</li>
+<li>integers are 64-bit two’s-complement; overflow panics at runtime (debug)
+rather than wrapping, and division/modulo by zero panics</li>
+<li>declared widths such as <code>int[8]</code> currently share the 64-bit runtime
+representation and are not range-enforced yet</li>
+<li>floats follow IEEE-754: <code>1.0 / 0.0</code> is infinity, <code>0.0 / 0.0</code> is NaN (no panic)</li>
+</ul>
+<pre><code></code></pre>
 <h2 id="comparisons"><a class="header" href="#comparisons">Comparisons</a></h2>
 <p>Comparison operators are also defined both for primitive types and many type in the standard library. Parentheses are required when chaining comparison operators. For example, the expression <code>a == b == c</code> is invalid and may be written as <code>((a == b) == c)</code>.</p>
 <div class="table-wrapper">
@@ -3572,8 +3841,8 @@ assert((100 % 7), 2);
 <tbody>
 <tr><td>==</td><td>equal</td></tr>
 <tr><td>!=</td><td>not equal</td></tr>
-<tr><td>&gt;&gt;</td><td>greater than</td></tr>
-<tr><td>&lt;&lt;</td><td>Less than</td></tr>
+<tr><td>&gt;</td><td>greater than</td></tr>
+<tr><td>&lt;</td><td>Less than</td></tr>
 <tr><td>&gt;=</td><td>greater than or equal to</td></tr>
 <tr><td>&lt;=</td><td>Less than or equal to</td></tr>
 </tbody>
@@ -3581,8 +3850,8 @@ assert((100 % 7), 2);
 </div>
 <pre><code>assert((123 == 123));
 assert((23 != -12));
-assert((12.5 &gt;&gt; 12.2));
-assert(({1, 2, 3} &lt;&lt; {1, 3, 4}));
+assert((12.5 &gt; 12.2));
+assert((1 &lt; 3));
 assert(('A' &lt;= 'B'));
 assert(("World" &gt;= "Hello"));
 </code></pre>
@@ -3597,6 +3866,13 @@ assert(("World" &gt;= "Hello"));
 assert((true or false), true)
 assert((not true), false)
 </code></pre>
+<p>Current evaluation note:</p>
+<ul>
+<li><code>and</code>/<code>or</code> evaluate both operands eagerly; they do NOT short-circuit, so
+the right operand runs even when the left already decides the result
+(<code>(false) and (1/0 &gt; 0)</code> still evaluates <code>1/0</code>). Guard side-effecting or
+fallible right operands explicitly.</li>
+</ul>
 <h2 id="compounds"><a class="header" href="#compounds">Compounds</a></h2>
 <p>There are further assignment operators that can be used to modify the value of an existing variable. These are the compounds or aka compound assignments. A compound assignment operator is used to simplify the coding of some expressions. For example, using the operators described earlier we can increase a variable’s value by ten using the following code:</p>
 <pre><code>value = value + 10;
@@ -3689,6 +3965,15 @@ return [Rect]{pos = {min.x, min.y}, size = {max.x - max.y, max.y - max.y}}
 <p>`</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="ranges"><a class="header" href="#ranges">Ranges</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>range expressions are not part of the current compiler surface; the compiler
+rejects them with a “not yet supported” diagnostic (T1002)</li>
+<li>range-based loop headers and range matching described in other chapters
+inherit this boundary and are not executable today</li>
+<li>everything below describes intended design, not current behavior</li>
+<li>this is later design work, not part of the current V1 compiler surface</li>
+</ul>
 <p>There are two range expressions:</p>
 <ul>
 <li>Defined ranges</li>
@@ -3754,6 +4039,16 @@ return [Rect]{pos = {min.x, min.y}, size = {max.x - max.y, max.y - max.y}}
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="access"><a class="header" href="#access">Access</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>namespace access, receiver-qualified routine access, single-element container
+indexing (<code>c[i]</code>), map key access, and record field access are the current
+compiler surface</li>
+<li>range slicing (<code>c[1:3]</code>), reverse slicing (<code>c[::]</code>), availability checks
+(<code>v:[1]</code>), in-place assignment (<code>c[x =&gt; Y]</code>), and the whole axiom (<code>axi</code>)
+access family are later design work, not part of the current compiler surface</li>
+<li>the sections below are marked where they cross that line</li>
+</ul>
 <p>There are four access expressions:</p>
 <ul>
 <li>namespace member access</li>
@@ -4195,6 +4490,13 @@ fun[] unwrap_failure(value: Failure): str = {
 clearly marked deferred surfaces.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="macros"><a class="header" href="#macros">Macros</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>the <code>def</code>-based meta family (macros, alternatives, defaults, templates) is
+planned for a future release; none of it is part of the current compiler
+surface</li>
+<li>everything below describes intended design, not current behavior</li>
+</ul>
 <p>Are a very complicated system, and yet can be used as simply as in-place replacement. A lot of build-in macros exist in the language to make the code more easy to type. Below are some system defined macros.</p>
 <p>For example, wherever <code>$</code> is before <code>any</code> variable name, its replaced with <code>.to_string</code>. Or wherever <code>!</code> is before <code>bol</code> name, its replaced with <code>.not</code> but when the same <code>!</code> is placed before <code>ptr</code> it is replaced with <code>.delete_pointer</code>.</p>
 <pre><code>def '$'(a: any): mac = '.to_string'
@@ -4206,6 +4508,13 @@ def '&amp;'(a: any): mac = '.address_of';
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="alternatives"><a class="header" href="#alternatives">Alternatives</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>the <code>def</code>-based meta family (macros, alternatives, defaults, templates) is
+planned for a future release; none of it is part of the current compiler
+surface</li>
+<li>everything below describes intended design, not current behavior</li>
+</ul>
 <p>Alternatives are used when we want to simplify code. For example, define an alternative, so whenever you write <code>+var</code> it is the same as <code>var[+]</code>.</p>
 <pre><code>def '+var': alt = 'var[+]'
 def '~var': alt = 'var[~]'
@@ -4213,11 +4522,25 @@ def '.pointer_content': alt = '.pointer_value'
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="defaults"><a class="header" href="#defaults">Defaults</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>the <code>def</code>-based meta family (macros, alternatives, defaults, templates) is
+planned for a future release; none of it is part of the current compiler
+surface</li>
+<li>everything below describes intended design, not current behavior</li>
+</ul>
 <p>Defaults are a way to change the default behaviour of options. Example the default behaviour of <code>str</code> when called without options. By defalt <code>str</code> is it is saved on stack, it is a constant and not public, thus has <code>str[pil,imu,nor]</code>, and we want to make it mutable and saved on heap by default:</p>
 <pre><code>def 'str': def[] = 'str[new,mut,nor]'
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="templates"><a class="header" href="#templates">Templates</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>the <code>def</code>-based meta family (macros, alternatives, defaults, templates) is
+planned for a future release; none of it is part of the current compiler
+surface</li>
+<li>everything below describes intended design, not current behavior</li>
+</ul>
 <p>Templates are supposed to be mostly used for operator overloading. They are glorified functions, hence used with <code>pro</code> or <code>fun</code> instead of <code>def</code>.</p>
 <p>For example here is how the <code>!=</code> is defined:</p>
 <pre><code>fun '!='(a, b: int): bol = { return .not(.eq(a, b)) }
@@ -4307,6 +4630,7 @@ Current `V1` intrinsic note:
 
 - `.eq(...)` is implemented for scalar equality
 - `.len(...)` is implemented for strings and supported containers
+- string `.len(...)` counts UTF-8 BYTES, not characters (`.len("héllo")` is 6)
 - older helper surfaces such as `.assert(...)`, `.typeof(...)`, and related
   compile-time queries are not part of the current implemented intrinsic subset
 </code></pre>
@@ -4322,6 +4646,15 @@ Current `V1` intrinsic note:
 <code>std</code> support available</li>
 <li><code>arr[...]</code> is valid in <code>core</code></li>
 <li><code>vec[...]</code>, <code>seq[...]</code>, <code>set[...]</code>, and <code>map[...]</code> require <code>memo</code></li>
+</ul>
+<p>Current boundary:</p>
+<ul>
+<li>static <code>arr[...]</code>, <code>vec[...]</code>, <code>seq[...]</code>, and <code>map[...]</code> are the current
+compiler surface</li>
+<li>the <code>axi[...]</code> axiom container and <code>.add(...)</code> mutation shown later are not
+implemented; they are later design work, not current behavior</li>
+<li>the <code>set[...]</code> tuple-member form typechecks, but only single-member sets are
+executable today (backend boundary)</li>
 </ul>
 <p>Containers are of compound types. They contain other primitive or constructed types. To access the types in container those brackets are used: <code>[]</code>, so:</p>
 <pre><code>var container: type = { element, element, element }             // declaring a container
@@ -4498,8 +4831,9 @@ parent.add({"alice","bill"})
 <pre><code>str[]
 </code></pre>
 <h2 id="number"><a class="header" href="#number">Number</a></h2>
-<p>Number type is an abstraction of integer and float type in the current hardened
-front-end. Imaginary-number support is still outside the active stream/lexer/parser
+<p>Number type is a planned abstraction of integer and float type; <code>num</code> is not
+part of the current front-end and is later design work, not current behavior.
+Imaginary-number support is likewise outside the active stream/lexer/parser
 contract.</p>
 <pre><code>num[]
 </code></pre>
@@ -4511,6 +4845,14 @@ contract.</p>
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="special"><a class="header" href="#special">Special</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>the <code>opt[...]</code> optional shell and the <code>err[...]</code> error shell are the current
+compiler surface</li>
+<li><code>uni[...]</code> (union), <code>any</code>, and <code>nev</code> (never) are not implemented; the compiler
+rejects them with a “not yet supported” diagnostic</li>
+<li>those sections describe later design work, not current behavior</li>
+</ul>
 <h2 id="optional"><a class="header" href="#optional">Optional</a></h2>
 <p>Either are empty or have a value</p>
 <pre><code>opt[]
@@ -4562,9 +4904,17 @@ shells.</li>
 <li>contract-like declarations:
 <code>std</code></li>
 </ul>
-<p>Module-like forms such as <code>use</code>, <code>def</code>, <code>seg</code>, and <code>imp</code> are covered in the modules chapter because they primarily define source layout, namespace, and composition boundaries.</p>
+<p>Module-like forms such as <code>use</code>, <code>def</code>, and <code>seg</code> are covered in the modules chapter because they primarily define source layout, namespace, and composition boundaries.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="variables"><a class="header" href="#variables">Variables</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>ordinary <code>var</code>, <code>con</code>, and <code>lab</code> declarations are the current compiler surface</li>
+<li>the <code>@var</code> and heap <code>var[new]</code> spellings are later design work, not current
+behavior</li>
+<li>the pipe-ternary and many-to-many assignment forms shown below are later
+design work, not current behavior</li>
+</ul>
 <p>Here are some of the ways that variables can be defined:</p>
 <pre><code>var[mut] counter: int = 98
 var[exp] label: str = "this is a string"
@@ -4803,6 +5153,20 @@ log[options] name(params): return_type = { body }
 <pre><code class="language-fol">fun[options] name: return_type = (params) { body }
 </code></pre>
 <p>This chapter family covers parameters, calls, defaults, variadics, return values, and routine-specific semantics.</p>
+<p>Current <code>V1</code> routine model:</p>
+<ul>
+<li>values are returned with an explicit <code>return</code>; there is no implicit <code>result</code>
+variable in the current compiler</li>
+<li>the short form that omits the return type is not current; the return type
+must be declared</li>
+<li>last-expression / implicit-tail return is not current</li>
+<li>routine overloading is not supported; duplicate routine names are rejected</li>
+<li>a routine that declares a recoverable error type (<code>: T / E</code>) must have both a
+return path and a <code>report</code> path</li>
+</ul>
+<p>The sections further down that show <code>result = ...</code>, short-form omission,
+last-expression return, and same-name overloading describe earlier design, not
+the current compiler surface.</p>
 <h2 id="types-1"><a class="header" href="#types-1">Types</a></h2>
 <p>There are two main types of routines in fol:</p>
 <ul>
@@ -5097,6 +5461,14 @@ boundary.</p>
 <p>Thus a pure function is a computational analogue of a mathematical function. Pure functions are declared with <code>fun[]</code></p>
 <pre><code>fun[] add(el1, el2: int[64]): int[64] = { result = el1 + el2 }
 </code></pre>
+<p>Current boundary:</p>
+<ul>
+<li>the current compiler requires an explicit <code>return</code> and a declared return
+type; the <code>result = ...</code> spelling, short-form return-type omission, and
+last-expression return shown here are earlier design, not current behavior</li>
+<li>the closures, currying, and generator material at the end of this chapter is
+later design work, not part of the current compiler surface</li>
+</ul>
 <p>When a function has a custom recoverable error type, use <code>/</code> after the result type:</p>
 <pre><code>fun[] read(path: str): str / io_err = {
     report "file not found";
@@ -5282,6 +5654,8 @@ The dot form is only the call-site spelling.</p>
 <li>named arguments bind by declared parameter name</li>
 <li>defaulted parameters may be omitted</li>
 <li>a final variadic parameter may collect trailing arguments</li>
+<li>variadic collection comes only from the explicit <code>... T</code> marker; a plain
+<code>seq[T]</code> parameter takes one sequence value</li>
 <li><code>...sequence</code> may appear after named arguments when it feeds that final
 variadic parameter</li>
 </ul>
@@ -5301,11 +5675,25 @@ fun[] run(current: Counter, extras: seq[int]): int = {
 <p><code>V1</code> does not support indexed pseudo-arguments such as
 <code>current.shift(extras[0] = 1, ...extras)</code>. That spelling looks like assignment,
 not call binding, so the language keeps variadic binding explicit and simple.</p>
+<p>Inside a receiver-qualified routine body, the receiver value is available
+through <code>self</code>. <code>self</code> is typed as the receiver type and is lowered as the
+routine’s ordinary first argument; it does not introduce an object model.</p>
+<pre><code class="language-fol">typ Counter: rec = {
+    var total: int;
+};
+
+fun (Counter)read(): int = {
+    return self.total;
+}
+</code></pre>
+<p>Generic receiver types participate too: <code>fun (Box[T])get(T)(): T</code> can return
+<code>self.value</code>, and each concrete call site monomorphizes the routine.</p>
 <p>For record-focused V1 code, the intended reading is:</p>
 <ul>
 <li>records hold data</li>
 <li>routines stay separate</li>
-<li>the receiver clause only enables <code>value.method(...)</code> spelling</li>
+<li>the receiver clause enables <code>value.method(...)</code> spelling and gives the body
+procedural access to the receiver through <code>self</code></li>
 </ul>
 <p>Custom error routines also support reporting method call results when receiver-qualified signatures are available:</p>
 <pre><code class="language-fol">fun (parser)parse_err(code: int): str = {
@@ -5513,6 +5901,17 @@ typ[ali] rgbSet: set[rgb, rgb, rgb];
 <p>Receiver-qualified routines remain procedural. If a value is written as
 <code>value.method(arg)</code>, read that as call-site sugar for <code>method(value, arg)</code>.
 The routine is still separate from the data declaration.</p>
+<h3 id="standalone-alias-declarations"><a class="header" href="#standalone-alias-declarations">Standalone alias declarations</a></h3>
+<p>The standalone <code>ali</code> declaration is the short form of the same aliasing
+surface:</p>
+<pre><code class="language-fol">ali Meters: int;
+</code></pre>
+<p>Like other declarations, an alias is package-visible by default. Exporting it
+across package boundaries uses the same option surface as <code>typ</code>, <code>fun</code>, and
+<code>var</code>:</p>
+<pre><code class="language-fol">ali[exp] Meters: int;
+</code></pre>
+<p><code>exp</code> is the only option an alias declaration accepts.</p>
 <p>Current milestone note:</p>
 <ul>
 <li>aliasing and extension over current <code>V1</code> built-in and declared types are part
@@ -5636,17 +6035,27 @@ if( something == color.BLUE ) { doathing } else { donothing }
 <pre><code>@var[mut] user1: user = { "someone@example.com", "someusername123", true, 1 }
 </code></pre>
 <h2 id="accessing"><a class="header" href="#accessing">Accessing</a></h2>
-<p>To get a specific value from a record, we can use dot notation or the access brackets. If we wanted just this user’s email address, we could use <code>user1.email</code> or <code>user1[email]</code> wherever we wanted to use this value. If the instance is mutable, we can change a value by assigning into a particular field. Note that the entire instance must be mutable; FOL doesn’t allow us to mark only certain fields as mutable.</p>
-<pre><code>@var[mut] user1: user = {
+<p>To get a specific value from a record, use dot notation: if we wanted just
+this user’s email address, we can use <code>user1.email</code> wherever we want that
+value. If the instance is mutable, we can change a value by assigning into a
+particular field. Note that the entire instance must be mutable; FOL doesn’t
+allow us to mark only certain fields as mutable.</p>
+<pre><code class="language-fol">var user1: user = {
     email = "someone@example.com",
     username = "someusername123",
     active = true,
     sign_in_count = 1,
 };
 
-user1.email = "new.mail@example.com"
-user1[username] = "anotherusername"
+user1.email = "new.mail@example.com";
 </code></pre>
+<p>Current boundaries:</p>
+<ul>
+<li>assignment targets a single field of a mutable binding (<code>user1.email = ...</code>);
+nested targets such as <code>a.b.c = ...</code> are not part of the current surface</li>
+<li>bracket field access (<code>user1[email]</code>) is a later design surface, not part of
+the current compiler contract</li>
+</ul>
 <h2 id="returning"><a class="header" href="#returning">Returning</a></h2>
 <p>As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. As specified <a href="/docs/spec/functions#return">in function return</a>, the final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (here is defined as <code>user</code>) and this can be used only in one statement body. Here we have declared only one variable <code>user1</code> and that itslef spanc into multi rows:</p>
 <pre><code>pro buildUser(email, username: str): user = { user1: user = {
@@ -5738,13 +6147,50 @@ remains procedural:</p>
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="standards"><a class="header" href="#standards">Standards</a></h1>
-<p>This chapter describes later <code>V2</code> contract and conformance design, not current
-<code>V1</code> compiler behavior.</p>
-<p>Current milestone note:</p>
+<p>This chapter now has a split status:</p>
 <ul>
-<li>standards are not part of the implemented <code>V1</code> typechecker</li>
-<li>blueprints and extensions are not part of the implemented <code>V1</code> typechecker</li>
-<li>examples here are future design sketches only</li>
+<li>one narrow <code>V2</code> Milestone 2 subset is implemented</li>
+<li>the broader standards design is still future <code>V2</code></li>
+</ul>
+<p>Current implemented Milestone 2 subset:</p>
+<ul>
+<li>protocol standards declared with <code>std name: pro = { ... }</code></li>
+<li>required receiver-qualified routine signatures only</li>
+<li>type-side conformance claims through the existing contract-header shape</li>
+<li>exact routine-signature matching for conformance</li>
+<li>current hardened example set for that subset is:
+<ul>
+<li><code>examples/standards_protocol_m2</code></li>
+<li><code>examples/standards_protocol_pair_m2</code></li>
+<li><code>examples/standards_protocol_multi_m2</code></li>
+<li><code>examples/fail_standard_blueprint_m2</code></li>
+<li><code>examples/fail_standard_as_type_m2</code></li>
+<li><code>examples/fail_standard_missing_routine_m2</code></li>
+<li><code>examples/fail_standard_signature_m2</code></li>
+<li><code>examples/fail_standard_import_ambiguity_m2</code></li>
+</ul>
+</li>
+</ul>
+<p>Still future:</p>
+<ul>
+<li>blueprint standards as real semantic contracts</li>
+<li>extended standards as real semantic contracts</li>
+<li>required data-member conformance</li>
+<li>standards as ordinary concrete types</li>
+<li>dispatch/inference driven by standards</li>
+<li>object-style method semantics</li>
+</ul>
+<p>Part of the current shipped full-<code>V2</code> contract:</p>
+<ul>
+<li>standards-as-constraints through protocol standards</li>
+<li>procedural constrained-generic call binding</li>
+<li>static conformance checking for those constraints</li>
+<li>calling a constraint’s required routines on the constrained generic
+parameter itself: <code>fun measure(T: sized)(thing: T): int = { return thing.size(); };</code> monomorphizes per instantiation, dispatching to each
+conformer’s own receiver routine (or the standard’s default body) at
+compile time</li>
+<li>blueprint standards (<code>std X: blu</code>) as static field contracts</li>
+<li>extended standards (<code>std X: ext</code>) combining required routines and fields</li>
 </ul>
 <p>The intent of standards is procedural and data-oriented. They are not class
 hierarchies, inheritance trees, or object systems.</p>
@@ -5757,7 +6203,7 @@ with <code>std</code>.</p>
     fun perim(): flt[64];
 };
 </code></pre>
-<p>The planned forms are:</p>
+<p>The shipped forms are:</p>
 <ul>
 <li>protocol <code>pro[]</code> for required routines</li>
 <li>blueprint <code>blu[]</code> for required data</li>
@@ -5781,9 +6227,39 @@ std geometry: ext = {
 };
 </code></pre>
 <h2 id="contract"><a class="header" href="#contract">Contract</a></h2>
-<p>Later milestones may allow a type to declare that it satisfies a standard. The
-compiler would then check that the required data and receiver-qualified
-routines exist.</p>
+<p>Current Milestone 2 support allows a type to declare that it satisfies a
+protocol standard and requires matching receiver-qualified routines.</p>
+<p>Current implemented shape:</p>
+<pre><code class="language-fol">std geo: pro = {
+    fun area(): int;
+};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun (Rect)area(): int = {
+    return 1;
+};
+</code></pre>
+<p>This subset is intentionally narrow:</p>
+<ul>
+<li>only <code>pro</code> is semantic today</li>
+<li>only required routines are semantic today</li>
+<li>richer requirement forms such as generic, receiver-qualified, and capturing
+standard requirements remain unsupported</li>
+<li>the type claim is checked procedurally</li>
+<li>lowering preserves protocol-standard and conformance metadata for audits and
+procedural backend lowering</li>
+<li>backend execution works for the checked-in positive protocol examples through
+ordinary receiver-qualified routine calls, not through a runtime object model</li>
+<li>editor hardening now covers contract-header hover/definition on checked-in
+standards examples while keeping broader required-routine hover support out
+of the claimed contract</li>
+</ul>
+<p>The broader design remains future work. Later milestones may allow a type to
+declare that it satisfies richer standards and check required data and
+receiver-qualified routines together.</p>
 <pre><code class="language-fol">std geo: pro = {
     fun area(): flt[64];
     fun perim(): flt[64];
@@ -5799,17 +6275,94 @@ as:</p>
 <pre><code class="language-fol">fun (rect)area(): flt[64] = { result = self.width + self.heigh }
 fun (rect)perim(): flt[64] = { result = 2 * self.width + 2 * self.heigh }
 </code></pre>
-<p>The goal is still procedural. A call like <code>shape.area()</code> would remain sugar
-for a receiver-qualified routine call, not an object-owned virtual method.</p>
+<p>The goal is still procedural. A call like <code>shape.area()</code> remains sugar for a
+receiver-qualified routine call, not an object-owned virtual method.</p>
+<p>For the current full <code>V2</code> target, broader dispatch and inference semantics stay
+outside the shipped contract.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="generics-1"><a class="header" href="#generics-1">Generics</a></h1>
-<p>This chapter describes later generic-language design rather than current <code>V1</code>
+<p>This chapter describes <code>V2</code> generic-language work rather than current <code>V1</code>
 compiler behavior.</p>
 <p>Current milestone note:</p>
 <ul>
-<li>generic routines are not part of the implemented <code>V1</code> typechecker</li>
-<li>generic types are not part of the implemented <code>V1</code> typechecker</li>
-<li>examples here should be read as future <code>V2</code> design</li>
+<li>Milestone 1 now includes a narrow generic-routine subset through:
+<ul>
+<li>parser</li>
+<li>resolver</li>
+<li>typecheck</li>
+<li>editor audit</li>
+</ul>
+</li>
+<li>that current subset supports:
+<ul>
+<li>generic routine declarations</li>
+<li>type parameters</li>
+<li>generic parameter references in parameter and return types</li>
+<li>direct calls with narrow argument-driven inference</li>
+</ul>
+</li>
+<li>current hardened example set for that subset is:
+<ul>
+<li><code>examples/generic_routine_m1</code></li>
+<li><code>examples/generic_routine_pair_m1</code></li>
+<li><code>examples/generic_routine_cross_file_m1</code></li>
+<li><code>examples/generic_receiver_m1</code></li>
+<li><code>examples/generic_receiver_cross_file_m1</code></li>
+<li><code>examples/generic_receiver_overload_m1m2</code></li>
+<li><code>examples/generic_type_semantic_m1m2</code>
+<ul>
+<li>positive semantic-check fixture for generic type declarations</li>
+</ul>
+</li>
+<li><code>examples/generic_type_exec_m1m2</code></li>
+<li><code>examples/generic_standard_constraint_m1m2</code></li>
+<li><code>examples/generic_standard_constraint_generic_m1m2</code></li>
+<li><code>examples/fail_generic_misuse_m1</code></li>
+<li><code>examples/fail_generic_cross_file_m1</code></li>
+<li><code>examples/fail_generic_receiver_m1</code></li>
+<li><code>examples/fail_generic_standard_constraint_m1m2</code></li>
+</ul>
+</li>
+<li>generic routine lowering now succeeds for the shipped Milestone 1 example set</li>
+<li>generic routine backend execution now works for the shipped positive Milestone 1 examples</li>
+<li>receiver-qualified generic routines, matching default arguments, and
+concrete instantiated generic-type receivers and concrete recoverable error
+types are now part of the executable Milestone 1 subset</li>
+<li>generic receiver routines are now current contract: a routine such as
+<code>fun (Box[T])get(T)(): T</code> declares its generic parameters explicitly,
+binds them through the receiver and ordinary arguments at each call site,
+and monomorphizes into one concrete routine per instantiation</li>
+<li>receiver-qualified routine bodies read receiver state through <code>self</code>,
+which is typed as the receiver and lowered as the routine’s first argument</li>
+<li>generic type execution and constrained generic execution now have checked-in
+example packages too</li>
+<li>nested generic-type composition now works for the checked nested-record
+subset such as <code>Box[Box[int]]</code></li>
+<li>generic type instantiations carry nominal identity: <code>Box[int]</code> and <code>Cup[int]</code>
+are distinct types even with an identical field shape, so a method shared by
+name dispatches to each base’s own receiver routine rather than being
+rejected as ambiguous; <code>examples/generic_receiver_overload_m1m2</code> pins this</li>
+<li>broader Milestone 1 edge-case policy is still tracked separately from that
+shipped positive core</li>
+<li>current editor hardening covers hover/definition on checked-in generic
+examples without claiming broader generic-aware completion than the shipped
+editor currently provides</li>
+<li>generic error shells remain outside the current shipped Milestone 1 routine subset</li>
+<li>recursive type definitions are rejected with an honest boundary: a type whose
+fields refer back to itself — directly (<code>typ Node(T) = { next: Node[T] }</code>) or
+through a container/another type (<code>typ Tree(T) = { kids: vec[Tree[T]] }</code>) — has
+no finite shape in the current structural runtime model, so the checker rejects
+it (<code>recursive type '...' is not yet supported</code>) instead of looping in lowering;
+recursive/heap-linked data belongs to the later ownership/pointer surface, and
+<code>examples/fail_generic_recursive_m1m2</code> pins the boundary</li>
+<li>generic types are not part of <code>V1</code>; they now belong to the shipped narrow
+full-<code>V2</code> contract instead</li>
+<li>examples here should be read as:
+<ul>
+<li>current narrow <code>V2</code> Milestone 1 generic-routine work where noted</li>
+<li>otherwise later <code>V2</code> design</li>
+</ul>
+</li>
 </ul>
 <h2 id="types-2"><a class="header" href="#types-2">Types</a></h2>
 <h3 id="generic-functions"><a class="header" href="#generic-functions">Generic Functions</a></h3>
@@ -5822,18 +6375,41 @@ fun biggerFloat(a, b: flt[32]): flt[32] = { max(a, b) }
 fun biggerInteger(a, b: int[64]): int[64] = { max(a, b) }
 </code></pre>
 <h3 id="generic-types"><a class="header" href="#generic-types">Generic Types</a></h3>
-<p>Generic type surfaces are later-milestone design only. They are shown here as
-future syntax, not current <code>V1</code> behavior.</p>
-<pre><code>typ container[T: gen, N: int](): obj = {
-	var anarray: arr[T,N];
-	+fun getsize(): num = { result = N; }
+<p>Full <code>V2</code> now includes generic type declarations and explicit instantiation.</p>
+<p>Chosen contract:</p>
+<ul>
+<li>the canonical declaration surface follows the existing parser-owned shape</li>
+<li>generic records and generic aliases are in scope for full <code>V2</code></li>
+<li>generic arguments are explicit and arity-checked</li>
+<li>generic types use the same monomorphization-oriented execution strategy as
+generic routines</li>
+</ul>
+<p>Example declaration shapes:</p>
+<pre><code class="language-fol">typ Box(T: item): rec = {
+    value: T;
 };
-var aContainer: container[int, 5] = { anarray = {zero, one, two, three, four}; };
+
+typ Pair(T: left, U: right): map[T, U];
 </code></pre>
 <h2 id="generic-calls"><a class="header" href="#generic-calls">Generic Calls</a></h2>
-<p>This chapter does not define an object-dispatch system. If generics later use
-receiver-qualified routine syntax, that would still be procedural call binding,
-not virtual methods or inheritance.</p>
+<p>Full <code>V2</code> includes standards-as-constraints, but not broad dispatch semantics.</p>
+<p>Chosen constraint contract:</p>
+<ul>
+<li>protocol standards are the only generic-constraint surface in the full <code>V2</code>
+target</li>
+<li>a constraint may name a generic standard at concrete arguments
+(<code>fun drive(T: Holder[int])(...)</code>): the standard’s own generic parameters are
+bound to those arguments, so a constraint call substitutes them (a required
+<code>fun fetch(): Item</code> on <code>Holder[int]</code> types as <code>int</code>), and the conformer must
+claim the standard at the same arguments; <code>examples/generic_standard_constraint_generic_m1m2</code>
+pins this</li>
+<li>constrained generic calls remain procedural and are checked through declared
+conformance</li>
+<li>standards-as-constraints do not imply runtime object dispatch</li>
+</ul>
+<p>This chapter still does not define an object-dispatch system. If later work
+uses receiver-qualified routine syntax together with constraints, that remains a
+procedural call-binding rule unless the contract changes explicitly.</p>
 <pre><code class="language-fol">std foo: pro = { fun bar(); }
 
 typ[ext] int, str: int, str;
@@ -6145,6 +6721,14 @@ It is not a separate mini-language.
 The package layer simply gives package/build meaning to the canonical build
 routine there.</p>
 <h2 id="blocks"><a class="header" href="#blocks">Blocks</a></h2>
+<p>Current boundary:</p>
+<ul>
+<li>the namespace, package-scope, and import material above is the current
+compiler surface</li>
+<li>the block forms in this section (<code>_{}</code>, <code>.{}</code>, named <code>blk[]</code> blocks, and
+unconditional jump) are not implemented; they are later design work, not part
+of the current compiler surface</li>
+</ul>
 <p>Block statement is used for scopes where members get destroyed when scope is finished. And there are two ways to define a block:</p>
 <ul>
 <li>unnamed blocks and</li>
@@ -6170,6 +6754,12 @@ routine there.</p>
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="tests"><a class="header" href="#tests">Tests</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li><code>def ... : tst[...]</code> test blocks are not implemented in the current compiler
+surface</li>
+<li>everything below describes intended design, not current behavior</li>
+</ul>
 <p>Blocks defined with type <code>tst</code>, have access to the module (or namespace) defined in <code>tst["name", access]</code>.</p>
 <pre><code>def test1: tst["sometest", shko] = {}
 def "some unit testing": tst[shko] = {}
@@ -6227,7 +6817,7 @@ routine 'main' panicked at 'Hello'
 </code></pre>
 <p>Trying to acces an out of bound element of array:</p>
 <pre><code>pro main(): int = {
-    var a: arr[int, 3] = [10,20,30];
+    var a: arr[int, 3] = {10,20,30};
     a[10];                                                                      //invokes a panic since index 10 cannot be reached
 }
 </code></pre>
@@ -6509,7 +7099,7 @@ trying to parse intent back out of prose.</p>
 cascade into dozens of unrelated errors.</p>
 <p>When a declaration parse fails, the parser calls <code>sync_to_next_declaration</code> to
 skip forward to the next declaration-start keyword (<code>fun</code>, <code>var</code>, <code>def</code>, <code>typ</code>,
-<code>pro</code>, <code>log</code>, <code>seg</code>, <code>ali</code>, <code>imp</code>, <code>lab</code>, <code>con</code>, <code>use</code>) or EOF. This means:</p>
+<code>pro</code>, <code>log</code>, <code>seg</code>, <code>ali</code>, <code>lab</code>, <code>con</code>, <code>use</code>) or EOF. This means:</p>
 <ul>
 <li><code>fun[exp] emit(...) = { ... }</code> produces exactly 1 error, not 20+</li>
 <li>two broken declarations separated by a good one produce 2 errors, and the
@@ -6755,6 +7345,13 @@ var a, _, b: int = array;               // we discard, the middle value
 </code></pre>
 <p>where the right-hand side sees the left-hand side as <code>this</code>.</p>
 <h2 id="ordinary-value-piping"><a class="header" href="#ordinary-value-piping">Ordinary value piping</a></h2>
+<p>Current boundary:</p>
+<ul>
+<li>the ordinary value-pipe (<code>left | ... this</code>) shown in this section is later
+design work, not part of the current compiler surface</li>
+<li>the recoverable-call surfaces below (<code>check(...)</code> and <code>||</code>) are the current
+compiler surface</li>
+</ul>
 <p>Use <code>|</code> when you want to continue transforming a normal value:</p>
 <pre><code class="language-fol">fun add(x: int, y: int): int = {
     return x + y
@@ -6922,6 +7519,13 @@ current <code>V1</code> contract.</p>
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="limits"><a class="header" href="#limits">Limits</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>the <code>type[][.range(...)]</code> limit surfaces are not implemented in the current
+compiler</li>
+<li>everything below describes intended design, not current behavior; limits are
+later design work, not part of the current compiler surface</li>
+</ul>
 <p>Limiting is a syntactic way to set boundaries for variables. The way FOL does is by using <code>[]</code> right after the type declaration <code>type[]</code>, so: <code>type[options][limits]</code></p>
 <h2 id="initger-limiting"><a class="header" href="#initger-limiting">Initger limiting</a></h2>
 <p>Example, making a intiger variable have only numbers from 0 to 255 that represents an RGB value for a single color:</p>
@@ -6934,6 +7538,14 @@ current <code>V1</code> contract.</p>
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="matching"><a class="header" href="#matching">Matching</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>only <code>is</code> arms (plus the <code>case</code> and <code>*</code> default forms) are the current
+compiler surface</li>
+<li><code>in</code> (range/set matching) and <code>has</code> (membership) arms are declared syntax
+whose semantics are later-milestone work; the compiler rejects them with
+explicit boundary diagnostics</li>
+</ul>
 <h2 id="variable"><a class="header" href="#variable">Variable</a></h2>
 <p>As variable assignment:</p>
 <pre><code>var checker: str = if(variable) { 
@@ -6963,6 +7575,14 @@ var has_it: bol = if(variable) {
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rolling"><a class="header" href="#rolling">Rolling</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>rolling / list-comprehension expressions are not part of the current compiler
+surface; the compiler rejects them with an explicit “not yet supported”
+diagnostic</li>
+<li>everything below describes intended design, not current behavior</li>
+<li>this is later design work, not part of the current V1 compiler surface</li>
+</ul>
 <p>Rolling or list comprehension is a syntactic construct available FOL for creating a list based on existing lists. It follows the form of the mathematical set-builder notation - set comprehension.</p>
 <p>Rolling has the same syntactic components to represent generation of a list in order from an input list or iterator:</p>
 <ul>
@@ -6982,6 +7602,13 @@ var matrix: mat[int, int] = { x * y for ( x in {..5}, y in {..5} ) }
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="unpacking"><a class="header" href="#unpacking">Unpacking</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>unpacking / iterable-destructuring forms (<code>var a, *_ = ...</code>) are not part of
+the current compiler surface; the compiler rejects them</li>
+<li>everything below describes intended design, not current behavior</li>
+<li>this is later design work, not part of the current V1 compiler surface</li>
+</ul>
 <p>Unpacking—also known as iterable destructuring—is another form of pattern matching used to extract data from collections of data. Take a look at the following example:</p>
 <pre><code>var start, *_ = { 1, 4, 3, 8 }
 .echo(start)                                // Prints 1
@@ -6999,6 +7626,13 @@ var matrix: mat[int, int] = { x * y for ( x in {..5}, y in {..5} ) }
 <p>Now, that has to be one of the coolest programming language features. Instead of extracting data by hand using indices, we can just write a pattern to match which values we want to unpack or destructure.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="inquiry"><a class="header" href="#inquiry">Inquiry</a></h1>
+<p>Current boundary:</p>
+<ul>
+<li>inquiry <code>where(...)</code> clauses parse, but no inquiry body typechecks today; the
+<code>is</code> operator used inside them is gated</li>
+<li>everything below describes intended design, not current behavior; inquiries
+are later design work, not part of the current compiler surface</li>
+</ul>
 <p>Inquiries are inline unit tests and are a part of the basic syntax sugar. In other words, we don’t have to import any libraries or build up any suites to run tests.</p>
 <p>Instead, FOL includes a couple of clauses for testing within the source code:</p>
 <pre><code>fun sum(l: ...?int): int = {
@@ -7453,11 +8087,11 @@ pro main(): int = {
 
         <script src="elasticlunr-ef4e11c1.min.js"></script>
         <script src="mark-09e88c2c.min.js"></script>
-        <script src="searcher-c2a407aa.js"></script>
+        <script src="searcher-09f2665d.js"></script>
 
         <script src="clipboard-1626706a.min.js"></script>
         <script src="highlight-abc7f01d.js"></script>
-        <script src="book-a0b12cfe.js"></script>
+        <script src="book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
 

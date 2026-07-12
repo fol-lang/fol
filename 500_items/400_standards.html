@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-2459343d.css">
-        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-0ba88dfd.js";
+            window.path_to_searchindex_js = "../searchindex-2f96a772.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-aca3346a.js"></script>
+        <script src="../toc-5e2af248.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,13 +175,50 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="standards"><a class="header" href="#standards">Standards</a></h1>
-<p>This chapter describes later <code>V2</code> contract and conformance design, not current
-<code>V1</code> compiler behavior.</p>
-<p>Current milestone note:</p>
+<p>This chapter now has a split status:</p>
 <ul>
-<li>standards are not part of the implemented <code>V1</code> typechecker</li>
-<li>blueprints and extensions are not part of the implemented <code>V1</code> typechecker</li>
-<li>examples here are future design sketches only</li>
+<li>one narrow <code>V2</code> Milestone 2 subset is implemented</li>
+<li>the broader standards design is still future <code>V2</code></li>
+</ul>
+<p>Current implemented Milestone 2 subset:</p>
+<ul>
+<li>protocol standards declared with <code>std name: pro = { ... }</code></li>
+<li>required receiver-qualified routine signatures only</li>
+<li>type-side conformance claims through the existing contract-header shape</li>
+<li>exact routine-signature matching for conformance</li>
+<li>current hardened example set for that subset is:
+<ul>
+<li><code>examples/standards_protocol_m2</code></li>
+<li><code>examples/standards_protocol_pair_m2</code></li>
+<li><code>examples/standards_protocol_multi_m2</code></li>
+<li><code>examples/fail_standard_blueprint_m2</code></li>
+<li><code>examples/fail_standard_as_type_m2</code></li>
+<li><code>examples/fail_standard_missing_routine_m2</code></li>
+<li><code>examples/fail_standard_signature_m2</code></li>
+<li><code>examples/fail_standard_import_ambiguity_m2</code></li>
+</ul>
+</li>
+</ul>
+<p>Still future:</p>
+<ul>
+<li>blueprint standards as real semantic contracts</li>
+<li>extended standards as real semantic contracts</li>
+<li>required data-member conformance</li>
+<li>standards as ordinary concrete types</li>
+<li>dispatch/inference driven by standards</li>
+<li>object-style method semantics</li>
+</ul>
+<p>Part of the current shipped full-<code>V2</code> contract:</p>
+<ul>
+<li>standards-as-constraints through protocol standards</li>
+<li>procedural constrained-generic call binding</li>
+<li>static conformance checking for those constraints</li>
+<li>calling a constraint’s required routines on the constrained generic
+parameter itself: <code>fun measure(T: sized)(thing: T): int = { return thing.size(); };</code> monomorphizes per instantiation, dispatching to each
+conformer’s own receiver routine (or the standard’s default body) at
+compile time</li>
+<li>blueprint standards (<code>std X: blu</code>) as static field contracts</li>
+<li>extended standards (<code>std X: ext</code>) combining required routines and fields</li>
 </ul>
 <p>The intent of standards is procedural and data-oriented. They are not class
 hierarchies, inheritance trees, or object systems.</p>
@@ -194,7 +231,7 @@ with <code>std</code>.</p>
     fun perim(): flt[64];
 };
 </code></pre>
-<p>The planned forms are:</p>
+<p>The shipped forms are:</p>
 <ul>
 <li>protocol <code>pro[]</code> for required routines</li>
 <li>blueprint <code>blu[]</code> for required data</li>
@@ -218,9 +255,39 @@ std geometry: ext = {
 };
 </code></pre>
 <h2 id="contract"><a class="header" href="#contract">Contract</a></h2>
-<p>Later milestones may allow a type to declare that it satisfies a standard. The
-compiler would then check that the required data and receiver-qualified
-routines exist.</p>
+<p>Current Milestone 2 support allows a type to declare that it satisfies a
+protocol standard and requires matching receiver-qualified routines.</p>
+<p>Current implemented shape:</p>
+<pre><code class="language-fol">std geo: pro = {
+    fun area(): int;
+};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun (Rect)area(): int = {
+    return 1;
+};
+</code></pre>
+<p>This subset is intentionally narrow:</p>
+<ul>
+<li>only <code>pro</code> is semantic today</li>
+<li>only required routines are semantic today</li>
+<li>richer requirement forms such as generic, receiver-qualified, and capturing
+standard requirements remain unsupported</li>
+<li>the type claim is checked procedurally</li>
+<li>lowering preserves protocol-standard and conformance metadata for audits and
+procedural backend lowering</li>
+<li>backend execution works for the checked-in positive protocol examples through
+ordinary receiver-qualified routine calls, not through a runtime object model</li>
+<li>editor hardening now covers contract-header hover/definition on checked-in
+standards examples while keeping broader required-routine hover support out
+of the claimed contract</li>
+</ul>
+<p>The broader design remains future work. Later milestones may allow a type to
+declare that it satisfies richer standards and check required data and
+receiver-qualified routines together.</p>
 <pre><code class="language-fol">std geo: pro = {
     fun area(): flt[64];
     fun perim(): flt[64];
@@ -236,8 +303,10 @@ as:</p>
 <pre><code class="language-fol">fun (rect)area(): flt[64] = { result = self.width + self.heigh }
 fun (rect)perim(): flt[64] = { result = 2 * self.width + 2 * self.heigh }
 </code></pre>
-<p>The goal is still procedural. A call like <code>shape.area()</code> would remain sugar
-for a receiver-qualified routine call, not an object-owned virtual method.</p>
+<p>The goal is still procedural. A call like <code>shape.area()</code> remains sugar for a
+receiver-qualified routine call, not an object-owned virtual method.</p>
+<p>For the current full <code>V2</code> target, broader dispatch and inference semantics stay
+outside the shipped contract.</p>
 
                     </main>
 
@@ -283,11 +352,11 @@ for a receiver-qualified routine call, not an object-owned virtual method.</p>
 
         <script src="../elasticlunr-ef4e11c1.min.js"></script>
         <script src="../mark-09e88c2c.min.js"></script>
-        <script src="../searcher-c2a407aa.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-a0b12cfe.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
 
