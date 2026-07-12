@@ -2548,3 +2548,19 @@ fn routines_keep_their_own_parameter_names_across_interning() {
         "the wrong name must fail at typecheck: {errors:#?}"
     );
 }
+
+#[test]
+fn pathological_nesting_is_rejected_with_a_clean_diagnostic() {
+    // Recursive descent follows user nesting; the parser bounds syntactic
+    // nesting with a clean located diagnostic instead of letting the native
+    // stack overflow (SIGABRT), and legitimate nesting depths still parse
+    // (typecheck/resolve/lowering grow their stacks in segments).
+    let ok_parens = format!(
+        "fun[] main(): int = {{\n    return {}1{};\n}};\n",
+        "(".repeat(50),
+        ")".repeat(50)
+    );
+    let typed = typecheck_fixture_folder(&[("main.fol", ok_parens.as_str())]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}

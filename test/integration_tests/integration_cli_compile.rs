@@ -3021,3 +3021,50 @@ use super::*;
 
         fs::remove_dir_all(&temp_root).ok();
     }
+
+    #[test]
+    fn test_pathological_nesting_rejects_instead_of_crashing() {
+        use std::fs;
+
+        // ~160 nested parens used to overflow the parser's native stack and
+        // abort the whole process (SIGABRT). The nesting guard must convert
+        // that to a clean located diagnostic.
+        let temp_root = unique_temp_root("deep_nesting_guard");
+        fs::create_dir_all(temp_root.join("src"))
+            .expect("Should create nesting fixture dirs");
+        fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"deep_nesting_guard\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"deep_nesting_guard\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write nesting fixture build file");
+        let deep = format!(
+            "fun[] main(): int = {{\n    return {}1{};\n}};\n",
+            "(".repeat(1000),
+            ")".repeat(1000)
+        );
+        fs::write(temp_root.join("src/main.fol"), deep)
+            .expect("Should write nesting fixture source");
+
+        let output = run_fol_in_dir(&temp_root, &["code", "check"]);
+        assert!(
+            output.status.code().is_some(),
+            "deep nesting must not kill the process with a signal"
+        );
+        assert!(!output.status.success(), "deep nesting should be rejected");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("maximum supported depth"),
+            "deep nesting should be a clean located diagnostic: {stderr}"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
