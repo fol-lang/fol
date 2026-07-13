@@ -1,6 +1,7 @@
 pro[] build(): non = {
     var build = .build();
     build.meta({ name = "app", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
     var graph = build.graph();
     var target = graph.standard_target();
     var optimize = graph.standard_optimize();
