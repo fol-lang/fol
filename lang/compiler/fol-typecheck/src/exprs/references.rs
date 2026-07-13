@@ -25,6 +25,31 @@ pub(crate) fn type_identifier_reference(
         .reference(reference_id)
         .and_then(|reference| reference.resolved)
     {
+        if typed
+            .typed_symbol(symbol)
+            .is_some_and(|symbol| symbol.is_mutex)
+            && !context.allow_mutex_handle
+        {
+            return Err(origin_for(resolved, syntax_id).map_or_else(
+                || {
+                    TypecheckError::new(
+                        TypecheckErrorKind::InvalidInput,
+                        format!(
+                            "mutex parameter '{name}' cannot be used as an unguarded whole value; access fields after '{name}.lock()' or pass the handle to another [mux] parameter"
+                        ),
+                    )
+                },
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::InvalidInput,
+                        format!(
+                            "mutex parameter '{name}' cannot be used as an unguarded whole value; access fields after '{name}.lock()' or pass the handle to another [mux] parameter"
+                        ),
+                        origin,
+                    )
+                },
+            ));
+        }
         if let Some(move_origin) = typed.moved_binding_origin(symbol).cloned() {
             let eventual = typed
                 .typed_symbol(symbol)

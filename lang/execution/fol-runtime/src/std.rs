@@ -44,6 +44,7 @@ where
 }
 
 pub fn join_all_tasks() {
+    let mut first_panic = None;
     loop {
         let handles = {
             let mut tasks = task_handles()
@@ -55,8 +56,15 @@ pub fn join_all_tasks() {
             break;
         }
         for handle in handles {
-            handle.join().expect("spawned FOL task panicked");
+            if let Err(payload) = handle.join() {
+                if first_panic.is_none() {
+                    first_panic = Some(payload);
+                }
+            }
         }
+    }
+    if let Some(payload) = first_panic {
+        std::panic::resume_unwind(payload);
     }
 }
 
@@ -69,7 +77,13 @@ pub fn task_join_guard() -> FolTaskJoinGuard {
 
 impl Drop for FolTaskJoinGuard {
     fn drop(&mut self) {
-        join_all_tasks();
+        let already_panicking = std::thread::panicking();
+        let joined = std::panic::catch_unwind(std::panic::AssertUnwindSafe(join_all_tasks));
+        if !already_panicking {
+            if let Err(payload) = joined {
+                std::panic::resume_unwind(payload);
+            }
+        }
     }
 }
 
@@ -137,19 +151,21 @@ impl<T> Default for FolChannel<T> {
 }
 
 impl<T> FolChannel<T> {
-    pub fn sender(&self) -> FolSender<T> {
-        let sender = self
+    pub fn acquire_sender(&self) -> Option<FolSender<T>> {
+        self
             .sender
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .as_ref()
-            .expect("channel transmitter is no longer available")
-            .clone();
-        FolSender(sender)
+            .cloned()
+            .map(FolSender)
     }
 
-    pub fn send(&self, value: T) {
-        self.sender().send(value);
+    pub fn send(&self, value: T) -> Result<(), T> {
+        let Some(sender) = self.acquire_sender() else {
+            return Err(value);
+        };
+        sender.send(value)
     }
 
     fn close_local_sender(&self) {
@@ -222,8 +238,8 @@ impl<T> Default for FolSender<T> {
 }
 
 impl<T> FolSender<T> {
-    pub fn send(&self, value: T) {
-        self.0.send(value).expect("send to a closed channel");
+    pub fn send(&self, value: T) -> Result<(), T> {
+        self.0.send(value).map_err(|error| error.0)
     }
 }
 
@@ -353,6 +369,13 @@ pub fn capabilities() -> RuntimeTier {
 mod tests {
     use super::*;
 
+    fn task_registry_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static TEST_TASKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        TEST_TASKS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct DemoEcho(&'static str);
 
@@ -382,6 +405,7 @@ mod tests {
 
     #[test]
     fn spawned_tasks_and_nested_spawns_are_joined() {
+        let _task_registry = task_registry_test_guard();
         let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let outer_completed = completed.clone();
         spawn_task(move || {
@@ -399,11 +423,14 @@ mod tests {
 
     #[test]
     fn cloned_senders_feed_one_uncloned_channel_receiver() {
+        let _task_registry = task_registry_test_guard();
         let channel = FolChannel::default();
-        let first = channel.sender();
+        let first = channel
+            .acquire_sender()
+            .expect("sender acquired before receiver use");
         let second = first.clone();
-        spawn_task(move || first.send(19));
-        spawn_task(move || second.send(23));
+        spawn_task(move || first.send(19).expect("receiver remains open"));
+        spawn_task(move || second.send(23).expect("receiver remains open"));
 
         let left = channel.receive();
         let right = channel.receive();
@@ -413,7 +440,23 @@ mod tests {
     }
 
     #[test]
+    fn receiver_acquisition_relinquishes_only_the_local_transmitter() {
+        let channel = FolChannel::default();
+        let sender = channel
+            .acquire_sender()
+            .expect("sender acquired before receiver use");
+        sender.send(19).expect("receiver remains open");
+
+        assert_eq!(channel.receive(), 19);
+        assert!(channel.acquire_sender().is_none());
+
+        sender.send(23).expect("pre-acquired sender remains valid");
+        assert_eq!(channel.receive(), 23);
+    }
+
+    #[test]
     fn awaiting_an_eventual_consumes_its_runtime_handle() {
+        let _task_registry = task_registry_test_guard();
         let eventual = spawn_eventual(|| 42);
         assert_eq!(eventual.await_value(), 42);
         join_all_tasks();
@@ -421,6 +464,7 @@ mod tests {
 
     #[test]
     fn task_join_guard_joins_during_unwind() {
+        let _task_registry = task_registry_test_guard();
         let completed = Arc::new(AtomicBool::new(false));
         let task_completed = completed.clone();
         let outcome = std::panic::catch_unwind(move || {
@@ -431,6 +475,35 @@ mod tests {
 
         assert!(outcome.is_err());
         assert!(completed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn task_join_drains_remaining_handles_before_rethrowing_a_panic() {
+        let _task_registry = task_registry_test_guard();
+        let completed = Arc::new(AtomicBool::new(false));
+        let task_completed = completed.clone();
+        spawn_task(|| panic!("first task fails"));
+        spawn_task(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            task_completed.store(true, Ordering::Release);
+        });
+
+        let outcome = std::panic::catch_unwind(join_all_tasks);
+
+        assert!(outcome.is_err());
+        assert!(completed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn task_join_guard_does_not_double_panic_during_entry_unwind() {
+        let _task_registry = task_registry_test_guard();
+        let outcome = std::panic::catch_unwind(|| {
+            let _guard = task_join_guard();
+            spawn_task(|| panic!("task fails during entry unwind"));
+            panic!("entry fails");
+        });
+
+        assert!(outcome.is_err());
     }
 
     #[test]

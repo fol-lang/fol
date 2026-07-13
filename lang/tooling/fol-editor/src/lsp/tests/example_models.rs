@@ -4,7 +4,7 @@ use super::super::{
     LspLocation, LspPosition, LspSemanticTokens, LspSemanticTokensParams,
     LspTextDocumentIdentifier, LspWorkspaceSymbolParams,
 };
-use super::helpers::{copied_example_package_root, open_document};
+use super::helpers::{copied_example_package_root, open_document, sample_package_root};
 use crate::EditorConfig;
 use std::fs;
 
@@ -810,6 +810,62 @@ fn lsp_server_surfaces_v3_memory_m2_borrow_and_edf_state() {
         .expect("edf keyword should have hover")
         .contents
         .contains("error-only defer"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_borrow_hover_tracks_source_position_and_lexical_release() {
+    let (root, uri) = sample_package_root("borrow_hover_position");
+    let text = "fun[] main(): int = {\n\
+        var owner: int = 7;\n\
+        var before: int = owner;\n\
+        {\n\
+            var[bor] first: int = owner;\n\
+            var seen: int = first;\n\
+            !first;\n\
+            var after_giveback: int = owner;\n\
+        };\n\
+        {\n\
+            var[bor] second: int = owner;\n\
+            var observed: int = second;\n\
+        };\n\
+        var after_scope: int = owner;\n\
+        return before + after_scope;\n\
+    };\n";
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), text);
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
+
+    for ordinal in [3, 5] {
+        let hover = request_hover(
+            &mut server,
+            &uri,
+            find_nth_position(text, "owner", ordinal),
+            1680 + ordinal as i64,
+        )
+        .expect("owner borrow site should have compiler-backed hover");
+        assert!(
+            hover.contents.contains("inaccessible while borrow"),
+            "owner occurrence {ordinal} should be inside an active borrow: {hover:?}"
+        );
+    }
+    for ordinal in [2, 4, 6] {
+        let hover = request_hover(
+            &mut server,
+            &uri,
+            find_nth_position(text, "owner", ordinal),
+            1690 + ordinal as i64,
+        )
+        .expect("owner use should have compiler-backed hover");
+        assert!(
+            !hover.contents.contains("inaccessible while borrow"),
+            "owner occurrence {ordinal} is before creation or after release: {hover:?}"
+        );
+    }
+
     fs::remove_dir_all(root).ok();
 }
 

@@ -1,7 +1,7 @@
 use fol_parser::ast::AstNode;
 use std::{
     cmp::Ordering,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     hash::{Hash, Hasher},
 };
 
@@ -59,6 +59,10 @@ pub struct RoutineType {
     pub param_names: Vec<String>,
     pub param_defaults: Vec<Option<AstNode>>,
     pub variadic_index: Option<usize>,
+    /// Parameter positions that carry a mutex handle instead of an ordinary
+    /// by-value argument. Keeping this in the signature preserves the
+    /// capability across package mounts.
+    pub mutex_params: BTreeSet<usize>,
     pub params: Vec<CheckedTypeId>,
     pub return_type: Option<CheckedTypeId>,
     pub error_type: Option<CheckedTypeId>,
@@ -85,6 +89,7 @@ impl PartialEq for RoutineType {
         self.generic_params == other.generic_params
             && self.generic_constraints == other.generic_constraints
             && self.variadic_index == other.variadic_index
+            && self.mutex_params == other.mutex_params
             && self.default_flags() == other.default_flags()
             && self.param_names == other.param_names
             && self.params == other.params
@@ -107,6 +112,7 @@ impl Ord for RoutineType {
             &self.generic_params,
             &self.generic_constraints,
             self.variadic_index,
+            &self.mutex_params,
             self.default_flags(),
             &self.param_names,
             &self.params,
@@ -117,6 +123,7 @@ impl Ord for RoutineType {
                 &other.generic_params,
                 &other.generic_constraints,
                 other.variadic_index,
+                &other.mutex_params,
                 other.default_flags(),
                 &other.param_names,
                 &other.params,
@@ -131,6 +138,7 @@ impl Hash for RoutineType {
         self.generic_params.hash(state);
         self.generic_constraints.hash(state);
         self.variadic_index.hash(state);
+        self.mutex_params.hash(state);
         self.default_flags().hash(state);
         self.param_names.hash(state);
         self.params.hash(state);
@@ -418,6 +426,7 @@ mod tests {
             param_names: vec!["point".to_string(), "count".to_string()],
             param_defaults: vec![None, None],
             variadic_index: None,
+            mutex_params: std::collections::BTreeSet::new(),
             params: vec![declared, int_id],
             return_type: Some(declared),
             error_type: None,
@@ -485,6 +494,7 @@ mod tests {
             param_names: vec!["left".to_string(), "right".to_string()],
             param_defaults: vec![None, None],
             variadic_index: None,
+            mutex_params: std::collections::BTreeSet::new(),
             params: vec![int_id, str_id],
             return_type: Some(int_id),
             error_type: None,

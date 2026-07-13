@@ -182,6 +182,11 @@ pub(crate) fn type_loop(
                         "channel iteration requires hosted std support; declare the bundled internal standard dependency",
                     ));
                 }
+                super::helpers::require_direct_channel_binding(
+                    resolved,
+                    context.scope_id,
+                    channel,
+                )?;
                 super::reject_sender_capture_receive(typed, resolved, channel)?;
                 let channel_raw = type_node(typed, resolved, context, channel)?;
                 let channel_type = plain_value_expr(
@@ -256,6 +261,7 @@ pub(crate) fn type_loop(
                 routine_return_type: context.routine_return_type,
                 routine_error_type: context.routine_error_type,
                 error_call_mode: context.error_call_mode,
+                allow_mutex_handle: false,
             };
             if let Some(condition) = condition.as_deref() {
                 let guard_raw = type_node(typed, resolved, loop_context, condition)?;
@@ -311,6 +317,11 @@ pub(crate) fn type_select(
             }
             channel => channel,
         };
+        super::helpers::require_direct_channel_binding(
+            resolved,
+            context.scope_id,
+            channel_node,
+        )?;
         super::reject_sender_capture_receive(typed, resolved, channel_node)?;
         let channel_raw = type_node(typed, resolved, context, channel_node)?;
         let channel_type = plain_value_expr(

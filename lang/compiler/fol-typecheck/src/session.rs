@@ -743,6 +743,7 @@ impl TypecheckSession {
                         param_names: signature.param_names.clone(),
                         param_defaults: signature.param_defaults.clone(),
                         variadic_index: signature.variadic_index,
+                        mutex_params: signature.mutex_params.clone(),
                         params,
                         return_type,
                         error_type,

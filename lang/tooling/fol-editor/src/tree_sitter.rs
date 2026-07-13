@@ -1884,6 +1884,10 @@ mod tests {
                 "legacy_go_block.fol",
                 "pro[] main(): non = {\n    go { return; };\n};\n",
             ),
+            (
+                "dead_var_tilde_option.fol",
+                "pro[] main(): non = {\n    var[~] value: int = 1;\n    return;\n};\n",
+            ),
         ] {
             let path = root.join(name);
             std::fs::write(&path, source).expect("legacy-form fixture should be writable");

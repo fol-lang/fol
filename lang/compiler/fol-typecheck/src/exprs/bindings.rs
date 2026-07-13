@@ -53,6 +53,15 @@ pub(crate) fn type_binding_initializer(
     let declared_type = typed
         .typed_symbol(symbol_id)
         .and_then(|symbol| symbol.declared_type);
+    if let Some(declared_type) = declared_type {
+        reject_top_level_channel_binding(
+            typed,
+            resolved,
+            symbol_id,
+            declared_type,
+            binding_origin.clone(),
+        )?;
+    }
     let initializer_expr = value
         .map(|value| {
             let typed_value = if borrowing {
@@ -180,6 +189,13 @@ pub(crate) fn type_binding_initializer(
             } else {
                 inferred
             };
+            reject_top_level_channel_binding(
+                typed,
+                resolved,
+                symbol_id,
+                inferred,
+                binding_origin.clone(),
+            )?;
             reject_nested_eventual_value(
                 typed,
                 inferred,
@@ -203,6 +219,39 @@ pub(crate) fn type_binding_initializer(
         (Some(expected), None) => Ok(TypedExpr::value(expected)),
         (None, None) => Ok(TypedExpr::none()),
     }
+}
+
+fn reject_top_level_channel_binding(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    symbol: SymbolId,
+    type_id: crate::CheckedTypeId,
+    origin: Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let mut scope = resolved.symbol(symbol).map(|symbol| symbol.scope);
+    while let Some(scope_id) = scope {
+        let Some(resolved_scope) = resolved.scope(scope_id) else {
+            break;
+        };
+        if matches!(resolved_scope.kind, fol_resolver::ScopeKind::Routine) {
+            return Ok(());
+        }
+        scope = resolved_scope.parent;
+    }
+    if !matches!(
+        typed
+            .type_table()
+            .get(super::helpers::apparent_type_id(typed, type_id)?),
+        Some(CheckedType::Channel { .. })
+    ) {
+        return Ok(());
+    }
+    let message =
+        "top-level channel bindings are not supported in V3; declare the channel inside its receiving routine";
+    Err(origin.map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+        |origin| TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+    ))
 }
 
 fn is_borrow_from_expression(node: &AstNode) -> bool {
@@ -241,6 +290,35 @@ pub(crate) fn borrow_source_symbol(resolved: &ResolvedProgram, node: &AstNode) -
             reference.syntax_id == Some(syntax_id) && reference.kind == ReferenceKind::Identifier
         })?
         .resolved
+}
+
+pub(crate) fn reject_reborrow_source(
+    typed: &TypedProgram,
+    symbol: SymbolId,
+    origin: fol_parser::ast::SyntaxOrigin,
+) -> Result<(), TypecheckError> {
+    let borrowed = typed
+        .typed_symbol(symbol)
+        .and_then(|symbol| symbol.declared_type)
+        .and_then(|type_id| typed.type_table().get(type_id))
+        .is_some_and(|typ| matches!(typ, CheckedType::Borrowed { .. }));
+    if !borrowed {
+        return Ok(());
+    }
+
+    let error = TypecheckError::with_origin(
+        TypecheckErrorKind::BorrowConflict,
+        "reborrowing a borrow binding is not supported in V3; borrow from the original owner",
+        origin,
+    );
+    Err(typed
+        .borrow_for_binding(symbol)
+        .map(|borrow| {
+            error
+                .clone()
+                .with_related_origin(borrow.origin.clone(), "original borrow created here")
+        })
+        .unwrap_or(error))
 }
 
 pub(crate) fn owned_or_borrowed_inner(
@@ -397,6 +475,7 @@ fn register_borrow_binding(
                 .and_then(|symbol| symbol.origin.clone())
         })
         .ok_or_else(|| internal_error("borrow binding lost its syntax origin", None))?;
+    reject_reborrow_source(typed, owner, origin.clone())?;
 
     if mutable
         && !typed

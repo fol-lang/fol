@@ -103,6 +103,7 @@ fn lower_record_field_layout(
                 routine_return_type: None,
                 routine_error_type: None,
                 error_call_mode: crate::exprs::ErrorCallMode::Propagate,
+                allow_mutex_handle: false,
             };
             let typed_default = crate::exprs::type_node_with_expectation(
                 typed,
@@ -172,6 +173,19 @@ fn lower_top_level_declaration(
                     .map(|symbol| symbol.scope)
                     .ok_or_else(|| internal_error("resolved binding symbol disappeared", None))?;
                 let mut type_id = lower_type(typed, resolved, symbol_scope, type_hint)?;
+                if matches!(
+                    typed
+                        .type_table()
+                        .get(crate::exprs::helpers::apparent_type_id(typed, type_id)?),
+                    Some(CheckedType::Channel { .. })
+                ) {
+                    return Err(crate::exprs::helpers::with_node_origin(
+                        resolved,
+                        &item.node,
+                        TypecheckErrorKind::Unsupported,
+                        "top-level channel bindings are not supported in V3; declare the channel inside its receiving routine",
+                    ));
+                }
                 if options
                     .iter()
                     .any(|option| matches!(option, VarOption::New))
@@ -363,6 +377,12 @@ fn lower_top_level_declaration(
                         .intern(CheckedType::Entry { variants: lowered })
                 }
             };
+            crate::exprs::helpers::reject_embedded_full_channel(
+                typed,
+                type_id,
+                node_origin(resolved, &item.node)
+                    .or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
+            )?;
             record_symbol_type(typed, symbol_id, type_id)?;
             // Recursive type definitions (`typ Node(T) = { next: Node[T] }`,
             // `typ Tree = { kids: vec[Tree] }`) are not representable in the
@@ -984,6 +1004,11 @@ fn lower_named_routine_signature(
             param_names: params.iter().map(|param| param.name.clone()).collect(),
             param_defaults: params.iter().map(|param| param.default.clone()).collect(),
             variadic_index: params.iter().position(|param| param.is_variadic),
+            mutex_params: params
+                .iter()
+                .enumerate()
+                .filter_map(|(index, param)| param.is_mutex.then_some(index))
+                .collect(),
             params: lowered_params,
             return_type: lowered_return,
             error_type: lowered_error,
@@ -1988,6 +2013,21 @@ pub(crate) fn lower_type(
     scope_id: ScopeId,
     typ: &FolType,
 ) -> Result<CheckedTypeId, TypecheckError> {
+    let type_id = lower_type_inner(typed, resolved, scope_id, typ)?;
+    crate::exprs::helpers::reject_embedded_full_channel(
+        typed,
+        type_id,
+        type_origin(resolved, typ),
+    )?;
+    Ok(type_id)
+}
+
+fn lower_type_inner(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    typ: &FolType,
+) -> Result<CheckedTypeId, TypecheckError> {
     match typ {
         FolType::Int { .. } => Ok(typed.builtin_types().int),
         FolType::Float { .. } => Ok(typed.builtin_types().float),
@@ -2274,6 +2314,7 @@ pub(crate) fn lower_type(
                     param_names: vec![String::new(); lowered_params.len()],
                     param_defaults: vec![None; lowered_params.len()],
                     variadic_index: None,
+                    mutex_params: Default::default(),
                     params: lowered_params,
                     return_type: Some(lowered_return),
                     error_type: None,
@@ -2991,6 +3032,7 @@ pub(crate) fn substitute_generic_checked_type(
                     param_names: signature.param_names,
                     param_defaults: signature.param_defaults,
                     variadic_index: signature.variadic_index,
+                    mutex_params: signature.mutex_params,
                     params,
                     return_type,
                     error_type,

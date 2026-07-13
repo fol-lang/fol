@@ -537,11 +537,11 @@ impl EditorLspServer {
         let mut hit = snapshot
             .reference_at(position)
             .as_ref()
-            .and_then(|reference| snapshot.hover_for_reference(reference))
+            .and_then(|reference| snapshot.hover_for_reference(reference, position))
             .or_else(|| {
                 snapshot
                     .method_target_symbol_at(position)
-                    .and_then(|symbol_id| snapshot.hover_for_symbol(symbol_id))
+                    .and_then(|symbol_id| snapshot.hover_for_symbol(symbol_id, position, None))
             });
         let current_line = document.text.lines().nth(position.line as usize);
         let word_span =

@@ -246,6 +246,9 @@ Fixed rules:
 
 - `chn[T]` is **MPSC**, **unbounded**; `tx` never blocks, `rx` blocks
 - a channel **closes** when all `tx` handles are dropped
+- the first `c[rx]` acquisition consumes the channel binding's local ability to
+  create more `tx` handles; all needed senders must be cloned/captured first,
+  and already-created handles remain valid until dropped
 - backend: `std::sync::mpsc`
 
 Work:
@@ -272,6 +275,24 @@ Work:
 - typecheck: `c[rx]` as a receive expression yields `T`; `for ... in c[rx]`
   iterates `T` until close; **remove** any `[rx][i]` indexing path — indexing a
   receiver is an error
+- typecheck: reject any attempt to acquire `c[tx]` after `c[rx]` activated the
+  receiver, including through aliases, captures, and sender-only wrapper calls
+- V3 lifecycle boundary: endpoint bases (including bare `select` receivers)
+  must be direct local, parameter, or capture bindings owned by the current
+  routine; projected fields, container elements, and implicit outer-routine
+  references are not shipped until lifecycle tracking can model those paths;
+  top-level/global channel bindings are rejected so they cannot bypass routine
+  receiver ownership through a local alias
+- full `chn[T]` values cannot be embedded in records, entries, containers, or
+  wrapper types; direct routine-local bindings/parameters own receivers while
+  already-acquired sender handles remain cloneable
+- anonymous routines cannot declare `chn[T]` parameters; use a named routine
+  that participates in sender/receiver refinement or capture an existing
+  `c[tx]` sender explicitly
+- cross-feature boundary: reject channel endpoint acquisition inside `dfr` and
+  `edf`, including endpoint captures on deferred anonymous tasks; acquire sender
+  handles before deferral and perform receiver operations in ordinary control
+  flow
 - lowering/backend: `| c[tx]` emits `tx.send(expr)`; `var x = c[rx]` emits a
   blocking `rx.recv()`; `for msg in c[rx]` emits `for msg in rx { ... }`
 
@@ -379,6 +400,8 @@ Work:
 - typecheck: delete the mutex-param rejection (`decls.rs:3453`); a `[mux]`
   parameter is `Arc<Mutex<T>>`; `.lock()` yields a writable guard, `.unlock()`
   releases early, and the guard auto-releases at scope end
+- whole-value use of a `[mux]` parameter is forbidden; only guarded field
+  access and mux-to-mux handle passing are legal
 - lowering/backend: emit `Arc<Mutex<T>>` params; `.lock()` -> `.lock().unwrap()`
   guard bound to the scope; `.unlock()` -> drop the guard early; auto-unlock is
   the guard's scope-end drop

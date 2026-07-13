@@ -1155,8 +1155,53 @@ impl SemanticSnapshot {
         best.map(|(symbol_id, _)| symbol_id)
     }
 
+    fn borrow_is_active_at_position(
+        &self,
+        program: &fol_resolver::ResolvedProgram,
+        typed: &fol_typecheck::TypedProgram,
+        borrow: &fol_typecheck::model::ActiveBorrow,
+        position: LspPosition,
+        position_scope: Option<fol_resolver::ScopeId>,
+    ) -> bool {
+        let Some(analyzed_path) = self.analyzed_path.as_ref() else {
+            return false;
+        };
+        let origin_is_at_or_before = |origin: &fol_parser::ast::SyntaxOrigin| {
+            origin.file.as_deref() == analyzed_path.to_str()
+                && (origin.line.saturating_sub(1) as u32, origin.column.saturating_sub(1) as u32)
+                    <= (position.line, position.character)
+        };
+        if !origin_is_at_or_before(&borrow.origin) {
+            return false;
+        }
+        if typed
+            .returned_borrow_origin(borrow.binding)
+            .is_some_and(origin_is_at_or_before)
+        {
+            return false;
+        }
+
+        let Some(mut scope) = position_scope else {
+            return false;
+        };
+        loop {
+            if scope == borrow.scope {
+                return true;
+            }
+            let Some(parent) = program.scope(scope).and_then(|scope| scope.parent) else {
+                return false;
+            };
+            scope = parent;
+        }
+    }
+
     // COMPILER-BACKED: resolved symbol + typed type (no text fallback)
-    pub(super) fn hover_for_symbol(&self, symbol_id: fol_resolver::SymbolId) -> Option<LspHover> {
+    pub(super) fn hover_for_symbol(
+        &self,
+        symbol_id: fol_resolver::SymbolId,
+        position: LspPosition,
+        position_scope: Option<fol_resolver::ScopeId>,
+    ) -> Option<LspHover> {
         let (package, program) = self.current_resolved_package()?;
         let symbol = program.symbol(symbol_id)?;
         // Local bindings may not carry a declaration origin yet; hover still
@@ -1200,15 +1245,27 @@ impl SemanticSnapshot {
                         )
                     })
                     .or_else(|| {
-                        typed_package.program.borrow_for_owner(symbol_id).map(|borrow| {
-                            let binding = program
-                                .symbol(borrow.binding)
-                                .map(|symbol| symbol.name.as_str())
-                                .unwrap_or("borrow");
-                            format!(
-                                " (inaccessible while borrow {binding} is active in its lexical scope)"
-                            )
-                        })
+                        typed_package
+                            .program
+                            .borrows_for_owner(symbol_id)
+                            .find(|borrow| {
+                                self.borrow_is_active_at_position(
+                                    program,
+                                    &typed_package.program,
+                                    borrow,
+                                    position,
+                                    position_scope,
+                                )
+                            })
+                            .map(|borrow| {
+                                let binding = program
+                                    .symbol(borrow.binding)
+                                    .map(|symbol| symbol.name.as_str())
+                                    .unwrap_or("borrow");
+                                format!(
+                                    " (inaccessible while borrow {binding} is active in its lexical scope)"
+                                )
+                            })
                     })
             })
             .unwrap_or_default();
@@ -1258,8 +1315,9 @@ impl SemanticSnapshot {
     pub(super) fn hover_for_reference(
         &self,
         reference: &fol_resolver::ResolvedReference,
+        position: LspPosition,
     ) -> Option<LspHover> {
-        self.hover_for_symbol(reference.resolved?)
+        self.hover_for_symbol(reference.resolved?, position, Some(reference.scope))
     }
 
     // COMPILER-BACKED: the textual layer only locates the operand adjacent to

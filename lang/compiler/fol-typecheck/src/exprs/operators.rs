@@ -52,6 +52,7 @@ pub(crate) fn type_binary_op(
             else {
                 unreachable!("channel-send guard preserves the endpoint shape")
             };
+            super::helpers::require_direct_channel_binding(resolved, context.scope_id, channel)?;
             let value_raw = type_node(typed, resolved, context, left)?;
             let value_type = plain_value_expr(
                 typed,
@@ -122,6 +123,7 @@ pub(crate) fn type_binary_op(
                 },
                 left,
             )?;
+            super::apply_spawn_argument_boundary(typed, resolved, left)?;
             let value_type = observed.value_type.ok_or_else(|| {
                 TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
@@ -129,6 +131,24 @@ pub(crate) fn type_binary_op(
                 )
             })?;
             let error_type = observed.recoverable_effect.map(|effect| effect.error_type);
+            if super::helpers::type_contains_shared_pointer(typed, value_type)
+                || error_type.is_some_and(|error| {
+                    super::helpers::type_contains_shared_pointer(typed, error)
+                })
+            {
+                let message =
+                    "an async result containing shared Rc pointers cannot cross the task boundary";
+                return Err(node_origin(resolved, left).map_or_else(
+                    || TypecheckError::new(TypecheckErrorKind::Ownership, message),
+                    |origin| {
+                        TypecheckError::with_origin(
+                            TypecheckErrorKind::Ownership,
+                            message,
+                            origin,
+                        )
+                    },
+                ));
+            }
             let eventual = typed.type_table_mut().intern(CheckedType::Eventual {
                 value_type,
                 error_type,
@@ -548,6 +568,18 @@ pub(crate) fn type_unary_op(
                     "borrow-from owner lost its checked type",
                 )
             })?;
+        super::bindings::reject_reborrow_source(
+            typed,
+            symbol,
+            node_origin(resolved, node)
+                .or_else(|| node_origin(resolved, operand))
+                .ok_or_else(|| {
+                    TypecheckError::new(
+                        TypecheckErrorKind::Internal,
+                        "borrow-from expression lost its syntax origin",
+                    )
+                })?,
+        )?;
         let inner = super::bindings::owned_or_borrowed_inner(typed, owner_type);
         let borrowed = typed.type_table_mut().intern(CheckedType::Borrowed {
             inner,

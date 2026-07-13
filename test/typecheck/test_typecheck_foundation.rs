@@ -290,6 +290,7 @@ fn semantic_type_table_covers_declared_and_structural_shapes() {
         param_names: vec!["value".to_string()],
         param_defaults: vec![None],
         variadic_index: None,
+        mutex_params: Default::default(),
         params: vec![alias_id],
         return_type: Some(int_id),
         error_type: None,
@@ -356,6 +357,7 @@ fn render_type_handles_routines() {
         param_names: vec!["left".to_string(), "right".to_string()],
         param_defaults: vec![None, None],
         variadic_index: None,
+        mutex_params: Default::default(),
         params: vec![int_id, str_id],
         return_type: Some(int_id),
         error_type: None,
@@ -1336,6 +1338,31 @@ fn inferred_borrow_from_binding_can_be_given_back() {
 }
 
 #[test]
+fn borrow_bindings_cannot_be_reborrowed() {
+    for initializer in ["view", "#view"] {
+        let source = format!(
+            "fun[] main(): int = {{\n\
+                 var owner: int = 7;\n\
+                 var[bor] view: int = owner;\n\
+                 var[bor] nested: int = {initializer};\n\
+                 return view;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::BorrowConflict
+                    && error
+                        .message()
+                        .contains("reborrowing a borrow binding is not supported in V3")
+            }),
+            "reborrow initializer '{initializer}' must be rejected: {errors:#?}"
+        );
+    }
+}
+
+#[test]
 fn borrow_parameters_require_explicit_call_site_borrowing() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
@@ -1584,6 +1611,63 @@ fn mutex_guard_auto_releases_at_lexical_scope_end() {
     assert!(typed
         .typed_node(find_named_routine_syntax_id(&typed, "update"))
         .is_some());
+}
+
+#[test]
+fn mutex_whole_values_are_rejected_but_mux_forwarding_is_allowed() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] plain(value: Counter): int = { return value.value; };\n\
+             fun[] bad(counter[mux]: Counter): int = {\n\
+                 return plain(counter);\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("cannot be used as an unguarded whole value")));
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] leaf(T)(counter[mux]: T): int = { return 1; };\n\
+             fun[] forward(T)(counter[mux]: T): int = { return leaf(counter); };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "forward"))
+        .is_some());
+}
+
+#[test]
+fn mutex_handle_cannot_escape_inside_mux_argument() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             typ Wrapper: rec = { inner: Counter };\n\
+             fun[] sink(value[mux]: Wrapper): int = { return 1; };\n\
+             fun[] bad(counter[mux]: Counter): int = {\n\
+                 return sink({ inner = counter });\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("cannot be used as an unguarded whole value")));
 }
 
 #[test]
@@ -1973,6 +2057,397 @@ fn transferring_a_channel_receiver_moves_the_source_binding() {
             && error
                 .message()
                 .contains("use of moved channel receiver binding 'channel'")
+    }));
+}
+
+#[test]
+fn receiver_acquisition_rejects_late_transmitter_acquisition() {
+    for (surface, body) in [
+        (
+            "direct endpoint",
+            "var value: int = channel[rx];\n                 2 | channel[tx];",
+        ),
+        (
+            "sender wrapper",
+            "var value: int = channel[rx];\n                 var sent: int = produce(channel);",
+        ),
+        (
+            "nested capture",
+            "{\n                     var value: int = channel[rx];\n                     [>]fun()[channel[tx]] = { 2 | channel[tx]; return; };\n                 };",
+        ),
+        (
+            "select receiver",
+            "var[mut] seen: int = 0;\n                 select {\n                     when channel as value { seen = value; }\n                     * { seen = seen; }\n                 }\n                 2 | channel[tx];",
+        ),
+        (
+            "loop receiver",
+            "loop(true) {\n                     2 | channel[tx];\n                     var value: int = channel[rx];\n                     break;\n                 };",
+        ),
+    ] {
+        let source = format!(
+            "fun[] produce(channel: chn[int]): int = {{ 1 | channel[tx]; return 1; }};\n\
+             fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 1 | channel[tx];\n\
+                 {body}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| error
+                .message()
+                .contains("is no longer available after receiver acquisition")),
+            "{surface} should reject late tx acquisition, got {errors:?}"
+        );
+    }
+
+
+    for (surface, deferred_body) in [
+        ("direct deferred endpoint", "1 | channel[tx];"),
+        (
+            "deferred endpoint capture",
+            "[>]fun()[channel[tx]] = { 1 | channel[tx]; return; };",
+        ),
+    ] {
+        let source = format!(
+            "fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 dfr {{ {deferred_body} }};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let deferred_errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            deferred_errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("channel endpoint acquisition is not allowed inside dfr/edf")
+            }),
+            "{surface} should report the explicit dfr/edf endpoint boundary, got {deferred_errors:?}"
+        );
+    }
+}
+
+#[test]
+fn receiver_acquisition_rejects_late_method_sender_call() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Relay: rec = { value: int };\n\
+             fun[] (Relay)produce(channel: chn[int]): int = {\n\
+                 1 | channel[tx];\n\
+                 return 1;\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var relay: Relay = { value = 0 };\n\
+                 var channel: chn[int];\n\
+                 1 | channel[tx];\n\
+                 var value: int = channel[rx];\n\
+                 return relay.produce(channel);\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("is no longer available after receiver acquisition")));
+}
+
+#[test]
+fn channel_endpoint_bases_reject_non_binding_values() {
+    for (surface, body) in [
+        (
+            "computed receive",
+            "var value: int = make()[rx];\n                 return value;",
+        ),
+        (
+            "computed select receiver",
+            "var[mut] seen: int = 0;\n                 select {\n                     when make() as value { seen = value; }\n                     * { seen = seen; }\n                 }\n                 return seen;",
+        ),
+    ] {
+        let source = format!(
+            "fun[] make(): chn[int] = {{\n\
+                 var channel: chn[int];\n\
+                 return channel;\n\
+             }};\n\
+             fun[] main(): int = {{\n\
+                 {body}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("requires a direct local, parameter, or capture binding")
+            }),
+            "{surface} should report the explicit V3 endpoint-base boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn aggregate_types_cannot_embed_full_channels() {
+    for (surface, source) in [
+        (
+            "record field",
+            "typ Holder: rec = { channel: chn[int] };\nfun[] main(): int = { return 0; };\n",
+        ),
+        (
+            "entry payload",
+            "typ Message: ent = { var CHANNEL: chn[int]; };\nfun[] main(): int = { return 0; };\n",
+        ),
+        (
+            "container element",
+            "fun[] main(): int = { var channels: vec[chn[int]]; return 0; };\n",
+        ),
+        (
+            "wrapper value",
+            "fun[] main(value: opt[chn[int]]): int = { return 0; };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("full chn[T] values cannot be embedded")
+            }),
+            "{surface} should report the aggregate-channel boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn channel_endpoint_bases_reject_outer_routine_bindings() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 fun[] nested(): int = {\n\
+                     1 | channel[tx];\n\
+                     return 1;\n\
+                 };\n\
+                 return nested();\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Unsupported
+            && error
+                .message()
+                .contains("requires a direct binding owned by the current routine")
+    }));
+}
+
+#[test]
+fn anonymous_channel_parameters_report_the_v3_boundary() {
+    for (surface, declaration, param_type) in [
+        ("direct channel", "", "chn[int]"),
+        ("channel alias", "ali Messages: chn[int];\n", "Messages"),
+    ] {
+        let source = format!(
+            "{declaration}fun[] main(): int = {{\n\
+                 var sender = fun[](channel: {param_type}): int = {{\n\
+                     1 | channel[tx];\n\
+                     return 1;\n\
+                 }};\n\
+                 var channel: chn[int];\n\
+                 return sender(channel);\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("anonymous routine chn[T] parameters are not supported in V3")
+            }),
+            "{surface} should report the anonymous-channel boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn top_level_channel_bindings_report_the_v3_boundary() {
+    for (surface, source) in [
+        (
+            "direct declaration",
+            "var global: chn[int];\nfun[] main(): int = { return 0; };\n",
+        ),
+        (
+            "alias declaration",
+            "ali Messages: chn[int];\nvar global: Messages;\nfun[] main(): int = { return 0; };\n",
+        ),
+        (
+            "inferred initializer",
+            "fun[] make(): chn[int] = { var channel: chn[int]; return channel; };\nvar global = make();\nfun[] main(): int = { return 0; };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("top-level channel bindings are not supported in V3")
+            }),
+            "{surface} should report the top-level-channel boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn spawn_boundaries_reject_recursively_nested_shared_pointers() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Shared: rec = { value: ptr[shared, int] };\n\
+             fun[] consume(value: Shared): int = { return 0; };\n\
+             fun[] main(): int = {\n\
+                 var value: int = 1;\n\
+                 var shared: Shared = { value = &value };\n\
+                 [>]consume(shared);\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("values containing shared Rc pointers cannot cross")
+    }));
+
+    let capture_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var channel: chn[ptr[shared, int]];\n\
+                 [>]fun()[channel[tx]] = { return; };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(capture_errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error.message().contains("captured endpoint 'channel[tx]'")
+    }));
+
+    let method_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Shared: rec = { value: ptr[shared, int] };\n\
+             fun (Shared)consume(): int = { return 0; };\n\
+             fun[] main(): int = {\n\
+                 var value: int = 1;\n\
+                 var shared: Shared = { value = &value };\n\
+                 [>]shared.consume();\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(method_errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("values containing shared Rc pointers cannot cross")
+    }));
+
+    let method_channel_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Worker: rec = { value: int };\n\
+             fun (Worker)consume(channel: chn[int]): int = { return channel[rx]; };\n\
+             fun[] main(): int = {\n\
+                 var worker: Worker = { value = 0 };\n\
+                 var channel: chn[int];\n\
+                 [>]worker.consume(channel);\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(method_channel_errors.iter().any(|error| {
+        error
+            .message()
+            .contains("receives from a channel and cannot be spawned directly")
+    }));
+
+    let async_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] make(): ptr[shared, int] = {\n\
+                 var shared: ptr[shared, int];\n\
+                 return shared;\n\
+             };\n\
+             fun[] main(): int = { var pending = make() | async; return 0; };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(async_errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("async result containing shared Rc pointers")
     }));
 }
 

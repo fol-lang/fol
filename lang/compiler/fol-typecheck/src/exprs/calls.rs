@@ -721,7 +721,15 @@ pub(crate) fn type_method_call(
                 format!("mutex .{method}() does not accept arguments"),
             ));
         }
-        let _ = type_node(typed, resolved, context, object)?;
+        let _ = type_node(
+            typed,
+            resolved,
+            TypeContext {
+                allow_mutex_handle: true,
+                ..context
+            },
+            object,
+        )?;
         let AstNode::Identifier {
             name,
             syntax_id: Some(syntax_id),
@@ -1056,6 +1064,7 @@ fn routine_signature_for_method(
                         param_names,
                         param_defaults,
                         variadic_index: None,
+                        mutex_params: BTreeSet::new(),
                         params,
                         return_type,
                         error_type,
@@ -1099,6 +1108,7 @@ fn routine_signature_for_method(
                             param_names,
                             param_defaults,
                             variadic_index: None,
+                            mutex_params: BTreeSet::new(),
                             params: requirement.params.clone(),
                             return_type: requirement.return_type,
                             error_type: requirement.error_type,
@@ -1176,15 +1186,31 @@ pub(crate) fn check_call_arguments(
 
     let mut generic_bindings = BTreeMap::new();
     let mut arg_effects = Vec::new();
-    for (expected, arg) in signature.params.iter().zip(ordered_args.iter()) {
+    for (param_index, (expected, arg)) in signature
+        .params
+        .iter()
+        .zip(ordered_args.iter())
+        .enumerate()
+    {
         match arg {
             BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
                 let contains_generics =
                     crate::decls::checked_type_contains_generic_param(typed, *expected);
+                let argument_context = TypeContext {
+                    allow_mutex_handle: signature.mutex_params.contains(&param_index)
+                        && argument_is_direct_mutex_handle(typed, resolved, arg),
+                    ..context
+                };
                 let actual_expr = if contains_generics {
-                    type_node(typed, resolved, context, arg)
+                    type_node(typed, resolved, argument_context, arg)
                 } else {
-                    type_node_with_expectation(typed, resolved, context, arg, Some(*expected))
+                    type_node_with_expectation(
+                        typed,
+                        resolved,
+                        argument_context,
+                        arg,
+                        Some(*expected),
+                    )
                 }
                 .map_err(|error| {
                     origin
@@ -1529,6 +1555,30 @@ fn argument_is_borrow_binding(
         .and_then(|symbol| symbol.declared_type)
         .and_then(|type_id| typed.type_table().get(type_id))
         .is_some_and(|typ| matches!(typ, CheckedType::Borrowed { .. }))
+}
+
+fn argument_is_direct_mutex_handle(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+) -> bool {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = strip_comments(arg)
+    else {
+        return false;
+    };
+    resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id)
+                && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+        .and_then(|symbol| typed.typed_symbol(symbol))
+        .is_some_and(|symbol| symbol.is_mutex)
 }
 
 fn bound_arg_references_symbol(
@@ -1910,6 +1960,7 @@ fn instantiate_generic_signature(
         param_names: signature.param_names.clone(),
         param_defaults: signature.param_defaults.clone(),
         variadic_index: signature.variadic_index,
+        mutex_params: signature.mutex_params.clone(),
         params,
         return_type,
         error_type,

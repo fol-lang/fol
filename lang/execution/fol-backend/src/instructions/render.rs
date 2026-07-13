@@ -194,12 +194,16 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::ChannelSender { channel } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let channel = render_local_name(package_identity, routine, *channel)?;
-            Ok(format!("{result} = {channel}.sender();"))
+            Ok(format!(
+                "{result} = {channel}.acquire_sender().expect(\"channel transmitter must be acquired before receiver use\");"
+            ))
         }
         LoweredInstrKind::ChannelSend { channel, value } => {
             let channel = render_local_name(package_identity, routine, *channel)?;
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
-            Ok(format!("{channel}.send({value});"))
+            Ok(format!(
+                "{channel}.send({value}).unwrap_or_else(|_| panic!(\"channel send requires an open receiver\"));"
+            ))
         }
         LoweredInstrKind::ChannelReceive { channel } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;

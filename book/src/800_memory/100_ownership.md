@@ -123,6 +123,9 @@ return owner.value;
 
 The `!` prefix is give-back only. It is not deletion or manual memory free.
 
+V3 does not support reborrowing a borrow binding. Borrow from the original owner
+or pass an existing borrow binding directly to a `[bor]` parameter instead.
+
 ## Mutable borrowing
 
 A mutable borrow requires both an explicitly mutable owner and an explicitly

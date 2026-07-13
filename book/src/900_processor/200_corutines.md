@@ -53,6 +53,37 @@ MPSC `chn[T]` backed by `std::sync::mpsc`: `c[tx]` sends without blocking,
 handles are dropped. The old sequence-index spelling `c[rx][i]` is not part of
 the contract.
 
+The first `c[rx]` acquisition relinquishes that channel binding's local
+transmitter capability. Clone or capture every needed `c[tx]` handle before
+receiving. Sender handles acquired earlier remain valid and the channel closes
+when the last of those handles is dropped; trying to acquire `c[tx]` after the
+receiver is active is an ownership error, not a runtime panic. This explicit
+endpoint lifecycle lets pull loops and `select` observe closure without keeping
+an invisible transmitter alive.
+
+Channel endpoint acquisition is not allowed inside `dfr` or `edf`, including
+endpoint captures on anonymous spawned routines in a deferred body. Acquire all
+sender handles before entering the deferred block, and keep receiver operations
+in ordinary control flow; delayed endpoint acquisition cannot be ordered safely
+against the first receiver acquisition.
+
+V3 endpoint access is restricted to a direct local, parameter, or capture
+binding owned by the current routine. Projected channel fields, channel
+container elements, and implicit references to an outer routine's channel are
+not part of the shipped lifecycle model; keep the channel in a direct binding
+before using `[tx]`, `[rx]`, iteration, or `select`. Top-level/global channel
+bindings are also rejected; a channel belongs to the routine that owns its
+receiver.
+
+Full `chn[T]` values also cannot be embedded in records, entries, containers,
+or ownership/error/optional wrappers in V3. This keeps the single receiver and
+its endpoint lifecycle attached to one direct routine-local binding. Sender
+handles that were acquired earlier remain independently cloneable.
+
+Anonymous routines cannot declare `chn[T]` parameters in V3 because they do not
+participate in named-routine sender/receiver effect refinement. Use a named
+routine, or capture an already-existing sender explicitly with `c[tx]`.
+
 Spawned anonymous routines can clone a transmitter explicitly with
 `[>]fun()[c[tx]] = { ... }`. Receiver endpoints are not cloned: MPSC retains a
 single consuming side.
@@ -101,6 +132,11 @@ guarded fields are accessible only while that guard is active. The guard is
 released automatically at the end of the lexical scope that acquired it, or
 early with `.unlock()` in that same scope. The historical `((name))` parameter
 spelling is not retained.
+
+The guarded `T` cannot be copied, returned, embedded, or passed to an ordinary
+`T` parameter as a whole value. Passing the mutex handle directly to another
+`[mux]` parameter is allowed, including through spawn; data access still
+requires that receiving routine to acquire its own guard.
 
 Current examples:
 

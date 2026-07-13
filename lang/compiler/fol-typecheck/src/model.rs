@@ -316,6 +316,15 @@ impl TypedProgram {
         self.owner_borrow_history.get(&owner)
     }
 
+    pub fn borrows_for_owner(
+        &self,
+        owner: SymbolId,
+    ) -> impl Iterator<Item = &ActiveBorrow> {
+        self.borrow_history
+            .values()
+            .filter(move |borrow| borrow.owner == owner)
+    }
+
     pub fn returned_borrow_origin(&self, binding: SymbolId) -> Option<&SyntaxOrigin> {
         self.returned_borrows.get(&binding)
     }

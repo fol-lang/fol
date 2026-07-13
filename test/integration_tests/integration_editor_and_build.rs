@@ -1428,7 +1428,7 @@ fn test_v3_processor_m2_channel_examples_build_and_run() {
                 "{example} should type spawned channel capabilities as senders"
             );
             assert!(
-                emitted.contains(".sender()"),
+                emitted.contains(".acquire_sender()"),
                 "{example} should extract a sender without cloning the channel receiver"
             );
         }

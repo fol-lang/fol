@@ -18,8 +18,9 @@ pub(crate) fn type_field_access(
     field: &str,
     expected_type: Option<crate::CheckedTypeId>,
 ) -> Result<TypedExpr, TypecheckError> {
-    if let Some((mutex, name)) = direct_mutex_identifier(typed, resolved, object) {
-        if typed.active_mutex_guard(mutex).is_none() {
+    let direct_mutex = direct_mutex_identifier(typed, resolved, object);
+    if let Some((mutex, name)) = direct_mutex.as_ref() {
+        if typed.active_mutex_guard(*mutex).is_none() {
             return Err(with_node_origin(
                 resolved,
                 object,
@@ -30,7 +31,15 @@ pub(crate) fn type_field_access(
             ));
         }
     }
-    let object_raw = type_node(typed, resolved, context, object)?;
+    let object_raw = type_node(
+        typed,
+        resolved,
+        super::TypeContext {
+            allow_mutex_handle: direct_mutex.is_some(),
+            ..context
+        },
+        object,
+    )?;
     let object_expr = plain_value_expr(
         typed,
         context,

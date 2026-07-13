@@ -35,6 +35,9 @@ pub(crate) struct TypeContext {
     pub(crate) routine_return_type: Option<CheckedTypeId>,
     pub(crate) routine_error_type: Option<CheckedTypeId>,
     pub(crate) error_call_mode: ErrorCallMode,
+    /// True only while an argument is being passed from one `[mux]`
+    /// parameter to another. Every other whole-value use stays forbidden.
+    pub(crate) allow_mutex_handle: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -111,11 +114,18 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
             routine_return_type: None,
             routine_error_type: None,
             error_call_mode: ErrorCallMode::Propagate,
+            allow_mutex_handle: false,
         };
         for item in &source_unit.items {
             if let Err(error) = type_node(typed, &resolved, context, &item.node) {
                 errors.push(error);
             }
+        }
+    }
+
+    if errors.is_empty() {
+        if let Err(error) = crate::channel_analysis::validate_endpoint_lifecycles(typed) {
+            errors.push(error);
         }
     }
 
@@ -173,21 +183,46 @@ pub(crate) fn reject_direct_spawn_channel_receiver(
     resolved: &ResolvedProgram,
     task: &AstNode,
 ) -> Result<(), TypecheckError> {
-    let AstNode::FunctionCall {
-        syntax_id: Some(syntax_id),
-        name,
-        ..
-    } = helpers::strip_comments(task)
-    else {
-        return Ok(());
+    let (target, name) = match helpers::strip_comments(task) {
+        AstNode::FunctionCall {
+            syntax_id: Some(syntax_id),
+            name,
+            ..
+        } => (
+            resolved
+                .references
+                .iter()
+                .find(|reference| {
+                    reference.syntax_id == Some(*syntax_id)
+                        && reference.kind == ReferenceKind::FunctionCall
+                })
+                .and_then(|reference| reference.resolved),
+            name.clone(),
+        ),
+        AstNode::QualifiedFunctionCall { path, .. } => {
+            let Some(syntax_id) = path.syntax_id() else {
+                return Ok(());
+            };
+            (
+                resolved
+                    .references
+                    .iter()
+                    .find(|reference| {
+                        reference.syntax_id == Some(syntax_id)
+                            && reference.kind == ReferenceKind::QualifiedFunctionCall
+                    })
+                    .and_then(|reference| reference.resolved),
+                path.joined(),
+            )
+        }
+        AstNode::MethodCall {
+            syntax_id: Some(syntax_id),
+            method,
+            ..
+        } => (typed.method_call_target(*syntax_id), method.clone()),
+        _ => return Ok(()),
     };
-    let receiver_params = resolved
-        .references
-        .iter()
-        .find(|reference| {
-            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::FunctionCall
-        })
-        .and_then(|reference| reference.resolved)
+    let receiver_params = target
         .and_then(|symbol| typed.typed_symbol(symbol))
         .map(|symbol| &symbol.channel_receiver_params);
     if !receiver_params.is_some_and(|params| !params.is_empty()) {
@@ -202,6 +237,77 @@ pub(crate) fn reject_direct_spawn_channel_receiver(
     ))
 }
 
+pub(crate) fn apply_spawn_argument_boundary(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    task: &AstNode,
+) -> Result<(), TypecheckError> {
+    let mut boundary_values = Vec::new();
+    match helpers::strip_comments(task) {
+        AstNode::FunctionCall { args, .. } | AstNode::QualifiedFunctionCall { args, .. } => {
+            boundary_values.extend(args);
+        }
+        AstNode::MethodCall { object, args, .. } => {
+            boundary_values.push(object.as_ref());
+            boundary_values.extend(args);
+        }
+        _ => return Ok(()),
+    };
+    for arg in boundary_values {
+        let arg = match helpers::strip_comments(arg) {
+            AstNode::NamedArgument { value, .. } => helpers::strip_comments(value),
+            other => other,
+        };
+        let syntax_id = arg.syntax_id();
+        let resolved_reference = syntax_id.and_then(|syntax_id| {
+            resolved.references.iter().find(|reference| {
+                reference.syntax_id == Some(syntax_id)
+                    && reference.kind == ReferenceKind::Identifier
+            })
+        });
+        let resolved_type = resolved_reference
+            .and_then(|reference| typed.typed_reference(reference.id))
+            .and_then(|reference| reference.resolved_type)
+            .or_else(|| {
+                syntax_id
+                    .and_then(|syntax_id| typed.typed_node(syntax_id))
+                    .and_then(|node| node.inferred_type)
+            });
+        let Some(resolved_type) = resolved_type else {
+            continue;
+        };
+        if helpers::type_contains_shared_pointer(typed, resolved_type) {
+            return Err(node_origin(resolved, arg).map_or_else(
+                || {
+                    TypecheckError::new(
+                        TypecheckErrorKind::Ownership,
+                        "values containing shared Rc pointers cannot cross a spawn boundary; use [mux] data that contains only thread-safe values",
+                    )
+                },
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::Ownership,
+                        "values containing shared Rc pointers cannot cross a spawn boundary; use [mux] data that contains only thread-safe values",
+                        origin,
+                    )
+                },
+            ));
+        }
+        if matches!(
+            typed.type_table().get(resolved_type),
+            Some(CheckedType::Owned { .. })
+        ) {
+            if let (Some(symbol), Some(origin)) = (
+                resolved_reference.and_then(|reference| reference.resolved),
+                node_origin(resolved, arg),
+            ) {
+                typed.mark_binding_moved(symbol, origin);
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn type_node_with_expectation(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -212,9 +318,13 @@ pub(crate) fn type_node_with_expectation(
     // Expression typing recurses with the AST; debug frames here are large
     // enough that ~18 nesting levels exhaust a 2 MB worker-thread stack.
     // Grow the stack in segments (rustc's ensure_sufficient_stack pattern).
-    stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+    let result = stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
         type_node_with_expectation_inner(typed, resolved, context, node, expected_type)
-    })
+    })?;
+    if let Some(type_id) = result.value_type {
+        helpers::reject_embedded_full_channel(typed, type_id, node_origin(resolved, node))?;
+    }
+    Ok(result)
 }
 
 fn type_node_with_expectation_inner(
@@ -328,6 +438,9 @@ fn type_node_with_expectation_inner(
                 task,
                 None,
             )?;
+            // Method targets are selected by call typing, so their channel
+            // receiver effect can only be checked after the task is typed.
+            reject_direct_spawn_channel_receiver(typed, resolved, task)?;
             if observed.recoverable_effect.is_some() {
                 return Err(node_origin(resolved, node).map_or_else(
                     || TypecheckError::new(
@@ -341,49 +454,7 @@ fn type_node_with_expectation_inner(
                     ),
                 ));
             }
-            if let AstNode::FunctionCall { args, .. } = task.as_ref() {
-                for arg in args {
-                    let Some(syntax_id) = arg.syntax_id() else {
-                        continue;
-                    };
-                    let resolved_reference = resolved
-                        .references
-                        .iter()
-                        .find(|reference| reference.syntax_id == Some(syntax_id));
-                    let resolved_type = resolved_reference
-                        .and_then(|reference| typed.typed_reference(reference.id))
-                        .and_then(|reference| reference.resolved_type);
-                    let shared_pointer = resolved_type
-                        .and_then(|type_id| typed.type_table().get(type_id))
-                        .is_some_and(|typ| {
-                            matches!(typ, CheckedType::Pointer { shared: true, .. })
-                        });
-                    if shared_pointer {
-                        return Err(node_origin(resolved, arg).map_or_else(
-                            || TypecheckError::new(
-                                TypecheckErrorKind::Ownership,
-                                "shared Rc pointers cannot cross a spawn boundary; use a [mux] parameter for cross-thread sharing",
-                            ),
-                            |origin| TypecheckError::with_origin(
-                                TypecheckErrorKind::Ownership,
-                                "shared Rc pointers cannot cross a spawn boundary; use a [mux] parameter for cross-thread sharing",
-                                origin,
-                            ),
-                        ));
-                    }
-                    let owned = resolved_type
-                        .and_then(|type_id| typed.type_table().get(type_id))
-                        .is_some_and(|typ| matches!(typ, CheckedType::Owned { .. }));
-                    if owned {
-                        if let (Some(symbol), Some(origin)) = (
-                            resolved_reference.and_then(|reference| reference.resolved),
-                            node_origin(resolved, arg),
-                        ) {
-                            typed.mark_binding_moved(symbol, origin);
-                        }
-                    }
-                }
-            }
+            apply_spawn_argument_boundary(typed, resolved, task)?;
             Ok(TypedExpr::none())
         }
         AstNode::FunDecl {
@@ -443,6 +514,7 @@ fn type_node_with_expectation_inner(
                 routine_return_type: expected_return_type,
                 routine_error_type: expected_error_type,
                 error_call_mode: ErrorCallMode::Propagate,
+                allow_mutex_handle: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -519,10 +591,21 @@ fn type_node_with_expectation_inner(
             inquiries,
             ..
         } => {
+            let anonymous_channel_message = "anonymous routine chn[T] parameters are not supported in V3; use a named routine so channel effects can be refined, or capture an existing c[tx] sender explicitly";
             if let Some(message) =
                 decls::unsupported_routine_param_surface_message(params, typed.capability_model())
             {
                 return Err(unsupported_node_surface(resolved, node, message));
+            }
+            if params
+                .iter()
+                .any(|param| matches!(&param.param_type, FolType::Channel { .. }))
+            {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    node,
+                    anonymous_channel_message,
+                ));
             }
             for param in params {
                 if !anonymous_routine_type_is_lowerable(&param.param_type) {
@@ -564,17 +647,27 @@ fn type_node_with_expectation_inner(
                         ));
                     }
                 }
-                let outer_symbol = decls::find_symbol_id_in_scope(
-                    resolved,
-                    context.source_unit_id,
-                    context.scope_id,
-                    &[
-                        fol_resolver::SymbolKind::ValueBinding,
-                        fol_resolver::SymbolKind::Parameter,
-                        fol_resolver::SymbolKind::Capture,
-                    ],
-                    &capture.name,
-                )?;
+                let outer_symbol = [
+                    fol_resolver::SymbolKind::ValueBinding,
+                    fol_resolver::SymbolKind::Parameter,
+                    fol_resolver::SymbolKind::Capture,
+                ]
+                .into_iter()
+                .find_map(|kind| {
+                    helpers::find_symbol_in_scope_chain(
+                        resolved,
+                        context.source_unit_id,
+                        context.scope_id,
+                        &capture.name,
+                        kind,
+                    )
+                })
+                .ok_or_else(|| {
+                    internal_error(
+                        format!("capture '{}' lost its outer binding", capture.name),
+                        node_origin(resolved, node),
+                    )
+                })?;
                 let capture_type = typed
                     .typed_symbol(outer_symbol)
                     .and_then(|symbol| symbol.declared_type)
@@ -595,6 +688,29 @@ fn type_node_with_expectation_inner(
                         ));
                     }
                 };
+                if helpers::type_contains_shared_pointer(typed, element_type) {
+                    return Err(node_origin(resolved, node).map_or_else(
+                        || {
+                            TypecheckError::new(
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "captured endpoint '{}[tx]' carries values containing shared Rc pointers and cannot cross a spawn boundary",
+                                    capture.name
+                                ),
+                            )
+                        },
+                        |origin| {
+                            TypecheckError::with_origin(
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "captured endpoint '{}[tx]' carries values containing shared Rc pointers and cannot cross a spawn boundary",
+                                    capture.name
+                                ),
+                                origin,
+                            )
+                        },
+                    ));
+                }
                 let sender_type = typed
                     .type_table_mut()
                     .intern(CheckedType::ChannelSender { element_type });
@@ -614,6 +730,16 @@ fn type_node_with_expectation_inner(
             for param in params {
                 let param_type =
                     decls::lower_type(typed, resolved, routine_scope, &param.param_type)?;
+                if matches!(
+                    typed.type_table().get(helpers::apparent_type_id(typed, param_type)?),
+                    Some(CheckedType::Channel { .. })
+                ) {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        anonymous_channel_message,
+                    ));
+                }
                 if let Ok(param_symbol_id) = decls::find_symbol_id_in_scope(
                     resolved,
                     context.source_unit_id,
@@ -639,6 +765,7 @@ fn type_node_with_expectation_inner(
                 routine_return_type: expected_return_type,
                 routine_error_type: expected_error_type,
                 error_call_mode: ErrorCallMode::Propagate,
+                allow_mutex_handle: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -687,6 +814,13 @@ fn type_node_with_expectation_inner(
                         param_names: vec![String::new(); lowered_params.len()],
                         param_defaults: vec![None; lowered_params.len()],
                         variadic_index: params.iter().position(|param| param.is_variadic),
+                        mutex_params: params
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(index, param)| {
+                                param.is_mutex.then_some(captures.len() + index)
+                            })
+                            .collect(),
                         params: lowered_params,
                         return_type: expected_return_type,
                         error_type: expected_error_type,
@@ -799,6 +933,7 @@ fn type_node_with_expectation_inner(
                     "channel endpoint access requires hosted std support; declare the bundled internal standard dependency",
                 ));
             }
+            helpers::require_direct_channel_binding(resolved, context.scope_id, channel)?;
             if matches!(endpoint, ChannelEndpoint::Rx) {
                 reject_sender_capture_receive(typed, resolved, channel)?;
             }
