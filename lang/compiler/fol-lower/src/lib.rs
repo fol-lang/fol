@@ -1,4 +1,5 @@
-//! Lowering from typed `V1` FOL workspaces into a backend-oriented IR.
+//! Lowering from typed FOL workspaces into the backend-oriented IR used by the
+//! shipped V1, V2, and V3 language surfaces.
 
 mod boundaries;
 pub mod control;

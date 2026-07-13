@@ -10,11 +10,15 @@
 //! - **Code**: `diagnostic.code.as_str()` copied verbatim
 //! - **Source**: always `"fol"`
 //! - **Message**: `[{code}] {message}`, with notes and helps appended
-//! - **Range**: 1-indexed `(line, column, length)` → 0-indexed `(line, character)`
-//! - **Related info**: secondary labels with file paths
+//! - **Range**: 1-indexed compiler scalar columns → 0-indexed scalar columns;
+//!   the editor transport converts them to negotiated LSP position units from
+//!   the active source buffer
+//! - **Related info**: secondary paths resolve against the primary source and
+//!   become absolute percent-encoded file URIs
 
 use crate::{Diagnostic, DiagnosticLabelKind, DiagnosticLocation, Severity};
 use serde::{Deserialize, Serialize};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LspPosition {
@@ -48,7 +52,9 @@ impl<'de> Deserialize<'de> for LspDiagnosticSeverity {
             1 => Ok(Self::Error),
             2 => Ok(Self::Warning),
             3 => Ok(Self::Information),
-            _ => Err(serde::de::Error::custom(format!("invalid severity: {value}"))),
+            _ => Err(serde::de::Error::custom(format!(
+                "invalid severity: {value}"
+            ))),
         }
     }
 }
@@ -136,7 +142,7 @@ pub fn diagnostic_to_lsp(diagnostic: &Diagnostic) -> LspDiagnostic {
                 .as_ref()
                 .map(|file| LspDiagnosticRelatedInformation {
                     location: LspLocation {
-                        uri: format!("file://{file}"),
+                        uri: diagnostic_file_uri(file, primary.file.as_deref()),
                         range: location_to_range(&label.location),
                     },
                     message: label
@@ -161,23 +167,79 @@ pub fn diagnostic_to_lsp(diagnostic: &Diagnostic) -> LspDiagnostic {
     }
 }
 
-/// Deduplicate LSP diagnostics by (line, code), keeping only the first
-/// diagnostic for each unique pair.
+fn diagnostic_file_uri(file: &str, primary_file: Option<&str>) -> String {
+    let path = Path::new(file);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        let base = primary_file
+            .map(Path::new)
+            .map(|primary| {
+                if primary.is_absolute() {
+                    primary.to_path_buf()
+                } else {
+                    current_dir.join(primary)
+                }
+            })
+            .and_then(|primary| primary.parent().map(Path::to_path_buf))
+            .unwrap_or(current_dir);
+        base.join(path)
+    };
+    let normalized = normalize_path(&absolute);
+    format!(
+        "file://{}",
+        percent_encode_path(&normalized.to_string_lossy())
+    )
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let _ = normalized.pop();
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    normalized
+}
+
+fn percent_encode_path(path: &str) -> String {
+    let mut encoded = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char)
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
+/// Deduplicate exact LSP wire diagnostics, keeping the first occurrence.
 ///
 /// This is the **view-layer** dedup. It runs after diagnostics from
 /// multiple compiler stages have been converted to LSP format, catching
-/// cross-stage duplicates (e.g., parser and resolver both flagging the
-/// same line with the same code).
+/// exact cross-stage duplicates without hiding distinct messages, ranges,
+/// severities, or related information that happen to share a line and code.
 ///
 /// The **report-layer** dedup in [`DiagnosticReport::add_diagnostic`]
-/// handles consecutive same-code + same-line suppression and a hard cap
-/// at 50 diagnostics. Both layers are intentional and complementary.
+/// handles exact consecutive duplicates and a hard cap at 50 diagnostics.
+/// Both layers are intentional and complementary.
 pub fn dedup_lsp_diagnostics(diagnostics: Vec<LspDiagnostic>) -> Vec<LspDiagnostic> {
-    let mut seen = std::collections::HashSet::new();
-    diagnostics
-        .into_iter()
-        .filter(|d| seen.insert((d.range.start.line, d.code.clone())))
-        .collect()
+    let mut unique = Vec::new();
+    for diagnostic in diagnostics {
+        if !unique.contains(&diagnostic) {
+            unique.push(diagnostic);
+        }
+    }
+    unique
 }
 
 #[cfg(test)]
@@ -273,6 +335,33 @@ mod tests {
         let lsp = diagnostic_to_lsp(&diagnostic);
         assert_eq!(lsp.related_information.len(), 1);
         assert_eq!(lsp.related_information[0].message, "related");
+        assert_eq!(lsp.related_information[0].location.uri, "file:///tmp/b.fol");
+    }
+
+    #[test]
+    fn contract_secondary_paths_resolve_and_percent_encode_as_file_uris() {
+        let diagnostic = Diagnostic::error("R1003", "test")
+            .with_primary_label(DiagnosticLocation {
+                file: Some("/tmp/fol uri/main.fol".to_string()),
+                line: 1,
+                column: 1,
+                length: Some(1),
+            })
+            .with_secondary_label(
+                DiagnosticLocation {
+                    file: Some("../shared/a b#%.fol".to_string()),
+                    line: 1,
+                    column: 1,
+                    length: Some(1),
+                },
+                "related",
+            );
+
+        let lsp = diagnostic_to_lsp(&diagnostic);
+        assert_eq!(
+            lsp.related_information[0].location.uri,
+            "file:///tmp/shared/a%20b%23%25.fol"
+        );
     }
 
     #[test]
@@ -292,14 +381,14 @@ mod tests {
 
     #[test]
     fn dedup_keeps_different_codes_on_same_line() {
-        let d1 = diagnostic_to_lsp(
-            &Diagnostic::error("P1001", "syntax").with_primary_label(DiagnosticLocation {
+        let d1 = diagnostic_to_lsp(&Diagnostic::error("P1001", "syntax").with_primary_label(
+            DiagnosticLocation {
                 file: Some("a.fol".to_string()),
                 line: 5,
                 column: 1,
                 length: Some(1),
-            }),
-        );
+            },
+        ));
         let d2 = diagnostic_to_lsp(
             &Diagnostic::error("R1003", "unresolved").with_primary_label(DiagnosticLocation {
                 file: Some("a.fol".to_string()),
@@ -314,22 +403,22 @@ mod tests {
 
     #[test]
     fn dedup_keeps_same_code_on_different_lines() {
-        let d1 = diagnostic_to_lsp(
-            &Diagnostic::error("P1001", "first").with_primary_label(DiagnosticLocation {
+        let d1 = diagnostic_to_lsp(&Diagnostic::error("P1001", "first").with_primary_label(
+            DiagnosticLocation {
                 file: Some("a.fol".to_string()),
                 line: 3,
                 column: 1,
                 length: Some(1),
-            }),
-        );
-        let d2 = diagnostic_to_lsp(
-            &Diagnostic::error("P1001", "second").with_primary_label(DiagnosticLocation {
+            },
+        ));
+        let d2 = diagnostic_to_lsp(&Diagnostic::error("P1001", "second").with_primary_label(
+            DiagnosticLocation {
                 file: Some("a.fol".to_string()),
                 line: 7,
                 column: 1,
                 length: Some(1),
-            }),
-        );
+            },
+        ));
         let result = dedup_lsp_diagnostics(vec![d1, d2]);
         assert_eq!(result.len(), 2, "same code on different lines must be kept");
     }
@@ -338,7 +427,7 @@ mod tests {
     fn report_and_lsp_dedup_layers_complement_each_other() {
         use crate::DiagnosticReport;
 
-        // Report-layer: consecutive same-code + same-line suppressed
+        // Report-layer: exact consecutive duplicates are suppressed.
         let mut report = DiagnosticReport::new();
         let loc = DiagnosticLocation {
             file: Some("a.fol".to_string()),
@@ -347,17 +436,21 @@ mod tests {
             length: Some(1),
         };
         report.add_diagnostic(Diagnostic::error("P1001", "a").with_primary_label(loc.clone()));
-        report.add_diagnostic(Diagnostic::error("P1001", "b").with_primary_label(loc.clone()));
-        assert_eq!(report.diagnostics.len(), 1, "report layer deduped consecutive");
+        report.add_diagnostic(Diagnostic::error("P1001", "a").with_primary_label(loc.clone()));
+        assert_eq!(
+            report.diagnostics.len(),
+            1,
+            "report layer deduped consecutive"
+        );
 
-        // Now simulate cross-stage: parser + resolver both flag line 5
+        // Now simulate cross-stage: parser + resolver emit the exact wire
+        // diagnostic for the same source problem.
         let lsp_diags: Vec<LspDiagnostic> = report
             .diagnostics
             .iter()
             .map(diagnostic_to_lsp)
             .chain(std::iter::once(diagnostic_to_lsp(
-                &Diagnostic::error("P1001", "cross-stage duplicate")
-                    .with_primary_label(loc.clone()),
+                &Diagnostic::error("P1001", "a").with_primary_label(loc.clone()),
             )))
             .collect();
 
@@ -367,25 +460,52 @@ mod tests {
     }
 
     #[test]
-    fn dedup_removes_same_line_and_code() {
-        let d1 = diagnostic_to_lsp(
-            &Diagnostic::error("P1001", "first").with_primary_label(DiagnosticLocation {
+    fn dedup_keeps_same_line_and_code_with_distinct_ranges_and_messages() {
+        let d1 = diagnostic_to_lsp(&Diagnostic::error("P1001", "first").with_primary_label(
+            DiagnosticLocation {
                 file: Some("a.fol".to_string()),
                 line: 5,
                 column: 1,
                 length: Some(1),
-            }),
-        );
-        let d2 = diagnostic_to_lsp(
-            &Diagnostic::error("P1001", "second").with_primary_label(DiagnosticLocation {
+            },
+        ));
+        let d2 = diagnostic_to_lsp(&Diagnostic::error("P1001", "second").with_primary_label(
+            DiagnosticLocation {
+                file: Some("a.fol".to_string()),
+                line: 5,
+                column: 1,
+                length: Some(1),
+            },
+        ));
+        let d3 = diagnostic_to_lsp(&Diagnostic::error("P1001", "second").with_primary_label(
+            DiagnosticLocation {
+                file: Some("a.fol".to_string()),
+                line: 5,
+                column: 3,
+                length: Some(2),
+            },
+        ));
+        let result = dedup_lsp_diagnostics(vec![d1, d2, d3]);
+        assert_eq!(result.len(), 3);
+        assert!(result[0].message.contains("first"));
+        assert!(result[1].message.contains("second"));
+        assert_eq!(result[0].range, result[1].range);
+        assert_ne!(result[1].range, result[2].range);
+    }
+
+    #[test]
+    fn dedup_removes_only_exact_wire_duplicates() {
+        let diagnostic = diagnostic_to_lsp(
+            &Diagnostic::error("P1001", "duplicate").with_primary_label(DiagnosticLocation {
                 file: Some("a.fol".to_string()),
                 line: 5,
                 column: 3,
                 length: Some(2),
             }),
         );
-        let result = dedup_lsp_diagnostics(vec![d1, d2]);
+        let result = dedup_lsp_diagnostics(vec![diagnostic.clone(), diagnostic]);
+
         assert_eq!(result.len(), 1);
-        assert!(result[0].message.contains("first"));
+        assert!(result[0].message.contains("duplicate"));
     }
 }

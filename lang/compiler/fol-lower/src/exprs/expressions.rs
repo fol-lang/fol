@@ -1360,7 +1360,7 @@ fn lower_expression_observed_inner(
             error_type.as_ref(),
             body,
         ),
-        // V1 pipeline gaps (Phase 3)
+        // Parsed surfaces that remain outside the shipped lowering contract.
         AstNode::TemplateCall { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
             "template call lowering is not yet implemented",

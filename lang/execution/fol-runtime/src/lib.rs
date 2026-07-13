@@ -1,14 +1,15 @@
-//! Runtime support foundations for executable FOL `V1` programs.
+//! Runtime support for executable FOL programs across the shipped V1, V2, and
+//! V3 language surfaces.
 //!
-//! `fol-runtime` is the support crate that future generated programs will link
+//! `fol-runtime` is the support crate that generated programs link
 //! against. It is not a front-end phase and it is not the backend itself.
 //!
 //! The intended compiler split is:
 //!
 //! - `fol-runtime` owns runtime data/layout/helper semantics
-//! - `fol-backend` will later own code generation
+//! - `fol-backend` owns code generation
 //!
-//! Current `V1` runtime scope:
+//! Current runtime scope:
 //!
 //! - builtin scalar support
 //! - memo-tier strings
@@ -16,6 +17,7 @@
 //! - optional/error shells
 //! - recoverable routine results
 //! - backend-facing runtime hooks such as `.echo(...)`
+//! - hosted V3 task, channel, mutex, and eventual substrate
 //!
 //! The runtime model is converging on explicit internal tiers:
 //!
@@ -39,20 +41,21 @@
 //! mutex-backed sharing, and internal eventual delivery. The compiler still
 //! owns the language-level legality and capability rules for those surfaces.
 //!
-//! Full `V2` generics, generic types, and procedural standards still execute
-//! through the current backend strategy. The important boundary is narrower:
-//! `fol-runtime` itself does not define a second witness/dictionary system or
-//! an object-style runtime contract for standards. Those semantics stay in the
-//! compiler/lowering/backend pipeline under monomorphization.
+//! The shipped `V2` generic-routine, generic-type, and procedural-standard
+//! subset executes through the current backend strategy. The important
+//! boundary is narrower: `fol-runtime` itself does not define a second
+//! witness/dictionary system or an object-style runtime contract for
+//! standards. Those semantics stay in the compiler/lowering/backend pipeline
+//! under monomorphization.
 //!
 //! # Backend Mapping: Builtins
 //!
-//! The first backend should map lowered builtins using this rule:
+//! The Rust backend maps lowered builtins using this rule:
 //!
 //! - prefer native Rust operators or expressions for pure scalar operations
 //! - use `fol-runtime` helpers for runtime-sensitive or policy-sensitive behavior
 //!
-//! Current `V1` expectation:
+//! Current builtin expectation:
 //!
 //! - `.eq`, `.nq`, `.lt`, `.gt`, `.ge`, `.le`
 //!   - lower to native Rust comparisons on already-lowered scalar values
@@ -72,8 +75,8 @@
 //!
 //! # Backend Mapping: Lowered Instructions
 //!
-//! The current lowered `V1` IR mixes instructions that can become plain Rust
-//! syntax with instructions that require stable `fol-runtime` support.
+//! The current lowered IR mixes instructions that can become plain Rust syntax
+//! with instructions that require stable `fol-runtime` support.
 //!
 //! Native-emission friendly instructions:
 //!
@@ -81,9 +84,10 @@
 //! - `LoadLocal`
 //! - `StoreLocal`
 //! - `Call`
+//! - ownership, borrow, and pointer instructions, which map to Rust moves,
+//!   references, `Box`, and `Rc` after compiler legality checks
 //! - `IntrinsicCall` for scalar comparisons and boolean negation
 //! - `FieldAccess` for backend-authored record layouts
-//! - `Cast` once the backend implements the admitted `V1` cast policy
 //! - control terminators such as `Jump`, `Branch`, and `Return`
 //!
 //! Runtime-backed instructions or lowered surfaces:
@@ -119,6 +123,15 @@
 //! - `Panic`
 //!   - must route through the backend's panic strategy while preserving the
 //!     runtime printable-message contract
+//! - `SpawnCall` and `AsyncCall`
+//!   - must use [`std::spawn_task`] and [`std::spawn_eventual`]
+//! - `AwaitEventual`
+//!   - must consume [`std::FolEventual`] exactly once
+//! - channel sender/send/receive/select support
+//!   - must use [`std::FolChannel`] and [`std::FolSender`]
+//! - mutex lock/unlock support
+//!   - must use [`std::FolMutex`] while compiler checks keep guard effects
+//!     lexical
 //!
 //! Backend-authored records and entries may compile into plain Rust structs and
 //! enums, but their public formatting behavior should still follow
@@ -127,7 +140,7 @@
 //!
 //! # Backend Mapping: Generated Crate Names And Imports
 //!
-//! The first backend should generate one temporary Rust crate per lowered FOL
+//! The Rust backend generates one temporary Rust crate per lowered FOL
 //! workspace.
 //!
 //! Import expectations for that generated crate:
@@ -153,13 +166,13 @@
 //!   file count
 //! - backend-generated local helper names may be mangled, but runtime imports
 //!   should stay readable and stable
-//! - `fol-runtime` remains the single support dependency for current `V1`
+//! - `fol-runtime` remains the single support dependency for current shipped
 //!   semantics; generated crates should not split the runtime contract across
 //!   multiple ad hoc support crates
 //!
 //! # Backend Integration Guide
 //!
-//! A first Rust backend should integrate with `fol-runtime` in this order:
+//! The Rust backend integrates with `fol-runtime` in this order:
 //!
 //! 1. Lower a full workspace through `fol-lower` and treat that lowered
 //!    workspace as the only backend input.
@@ -191,10 +204,10 @@
 //! 9. Only after emitted Rust typechecks against `fol-runtime` should the
 //!    backend invoke `cargo build` or `rustc`.
 //!
-//! Current `V1` backends should treat `fol-runtime` as stable support code, not
-//! as an optimizer target. If a future backend wants to inline or replace a
-//! runtime helper, it should first preserve the same public behavior and only
-//! then optimize behind that contract.
+//! Backends should treat `fol-runtime` as stable support code, not as an
+//! optimizer target. If a backend wants to inline or replace a runtime helper,
+//! it should first preserve the same public behavior and only then optimize
+//! behind that contract.
 
 pub mod abi;
 pub mod aggregate;

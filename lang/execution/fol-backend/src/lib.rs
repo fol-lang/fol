@@ -1,4 +1,5 @@
-//! Backend foundations for turning lowered `V1` FOL workspaces into runnable artifacts.
+//! Rust backend for turning lowered FOL workspaces into runnable artifacts
+//! across the shipped V1, V2, and V3 language surfaces.
 
 mod config;
 mod control;

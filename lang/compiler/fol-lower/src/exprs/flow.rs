@@ -1311,7 +1311,7 @@ pub(crate) fn when_case_condition_and_body(
         | fol_parser::ast::WhenCase::Has { .. }
         | fol_parser::ast::WhenCase::On { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
-            "membership and channel when branches are not lowered in V1; typecheck should have rejected them",
+            "membership when/in/has branches and channel when/on branches are outside the shipped contract; typecheck should reject them (use select for channels)",
         )),
         fol_parser::ast::WhenCase::Of { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,

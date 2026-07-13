@@ -1,8 +1,8 @@
-//! Whole-program type checking for the `V1` FOL language subset.
+//! Whole-workspace type checking for the shipped FOL V1, V2, and V3 language
+//! surfaces.
 //!
-//! This crate is introduced in stages. The early foundation slices only provide
-//! the workspace boundary and a small public API surface so later commits can
-//! grow semantic types, typed results, and diagnostics incrementally.
+//! This crate owns semantic types, capability-model legality, ownership and
+//! processor checks, typed results, and compiler diagnostics.
 
 pub mod builtins;
 mod channel_analysis;

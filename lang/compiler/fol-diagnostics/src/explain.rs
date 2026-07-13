@@ -109,6 +109,7 @@ macro_rules! explanation {
 /// - `P*`  — `fol-parser` (`ParseErrorKind`)
 /// - `R*`  — `fol-resolver` (`ResolverErrorKind`)
 /// - `T*`  — `fol-typecheck` (`TypecheckErrorKind`)
+/// - `O*`  — `fol-typecheck` ownership and lexical-borrow checks
 /// - `L*`  — `fol-lower` (`LoweringErrorKind`)
 /// - `K10*` — `fol-package` (`PackageErrorKind`)
 /// - `K11*` — `fol-build` (`BuildEvaluationErrorKind`)
@@ -118,8 +119,22 @@ static REGISTRY: &[Explanation] = &[
         "O1001",
         "ownership violation",
         "A value was used after its ownership moved, or while ownership rules made it inaccessible.\n\n\
-         Heap-owned values move when rebound; stack values clone. Use the value before moving it,\n\
-         borrow it when borrowing is appropriate, or restructure the owning scope."
+         V3 heap-owned and other unique values move when transferred, including when a\n\
+         value-producing expression is evaluated and its result is discarded; stack values clone.\n\n\
+         This code also covers ownership boundaries that cannot be represented safely yet:\n\
+         - dereferencing a unique pointer reached through a field would partially observe a\n\
+           move-only place, so it requires place-aware projection IR\n\
+         - a moved whole binding may be reinitialized in ordinary control flow, but not inside\n\
+           `dfr` or `edf`, where the assignment is delayed until scope exit\n\
+         - borrowed values, `ptr[shared, T]` (`Rc`), and unresolved generic values cannot cross\n\
+           a spawn or async OS-thread boundary\n\
+         - channel endpoint acquisition cannot be delayed inside `dfr` or `edf`, and the receiver\n\
+           lifecycle must remain attached to its direct owning binding\n\
+         - eventuals are move-only: assignment transfers them, await consumes them once, and V3\n\
+           does not carry them through composites or generic parameters\n\n\
+         Use the value before moving it, borrow it when borrowing is appropriate, or assign a\n\
+         fresh value to a mutable whole binding in ordinary control flow. Restructure task,\n\
+         channel, eventual, or deferred code so ownership crosses only a supported boundary."
     ),
     explanation!(
         "O2001",
@@ -210,23 +225,26 @@ static REGISTRY: &[Explanation] = &[
         "The resolver received input it cannot accept. This is most often an\n\
          import-target problem discovered while binding names.\n\n\
          Why it happens:\n\
-         - a `std`/`pkg` import target does not exist on disk\n\
+         - a `pkg` import target or declared bundled-std package does not exist on disk\n\
          - a formal package root was imported with `loc` instead of `pkg`\n\
          - a required std or package-store root was not provided\n\n\
          How to fix:\n\
          - check the import source and target path\n\
          - import formal packages with `pkg`, plain folders with `loc`\n\
-         - pass `--std-root <DIR>` / `--package-store-root <DIR>` when required, or\n\
-           run `fol pack fetch` to materialize declared dependencies"
+         - declare bundled std through `build.add_dep(...)`; use `--std-root <DIR>` only\n\
+           for an explicit development override\n\
+         - pass `--package-store-root <DIR>` when required, or run `fol pack fetch`\n\
+           to materialize declared external dependencies"
     ),
     explanation!(
         "R1002",
         "unsupported import or construct",
         "The resolver hit an import source kind or construct it does not support.\n\n\
          Why it happens:\n\
-         - an import uses a source kind other than `loc`, `std`, or `pkg`\n\n\
+         - an import uses a source kind other than `loc` or `pkg`\n\n\
          How to fix:\n\
-         - use one of the supported import source kinds: `loc`, `std`, `pkg`"
+         - use one of the supported import source kinds: `loc`, `pkg`\n\
+         - reach bundled std through a declared internal dependency and a quoted `pkg` import"
     ),
     explanation!(
         "R1003",
@@ -297,17 +315,27 @@ static REGISTRY: &[Explanation] = &[
         "T1002",
         "unsupported construct or capability",
         "A construct is not supported under the current capability model, or is\n\
-         not implemented by the typechecker yet.\n\n\
+         outside an implemented language boundary.\n\n\
          Why it happens:\n\
          - a heap-backed value (`str`, `vec[...]`, `seq[...]`, `set[...]`,\n\
            `map[...]`) is used under `fol_model = core`\n\
-         - `.echo(...)` is used without the bundled hosted `std` dependency\n\
+         - `.echo(...)` or any processor surface (spawn, channels, `select`, `[mux]`,\n\
+           async, or await) is used without the bundled hosted `std` dependency\n\
+         - spawn or async is given a stored routine value or routine parameter instead of a\n\
+           direct named routine call, or a bare spawn could discard a recoverable error\n\
+         - a channel is placed in an unsupported composite/projected/top-level shape instead\n\
+           of a direct routine-owned binding with one receiver lifecycle\n\
+         - a `dfr` or `edf` body accesses a mutex field, calls `.lock()` / `.unlock()`, or\n\
+           forwards the handle to another `[mux]` routine; V3 guard effects are immediate\n\
          - a feature is outside the current release boundary (for example raw\n\
            pointers or explicit deallocation at the V4/FFI boundary)\n\n\
          How to fix:\n\
          - move to `fol_model = memo` for heap-backed values, or add bundled `std`\n\
-           for hosted facilities like `.echo(...)`\n\
-         - otherwise use a currently supported construct"
+           for hosted facilities and the processor surface\n\
+         - call a named routine directly for spawn/async, keep channels in direct routine-local\n\
+           bindings, and perform mutex guard work in ordinary control flow; spawn captures may\n\
+           instead use the explicit zero-parameter anonymous spawn form\n\
+         - otherwise use a construct inside the currently shipped V1/V2/V3 boundary"
     ),
     explanation!(
         "T1003",
@@ -551,6 +579,43 @@ mod tests {
         assert_eq!(explanation.code, "T1003");
         assert_eq!(explanation.title, "incompatible types");
         assert!(explanation.body.contains("do not"));
+    }
+
+    #[test]
+    fn ownership_explanation_covers_v3_resource_boundaries() {
+        let explanation = explanation("O1001").expect("O1001 should be registered");
+        assert!(explanation.body.contains("result is discarded"));
+        assert!(explanation.body.contains("reinitialize"));
+        assert!(explanation.body.contains("place-aware projection IR"));
+        assert!(explanation
+            .body
+            .contains("spawn or async OS-thread boundary"));
+        assert!(explanation.body.contains("channel endpoint acquisition"));
+        assert!(explanation.body.contains("eventuals are move-only"));
+        assert!(explanation.body.contains("`dfr` or `edf`"));
+    }
+
+    #[test]
+    fn unsupported_explanation_covers_v3_processor_boundaries() {
+        let explanation = explanation("T1002").expect("T1002 should be registered");
+        assert!(explanation.body.contains("any processor surface"));
+        assert!(explanation.body.contains("direct named routine call"));
+        assert!(explanation.body.contains("anonymous spawn form"));
+        assert!(explanation.body.contains("one receiver lifecycle"));
+        assert!(explanation.body.contains("forwards the handle"));
+        assert!(explanation.body.contains("V4/FFI boundary"));
+    }
+
+    #[test]
+    fn import_explanations_use_only_current_public_source_kinds() {
+        let missing = explanation("R1001").expect("R1001 should be registered");
+        assert!(missing.body.contains("declared bundled-std package"));
+        assert!(!missing.body.contains("`std`/`pkg`"));
+
+        let unsupported = explanation("R1002").expect("R1002 should be registered");
+        assert!(unsupported.body.contains("other than `loc` or `pkg`"));
+        assert!(unsupported.body.contains("quoted `pkg` import"));
+        assert!(!unsupported.body.contains("`loc`, `std`"));
     }
 
     #[test]

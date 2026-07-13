@@ -1,4 +1,4 @@
-//! Runtime container helper functions used by executable FOL V1 programs.
+//! Runtime container helpers used by executable FOL programs.
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},

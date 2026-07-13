@@ -121,12 +121,15 @@ impl TypecheckSession {
             }
         }
 
-        if errors.is_empty() {
-            if let Err(mut package_errors) =
-                validate_import_capability_model(&package.program, self.config.capability_model)
-            {
-                errors.append(&mut package_errors);
-            }
+        // Import capability legality belongs to the importing package and is
+        // independent of whether a dependency also failed to typecheck. Keep
+        // the source-file diagnostic available instead of letting an earlier
+        // dependency error suppress it (and, in editor routing, get filtered
+        // out because it points at another package).
+        if let Err(mut package_errors) =
+            validate_import_capability_model(&package.program, self.config.capability_model)
+        {
+            errors.append(&mut package_errors);
         }
 
         if errors.is_empty() {
