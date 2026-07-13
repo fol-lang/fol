@@ -288,13 +288,18 @@ fn canonical_artifact_root(
     })?;
     let candidate = package_root.join(root_module);
     let canonical_candidate = candidate.canonicalize().map_err(|error| {
-        FrontendError::new(
-            FrontendErrorKind::InvalidInput,
+        let message = if error.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "artifact '{artifact_label}' declares root '{root_module}' but no such source file exists in package '{}'",
+                package_root.display()
+            )
+        } else {
             format!(
                 "artifact '{artifact_label}' declares root '{root_module}' but it cannot be resolved in package '{}': {error}",
                 package_root.display()
-            ),
-        )
+            )
+        };
+        FrontendError::new(FrontendErrorKind::InvalidInput, message)
     })?;
     if !canonical_candidate.is_file() {
         return Err(FrontendError::new(
