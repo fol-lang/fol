@@ -659,7 +659,7 @@ fn expression_typing_infers_local_binding_types_from_initializers() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun[] demo(): int = {\n\
-             let current = 1;\n\
+             var current = 1;\n\
              return current;\n\
          };\n",
     )]);
