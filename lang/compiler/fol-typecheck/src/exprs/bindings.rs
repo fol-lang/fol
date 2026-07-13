@@ -63,7 +63,7 @@ pub(crate) fn type_binding_initializer(
         .typed_symbol(symbol_id)
         .and_then(|symbol| symbol.declared_type);
     if let Some(declared_type) = declared_type {
-        reject_top_level_channel_binding(
+        reject_unsupported_top_level_binding_type(
             typed,
             resolved,
             symbol_id,
@@ -133,6 +133,13 @@ pub(crate) fn type_binding_initializer(
                     expected,
                     mutable_borrow,
                 )?;
+                reject_unsupported_top_level_binding_type(
+                    typed,
+                    resolved,
+                    symbol_id,
+                    borrowed,
+                    binding_origin.clone(),
+                )?;
                 Ok(TypedExpr::value(borrowed))
             } else {
                 track_value_transfer(typed, resolved, context, value, actual)?;
@@ -198,7 +205,7 @@ pub(crate) fn type_binding_initializer(
             } else {
                 inferred
             };
-            reject_top_level_channel_binding(
+            reject_unsupported_top_level_binding_type(
                 typed,
                 resolved,
                 symbol_id,
@@ -231,7 +238,7 @@ pub(crate) fn type_binding_initializer(
     }
 }
 
-fn reject_top_level_channel_binding(
+pub(crate) fn reject_unsupported_top_level_binding_type(
     typed: &TypedProgram,
     resolved: &ResolvedProgram,
     symbol: SymbolId,
@@ -248,16 +255,38 @@ fn reject_top_level_channel_binding(
         }
         scope = resolved_scope.parent;
     }
-    if !matches!(
+    let apparent = super::helpers::apparent_type_id(typed, type_id)?;
+    if matches!(
         typed
             .type_table()
-            .get(super::helpers::apparent_type_id(typed, type_id)?),
+            .get(apparent),
         Some(CheckedType::Channel { .. })
     ) {
-        return Ok(());
+        let message =
+            "top-level channel bindings are not supported in V3; declare the channel inside its receiving routine";
+        return Err(origin.map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+            |origin| TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+        ));
     }
-    let message =
-        "top-level channel bindings are not supported in V3; declare the channel inside its receiving routine";
+    let message = if ownership_moves_on_transfer(typed, type_id) {
+        Some(
+            "top-level move-only bindings are not supported in V3; global loads cannot transfer unique ownership, so declare the value inside a routine",
+        )
+    } else if super::helpers::type_contains_borrowed(typed, type_id) {
+        Some(
+            "top-level bindings containing borrowed values are not supported in V3; global storage cannot preserve lexical borrow lifetimes",
+        )
+    } else if super::helpers::type_contains_shared_pointer(typed, type_id) {
+        Some(
+            "top-level bindings containing ptr[shared, T] are not supported in V3; Rc-backed values are not thread-safe global storage",
+        )
+    } else {
+        None
+    };
+    let Some(message) = message else {
+        return Ok(());
+    };
     Err(origin.map_or_else(
         || TypecheckError::new(TypecheckErrorKind::Unsupported, message),
         |origin| TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),

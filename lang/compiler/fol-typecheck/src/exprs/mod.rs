@@ -754,6 +754,13 @@ fn type_node_with_expectation_inner(
             {
                 return Err(unsupported_node_surface(resolved, node, message));
             }
+            if params.iter().any(|param| param.is_mutex) {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    node,
+                    "anonymous routines with [mux] parameters are not supported in V3; use a named routine and call it directly so the mutex ABI remains explicit",
+                ));
+            }
             if params
                 .iter()
                 .any(|param| matches!(&param.param_type, FolType::Channel { .. }))

@@ -189,6 +189,95 @@ impl LoweredTypeTable {
         moves(self, id, &mut BTreeSet::new())
     }
 
+    /// Whether `id` stores a lexical borrow anywhere in its runtime shape.
+    pub fn contains_borrowed(&self, id: LoweredTypeId) -> bool {
+        self.contains_matching_type(id, |ty| matches!(ty, LoweredType::Borrowed { .. }))
+    }
+
+    /// Whether `id` stores an `Rc`-backed shared pointer anywhere in its
+    /// runtime shape.
+    pub fn contains_shared_pointer(&self, id: LoweredTypeId) -> bool {
+        self.contains_matching_type(id, |ty| {
+            matches!(ty, LoweredType::Pointer { shared: true, .. })
+        })
+    }
+
+    fn contains_matching_type(
+        &self,
+        id: LoweredTypeId,
+        predicate: fn(&LoweredType) -> bool,
+    ) -> bool {
+        fn contains(
+            table: &LoweredTypeTable,
+            id: LoweredTypeId,
+            predicate: fn(&LoweredType) -> bool,
+            visiting: &mut BTreeSet<LoweredTypeId>,
+        ) -> bool {
+            if !visiting.insert(id) {
+                return false;
+            }
+            let result = match table.get(id) {
+                Some(ty) if predicate(ty) => true,
+                Some(LoweredType::Array { element_type, .. })
+                | Some(LoweredType::Vector { element_type })
+                | Some(LoweredType::Sequence { element_type })
+                | Some(LoweredType::Channel { element_type })
+                | Some(LoweredType::ChannelSender { element_type })
+                | Some(LoweredType::Owned {
+                    inner: element_type,
+                })
+                | Some(LoweredType::Borrowed {
+                    inner: element_type,
+                    ..
+                })
+                | Some(LoweredType::Pointer {
+                    target: element_type,
+                    ..
+                })
+                | Some(LoweredType::Optional {
+                    inner: element_type,
+                }) => contains(table, *element_type, predicate, visiting),
+                Some(LoweredType::Error { inner }) => inner
+                    .is_some_and(|inner| contains(table, inner, predicate, visiting)),
+                Some(LoweredType::Eventual {
+                    value_type,
+                    error_type,
+                }) => {
+                    contains(table, *value_type, predicate, visiting)
+                        || error_type.is_some_and(|error| {
+                            contains(table, error, predicate, visiting)
+                        })
+                }
+                Some(LoweredType::Set { member_types }) => member_types
+                    .iter()
+                    .any(|member| contains(table, *member, predicate, visiting)),
+                Some(LoweredType::Map {
+                    key_type,
+                    value_type,
+                }) => {
+                    contains(table, *key_type, predicate, visiting)
+                        || contains(table, *value_type, predicate, visiting)
+                }
+                Some(LoweredType::Record { fields }) => fields
+                    .values()
+                    .any(|field| contains(table, *field, predicate, visiting)),
+                Some(LoweredType::Entry { variants }) => variants
+                    .values()
+                    .flatten()
+                    .any(|variant| contains(table, *variant, predicate, visiting)),
+                Some(LoweredType::Builtin(_))
+                | Some(LoweredType::GenericParameter { .. })
+                | Some(LoweredType::Named { .. })
+                | Some(LoweredType::Routine(_))
+                | None => false,
+            };
+            visiting.remove(&id);
+            result
+        }
+
+        contains(self, id, predicate, &mut BTreeSet::new())
+    }
+
     /// Whether `id` mentions an unbound generic parameter anywhere in its
     /// structure. Used both to select monomorphization templates and to detect
     /// generic parameters that leaked into concrete positions.
@@ -509,5 +598,30 @@ mod tests {
         assert!(table.moves_on_transfer(generic));
         assert!(table.moves_on_transfer(optional_generic));
         assert!(!table.moves_on_transfer(int_id));
+    }
+
+    #[test]
+    fn global_storage_hazards_are_detected_transitively() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let borrowed = table.intern(LoweredType::Borrowed {
+            inner: int_id,
+            mutable: false,
+        });
+        let shared = table.intern(LoweredType::Pointer {
+            target: int_id,
+            shared: true,
+        });
+        let nested = table.intern(LoweredType::Record {
+            fields: BTreeMap::from([
+                ("view".to_string(), borrowed),
+                ("shared".to_string(), shared),
+            ]),
+        });
+
+        assert!(table.contains_borrowed(nested));
+        assert!(table.contains_shared_pointer(nested));
+        assert!(!table.contains_borrowed(int_id));
+        assert!(!table.contains_shared_pointer(int_id));
     }
 }

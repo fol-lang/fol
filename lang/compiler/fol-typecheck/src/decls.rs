@@ -174,19 +174,6 @@ fn lower_top_level_declaration(
                     .map(|symbol| symbol.scope)
                     .ok_or_else(|| internal_error("resolved binding symbol disappeared", None))?;
                 let mut type_id = lower_type(typed, resolved, symbol_scope, type_hint)?;
-                if matches!(
-                    typed
-                        .type_table()
-                        .get(crate::exprs::helpers::apparent_type_id(typed, type_id)?),
-                    Some(CheckedType::Channel { .. })
-                ) {
-                    return Err(crate::exprs::helpers::with_node_origin(
-                        resolved,
-                        &item.node,
-                        TypecheckErrorKind::Unsupported,
-                        "top-level channel bindings are not supported in V3; declare the channel inside its receiving routine",
-                    ));
-                }
                 if options
                     .iter()
                     .any(|option| matches!(option, VarOption::New))
@@ -205,6 +192,16 @@ fn lower_top_level_declaration(
                         .type_table_mut()
                         .intern(CheckedType::Owned { inner: type_id });
                 }
+                crate::exprs::bindings::reject_unsupported_top_level_binding_type(
+                    typed,
+                    resolved,
+                    symbol_id,
+                    type_id,
+                    resolved
+                        .symbol(symbol_id)
+                        .and_then(|symbol| symbol.origin.clone())
+                        .or_else(|| node_origin(resolved, &item.node)),
+                )?;
                 record_symbol_type(typed, symbol_id, type_id)?;
             }
         }
@@ -235,6 +232,16 @@ fn lower_top_level_declaration(
                         source_unit_id,
                         &[SymbolKind::DestructureBinding],
                         &name,
+                    )?;
+                    crate::exprs::bindings::reject_unsupported_top_level_binding_type(
+                        typed,
+                        resolved,
+                        symbol_id,
+                        type_id,
+                        resolved
+                            .symbol(symbol_id)
+                            .and_then(|symbol| symbol.origin.clone())
+                            .or_else(|| node_origin(resolved, &item.node)),
                     )?;
                     record_symbol_type(typed, symbol_id, type_id)?;
                 }

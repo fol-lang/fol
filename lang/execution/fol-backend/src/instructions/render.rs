@@ -12,7 +12,7 @@ use super::helpers::{
     render_namespace_module_path, render_native_intrinsic_expression, render_operand,
     render_routine_path, render_transfer_expr, render_type_default_expr_in_workspace,
     render_type_path, rendered_result_local, resolve_global_decl, resolve_routine_decl,
-    resolve_type_decl,
+    resolve_type_decl, validate_global_storage_type,
 };
 
 pub fn render_core_instruction(
@@ -108,6 +108,7 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::StoreGlobal { global, value } => {
             let (global_identity, global_decl) = resolve_global_decl(workspace, *global)?;
+            validate_global_storage_type(type_table, global_decl.type_id)?;
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
             if !global_decl.mutable {
                 return Err(BackendError::new(
@@ -491,6 +492,22 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::IndexAccess { container, index } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
+            let result_type = instruction
+                .result
+                .and_then(|result| routine.locals.get(result))
+                .and_then(|local| local.type_id)
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        "index result local does not retain a lowered type",
+                    )
+                })?;
+            if type_table.moves_on_transfer(result_type) {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    "move-only index results require an explicit removal operation; clone-based index reads are not supported",
+                ));
+            }
             let container_name = render_local_name(package_identity, routine, *container)?;
             let index_name = render_local_name(package_identity, routine, *index)?;
             let container_local = routine.locals.get(*container).ok_or_else(|| {
@@ -670,6 +687,12 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::RoutineRef { routine: callee } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let (callee_identity, callee_decl) = resolve_routine_decl(workspace, *callee)?;
+            if !callee_decl.mutex_params.is_empty() {
+                return Err(BackendError::new(
+                    BackendErrorKind::Unsupported,
+                    "routines with [mux] parameters cannot be emitted as first-class routine references",
+                ));
+            }
             let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;
             let callee_signature = callee_decl.signature.ok_or_else(|| {
                 BackendError::new(

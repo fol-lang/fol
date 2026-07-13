@@ -177,6 +177,7 @@ pub(crate) fn type_index_access(
         Some(CheckedType::Array { element_type, .. })
         | Some(CheckedType::Vector { element_type })
         | Some(CheckedType::Sequence { element_type }) => {
+            let element_type = *element_type;
             ensure_assignable(
                 typed,
                 typed.builtin_types().int,
@@ -184,14 +185,18 @@ pub(crate) fn type_index_access(
                 "container index".to_string(),
                 None,
             )?;
-            Ok(TypedExpr::value(*element_type).with_optional_effect(merged_effect))
+            reject_move_only_index_result(typed, resolved, container, index, element_type)?;
+            Ok(TypedExpr::value(element_type).with_optional_effect(merged_effect))
         }
         Some(CheckedType::Map {
             key_type,
             value_type,
         }) => {
-            ensure_assignable(typed, *key_type, index_type, "map key".to_string(), None)?;
-            Ok(TypedExpr::value(*value_type).with_optional_effect(merged_effect))
+            let key_type = *key_type;
+            let value_type = *value_type;
+            ensure_assignable(typed, key_type, index_type, "map key".to_string(), None)?;
+            reject_move_only_index_result(typed, resolved, container, index, value_type)?;
+            Ok(TypedExpr::value(value_type).with_optional_effect(merged_effect))
         }
         Some(CheckedType::Set { member_types }) => {
             ensure_assignable(
@@ -201,10 +206,17 @@ pub(crate) fn type_index_access(
                 "set index".to_string(),
                 None,
             )?;
-            Ok(
-                TypedExpr::maybe_value(type_set_index_access(typed, member_types, index)?)
-                    .with_optional_effect(merged_effect),
-            )
+            let result_type = type_set_index_access(typed, member_types, index)?;
+            if let Some(result_type) = result_type {
+                reject_move_only_index_result(
+                    typed,
+                    resolved,
+                    container,
+                    index,
+                    result_type,
+                )?;
+            }
+            Ok(TypedExpr::maybe_value(result_type).with_optional_effect(merged_effect))
         }
         _ => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
@@ -214,6 +226,25 @@ pub(crate) fn type_index_access(
             ),
         )),
     }
+}
+
+fn reject_move_only_index_result(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    container: &AstNode,
+    index: &AstNode,
+    result_type: crate::CheckedTypeId,
+) -> Result<(), TypecheckError> {
+    if !super::bindings::ownership_moves_on_transfer(typed, result_type) {
+        return Ok(());
+    }
+    let message = "move-only indexed projection cannot be read in V3; partial moves are not supported and clone-based reads would duplicate ownership";
+    Err(node_origin(resolved, container)
+        .or_else(|| node_origin(resolved, index))
+        .map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message),
+            |origin| TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin),
+        ))
 }
 
 pub(crate) fn type_slice_access(

@@ -1,6 +1,7 @@
 use super::super::render_core_instruction;
 use super::super::render_core_instruction_in_workspace;
 use crate::testing::package_identity;
+use crate::BackendErrorKind;
 use fol_lower::{
     control::LoweredLinearKind,
     LoweredBlockId, LoweredBuiltinType, LoweredFieldLayout, LoweredInstr, LoweredInstrId,
@@ -282,6 +283,17 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
         key_type: int_id,
         value_type: int_id,
     });
+    let unique_pointer = table.intern(fol_lower::LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let move_only_record = table.intern(fol_lower::LoweredType::Record {
+        fields: BTreeMap::from([("pointer".to_string(), unique_pointer)]),
+    });
+    let move_only_array = table.intern(fol_lower::LoweredType::Array {
+        element_type: move_only_record,
+        size: Some(1),
+    });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(19), "main", LoweredBlockId(0));
     let array = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -327,6 +339,16 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
         id: LoweredLocalId(8),
         type_id: Some(int_id),
         name: Some("d".to_string()),
+    });
+    let move_only_values = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(9),
+        type_id: Some(move_only_array),
+        name: Some("owners".to_string()),
+    });
+    let move_only_result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(10),
+        type_id: Some(move_only_record),
+        name: Some("owner".to_string()),
     });
 
     let rendered = [
@@ -386,6 +408,23 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
         rendered[3],
         "l__pkg__entry__app__r19__l8__d = rt::lookup_map(&l__pkg__entry__app__r19__l3__map, &l__pkg__entry__app__r19__l4__index).unwrap().clone();"
     );
+
+    let error = render_core_instruction(
+        &package_identity,
+        &table,
+        &routine,
+        &LoweredInstr {
+            id: LoweredInstrId(49),
+            result: Some(move_only_result),
+            kind: LoweredInstrKind::IndexAccess {
+                container: move_only_values,
+                index,
+            },
+        },
+    )
+    .expect_err("move-only index reads must stop before clone emission");
+    assert_eq!(error.kind(), BackendErrorKind::InvalidInput);
+    assert!(error.message().contains("move-only index results"));
 }
 
 #[test]

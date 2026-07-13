@@ -825,6 +825,7 @@ pub(crate) fn is_v1_assignable(
                         && expected_routine.return_type == actual_routine.return_type
                         && expected_routine.error_type == actual_routine.error_type
                         && expected_routine.variadic_index == actual_routine.variadic_index
+                        && expected_routine.mutex_params == actual_routine.mutex_params
                         && expected_routine.generic_params == actual_routine.generic_params
                         && expected_routine.generic_constraints
                             == actual_routine.generic_constraints

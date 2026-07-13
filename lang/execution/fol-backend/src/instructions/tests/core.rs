@@ -1,6 +1,7 @@
 use super::super::render_core_instruction;
 use super::super::render_core_instruction_in_workspace;
 use crate::testing::package_identity;
+use crate::BackendErrorKind;
 use fol_intrinsics::intrinsic_by_canonical_name;
 use fol_lower::{
     LoweredBlockId, LoweredBuiltinType, LoweredInstr, LoweredInstrId, LoweredInstrKind,
@@ -352,7 +353,7 @@ fn workspace_global_rendering_uses_fol_default_initializers_for_mutable_globals(
 }
 
 #[test]
-fn field_and_global_stores_move_unique_values_instead_of_cloning_them() {
+fn field_stores_move_unique_values_and_global_storage_rejects_them() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
@@ -395,6 +396,13 @@ fn field_and_global_stores_move_unique_values_instead_of_cloning_them() {
             value: unique_pointer,
         },
     };
+    let global_load = LoweredInstr {
+        id: LoweredInstrId(24),
+        result: Some(unique_pointer),
+        kind: LoweredInstrKind::LoadGlobal {
+            global: fol_lower::LoweredGlobalId(0),
+        },
+    };
 
     let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
     package.source_units.push(LoweredSourceUnit {
@@ -425,22 +433,32 @@ fn field_and_global_stores_move_unique_values_instead_of_cloning_them() {
 
     let field_rendered = render_core_instruction(&package_identity, &table, &routine, &field_store)
         .expect("field store");
-    let global_rendered = render_core_instruction_in_workspace(
+    let global_error = render_core_instruction_in_workspace(
         Some(&workspace),
         &package_identity,
         &table,
         &routine,
         &global_store,
     )
-    .expect("global store");
+    .expect_err("move-only globals must stop before store emission");
+    let load_error = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &global_load,
+    )
+    .expect_err("move-only globals must stop before clone-based load emission");
 
     assert_eq!(
         field_rendered,
         "l__pkg__entry__app__r16__l0__record.child = l__pkg__entry__app__r16__l1__child;"
     );
-    assert!(global_rendered.ends_with("= l__pkg__entry__app__r16__l2__pointer;"));
     assert!(!field_rendered.contains(".clone()"));
-    assert!(!global_rendered.contains(".clone()"));
+    assert_eq!(global_error.kind(), BackendErrorKind::InvalidInput);
+    assert!(global_error.message().contains("move-only values"));
+    assert_eq!(load_error.kind(), BackendErrorKind::InvalidInput);
+    assert!(load_error.message().contains("move-only values"));
 }
 
 #[test]
@@ -601,6 +619,11 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
     let mut callee_routine = LoweredRoutine::new(LoweredRoutineId(11), "target", LoweredBlockId(0));
     callee_routine.source_unit_id = Some(SourceUnitId(0));
     callee_routine.signature = Some(fn_sig);
+    let mut mutex_routine =
+        LoweredRoutine::new(LoweredRoutineId(12), "mutex_target", LoweredBlockId(0));
+    mutex_routine.source_unit_id = Some(SourceUnitId(0));
+    mutex_routine.signature = Some(fn_sig);
+    mutex_routine.mutex_params.insert(LoweredLocalId(0));
     let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
     package.source_units.push(LoweredSourceUnit {
         source_unit_id: SourceUnitId(0),
@@ -611,6 +634,9 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
     package
         .routine_decls
         .insert(LoweredRoutineId(11), callee_routine);
+    package
+        .routine_decls
+        .insert(LoweredRoutineId(12), mutex_routine);
     let workspace = LoweredWorkspace::new(
         package_identity.clone(),
         BTreeMap::from([(package_identity.clone(), package)]),
@@ -639,6 +665,24 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
     assert!(rendered.contains("l__pkg__entry__app__r10__l0__fptr"));
     assert!(rendered.contains("r__pkg__entry__app__r11__target"));
     assert!(rendered.contains(" as "));
+
+    let mutex_ref = LoweredInstr {
+        id: LoweredInstrId(21),
+        result: Some(result_local),
+        kind: LoweredInstrKind::RoutineRef {
+            routine: LoweredRoutineId(12),
+        },
+    };
+    let error = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &mutex_ref,
+    )
+    .expect_err("[mux] routine references must stop before fn-pointer casting");
+    assert_eq!(error.kind(), BackendErrorKind::Unsupported);
+    assert!(error.message().contains("[mux] parameters"));
 }
 
 #[test]

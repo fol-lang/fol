@@ -1614,6 +1614,25 @@ fn move_only_index_projections_require_a_partial_move_model() {
                  return *extracted.pointer;\n\
              };\n",
         ),
+        (
+            "move-only field through an indexed aggregate",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holders: arr[Holder, 1] = { { pointer = &seed } };\n\
+                 var extracted: ptr[int] = holders[0].pointer;\n\
+                 return *extracted;\n\
+             };\n",
+        ),
+        (
+            "copy-safe field through a move-only indexed aggregate",
+            "typ Holder: rec = { pointer: ptr[int], value: int };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holders: arr[Holder, 1] = { { pointer = &seed, value = 3 } };\n\
+                 return holders[0].value;\n\
+             };\n",
+        ),
     ] {
         let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
         assert!(
@@ -3289,6 +3308,60 @@ fn anonymous_channel_parameters_report_the_v3_boundary() {
 }
 
 #[test]
+fn mutex_parameter_abi_stays_on_named_direct_calls() {
+    for (surface, source, expected) in [
+        (
+            "named routine value",
+            "typ Counter: rec = { value: int };\n\
+             fun[] worker(counter[mux]: Counter): int = { return 0; };\n\
+             fun[] main(): int = { var action = worker; return 0; };\n",
+            "routine 'worker' with [mux] parameters cannot be used as a plain routine value in V3",
+        ),
+        (
+            "anonymous routine value",
+            "typ Counter: rec = { value: int };\n\
+             fun[] main(): int = {\n\
+                 var action = fun[](counter[mux]: Counter): int = { return 0; };\n\
+                 return 0;\n\
+             };\n",
+            "anonymous routines with [mux] parameters are not supported in V3",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error.message().contains(expected)
+            }),
+            "{surface} should stop before mutex ABI metadata is erased: {errors:?}"
+        );
+    }
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] worker(counter[mux]: Counter): int = { return 1; };\n\
+             fun[] main(): int = {\n\
+                 var counter: Counter = { value = 0 };\n\
+                 return worker(counter);\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
 fn top_level_channel_bindings_report_the_v3_boundary() {
     for (surface, source) in [
         (
@@ -3321,6 +3394,77 @@ fn top_level_channel_bindings_report_the_v3_boundary() {
             "{surface} should report the top-level-channel boundary, got {errors:?}"
         );
     }
+}
+
+#[test]
+fn top_level_bindings_reject_non_global_safe_v3_types() {
+    for (surface, source, expected) in [
+        (
+            "owned allocation",
+            "typ Item: rec = { value: int };\n@var global: Item = { value = 7 };\nfun[] main(): int = { return 0; };\n",
+            "top-level move-only bindings are not supported in V3",
+        ),
+        (
+            "unique pointer",
+            "var global: ptr[int];\nfun[] main(): int = { return 0; };\n",
+            "top-level move-only bindings are not supported in V3",
+        ),
+        (
+            "aggregate containing a unique pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\nvar global: Holder;\nfun[] main(): int = { return 0; };\n",
+            "top-level move-only bindings are not supported in V3",
+        ),
+        (
+            "inferred unique pointer",
+            "fun[] make(): ptr[int] = { var seed: int = 7; return &seed; };\nvar global = make();\nfun[] main(): int = { return 0; };\n",
+            "top-level move-only bindings are not supported in V3",
+        ),
+        (
+            "shared Rc pointer",
+            "var global: ptr[shared, int];\nfun[] main(): int = { return 0; };\n",
+            "top-level bindings containing ptr[shared, T] are not supported in V3",
+        ),
+        (
+            "borrowed global",
+            "var owner: int = 7;\nvar[bor] global: int = #owner;\nfun[] main(): int = { return 0; };\n",
+            "top-level bindings containing borrowed values are not supported in V3",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error.message().contains(expected)
+            }),
+            "{surface} should report the global-storage boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn top_level_clone_safe_scalars_and_records_remain_available() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+             "typ Snapshot: rec = { value: int };\n\
+             var count: int = 1;\n\
+             var current: Snapshot = { value = 2 };\n\
+             fun[] main(): int = { return count + current.value; };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
 }
 
 #[test]

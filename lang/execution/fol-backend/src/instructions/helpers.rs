@@ -111,6 +111,7 @@ pub fn render_global_load(
     global_identity: &PackageIdentity,
     global: &LoweredGlobal,
 ) -> BackendResult<String> {
+    validate_global_storage_type(type_table, global.type_id)?;
     let global_name = format!(
         "{}::{}",
         render_namespace_module_path(workspace, global_identity, global.source_unit_id)?,
@@ -128,6 +129,25 @@ pub fn render_global_load(
             "{global_name}.get_or_init(Default::default).clone()"
         ))
     }
+}
+
+pub(crate) fn validate_global_storage_type(
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+) -> BackendResult<()> {
+    let message = if type_table.moves_on_transfer(type_id) {
+        Some("move-only values cannot use clone-based global storage")
+    } else if type_table.contains_borrowed(type_id) {
+        Some("borrowed values cannot use static global storage")
+    } else if type_table.contains_shared_pointer(type_id) {
+        Some("Rc-backed shared pointers cannot use thread-safe global storage")
+    } else {
+        None
+    };
+    let Some(message) = message else {
+        return Ok(());
+    };
+    Err(BackendError::new(BackendErrorKind::InvalidInput, message))
 }
 
 pub fn render_routine_path(

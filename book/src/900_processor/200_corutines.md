@@ -143,6 +143,13 @@ The guarded `T` cannot be copied, returned, embedded, or passed to an ordinary
 `[mux]` parameter is allowed, including through spawn; data access still
 requires that receiving routine to acquire its own guard.
 
+The `[mux]` calling convention is currently available only on named routines
+that are called directly. A named routine with `[mux]` parameters cannot be
+stored or passed as a first-class routine value, and anonymous routines cannot
+declare `[mux]` parameters. Those routine-value forms do not yet retain the
+mutex ABI metadata needed to preserve `Arc<Mutex<T>>`; use a named direct call
+instead.
+
 Current examples:
 
 - `examples/proc_select_m3`

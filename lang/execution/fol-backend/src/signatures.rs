@@ -1,7 +1,8 @@
 use crate::{
-    instructions::render_mutex_guard_name, mangle_global_name, mangle_local_name,
-    mangle_routine_name, render_core_instruction_in_workspace, render_rust_type_in_workspace,
-    render_terminator, BackendError, BackendErrorKind, BackendResult,
+    instructions::{render_mutex_guard_name, validate_global_storage_type}, mangle_global_name,
+    mangle_local_name, mangle_routine_name, render_core_instruction_in_workspace,
+    render_rust_type_in_workspace, render_terminator, BackendError, BackendErrorKind,
+    BackendResult,
 };
 use fol_lower::{
     LoweredBlockId, LoweredGlobal, LoweredRoutine, LoweredRoutineType, LoweredType, LoweredTypeId,
@@ -161,6 +162,7 @@ pub fn render_global_declaration(
     global: &LoweredGlobal,
     type_table: &LoweredTypeTable,
 ) -> BackendResult<String> {
+    validate_global_storage_type(type_table, global.type_id)?;
     let name = mangle_global_name(package_identity, global.id, &global.name);
     let value_type = render_rust_type_in_workspace(Some(workspace), type_table, global.type_id)?;
 
@@ -599,6 +601,7 @@ fn render_routine_return_type(
 mod tests {
     use super::{render_global_declaration, render_routine_shell, render_routine_signature};
     use crate::testing::{package_identity, sample_lowered_workspace};
+    use crate::BackendErrorKind;
     use fol_lower::{
         LoweredBlockId, LoweredBuiltinType, LoweredGlobal, LoweredGlobalId, LoweredLocal,
         LoweredLocalId, LoweredRoutine, LoweredRoutineId, LoweredRoutineType, LoweredType,
@@ -640,6 +643,38 @@ mod tests {
         assert!(immutable_rendered.contains("std::sync::OnceLock<rt::FolInt>"));
         assert!(mutable_rendered.contains("pub static g__pkg__entry__app__g1__counter"));
         assert!(mutable_rendered.contains("std::sync::OnceLock<std::sync::Mutex<rt::FolInt>>"));
+
+        let unique = table.intern(LoweredType::Pointer {
+            target: int_id,
+            shared: false,
+        });
+        let borrowed = table.intern(LoweredType::Borrowed {
+            inner: int_id,
+            mutable: false,
+        });
+        let shared = table.intern(LoweredType::Pointer {
+            target: int_id,
+            shared: true,
+        });
+        for (type_id, expected) in [
+            (unique, "move-only values"),
+            (borrowed, "borrowed values"),
+            (shared, "Rc-backed shared pointers"),
+        ] {
+            let rejected = LoweredGlobal {
+                type_id,
+                ..immutable.clone()
+            };
+            let error = render_global_declaration(
+                &workspace,
+                &package_identity,
+                &rejected,
+                &table,
+            )
+            .expect_err("unsupported global storage must stop before static emission");
+            assert_eq!(error.kind(), BackendErrorKind::InvalidInput);
+            assert!(error.message().contains(expected));
+        }
     }
 
     #[test]

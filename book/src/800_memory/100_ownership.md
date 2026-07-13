@@ -50,9 +50,16 @@ ordinary Rust moves. No runtime tag decides which operation occurs.
 
 Transferring a move-only record field consumes the whole source binding. V3
 does not leave a partially moved record available through its other fields.
-Moving a value out through an array, vector, sequence, or map index remains
-unsupported because those containers need an explicit removal operation rather
-than a clone-based read.
+Any indexed read whose element or map value is move-only remains unsupported,
+including selecting a copy-safe field from that element afterward. Index access
+materializes the whole element, so these containers need an explicit removal
+operation rather than a clone-based read.
+
+Top-level storage is limited to clone-safe, non-borrowed values that are safe in
+the backend's shared static cells. Move-only values, borrowed values, full
+channels, and values containing `ptr[shared, T]` must be declared inside a
+routine. This prevents global loads from duplicating unique ownership, extending
+a lexical borrow to static lifetime, or placing `Rc` in thread-safe storage.
 
 A `when` result transfers the final value of the selected branch into its join
 value. Branches are checked from the same incoming ownership state, so the same
