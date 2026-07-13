@@ -1212,6 +1212,14 @@ pub(crate) fn check_call_arguments(
         allow_named,
         allow_defaults,
     )?;
+    validate_deferred_mutex_argument_forwarding(
+        typed,
+        resolved,
+        context,
+        signature,
+        &ordered_args,
+        callee,
+    )?;
     validate_mutex_argument_forwarding(
         typed,
         resolved,
@@ -1241,15 +1249,6 @@ pub(crate) fn check_call_arguments(
                     crate::decls::checked_type_contains_generic_param(typed, *expected);
                 let forwards_mutex_handle = signature.mutex_params.contains(&param_index)
                     && argument_is_direct_mutex_handle(typed, resolved, arg);
-                if context.inside_deferred_block && forwards_mutex_handle {
-                    return Err(unsupported_node_surface(
-                        resolved,
-                        arg,
-                        format!(
-                            "mutex handles cannot be forwarded to [mux] parameter {param_index} of '{callee}' inside dfr/edf in V3; delayed mutex guard effects are not modeled"
-                        ),
-                    ));
-                }
                 let argument_context = TypeContext {
                     allow_mutex_handle: forwards_mutex_handle,
                     ..context
@@ -1331,7 +1330,7 @@ pub(crate) fn check_call_arguments(
                         }),
                     ) if expected == actual
                 );
-                if !extracts_sender {
+                if !extracts_sender && !forwards_mutex_handle {
                     super::bindings::track_value_transfer(
                         typed,
                         resolved,
@@ -1563,6 +1562,36 @@ fn validate_call_site_borrows(
                 )
                 .with_related_origin(borrow_origin.clone(), "call-site borrow created here"));
             }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_deferred_mutex_argument_forwarding(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    signature: &RoutineType,
+    args: &[BoundCallArg<'_>],
+    callee: &str,
+) -> Result<(), TypecheckError> {
+    if !context.inside_deferred_block {
+        return Ok(());
+    }
+
+    for param_index in &signature.mutex_params {
+        let Some(arg) = args.get(*param_index).and_then(explicit_bound_arg) else {
+            continue;
+        };
+        if argument_is_direct_mutex_handle(typed, resolved, arg) {
+            return Err(unsupported_node_surface(
+                resolved,
+                arg,
+                format!(
+                    "mutex handles cannot be forwarded to [mux] parameter {param_index} of '{callee}' inside dfr/edf in V3; delayed mutex guard effects are not modeled"
+                ),
+            ));
         }
     }
 

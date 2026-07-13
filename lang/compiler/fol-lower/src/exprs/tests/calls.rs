@@ -153,7 +153,7 @@ fn assignment_lowering_emits_local_and_global_store_instructions() {
 }
 
 #[test]
-fn owned_bindings_drop_at_lexical_exit_after_defers_and_skip_moved_values() {
+fn owned_bindings_drop_at_lexical_exit_after_defers_and_moves() {
     let lowered = lower_fixture_workspace(
         "typ Item: rec = { value: int };\n\
          fun[] main(): int = {\n\
@@ -186,8 +186,7 @@ fn owned_bindings_drop_at_lexical_exit_after_defers_and_skip_moved_values() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(dropped_names, vec!["retained", "receiver"]);
-    assert!(!dropped_names.iter().any(|name| name == "moved"));
+    assert_eq!(dropped_names, vec!["retained", "receiver", "moved"]);
 
     let retained = routine
         .locals
@@ -218,7 +217,82 @@ fn owned_bindings_drop_at_lexical_exit_after_defers_and_skip_moved_values() {
 }
 
 #[test]
-fn returned_owned_and_shelled_locals_are_not_lexically_dropped() {
+fn maybe_moved_bindings_still_drop_reinitialized_branch_values() {
+    let lowered = lower_fixture_workspace(
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] main(): int = {\n\
+             var choose: bol = true;\n\
+             {\n\
+                 var first: int = 1;\n\
+                 var second: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first;\n\
+                 when(choose) {\n\
+                     case(true) { var consumed: int = consume(pointer); }\n\
+                     * { pointer = &second; }\n\
+                 }\n\
+             };\n\
+             return 0;\n\
+         };",
+    );
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should lower");
+
+    let pointer = routine
+        .locals
+        .iter_with_ids()
+        .find_map(|(local_id, local)| {
+            (local.name.as_deref() == Some("pointer")).then_some(local_id)
+        })
+        .expect("pointer local should exist");
+    assert!(routine.instructions.iter().any(|instruction| {
+        matches!(
+            instruction.kind,
+            LoweredInstrKind::DropLocal { local } if local == pointer
+        )
+    }));
+}
+
+#[test]
+fn aggregates_with_unique_ownership_drop_at_lexical_exit() {
+    let lowered = lower_fixture_workspace(
+        "typ Holder: rec = { pointer: ptr[int] };\n\
+         fun[] main(): int = {\n\
+             {\n\
+                 var seed: int = 1;\n\
+                 var pointer: ptr[int] = &seed;\n\
+                 var holder: Holder = { pointer = pointer };\n\
+             };\n\
+             return 0;\n\
+         };",
+    );
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should lower");
+
+    let dropped_names = routine
+        .instructions
+        .iter()
+        .filter_map(|instruction| match instruction.kind {
+            LoweredInstrKind::DropLocal { local } => routine
+                .locals
+                .get(local)
+                .and_then(|local| local.name.as_deref()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(dropped_names, vec!["holder"]);
+}
+
+#[test]
+fn returned_owned_and_shelled_locals_drop_only_source_slots() {
     let lowered = lower_fixture_workspace(
         "typ Item: rec = { value: int };\n\
          fun[] take_owned(): @Item = {\n\
@@ -238,27 +312,47 @@ fn returned_owned_and_shelled_locals_are_not_lexically_dropped() {
          fun[] main(): int = { return 0; };",
     );
 
-    for routine_name in ["take_owned", "take_optional", "take_error"] {
+    for (routine_name, expected_drops) in [
+        ("take_owned", vec!["value"]),
+        ("take_optional", vec!["wrapped", "value"]),
+        ("take_error", vec!["wrapped", "value"]),
+    ] {
         let routine = lowered
             .entry_package()
             .routine_decls
             .values()
             .find(|routine| routine.name == routine_name)
             .unwrap_or_else(|| panic!("{routine_name} routine should lower"));
-        let dropped_names = routine
+        let dropped = routine
             .instructions
             .iter()
             .filter_map(|instruction| match instruction.kind {
-                LoweredInstrKind::DropLocal { local } => routine
-                    .locals
-                    .get(local)
-                    .and_then(|local| local.name.as_deref()),
+                LoweredInstrKind::DropLocal { local } => Some(local),
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let dropped_names = dropped
+            .iter()
+            .filter_map(|local| {
+                routine
+                    .locals
+                    .get(*local)
+                    .and_then(|local| local.name.as_deref())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(dropped_names, expected_drops);
+
+        let returned = routine
+            .blocks
+            .iter()
+            .find_map(|block| match block.terminator {
+                Some(crate::LoweredTerminator::Return { value: Some(value) }) => Some(value),
+                _ => None,
+            })
+            .expect("routine should return a lowered value");
         assert!(
-            dropped_names.is_empty(),
-            "{routine_name} must transfer its return local instead of dropping it: {dropped_names:?}"
+            !dropped.contains(&returned),
+            "{routine_name} must return the transfer temporary, not a dropped source slot"
         );
     }
 }

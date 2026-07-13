@@ -2815,6 +2815,12 @@ fn deferred_blocks_reject_forwarded_mutex_handles() {
             }),
             "{deferred} must reject delayed mutex forwarding before lowering: {errors:#?}"
         );
+        assert!(
+            !errors.iter().any(|error| error
+                .message()
+                .contains("cannot synchronously forward mutex handle")),
+            "{deferred} delayed-forwarding diagnostic must take priority over active-lock forwarding: {errors:#?}"
+        );
     }
 }
 
@@ -2955,6 +2961,31 @@ fn mutex_whole_values_are_rejected_but_mux_forwarding_is_allowed() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "forward"))
+        .is_some());
+}
+
+#[test]
+fn mux_forwarding_does_not_move_the_protected_value() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { marker: ptr[int], value: int };\n\
+             fun[] leaf(counter[mux]: Counter): int = { return 1; };\n\
+             fun[] forward(counter[mux]: Counter): int = {\n\
+                 leaf(counter);\n\
+                 counter.lock();\n\
+                 var value: int = counter.value;\n\
+                 counter.unlock();\n\
+                 return value;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
     assert!(typed
         .typed_node(find_named_routine_syntax_id(&typed, "forward"))
         .is_some());

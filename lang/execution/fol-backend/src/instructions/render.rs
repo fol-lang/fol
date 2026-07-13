@@ -95,11 +95,13 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::LoadLocal { local } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let source_name = render_local_name(package_identity, routine, *local)?;
-            let source_moves = routine
-                .locals
-                .get(*local)
-                .and_then(|local| local.type_id)
-                .is_some_and(|type_id| type_table.moves_on_transfer(type_id));
+            let source_is_mutex = routine.mutex_params.contains(local);
+            let source_moves = !source_is_mutex
+                && routine
+                    .locals
+                    .get(*local)
+                    .and_then(|local| local.type_id)
+                    .is_some_and(|type_id| type_table.moves_on_transfer(type_id));
             // Generated control flow is a Rust dispatch loop. Leaving a named
             // move-only slot uninitialized after a semantic move prevents
             // rustc from proving later FOL reinitialization across blocks.
@@ -108,7 +110,17 @@ pub fn render_core_instruction_in_workspace(
             let source = if source_moves {
                 format!("std::mem::take(&mut {source_name})")
             } else {
-                render_transfer_expr(type_table, package_identity, routine, *local)?
+                // A `[mux]` parameter's lowered type describes the protected
+                // value, while the rendered local is an `Arc`-backed
+                // `FolMutex<T>` handle. Even when `T` is move-only, forwarding
+                // the handle must preserve the same mutex identity rather than
+                // moving it out and replacing the caller's binding with a new
+                // default mutex.
+                if source_is_mutex {
+                    format!("{source_name}.clone()")
+                } else {
+                    render_transfer_expr(type_table, package_identity, routine, *local)?
+                }
             };
             Ok(format!("{result} = {source};"))
         }

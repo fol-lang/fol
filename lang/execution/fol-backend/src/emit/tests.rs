@@ -1404,6 +1404,62 @@ mod tests {
     }
 
     #[test]
+    fn executable_backend_preserves_move_only_mux_identity_when_forwarded() {
+        let output = build_and_run_fixture(concat!(
+            "typ Counter: rec = { marker: ptr[int], value: int };\n",
+            "fun[] update(counter[mux]: Counter): int = {\n",
+            "    counter.lock();\n",
+            "    counter.value = 42;\n",
+            "    counter.unlock();\n",
+            "    return 0;\n",
+            "};\n",
+            "fun[] forward(counter[mux]: Counter): int = {\n",
+            "    update(counter);\n",
+            "    counter.lock();\n",
+            "    var value: int = counter.value;\n",
+            "    counter.unlock();\n",
+            "    return value;\n",
+            "};\n",
+            "fun[] main(): int = {\n",
+            "    var seed: int = 7;\n",
+            "    var marker: ptr[int] = &seed;\n",
+            "    var counter: Counter = { marker = marker, value = 1 };\n",
+            "    return .echo(forward(counter));\n",
+            "};\n",
+        ));
+
+        assert!(
+            output.status.success(),
+            "forwarding a move-only [mux] value should build and run: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
+    }
+
+    #[test]
+    fn executable_backend_reinitializes_move_only_aggregates_in_loops() {
+        let output = build_and_run_fixture(concat!(
+            "typ Holder: rec = { pointer: ptr[int] };\n",
+            "fun[] main(): int = {\n",
+            "    var[mut] total: int = 0;\n",
+            "    for (value in {1, 2}) {\n",
+            "        var pointer: ptr[int] = &value;\n",
+            "        var holder: Holder = { pointer = pointer };\n",
+            "        total = total + value;\n",
+            "    };\n",
+            "    return .echo(total);\n",
+            "};\n",
+        ));
+
+        assert!(
+            output.status.success(),
+            "move-only aggregates should reinitialize on every loop iteration: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    }
+
+    #[test]
     fn executable_backend_std_model_main_runs_hosted_entry_after_runtime_move() {
         let fixture_root = temp_root("std_hosted_entry");
         let fixture = write_fixture(

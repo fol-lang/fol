@@ -87,9 +87,9 @@ pub enum LoweredInstrKind {
         global: LoweredGlobalId,
         value: LoweredLocalId,
     },
-    /// End the lexical lifetime of a still-owned local after deferred bodies
-    /// have run. Move analysis excludes locals whose ownership already left
-    /// the scope, so this never double-drops a transferred value.
+    /// End a move-only local's lexical lifetime after deferred bodies have
+    /// run. Backend transfers leave the named slot holding a default sentinel,
+    /// so this drops either the live value or that inert moved-from sentinel.
     DropLocal {
         local: LoweredLocalId,
     },

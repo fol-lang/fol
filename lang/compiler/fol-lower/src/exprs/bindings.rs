@@ -44,12 +44,13 @@ pub(crate) fn lower_local_binding(
         })?;
     let local_id = cursor.allocate_local(type_id, Some(name.to_string()));
     cursor.routine.local_symbols.insert(symbol_id, local_id);
-    if type_needs_lexical_drop(type_table, type_id, 0)
-        && typed_package
-            .program
-            .moved_binding_origin(symbol_id)
-            .is_none()
-    {
+    if type_table.moves_on_transfer(type_id) {
+        // A binding can be moved on one continuing branch and reinitialized
+        // on another. Typecheck conservatively records the merged binding as
+        // moved so later reads are rejected, but the reinitialized branch
+        // still owns a value that must be released at lexical exit. Backend
+        // moves leave the named slot holding its default sentinel, so one
+        // unconditional lexical drop is valid on both paths.
         cursor.register_lexical_drop(local_id)?;
     }
 
@@ -84,24 +85,5 @@ pub(crate) fn lower_local_binding(
             type_id,
             recoverable_error_type: None,
         }))
-    }
-}
-
-fn type_needs_lexical_drop(
-    type_table: &crate::LoweredTypeTable,
-    type_id: LoweredTypeId,
-    depth: usize,
-) -> bool {
-    if depth > 32 {
-        return false;
-    }
-    match type_table.get(type_id) {
-        Some(crate::LoweredType::Owned { .. }) => true,
-        Some(crate::LoweredType::Pointer { shared: false, .. }) => true,
-        Some(crate::LoweredType::Optional { inner })
-        | Some(crate::LoweredType::Error { inner: Some(inner) }) => {
-            type_needs_lexical_drop(type_table, *inner, depth + 1)
-        }
-        _ => false,
     }
 }

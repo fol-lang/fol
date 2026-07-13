@@ -104,6 +104,42 @@ fn core_loads_take_move_only_slots_for_later_reinitialization() {
 }
 
 #[test]
+fn core_loads_clone_mutex_handles_with_move_only_inner_values() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "forward", LoweredBlockId(0));
+    let source = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: None,
+    });
+    routine.mutex_params.extend([source, result]);
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(result),
+        kind: LoweredInstrKind::LoadLocal { local: source },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("mutex handle load");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__tmp = l__pkg__entry__app__r0__l0__pointer.clone();"
+    );
+    assert!(!rendered.contains("std::mem::take"));
+}
+
+#[test]
 fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_sites() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
