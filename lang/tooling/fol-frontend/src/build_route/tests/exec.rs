@@ -1149,7 +1149,7 @@ fn execute_workspace_build_route_rejects_run_for_selected_core_model_artifacts()
         install_prefix: root.join(".fol/install"),
     };
 
-    let result = execute_workspace_build_route(
+    let error = execute_workspace_build_route(
         &workspace,
         &FrontendConfig::default(),
         &FrontendWorkspaceBuildRequest {
@@ -1158,10 +1158,12 @@ fn execute_workspace_build_route_rejects_run_for_selected_core_model_artifacts()
             run_args: Vec::new(),
         },
     )
-    .expect("core-model selected run should remain routable");
+    .expect_err("core-model selected run without bundled std must be rejected");
 
-    assert_eq!(result.artifacts.len(), 1);
-    assert!(result.summary.contains("ran"));
+    assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
+    assert!(error.message().contains("artifact 'demo'"));
+    assert!(error.message().contains("capability model 'core'"));
+    assert!(error.message().contains("bundled internal 'standard' dependency"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1210,7 +1212,7 @@ fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts()
         install_prefix: root.join(".fol/install"),
     };
 
-    let result = execute_workspace_build_route(
+    let error = execute_workspace_build_route(
         &workspace,
         &FrontendConfig::default(),
         &FrontendWorkspaceBuildRequest {
@@ -1219,10 +1221,12 @@ fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts()
             run_args: Vec::new(),
         },
     )
-    .expect("memo-model selected test should remain routable");
+    .expect_err("memo-model selected test without bundled std must be rejected");
 
-    assert_eq!(result.artifacts.len(), 1);
-    assert!(result.summary.contains("tested"));
+    assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
+    assert!(error.message().contains("artifact 'demo_test'"));
+    assert!(error.message().contains("capability model 'memo'"));
+    assert!(error.message().contains("bundled internal 'standard' dependency"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1297,7 +1301,7 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
 
     crate::fetch_workspace(&workspace).expect("bundled std should materialize before run");
 
-    let result = execute_workspace_build_route(
+    let error = execute_workspace_build_route(
         &workspace,
         &FrontendConfig::default(),
         &FrontendWorkspaceBuildRequest {
@@ -1306,10 +1310,11 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
             run_args: Vec::new(),
         },
     )
-    .expect("non-hosted custom run steps should remain routable");
+    .expect_err("non-hosted custom run steps must be rejected");
 
-    assert_eq!(result.artifacts.len(), 1);
-    assert!(result.summary.contains("ran"));
+    assert!(error.message().contains("artifact 'blink'"));
+    assert!(error.message().contains("capability model 'core'"));
+    assert!(error.message().contains("bundled internal 'standard' dependency"));
 
     let hosted = execute_workspace_build_route(
         &workspace,

@@ -75,7 +75,10 @@ Allowed language surface:
 - records, entries, aliases
 - routines and method sugar
 - control flow
-- `dfr`
+- compile-time ownership and move checking
+- lexical borrowing (`var[bor]`, `#owner`, `!borrow`)
+- `dfr` and error-only `edf`
+- typed `ptr[...]` declarations for analysis (but not allocating `&value`)
 - `opt[...]`, `err[...]`
 - array `.len(...)`
 - `panic(...)`
@@ -127,12 +130,16 @@ Adds:
 - `seq[...]`
 - `set[...]`
 - `map[...]`
+- `@var` / `var[new]` owned heap allocation
+- unique/shared pointer construction with `&value`
 - dynamic/string `.len(...)`
 
 Still forbidden **unless the bundled internal `standard` dependency is
 declared** (which upgrades the effective tier to hosted):
 
 - `.echo(...)`
+- `[>]` spawn, `chn[...]`, `select`, and `[mux]` routine parameters
+- `| async` and `| await`
 - process/console/filesystem/network services
 
 Choose `memo` when:
@@ -286,7 +293,13 @@ Implemented today:
 - `str`, `vec`, `seq`, `set`, and `map` are rejected in `core`
 - array `.len(...)` stays valid in `core`
 - dynamic/string `.len(...)` requires `memo`
-- routed `run` / `test` are independent from bundled std presence
+- ownership and lexical borrowing are checked in every model
+- pointer type declarations are analyzable in `core`, while `&value`, owned
+  allocation, and pointer construction require `memo` or hosted `std`
+- all processor surfaces (`[>]`, channels, `select`, mutex parameters,
+  `async`, and `await`) require hosted `std`
+- routed `run` / `test` require the explicit bundled internal `standard`
+  dependency because executing artifacts is a hosted operation
 - emitted Rust imports the matching internal runtime module
 - public `fol_model = "memo"` currently maps to the internal heap runtime
   module `fol_runtime::memo`
@@ -309,6 +322,7 @@ public surfaces.
 - `fol_runtime::std`
   - hosted hooks such as `.echo(...)`
   - hosted process-outcome helpers
+  - OS-thread spawn, channels, selection, mutex, and eventual support
   - memo-tier heap types re-exported for host artifacts
 
 Backend authors should not import a wider tier than the lowered artifact

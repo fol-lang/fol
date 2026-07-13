@@ -76,26 +76,20 @@ pub fn run_direct_compile(
     frontend_config: &FrontendConfig,
 ) -> FrontendResult<FrontendCommandResult> {
     let mut diagnostics = DiagnosticReport::new();
-    let lowered = compile_file(
+    let lowered = match compile_file(
         &config.input,
         &ResolverConfig {
             std_root: config.std_root.clone(),
             package_store_root: config.package_store_root.clone(),
         },
         &mut diagnostics,
-    )
-    .map_err(|()| {
-        FrontendError::new(
-            FrontendErrorKind::CommandFailed,
-            render_direct_diagnostics(&diagnostics, frontend_config.output.mode),
-        )
-    })?;
+    ) {
+        Ok(lowered) => lowered,
+        Err(()) => return Err(FrontendError::from_errors(diagnostics.diagnostics)),
+    };
 
     if diagnostics.has_errors() {
-        return Err(FrontendError::new(
-            FrontendErrorKind::CommandFailed,
-            render_direct_diagnostics(&diagnostics, frontend_config.output.mode),
-        ));
+        return Err(FrontendError::from_errors(diagnostics.diagnostics));
     }
 
     match &config.mode {
@@ -645,14 +639,6 @@ fn compile_file(
             }
             Err(())
         }
-    }
-}
-
-fn render_direct_diagnostics(report: &DiagnosticReport, mode: OutputMode) -> String {
-    match mode {
-        OutputMode::Human => crate::pretty::render_report_pretty(report),
-        OutputMode::Plain => report.output(OutputFormat::Human),
-        OutputMode::Json => report.output(OutputFormat::Json),
     }
 }
 

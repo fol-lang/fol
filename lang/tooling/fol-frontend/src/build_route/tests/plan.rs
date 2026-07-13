@@ -158,6 +158,7 @@ fn resolve_requested_step_execution_keeps_untargeted_non_std_models() {
             selection: None,
             ambiguous_selection: false,
             available_models: vec![fol_backend::BackendFolModel::Core],
+            has_bundled_std: false,
         }],
     }];
 
@@ -173,6 +174,7 @@ fn resolve_requested_step_execution_keeps_untargeted_non_std_models() {
         resolved.available_models,
         vec![fol_backend::BackendFolModel::Core]
     );
+    assert!(!resolved.all_members_have_bundled_std);
 }
 
 #[test]
@@ -221,15 +223,29 @@ fn projected_step_plans_keep_step_descriptions() {
 }
 
 #[test]
-fn workspace_route_model_guard_allows_untargeted_core_and_memo_models() {
-    super::super::ensure_std_workspace_route_models(
+fn workspace_route_model_guard_rejects_untargeted_members_without_bundled_std() {
+    let error = super::super::ensure_std_workspace_route_models(
         "run",
         &[
             fol_backend::BackendFolModel::Core,
             fol_backend::BackendFolModel::Memo,
         ],
+        false,
     )
-    .expect("untargeted routed run should stay independent from bundled std");
+    .expect_err("untargeted routed run must require bundled std");
+
+    assert!(error.message().contains("bundled internal 'standard' dependency"));
+    assert!(error.message().contains("core, memo"));
+}
+
+#[test]
+fn workspace_route_model_guard_allows_hosted_untargeted_members() {
+    super::super::ensure_std_workspace_route_models(
+        "test",
+        &[fol_backend::BackendFolModel::Memo],
+        true,
+    )
+    .expect("untargeted routed test should accept members with bundled std");
 }
 
 #[test]

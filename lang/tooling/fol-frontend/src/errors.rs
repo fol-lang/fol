@@ -112,13 +112,20 @@ impl From<std::io::Error> for FrontendError {
 
 impl From<fol_package::PackageError> for FrontendError {
     fn from(error: fol_package::PackageError) -> Self {
-        Self::new(FrontendErrorKind::PackageFailed, error.to_string())
+        let diagnostic = error.to_diagnostic();
+        Self {
+            kind: FrontendErrorKind::PackageFailed,
+            message: error.to_string(),
+            notes: Vec::new(),
+            diagnostics: vec![diagnostic],
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{FrontendError, FrontendErrorKind};
+    use crate::{FrontendOutput, FrontendOutputConfig, OutputMode};
 
     #[test]
     fn frontend_error_formats_with_stable_kind_prefix() {
@@ -132,14 +139,39 @@ mod tests {
 
     #[test]
     fn package_errors_lower_into_frontend_package_failed_kind() {
-        let package_error = fol_package::PackageError::new(
+        let package_error = fol_package::PackageError::with_origin(
             fol_package::PackageErrorKind::InvalidInput,
             "bad package",
+            fol_parser::ast::SyntaxOrigin {
+                file: Some("pkg/build.fol".to_string()),
+                line: 7,
+                column: 3,
+                length: 5,
+            },
         );
         let error = FrontendError::from(package_error);
 
         assert_eq!(error.kind(), FrontendErrorKind::PackageFailed);
         assert!(error.to_string().starts_with("FrontendPackageFailed:"));
+        assert_eq!(error.diagnostics().len(), 1);
+        assert_eq!(error.diagnostics()[0].code.as_str(), "K1001");
+        assert_eq!(
+            error.diagnostics()[0]
+                .primary_location()
+                .and_then(|location| location.file.as_deref()),
+            Some("pkg/build.fol")
+        );
+
+        let rendered = FrontendOutput::new(FrontendOutputConfig {
+            mode: OutputMode::Json,
+        })
+        .render_error(&error)
+        .expect("package error JSON should render");
+        let json: serde_json::Value =
+            serde_json::from_str(&rendered).expect("package error JSON should be valid");
+        assert_eq!(json["diagnostics"][0]["code"], "K1001");
+        assert_eq!(json["diagnostics"][0]["location"]["line"], 7);
+        assert_ne!(json["diagnostics"][0]["code"], "F1003");
     }
 
     #[test]
