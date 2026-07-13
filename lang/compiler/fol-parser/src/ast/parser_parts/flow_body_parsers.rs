@@ -37,11 +37,6 @@ impl AstParser {
             return Ok(nodes);
         }
 
-        if matches!(key, KEYWORD::Keyword(BUILDIN::Let)) {
-            let nodes = self.parse_let_decl(tokens)?;
-            return Ok(nodes);
-        }
-
         if matches!(key, KEYWORD::Keyword(BUILDIN::Con)) {
             let nodes = self.parse_con_decl(tokens)?;
             return Ok(nodes);

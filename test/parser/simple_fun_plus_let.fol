@@ -1,4 +1,0 @@
-fun demo(): str = {
-    +let message: str = "hi";
-    return message;
-};

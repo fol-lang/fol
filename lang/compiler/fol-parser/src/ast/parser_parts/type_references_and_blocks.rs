@@ -259,12 +259,6 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Let)) {
-                body.extend(self.parse_let_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
             if matches!(key, KEYWORD::Keyword(BUILDIN::Con)) {
                 body.extend(self.parse_con_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;

@@ -35,10 +35,6 @@ fn test_keywords() {
         "Should contain 'pro' keyword"
     );
     assert!(
-        keyword_strings.contains(&"let".to_string()),
-        "Should contain 'let' keyword"
-    );
-    assert!(
         keyword_strings.contains(&"typ".to_string()),
         "Should contain 'typ' keyword"
     );
@@ -74,6 +70,22 @@ fn test_keywords() {
         keyword_strings.contains(&"select".to_string()),
         "Should contain 'select' keyword"
     );
+}
+
+#[test]
+fn deleted_let_spelling_lexes_as_an_identifier() {
+    let tokens = tokenize_folder_contents(&[("binding.fol", "let")]);
+    let significant = tokens
+        .into_iter()
+        .filter(|(key, _)| !key.is_space() && !key.is_eof())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        significant,
+        vec![(KEYWORD::Identifier, "let".to_string())],
+        "deleted binding spelling should not remain reserved"
+    );
+    assert!(!fol_lexer::token::buildin::OTHER_KEYWORDS.contains(&"let"));
 }
 
 #[test]

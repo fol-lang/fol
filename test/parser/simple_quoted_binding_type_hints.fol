@@ -1,5 +1,5 @@
 var value: "Item" = ready;
 
 fun demo() = {
-    let count: pkg::"Count" = 1;
+    var[imu] count: pkg::"Count" = 1;
 };

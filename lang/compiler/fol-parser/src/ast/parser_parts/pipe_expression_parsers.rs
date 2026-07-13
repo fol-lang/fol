@@ -138,10 +138,6 @@ impl AstParser {
             return self.pipe_stage_from_nodes(self.parse_var_decl(tokens)?, &token);
         }
 
-        if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Let)) {
-            return self.pipe_stage_from_nodes(self.parse_let_decl(tokens)?, &token);
-        }
-
         if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Con)) {
             return self.pipe_stage_from_nodes(self.parse_con_decl(tokens)?, &token);
         }

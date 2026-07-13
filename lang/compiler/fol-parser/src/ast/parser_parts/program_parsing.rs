@@ -221,30 +221,6 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Let)) {
-                let before = (
-                    token.loc().row(),
-                    token.loc().col(),
-                    token.con().to_string(),
-                );
-                match self.parse_let_decl(tokens) {
-                    Ok(nodes) => {
-                        self.consume_required_semicolon(tokens)
-                            .map_err(|e| vec![e])?;
-                        self.extend_top_level_entries(&mut entries, &token, nodes);
-                        self.bump_if_no_progress(tokens, before);
-                    }
-                    Err(error) => {
-                        errors.push(error);
-                        self.sync_to_next_declaration(tokens);
-                    }
-                }
-                if tokens.curr(false).is_err() {
-                    break;
-                }
-                continue;
-            }
-
             if matches!(key, KEYWORD::Keyword(BUILDIN::Con)) {
                 let before = (
                     token.loc().row(),

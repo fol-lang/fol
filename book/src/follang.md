@@ -28,8 +28,7 @@ use    // import declarations
 def    // named definitions such as modules, blocks, and tests
 seg    // segment/module-like declarations
 
-var    // mutable bindings
-let    // immutable local bindings
+var    // bindings; use var[imu] for immutability
 con    // constants
 lab    // labels and label-like bindings
 

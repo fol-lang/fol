@@ -438,14 +438,12 @@ impl AstParser {
                         break;
                     }
                     // is_assign() covers Use, Def, Seg, Var, Fun, Pro, Typ, Ali, Lab, Con.
-                    // Also stop on Std, Log, and Let which are declaration starters
+                    // Also stop on Std and Log, which are declaration starters
                     // not covered by is_assign().
                     if key.is_assign()
                         || matches!(
                             key,
-                            KEYWORD::Keyword(BUILDIN::Std)
-                                | KEYWORD::Keyword(BUILDIN::Log)
-                                | KEYWORD::Keyword(BUILDIN::Let)
+                            KEYWORD::Keyword(BUILDIN::Std) | KEYWORD::Keyword(BUILDIN::Log)
                         )
                     {
                         break;

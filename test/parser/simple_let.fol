@@ -1,2 +1,0 @@
-let message = "hello";
-let count: int = 3;

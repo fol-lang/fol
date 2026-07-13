@@ -3,6 +3,6 @@ typ Numbers: seq[int;];
 var items: seq[int;] = source;
 
 fun build(): int = {
-    let cache: map[str; vec[int;];] = source;
+    var[imu] cache: map[str; vec[int;];] = source;
     return 0;
 };

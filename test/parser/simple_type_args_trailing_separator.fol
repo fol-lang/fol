@@ -2,6 +2,6 @@ typ Numbers: seq[int,];
 typ Lookup: map[str, vec[int,],];
 
 fun build(items: seq[pkg::Input,]): map[str, vec[pkg::Output,],] = {
-    let cache: map[str, vec[int,],] = source;
+    var[imu] cache: map[str, vec[int,],] = source;
     return cache;
 };

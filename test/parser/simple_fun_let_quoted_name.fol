@@ -1,3 +1,0 @@
-fun run() = {
-    let "count": int = 1;
-};

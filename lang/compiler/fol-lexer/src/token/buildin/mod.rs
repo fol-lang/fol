@@ -23,7 +23,7 @@ pub const LITERAL_KEYWORDS: &[&str] = &["true", "false"];
 pub const DIAGNOSTIC_KEYWORDS: &[&str] = &["panic", "report", "check", "assert"];
 
 /// Other keyword names.
-pub const OTHER_KEYWORDS: &[&str] = &["let", "this", "self", "where", "get", "async", "await"];
+pub const OTHER_KEYWORDS: &[&str] = &["this", "self", "where", "get", "async", "await"];
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BUILDIN {
@@ -78,7 +78,6 @@ pub enum BUILDIN {
     Do,
     Get,
     Of,
-    Let,
     Async,
     Await,
     Select,
@@ -137,7 +136,6 @@ impl fmt::Display for BUILDIN {
             BUILDIN::For => "for",
             BUILDIN::Do => "do",
             BUILDIN::Get => "get",
-            BUILDIN::Let => "let",
             BUILDIN::Async => "async",
             BUILDIN::Await => "await",
             BUILDIN::Select => "select",

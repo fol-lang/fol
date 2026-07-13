@@ -458,7 +458,6 @@ impl Element {
             "each" => self.set_key(Keyword(BUILDIN::Each)),
             "for" => self.set_key(Keyword(BUILDIN::For)),
             "do" => self.set_key(Keyword(BUILDIN::Do)),
-            "let" => self.set_key(Keyword(BUILDIN::Let)),
             "async" => self.set_key(Keyword(BUILDIN::Async)),
             "await" => self.set_key(Keyword(BUILDIN::Await)),
             "select" => self.set_key(Keyword(BUILDIN::Select)),

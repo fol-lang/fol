@@ -152,7 +152,6 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::Selfi)
                     | KEYWORD::Keyword(BUILDIN::If)
                     | KEYWORD::Keyword(BUILDIN::Get)
-                    | KEYWORD::Keyword(BUILDIN::Let)
                     | KEYWORD::Keyword(BUILDIN::Not)
                     | KEYWORD::Keyword(BUILDIN::Check)
                     | KEYWORD::Keyword(BUILDIN::Panic)

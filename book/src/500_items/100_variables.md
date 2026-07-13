@@ -130,22 +130,29 @@ fun[] main(): int = {
 ```
 ## Types
 
-### Immutable types (constants)
-By default when a variable is defined without options, it is immutable type, for example here an intiger variable:
+### Mutable variables
+By default a variable declared without options is mutable:
 ```
 pro[] main: int = {
     var aNumber: int = 5;
-    aNumber = 54;                       // reassigning varibale $aNumber thorws an error
+    aNumber = 54;
 }
 ```
-### Mutable types
-If we want a variable to be mutable, we explicitly use `var[mut]` or its
-`~var` prefix alternative:
+The explicit `var[mut]` option and its `~var` prefix alternative select the
+same mutable behavior:
 ```
 pro[] main: int = {
     var[mut] aNumber: int = 5
     ~var anotherNumber: int = 24
     aNumber, anotherNumber = 6          // this is completely fine, we assign two wariables new values
+}
+```
+### Immutable variables
+Use `var[imu]` when a local binding must not be reassigned:
+```
+pro[] main: int = {
+    var[imu] aNumber: int = 5;
+    aNumber = 54;                       // typecheck error: immutable binding
 }
 ```
 ### Reactive types
