@@ -321,7 +321,7 @@ fn core_instruction_rendering_emits_record_field_accesses_as_native_member_reads
 }
 
 #[test]
-fn core_instruction_rendering_moves_unique_record_fields() {
+fn core_instruction_rendering_takes_unique_record_fields() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
@@ -354,7 +354,7 @@ fn core_instruction_rendering_moves_unique_record_fields() {
 
     assert_eq!(
         rendered,
-        "l__pkg__entry__app__r41__l1__pointer = l__pkg__entry__app__r41__l0__holder.pointer;"
+        "l__pkg__entry__app__r41__l1__pointer = std::mem::take(&mut l__pkg__entry__app__r41__l0__holder.pointer);"
     );
 }
 

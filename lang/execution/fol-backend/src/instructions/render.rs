@@ -325,7 +325,16 @@ pub fn render_core_instruction_in_workspace(
                     "{result} = {guard}.as_ref().expect(\"mutex field access requires .lock()\").{field}.clone();"
                 ))
             } else if result_moves {
-                Ok(format!("{result} = {base}.{field};"))
+                // A move-only field transfer must leave the containing local
+                // structurally initialized. Lexical cleanup still drops that
+                // local after the FOL move, and a native Rust field move would
+                // make the later whole-value drop illegal. As with LoadLocal,
+                // replace the transferred field with its backend-only default
+                // sentinel; typecheck remains responsible for rejecting any
+                // semantic read of the moved field.
+                Ok(format!(
+                    "{result} = std::mem::take(&mut {base}.{field});"
+                ))
             } else {
                 Ok(format!("{result} = {base}.{field}.clone();"))
             }
