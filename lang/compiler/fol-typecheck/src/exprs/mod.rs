@@ -249,8 +249,57 @@ pub(crate) fn apply_spawn_argument_boundary(
     resolved: &ResolvedProgram,
     task: &AstNode,
 ) -> Result<(), TypecheckError> {
+    let task = helpers::strip_comments(task);
+
+    // Ordinary call typing has already inferred and recorded the concrete
+    // signature for direct calls. Re-bind the arguments here so omitted
+    // defaults cross exactly the same processor boundary as explicit values.
+    // Reading the instantiated signature also distinguishes a safe concrete
+    // generic call from forwarding an unresolved generic value.
+    if let AstNode::FunctionCall {
+        syntax_id: Some(syntax_id),
+        name,
+        args,
+        ..
+    } = task
+    {
+        if let Some(signature) = typed.call_signature(*syntax_id).cloned() {
+            let bound_args = calls::bind_call_arguments(
+                &signature,
+                args,
+                name,
+                node_origin(resolved, task),
+                true,
+                true,
+            )?;
+            for (index, (parameter_type, bound_arg)) in signature
+                .params
+                .iter()
+                .zip(bound_args.iter())
+                .enumerate()
+            {
+                let boundary_value = match bound_arg {
+                    calls::BoundCallArg::Explicit(arg)
+                    | calls::BoundCallArg::VariadicUnpack(arg) => Some(*arg),
+                    calls::BoundCallArg::VariadicPack(args) => args.first().copied(),
+                    calls::BoundCallArg::Default => signature
+                        .param_defaults
+                        .get(index)
+                        .and_then(Option::as_ref),
+                }
+                .unwrap_or(task);
+                validate_processor_boundary_type(
+                    typed,
+                    resolved,
+                    *parameter_type,
+                    boundary_value,
+                )?;
+            }
+        }
+    }
+
     let mut boundary_values = Vec::new();
-    match helpers::strip_comments(task) {
+    match task {
         AstNode::FunctionCall { args, .. } | AstNode::QualifiedFunctionCall { args, .. } => {
             boundary_values.extend(args);
         }
@@ -315,13 +364,13 @@ pub(crate) fn apply_spawn_argument_boundary(
                 || {
                     TypecheckError::new(
                         TypecheckErrorKind::Ownership,
-                        "values containing shared Rc pointers cannot cross a spawn boundary; use [mux] data that contains only thread-safe values",
+                        "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use [mux] data that contains only thread-safe values",
                     )
                 },
                 |origin| {
                     TypecheckError::with_origin(
                         TypecheckErrorKind::Ownership,
-                        "values containing shared Rc pointers cannot cross a spawn boundary; use [mux] data that contains only thread-safe values",
+                        "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use [mux] data that contains only thread-safe values",
                         origin,
                     )
                 },
@@ -340,6 +389,36 @@ pub(crate) fn apply_spawn_argument_boundary(
         }
     }
     Ok(())
+}
+
+fn validate_processor_boundary_type(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    type_id: CheckedTypeId,
+    value: &AstNode,
+) -> Result<(), TypecheckError> {
+    let message = if decls::checked_type_contains_generic_param(typed, type_id) {
+        Some(
+            "unconstrained generic values cannot cross a spawn or async thread boundary because FOL does not yet define a thread-safety and lifetime contract; use a concrete thread-safe value",
+        )
+    } else if helpers::type_contains_borrowed(typed, type_id) {
+        Some(
+            "borrowed values cannot cross a spawn or async thread boundary; pass a clonable stack value or move an owned value",
+        )
+    } else if helpers::type_contains_shared_pointer(typed, type_id) {
+        Some(
+            "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use [mux] data that contains only thread-safe values",
+        )
+    } else {
+        None
+    };
+    let Some(message) = message else {
+        return Ok(());
+    };
+    Err(node_origin(resolved, value).map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::Ownership, message),
+        |origin| TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin),
+    ))
 }
 
 fn reject_unsupported_spawn_task_surface(
@@ -953,7 +1032,7 @@ fn type_node_with_expectation_inner(
                 "assignment",
             )?;
             ensure_assignable(typed, expected, actual, "assignment".to_string(), None)?;
-            bindings::mark_plain_identifier_move(
+            bindings::track_value_transfer(
                 typed,
                 resolved,
                 context,
@@ -1134,6 +1213,7 @@ fn type_node_with_expectation_inner(
                 },
                 body,
             )?;
+            register_deferred_outer_binding_uses(typed, resolved, context.scope_id, body)?;
             Ok(TypedExpr::none())
         }
         AstNode::Yield { .. } => Err(TypecheckError::new(
@@ -1362,22 +1442,176 @@ pub(crate) fn type_body(
     context: TypeContext,
     nodes: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
+    type_body_inner(typed, resolved, context, nodes, false)
+}
+
+pub(crate) fn type_body_transferring_value(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    nodes: &[AstNode],
+) -> Result<TypedExpr, TypecheckError> {
+    type_body_inner(typed, resolved, context, nodes, true)
+}
+
+fn type_body_inner(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    nodes: &[AstNode],
+    transfer_final_value: bool,
+) -> Result<TypedExpr, TypecheckError> {
     let result = (|| {
         let mut final_expr = TypedExpr::none();
+        let mut final_node = None;
         for node in nodes {
-            let node_expr = type_node(typed, resolved, context, node)?;
+            let node_result = type_node(typed, resolved, context, node);
+            if let Some(error) = take_deferred_transfer_error(typed, resolved) {
+                return Err(error);
+            }
+            let node_expr = node_result?;
             if node_expr.value_type.is_some() {
                 final_expr = node_expr;
+                final_node = Some(node);
                 if node_expr.is_never(typed) {
                     return Ok(final_expr);
                 }
+            }
+        }
+        if transfer_final_value {
+            if let (Some(node), Some(actual)) = (final_node, final_expr.value_type) {
+                let transfer_result = bindings::track_value_transfer(
+                    typed,
+                    resolved,
+                    context,
+                    Some(node),
+                    actual,
+                );
+                if let Some(error) = take_deferred_transfer_error(typed, resolved) {
+                    return Err(error);
+                }
+                transfer_result?;
             }
         }
         Ok(final_expr)
     })();
     typed.release_borrows_in_scope(context.scope_id);
     typed.release_mutex_guards_in_scope(context.scope_id);
+    typed.release_deferred_binding_uses_in_scope(context.scope_id);
     result
+}
+
+fn take_deferred_transfer_error(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+) -> Option<TypecheckError> {
+    let conflict = typed.take_deferred_transfer_conflict()?;
+    let name = resolved
+        .symbol(conflict.symbol)
+        .map(|symbol| symbol.name.as_str())
+        .unwrap_or("<unknown>");
+    Some(
+        TypecheckError::with_origin(
+            TypecheckErrorKind::Ownership,
+            format!(
+                "move-only binding '{name}' cannot be transferred after it is referenced by a dfr/edf body in the same lexical scope"
+            ),
+            conflict.transfer_origin,
+        )
+        .with_related_origin(conflict.deferred_origin, "deferred use registered here"),
+    )
+}
+
+fn register_deferred_outer_binding_uses(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    registration_scope: ScopeId,
+    body: &[AstNode],
+) -> Result<(), TypecheckError> {
+    for node in body {
+        register_deferred_outer_binding_uses_in_node(
+            typed,
+            resolved,
+            registration_scope,
+            node,
+        )?;
+    }
+    Ok(())
+}
+
+fn register_deferred_outer_binding_uses_in_node(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    registration_scope: ScopeId,
+    node: &AstNode,
+) -> Result<(), TypecheckError> {
+    if let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = helpers::strip_comments(node)
+    {
+        let reference = resolved
+            .references
+            .iter()
+            .find(|reference| {
+                reference.syntax_id == Some(*syntax_id)
+                    && reference.kind == ReferenceKind::Identifier
+            })
+            .ok_or_else(|| {
+                internal_error(
+                    "dfr/edf identifier use lost its resolved reference",
+                    origin_for(resolved, *syntax_id),
+                )
+            })?;
+        let symbol = reference.resolved.ok_or_else(|| {
+            internal_error(
+                "dfr/edf identifier use remained unresolved after successful typing",
+                origin_for(resolved, *syntax_id),
+            )
+        })?;
+        let declaration_scope = resolved
+            .symbol(symbol)
+            .map(|symbol| symbol.scope)
+            .ok_or_else(|| {
+                internal_error(
+                    "dfr/edf identifier use lost its resolved symbol",
+                    origin_for(resolved, *syntax_id),
+                )
+            })?;
+        if scope_is_same_or_ancestor(resolved, declaration_scope, registration_scope) {
+            let origin = origin_for(resolved, *syntax_id).ok_or_else(|| {
+                internal_error("dfr/edf identifier use lost its syntax origin", None)
+            })?;
+            typed.register_deferred_binding_use(
+                symbol,
+                crate::model::DeferredBindingUse {
+                    scope: registration_scope,
+                    origin,
+                },
+            );
+        }
+    }
+
+    for child in node.children() {
+        register_deferred_outer_binding_uses_in_node(
+            typed,
+            resolved,
+            registration_scope,
+            child,
+        )?;
+    }
+    Ok(())
+}
+
+fn scope_is_same_or_ancestor(
+    resolved: &ResolvedProgram,
+    possible_ancestor: ScopeId,
+    scope: ScopeId,
+) -> bool {
+    std::iter::successors(Some(scope), |scope_id| {
+        resolved.scope(*scope_id).and_then(|scope| scope.parent)
+    })
+    .any(|scope_id| scope_id == possible_ancestor)
 }
 
 #[cfg(test)]

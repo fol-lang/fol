@@ -1,5 +1,7 @@
 use crate::types::GenericConstraint;
-use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable, TypecheckCapabilityModel};
+use crate::{
+    BuiltinTypeIds, CheckedTypeId, RoutineType, TypeTable, TypecheckCapabilityModel,
+};
 use fol_intrinsics::IntrinsicId;
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
@@ -148,6 +150,25 @@ pub struct ActiveMutexGuard {
     pub origin: SyntaxOrigin,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredBindingUse {
+    pub(crate) scope: ScopeId,
+    pub(crate) origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredTransferConflict {
+    pub(crate) symbol: SymbolId,
+    pub(crate) transfer_origin: SyntaxOrigin,
+    pub(crate) deferred_origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OwnershipFlowState {
+    moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
+    eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EventualMoveKind {
     Transfer,
@@ -168,6 +189,10 @@ pub struct TypedProgram {
     conformances: BTreeMap<SymbolId, TypedConformance>,
     apparent_type_overrides: BTreeMap<CheckedTypeId, CheckedTypeId>,
     method_call_targets: BTreeMap<SyntaxNodeId, SymbolId>,
+    /// Fully instantiated signatures at direct call sites. Processor boundary
+    /// validation needs the concrete parameter types after generic inference,
+    /// including parameters filled by omitted defaults.
+    call_signatures: BTreeMap<SyntaxNodeId, RoutineType>,
     constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
     record_layouts: BTreeMap<CheckedTypeId, Vec<RecordFieldLayout>>,
     /// Generic instantiations whose structural shape is currently being
@@ -183,6 +208,8 @@ pub struct TypedProgram {
     owner_borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
     returned_borrows: BTreeMap<SymbolId, SyntaxOrigin>,
     active_mutex_guards: BTreeMap<SymbolId, ActiveMutexGuard>,
+    deferred_binding_uses: BTreeMap<SymbolId, Vec<DeferredBindingUse>>,
+    deferred_transfer_conflict: Option<DeferredTransferConflict>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -271,23 +298,108 @@ impl TypedWorkspace {
 }
 
 impl TypedProgram {
+    pub(crate) fn ownership_flow_state(&self) -> OwnershipFlowState {
+        OwnershipFlowState {
+            moved_bindings: self.moved_bindings.clone(),
+            eventual_moves: self.eventual_moves.clone(),
+        }
+    }
+
+    pub(crate) fn restore_ownership_flow(&mut self, state: &OwnershipFlowState) {
+        self.moved_bindings.clone_from(&state.moved_bindings);
+        self.eventual_moves.clone_from(&state.eventual_moves);
+    }
+
+    pub(crate) fn merge_ownership_flows(
+        &mut self,
+        baseline: &OwnershipFlowState,
+        branches: &[OwnershipFlowState],
+    ) {
+        self.restore_ownership_flow(baseline);
+        for branch in branches {
+            for (symbol, origin) in &branch.moved_bindings {
+                self.moved_bindings
+                    .entry(*symbol)
+                    .or_insert_with(|| origin.clone());
+            }
+            for (symbol, kind) in &branch.eventual_moves {
+                self.eventual_moves.entry(*symbol).or_insert(*kind);
+            }
+        }
+    }
+
     pub(crate) fn mark_binding_moved(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
         self.moved_bindings.entry(symbol).or_insert(origin);
     }
 
     pub(crate) fn mark_eventual_transferred(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
         if !self.moved_bindings.contains_key(&symbol) {
             self.eventual_moves
                 .insert(symbol, EventualMoveKind::Transfer);
         }
-        self.mark_binding_moved(symbol, origin);
+        self.moved_bindings.entry(symbol).or_insert(origin);
     }
 
     pub(crate) fn mark_eventual_awaited(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
         if !self.moved_bindings.contains_key(&symbol) {
             self.eventual_moves.insert(symbol, EventualMoveKind::Await);
         }
-        self.mark_binding_moved(symbol, origin);
+        self.moved_bindings.entry(symbol).or_insert(origin);
+    }
+
+    fn record_deferred_transfer_conflict(
+        &mut self,
+        symbol: SymbolId,
+        transfer_origin: SyntaxOrigin,
+    ) -> bool {
+        let Some(deferred_use) = self
+            .deferred_binding_uses
+            .get(&symbol)
+            .and_then(|uses| uses.first())
+            .cloned()
+        else {
+            return false;
+        };
+        self.deferred_transfer_conflict
+            .get_or_insert(DeferredTransferConflict {
+                symbol,
+                transfer_origin,
+                deferred_origin: deferred_use.origin,
+            });
+        true
+    }
+
+    pub(crate) fn register_deferred_binding_use(
+        &mut self,
+        symbol: SymbolId,
+        deferred_use: DeferredBindingUse,
+    ) {
+        let uses = self.deferred_binding_uses.entry(symbol).or_default();
+        if !uses.contains(&deferred_use) {
+            uses.push(deferred_use);
+        }
+    }
+
+    pub(crate) fn take_deferred_transfer_conflict(
+        &mut self,
+    ) -> Option<DeferredTransferConflict> {
+        self.deferred_transfer_conflict.take()
+    }
+
+    pub(crate) fn release_deferred_binding_uses_in_scope(&mut self, scope: ScopeId) {
+        self.deferred_binding_uses.retain(|_, uses| {
+            uses.retain(|deferred_use| deferred_use.scope != scope);
+            !uses.is_empty()
+        });
     }
 
     pub(crate) fn eventual_move_kind(&self, symbol: SymbolId) -> Option<EventualMoveKind> {
@@ -510,6 +622,7 @@ impl TypedProgram {
             apparent_type_overrides: BTreeMap::new(),
             active_instantiations: std::collections::BTreeSet::new(),
             method_call_targets: BTreeMap::new(),
+            call_signatures: BTreeMap::new(),
             constraint_call_sites: std::collections::BTreeSet::new(),
             record_layouts: BTreeMap::new(),
             moved_bindings: BTreeMap::new(),
@@ -520,6 +633,8 @@ impl TypedProgram {
             owner_borrow_history: BTreeMap::new(),
             returned_borrows: BTreeMap::new(),
             active_mutex_guards: BTreeMap::new(),
+            deferred_binding_uses: BTreeMap::new(),
+            deferred_transfer_conflict: None,
         }
     }
 
@@ -547,6 +662,18 @@ impl TypedProgram {
 
     pub fn method_call_target(&self, syntax_id: SyntaxNodeId) -> Option<SymbolId> {
         self.method_call_targets.get(&syntax_id).copied()
+    }
+
+    pub(crate) fn record_call_signature(
+        &mut self,
+        syntax_id: SyntaxNodeId,
+        signature: RoutineType,
+    ) {
+        self.call_signatures.insert(syntax_id, signature);
+    }
+
+    pub(crate) fn call_signature(&self, syntax_id: SyntaxNodeId) -> Option<&RoutineType> {
+        self.call_signatures.get(&syntax_id)
     }
 
     pub fn record_constraint_call_site(&mut self, syntax_id: SyntaxNodeId) {

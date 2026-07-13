@@ -138,7 +138,13 @@ impl LoweredTypeTable {
                 return false;
             }
             let result = match table.get(id) {
-                Some(LoweredType::Owned { .. })
+                // A bare generic parameter has no copy-safety proof inside
+                // the generic routine. Treat it as move-only there. Concrete
+                // call-site locals still use their concrete lowered type, so
+                // scalar callers clone while owned and unique-pointer callers
+                // move across the boundary.
+                Some(LoweredType::GenericParameter { .. })
+                | Some(LoweredType::Owned { .. })
                 | Some(LoweredType::Pointer { shared: false, .. })
                 | Some(LoweredType::Eventual { .. })
                 | Some(LoweredType::Channel { .. }) => true,
@@ -169,7 +175,6 @@ impl LoweredTypeTable {
                     .flatten()
                     .any(|variant| moves(table, *variant, visiting)),
                 Some(LoweredType::Builtin(_))
-                | Some(LoweredType::GenericParameter { .. })
                 | Some(LoweredType::Named { .. })
                 | Some(LoweredType::Borrowed { .. })
                 | Some(LoweredType::Pointer { shared: true, .. })
@@ -490,5 +495,19 @@ mod tests {
         assert!(table.moves_on_transfer(unique_record));
         assert!(table.moves_on_transfer(unique_array));
         assert!(!table.moves_on_transfer(shared_record));
+    }
+
+    #[test]
+    fn generic_parameters_transfer_conservatively_until_instantiated() {
+        let mut table = LoweredTypeTable::new();
+        let generic = table.intern(LoweredType::GenericParameter {
+            name: "T".to_string(),
+        });
+        let optional_generic = table.intern(LoweredType::Optional { inner: generic });
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+
+        assert!(table.moves_on_transfer(generic));
+        assert!(table.moves_on_transfer(optional_generic));
+        assert!(!table.moves_on_transfer(int_id));
     }
 }

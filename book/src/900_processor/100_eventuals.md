@@ -22,6 +22,12 @@ binding exactly once. `V3` does not embed eventuals in composite values or pass
 them through generic parameters, because generic bodies do not yet carry a
 move-only contract. Await the value before crossing either boundary.
 
+Arguments sent into `| async` obey the same thread boundary as `[>]`: borrowed
+values, `ptr[shared, T]`, and unresolved generic parameters cannot cross it.
+Omitted defaults are arguments too and are checked against that boundary before
+the task starts. A generic call remains allowed when inference produces only
+concrete thread-safe parameter types.
+
 Error behavior stays identical to the synchronous call. An infallible call
 awaits to `T`. A routine declared as `T / E` remains recoverable after await and
 must be handled with the existing `check(...)` or `||` surfaces. Async and await

@@ -79,7 +79,7 @@ pub(crate) fn type_binary_op(
                 "channel send value".to_string(),
                 node_origin(resolved, left),
             )?;
-            super::bindings::mark_plain_identifier_move(
+            super::bindings::track_value_transfer(
                 typed,
                 resolved,
                 context,
@@ -527,6 +527,15 @@ pub(crate) fn type_unary_op(
         let operand_type =
             operand_expr.required_value("unary operator operand does not have a type")?;
         return if let Some(inner) = unwrap_shell_result_type(typed, operand_type)? {
+            // Extracting a move-only shell payload consumes the shell even
+            // when the unwrap appears as a standalone expression.
+            super::bindings::track_value_transfer(
+                typed,
+                resolved,
+                context,
+                Some(operand),
+                operand_type,
+            )?;
             Ok(TypedExpr::value(inner))
         } else {
             Err(with_node_origin(
@@ -639,6 +648,16 @@ pub(crate) fn type_unary_op(
                     "pointer construction requires heap support; choose fol_model = 'memo' or add bundled std",
                 ));
             }
+            // Pointer construction stores the operand by value. Unique values
+            // therefore leave their source binding at this point rather than
+            // being silently cloned into the new allocation.
+            super::bindings::track_value_transfer(
+                typed,
+                resolved,
+                context,
+                Some(operand),
+                operand_type,
+            )?;
             let shared = expected_type
                 .and_then(|expected| typed.type_table().get(expected))
                 .is_some_and(|expected| {
@@ -651,7 +670,18 @@ pub(crate) fn type_unary_op(
             Ok(TypedExpr::value(pointer))
         }
         UnaryOperator::Deref => match typed.type_table().get(operand_type) {
-            Some(CheckedType::Pointer { target, .. }) => Ok(TypedExpr::value(*target)),
+            Some(CheckedType::Pointer { target, .. }) => {
+                let target = *target;
+                if super::bindings::ownership_moves_on_transfer(typed, target) {
+                    return Err(with_node_origin(
+                        resolved,
+                        node,
+                        TypecheckErrorKind::Ownership,
+                        "dereferencing a pointer to a move-only value is not supported in V3; consuming pointer dereference is not implemented",
+                    ));
+                }
+                Ok(TypedExpr::value(target))
+            }
             _ => Err(invalid_unary_operator_error(typed, op, operand_type)),
         },
         UnaryOperator::BorrowFrom => unreachable!("borrow-from is handled before operand typing"),

@@ -78,6 +78,10 @@ pub(crate) fn type_function_call(
                 .map(|error_type| RecoverableCallEffect { error_type }),
         ],
     )?;
+    // Keep the post-inference signature at the call site. Processor-boundary
+    // validation runs after ordinary call typing and must inspect the concrete
+    // parameter types, including parameters supplied by omitted defaults.
+    typed.record_call_signature(syntax_id, signature.clone());
     let return_type = signature.return_type;
     if let Some(return_type) = return_type {
         let typed_reference = typed
@@ -466,6 +470,13 @@ fn type_echo_intrinsic(
     )?;
     let operand_type = operand_expr.required_value("intrinsic operand does not have a type")?;
 
+    super::bindings::track_value_transfer(
+        typed,
+        resolved,
+        context,
+        Some(&args[0]),
+        operand_type,
+    )?;
     typed.record_node_type(syntax_id, context.source_unit_id, operand_type)?;
     Ok(TypedExpr::value(operand_type).with_optional_effect(operand_expr.recoverable_effect))
 }
@@ -507,11 +518,15 @@ pub(crate) fn type_report_call(
         ));
     }
 
+    let report_context = TypeContext {
+        repeating_loop_scope: None,
+        ..context
+    };
     let report_raw =
-        type_node_with_expectation(typed, resolved, context, &args[0], Some(expected))?;
+        type_node_with_expectation(typed, resolved, report_context, &args[0], Some(expected))?;
     let actual = plain_value_expr(
         typed,
-        context,
+        report_context,
         report_raw,
         node_origin(resolved, &args[0]),
         "report expression",
@@ -530,6 +545,15 @@ pub(crate) fn type_report_call(
         )
     })?;
     ensure_assignable(typed, expected, actual, "report".to_string(), origin)?;
+    // Reporting exits the routine through its error path, transferring the
+    // reported value just like a return transfers its result.
+    super::bindings::track_value_transfer(
+        typed,
+        resolved,
+        report_context,
+        Some(&args[0]),
+        actual,
+    )?;
     Ok(TypedExpr::value(typed.builtin_types().never))
 }
 
@@ -802,6 +826,16 @@ pub(crate) fn type_method_call(
     let origin = node_origin(resolved, node).or_else(|| node_origin(resolved, object));
     let signature =
         routine_signature_for_method(typed, method, object_type, origin.clone(), node.syntax_id())?;
+    // Method syntax is value-receiver sugar: the receiver is the first value
+    // passed to the routine. Record that transfer before checking the explicit
+    // arguments so the same move-only binding cannot be used twice in one call.
+    super::bindings::track_value_transfer(
+        typed,
+        resolved,
+        context,
+        Some(object),
+        object_type,
+    )?;
     let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
@@ -1267,7 +1301,7 @@ pub(crate) fn check_call_arguments(
                     ) if expected == actual
                 );
                 if !extracts_sender {
-                    super::bindings::mark_plain_identifier_move(
+                    super::bindings::track_value_transfer(
                         typed,
                         resolved,
                         context,
@@ -1353,7 +1387,7 @@ pub(crate) fn check_call_arguments(
                             origin.clone(),
                         )?;
                     }
-                    super::bindings::mark_plain_identifier_move(
+                    super::bindings::track_value_transfer(
                         typed,
                         resolved,
                         context,
@@ -2134,14 +2168,14 @@ fn substitute_generic_type(
     }
 }
 
-enum BoundCallArg<'a> {
+pub(super) enum BoundCallArg<'a> {
     Explicit(&'a AstNode),
     Default,
     VariadicPack(Vec<&'a AstNode>),
     VariadicUnpack(&'a AstNode),
 }
 
-fn bind_call_arguments<'a>(
+pub(super) fn bind_call_arguments<'a>(
     signature: &RoutineType,
     args: &'a [AstNode],
     callee: &str,

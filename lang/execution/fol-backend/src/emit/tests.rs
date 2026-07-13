@@ -1301,6 +1301,109 @@ mod tests {
     }
 
     #[test]
+    fn bare_generic_forwarding_moves_unknowns_but_clones_copy_safe_callers() {
+        let source = concat!(
+            "fun forward(T)(value: T): T = { return value; };\n",
+            "typ Item: rec = { value: int };\n",
+            "fun[] main(): int = {\n",
+            "    @var owned: Item = { value = 7 };\n",
+            "    @var forwarded_owned: Item = forward(owned);\n",
+            "    var seed: int = 11;\n",
+            "    var pointer: ptr[int] = &seed;\n",
+            "    var forwarded_pointer: ptr[int] = forward(pointer);\n",
+            "    var scalar: int = 3;\n",
+            "    var forwarded_scalar: int = forward(scalar);\n",
+            "    return forwarded_owned.value + *forwarded_pointer + scalar + forwarded_scalar;\n",
+            "};\n",
+        );
+        let fixture_root = temp_root("generic_transfer");
+        let fixture = write_fixture(&fixture_root, source);
+        let lowered = lowered_workspace_from_entry_path(&fixture);
+        let package = lowered.entry_package();
+        let type_table = lowered.type_table();
+        let forward = package
+            .routine_decls
+            .values()
+            .find(|routine| routine.name == "forward")
+            .expect("generic forwarding routine");
+        let forward_param = forward.params[0];
+        let forward_load = forward
+            .instructions
+            .iter()
+            .find(|instruction| {
+                matches!(
+                    instruction.kind,
+                    fol_lower::LoweredInstrKind::LoadLocal { local }
+                        if local == forward_param
+                )
+            })
+            .expect("forwarding routine should load its parameter");
+        let rendered_forward_load = crate::render_core_instruction_in_workspace(
+            Some(&lowered),
+            &package.identity,
+            type_table,
+            forward,
+            forward_load,
+        )
+        .expect("render generic forwarding load");
+        assert!(
+            !rendered_forward_load.contains(".clone()"),
+            "an unknown generic local must move rather than deep-clone: {rendered_forward_load}"
+        );
+
+        let main = package
+            .routine_decls
+            .values()
+            .find(|routine| routine.name == "main")
+            .expect("main routine");
+        for (name, should_clone) in [("owned", false), ("pointer", false), ("scalar", true)] {
+            let source_local = main
+                .locals
+                .iter_with_ids()
+                .find_map(|(local_id, local)| {
+                    (local.name.as_deref() == Some(name)).then_some(local_id)
+                })
+                .unwrap_or_else(|| panic!("caller local '{name}'"));
+            let rendered_loads = main
+                .instructions
+                .iter()
+                .filter(|instruction| {
+                    matches!(
+                        instruction.kind,
+                        fol_lower::LoweredInstrKind::LoadLocal { local }
+                            if local == source_local
+                    )
+                })
+                .map(|instruction| {
+                    crate::render_core_instruction_in_workspace(
+                        Some(&lowered),
+                        &package.identity,
+                        type_table,
+                        main,
+                        instruction,
+                    )
+                    .expect("render caller load")
+                })
+                .collect::<Vec<_>>();
+            assert!(!rendered_loads.is_empty(), "caller should load '{name}'");
+            assert!(
+                rendered_loads
+                    .iter()
+                    .all(|rendered| rendered.contains(".clone()") == should_clone),
+                "caller transfer policy for '{name}' was wrong: {rendered_loads:#?}"
+            );
+        }
+
+        let output = build_and_run_fixture(source);
+        let _ = fs::remove_dir_all(&fixture_root);
+        assert!(
+            output.status.success(),
+            "owned, pointer, and scalar generic forwarding should build and run: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn executable_backend_std_model_main_runs_hosted_entry_after_runtime_move() {
         let fixture_root = temp_root("std_hosted_entry");
         let fixture = write_fixture(

@@ -135,7 +135,7 @@ pub(crate) fn type_binding_initializer(
                 )?;
                 Ok(TypedExpr::value(borrowed))
             } else {
-                mark_plain_identifier_move(typed, resolved, context, value, actual)?;
+                track_value_transfer(typed, resolved, context, value, actual)?;
                 Ok(TypedExpr::value(expected))
             }
         }
@@ -216,7 +216,7 @@ pub(crate) fn type_binding_initializer(
             })?;
             symbol.declared_type = Some(inferred);
             if !borrowing && !inferred_borrow_from {
-                mark_plain_identifier_move(
+                track_value_transfer(
                     typed,
                     resolved,
                     context,
@@ -533,7 +533,7 @@ fn register_borrow_binding(
     Ok(borrowed)
 }
 
-pub(crate) fn mark_plain_identifier_move(
+pub(crate) fn track_value_transfer(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
     context: TypeContext,
@@ -543,15 +543,50 @@ pub(crate) fn mark_plain_identifier_move(
     let Some(value) = value else {
         return Ok(());
     };
-    let AstNode::Identifier {
-        syntax_id: Some(syntax_id),
-        name,
-    } = super::helpers::strip_comments(value)
-    else {
-        return Ok(());
-    };
+    match super::helpers::strip_comments(value) {
+        AstNode::Identifier {
+            syntax_id: Some(syntax_id),
+            name,
+        } => track_identifier_transfer(
+            typed,
+            resolved,
+            context,
+            value,
+            *syntax_id,
+            name,
+            actual_type,
+        ),
+        AstNode::FieldAccess { object, field }
+            if ownership_moves_on_transfer(typed, actual_type) =>
+        {
+            track_move_only_field_transfer(
+                typed,
+                resolved,
+                context,
+                value,
+                object,
+                field,
+                actual_type,
+            )
+        }
+        AstNode::IndexAccess { .. } if ownership_moves_on_transfer(typed, actual_type) => {
+            reject_move_only_projection_transfer(resolved, value, "indexed projection")
+        }
+        _ => Ok(()),
+    }
+}
+
+fn track_identifier_transfer(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    value: &AstNode,
+    syntax_id: fol_parser::ast::SyntaxNodeId,
+    name: &str,
+    actual_type: crate::CheckedTypeId,
+) -> Result<(), TypecheckError> {
     if let Some(CheckedType::Borrowed { inner, .. }) = typed.type_table().get(actual_type) {
-        if ownership_or_unknown_moves_on_transfer(typed, *inner) {
+        if ownership_moves_on_transfer(typed, *inner) {
             let message = format!(
                 "move-only value cannot be transferred out of borrow binding '{name}'"
             );
@@ -576,7 +611,7 @@ pub(crate) fn mark_plain_identifier_move(
         return Ok(());
     }
     let Some(reference) = resolved.references.iter().find(|reference| {
-        reference.syntax_id == Some(*syntax_id)
+        reference.syntax_id == Some(syntax_id)
             && reference.kind == fol_resolver::ReferenceKind::Identifier
     }) else {
         return Ok(());
@@ -593,6 +628,96 @@ pub(crate) fn mark_plain_identifier_move(
         }
     }
     Ok(())
+}
+
+fn track_move_only_field_transfer(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    value: &AstNode,
+    object: &AstNode,
+    field: &str,
+    actual_type: crate::CheckedTypeId,
+) -> Result<(), TypecheckError> {
+    let Some((root, syntax_id, name)) = projection_root_identifier(object) else {
+        // A temporary record can surrender a move-only field directly; there
+        // is no source binding that remains available afterward.
+        return Ok(());
+    };
+    let symbol = resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(syntax_id)
+                && reference.kind == fol_resolver::ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved);
+    let root_symbol = symbol.and_then(|symbol| typed.typed_symbol(symbol));
+    let borrowed_root = root_symbol
+        .and_then(|symbol| symbol.declared_type)
+        .is_some_and(|type_id| {
+            matches!(
+                typed.type_table().get(type_id),
+                Some(CheckedType::Borrowed { .. })
+            )
+        });
+    let mutex_root = root_symbol.is_some_and(|symbol| symbol.is_mutex);
+    if borrowed_root || mutex_root {
+        let surface = if borrowed_root {
+            "borrowed"
+        } else {
+            "mutex-guarded"
+        };
+        let message = format!(
+            "move-only field projection '.{field}' cannot be transferred from a {surface} value"
+        );
+        return Err(node_origin(resolved, value).map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+            },
+        ));
+    }
+
+    // FOL does not expose a partially moved base in V3. Moving one field is
+    // supported by consuming the entire root binding, which maps directly to
+    // Rust field-move emission and keeps the remaining fields inaccessible.
+    track_identifier_transfer(
+        typed,
+        resolved,
+        context,
+        root,
+        syntax_id,
+        name,
+        actual_type,
+    )
+}
+
+fn projection_root_identifier(node: &AstNode) -> Option<(&AstNode, fol_parser::ast::SyntaxNodeId, &str)> {
+    match super::helpers::strip_comments(node) {
+        AstNode::Identifier {
+            syntax_id: Some(syntax_id),
+            name,
+        } => Some((node, *syntax_id, name.as_str())),
+        AstNode::FieldAccess { object, .. } => projection_root_identifier(object),
+        _ => None,
+    }
+}
+
+fn reject_move_only_projection_transfer(
+    resolved: &ResolvedProgram,
+    value: &AstNode,
+    surface: impl std::fmt::Display,
+) -> Result<(), TypecheckError> {
+    let message = format!(
+        "move-only {surface} cannot be transferred in V3; partial moves are not supported"
+    );
+    Err(node_origin(resolved, value).map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+        |origin| {
+            TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+        },
+    ))
 }
 
 pub(crate) fn reject_repeated_outer_move(
@@ -630,28 +755,23 @@ pub(crate) fn reject_repeated_outer_move(
     }))
 }
 
-fn ownership_moves_on_transfer(typed: &TypedProgram, type_id: crate::CheckedTypeId) -> bool {
-    ownership_moves_on_transfer_inner(typed, type_id, false, &mut BTreeSet::new())
-}
-
-fn ownership_or_unknown_moves_on_transfer(
+pub(crate) fn ownership_moves_on_transfer(
     typed: &TypedProgram,
     type_id: crate::CheckedTypeId,
 ) -> bool {
-    ownership_moves_on_transfer_inner(typed, type_id, true, &mut BTreeSet::new())
+    ownership_moves_on_transfer_inner(typed, type_id, &mut BTreeSet::new())
 }
 
 fn ownership_moves_on_transfer_inner(
     typed: &TypedProgram,
     type_id: crate::CheckedTypeId,
-    generic_is_move_only: bool,
     visiting: &mut BTreeSet<crate::CheckedTypeId>,
 ) -> bool {
     if !visiting.insert(type_id) {
         return false;
     }
     let moves = if let Some(apparent) = typed.apparent_type_override(type_id) {
-        ownership_moves_on_transfer_inner(typed, apparent, generic_is_move_only, visiting)
+        ownership_moves_on_transfer_inner(typed, apparent, visiting)
     } else {
         match typed.type_table().get(type_id) {
             Some(CheckedType::Owned { .. })
@@ -661,25 +781,20 @@ fn ownership_moves_on_transfer_inner(
             Some(CheckedType::Declared {
                 kind: crate::DeclaredTypeKind::GenericParameter,
                 ..
-            }) => generic_is_move_only,
+            }) => {
+                // The generic body cannot know whether a future actual is
+                // copy-safe. Consume transfers conservatively here; call-site
+                // checking still classifies the concrete argument type.
+                true
+            }
             Some(CheckedType::Declared { symbol, args, .. }) => {
                 args.iter().any(|arg| {
-                    ownership_moves_on_transfer_inner(
-                        typed,
-                        *arg,
-                        generic_is_move_only,
-                        visiting,
-                    )
+                    ownership_moves_on_transfer_inner(typed, *arg, visiting)
                 }) || typed
                     .typed_symbol(*symbol)
                     .and_then(|symbol| symbol.declared_type)
                     .is_some_and(|declared| {
-                        ownership_moves_on_transfer_inner(
-                            typed,
-                            declared,
-                            generic_is_move_only,
-                            visiting,
-                        )
+                        ownership_moves_on_transfer_inner(typed, declared, visiting)
                     })
             }
             Some(CheckedType::Array { element_type, .. })
@@ -687,57 +802,27 @@ fn ownership_moves_on_transfer_inner(
             | Some(CheckedType::Sequence { element_type }) => ownership_moves_on_transfer_inner(
                 typed,
                 *element_type,
-                generic_is_move_only,
                 visiting,
             ),
             Some(CheckedType::Optional { inner })
             | Some(CheckedType::Error { inner: Some(inner) }) => {
-                ownership_moves_on_transfer_inner(
-                    typed,
-                    *inner,
-                    generic_is_move_only,
-                    visiting,
-                )
+                ownership_moves_on_transfer_inner(typed, *inner, visiting)
             }
             Some(CheckedType::Set { member_types }) => member_types.iter().any(|member| {
-                ownership_moves_on_transfer_inner(
-                    typed,
-                    *member,
-                    generic_is_move_only,
-                    visiting,
-                )
+                ownership_moves_on_transfer_inner(typed, *member, visiting)
             }),
             Some(CheckedType::Map {
                 key_type,
                 value_type,
             }) => {
-                ownership_moves_on_transfer_inner(
-                    typed,
-                    *key_type,
-                    generic_is_move_only,
-                    visiting,
-                ) || ownership_moves_on_transfer_inner(
-                    typed,
-                    *value_type,
-                    generic_is_move_only,
-                    visiting,
-                )
+                ownership_moves_on_transfer_inner(typed, *key_type, visiting)
+                    || ownership_moves_on_transfer_inner(typed, *value_type, visiting)
             }
             Some(CheckedType::Record { fields }) => fields.values().any(|field| {
-                ownership_moves_on_transfer_inner(
-                    typed,
-                    *field,
-                    generic_is_move_only,
-                    visiting,
-                )
+                ownership_moves_on_transfer_inner(typed, *field, visiting)
             }),
             Some(CheckedType::Entry { variants }) => variants.values().flatten().any(|variant| {
-                ownership_moves_on_transfer_inner(
-                    typed,
-                    *variant,
-                    generic_is_move_only,
-                    visiting,
-                )
+                ownership_moves_on_transfer_inner(typed, *variant, visiting)
             }),
             Some(CheckedType::Builtin(_))
             | Some(CheckedType::Borrowed { .. })
@@ -912,7 +997,7 @@ pub(crate) fn type_record_init(
             format!("record field '{}'", field.name),
             field_origin.clone(),
         )?;
-        mark_plain_identifier_move(typed, resolved, context, Some(&field.value), actual)?;
+        track_value_transfer(typed, resolved, context, Some(&field.value), actual)?;
     }
 
     // Fields carrying a declared default may be omitted; the default fills

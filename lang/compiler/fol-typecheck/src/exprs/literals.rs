@@ -268,7 +268,7 @@ fn type_positional_record_init(
             format!("record field '{}'", field.name),
             field_origin,
         )?;
-        super::bindings::mark_plain_identifier_move(
+        super::bindings::track_value_transfer(
             typed,
             resolved,
             context,
@@ -440,7 +440,7 @@ pub(crate) fn type_linear_container_literal(
         } else {
             inferred_element = Some(actual);
         }
-        super::bindings::mark_plain_identifier_move(
+        super::bindings::track_value_transfer(
             typed,
             resolved,
             context,
@@ -540,7 +540,7 @@ pub(crate) fn type_set_literal(
         } else {
             member_types.push(actual);
         }
-        super::bindings::mark_plain_identifier_move(
+        super::bindings::track_value_transfer(
             typed,
             resolved,
             context,
@@ -640,14 +640,14 @@ pub(crate) fn type_map_literal(
         } else {
             inferred_value_type = Some(actual_value);
         }
-        super::bindings::mark_plain_identifier_move(
+        super::bindings::track_value_transfer(
             typed,
             resolved,
             context,
             Some(key),
             actual_key,
         )?;
-        super::bindings::mark_plain_identifier_move(
+        super::bindings::track_value_transfer(
             typed,
             resolved,
             context,

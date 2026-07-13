@@ -257,6 +257,44 @@ fn qualified_imported_spawn_is_rejected_before_lowering() {
 }
 
 #[test]
+fn qualified_imported_async_is_rejected_before_lowering() {
+    let root = unique_temp_dir("workspace_qualified_async_surface");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] work(value: int): int = { return value; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    var pending = shared::work(42) | async;\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect_err("qualified async should be rejected by typecheck");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("| async currently requires a direct routine call on its left side")));
+}
+
+#[test]
 fn workspace_expression_typing_rejects_plain_imported_call_argument_mismatches() {
     let root = unique_temp_dir("workspace_imported_call_checks");
     create_dir_all(&root).expect("Fixture root should be creatable");

@@ -31,8 +31,13 @@ The spawn boundary follows the `V3` memory rules:
 
 - stack values clone into the task
 - `@` values move into the task, leaving the sender moved-out
+- borrowed values do not cross the thread boundary
 - `ptr[shared, T]` values do not cross the boundary because their `Rc` backing
   is not thread-safe
+- unresolved generic parameters do not cross until FOL has a thread-safety and
+  lifetime contract for generics; concrete thread-safe instantiations can cross
+- omitted defaults are checked as task arguments under the same rules as
+  explicit arguments
 
 Cross-thread shared mutation belongs to `[mux]` parameters, not `Rc`.
 

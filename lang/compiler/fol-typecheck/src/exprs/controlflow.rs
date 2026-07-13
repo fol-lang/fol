@@ -7,7 +7,7 @@ use super::helpers::{
     record_symbol_type, reject_recoverable_error_shell_conversion, unsupported_node_surface,
     with_node_origin,
 };
-use super::{type_body, type_node, type_node_with_expectation};
+use super::{type_body, type_body_transferring_value, type_node, type_node_with_expectation};
 use super::{TypeContext, TypedExpr};
 
 pub(crate) fn type_when(
@@ -27,6 +27,8 @@ pub(crate) fn type_when(
         "when selector",
     )?;
     let mut case_types = Vec::new();
+    let entry_flow = typed.ownership_flow_state();
+    let mut branch_flows = Vec::new();
 
     for case in cases {
         match case {
@@ -81,7 +83,18 @@ pub(crate) fn type_when(
                     },
                     None => context,
                 };
-                case_types.push(type_body(typed, resolved, body_context, body)?);
+                let body_entry_flow = typed.ownership_flow_state();
+                let body_type = type_body_transferring_value(
+                    typed,
+                    resolved,
+                    body_context,
+                    body,
+                )?;
+                if !body_type.is_never(typed) {
+                    branch_flows.push(typed.ownership_flow_state());
+                }
+                typed.restore_ownership_flow(&body_entry_flow);
+                case_types.push(body_type);
             }
             WhenCase::Of { .. } => {
                 return Err(unsupported_node_surface(
@@ -112,7 +125,16 @@ pub(crate) fn type_when(
         },
         None => context,
     };
-    let default_expr = type_body(typed, resolved, default_context, default)?;
+    let default_expr = type_body_transferring_value(
+        typed,
+        resolved,
+        default_context,
+        default,
+    )?;
+    if !default_expr.is_never(typed) {
+        branch_flows.push(typed.ownership_flow_state());
+    }
+    typed.merge_ownership_flows(&entry_flow, &branch_flows);
     let Some(expected) = default_expr.value_type else {
         return Ok(TypedExpr::none());
     };
@@ -437,7 +459,13 @@ pub(crate) fn type_return(
             "return requires a value for routines with a declared return type",
         ));
     };
-    let actual = type_node_with_expectation(typed, resolved, context, value, Some(expected))
+    // Returning exits the routine, so every transfer nested in the expression
+    // is single-shot even when the return itself is inside a repeating loop.
+    let return_context = TypeContext {
+        repeating_loop_scope: None,
+        ..context
+    };
+    let actual = type_node_with_expectation(typed, resolved, return_context, value, Some(expected))
         .map_err(|error| {
             node_origin(resolved, value)
                 .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
@@ -451,7 +479,7 @@ pub(crate) fn type_return(
     )?;
     let actual = plain_value_expr(
         typed,
-        context,
+        return_context,
         actual,
         node_origin(resolved, value),
         "return expression",
@@ -464,15 +492,10 @@ pub(crate) fn type_return(
         "return".to_string(),
         node_origin(resolved, value),
     )?;
-    // Returning exits the routine, so a transfer here cannot repeat even when
-    // the return is nested in a loop body.
-    super::bindings::mark_plain_identifier_move(
+    super::bindings::track_value_transfer(
         typed,
         resolved,
-        TypeContext {
-            repeating_loop_scope: None,
-            ..context
-        },
+        return_context,
         Some(value),
         actual,
     )?;

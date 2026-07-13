@@ -48,6 +48,18 @@ family. The diagnostic points at both the invalid use and the transfer site.
 The backend emits stack transfers with `.clone()` and unique heap transfers as
 ordinary Rust moves. No runtime tag decides which operation occurs.
 
+Transferring a move-only record field consumes the whole source binding. V3
+does not leave a partially moved record available through its other fields.
+Moving a value out through an array, vector, sequence, or map index remains
+unsupported because those containers need an explicit removal operation rather
+than a clone-based read.
+
+A `when` result transfers the final value of the selected branch into its join
+value. Branches are checked from the same incoming ownership state, so the same
+owner may be transferred by mutually exclusive alternatives. After the `when`,
+every owner that could have been transferred by a continuing branch is treated
+as moved.
+
 Loop bodies are lexical scopes that execute once per iteration. A move-only
 binding declared outside a repeating loop cannot be transferred from the loop
 body or its repeated condition: a later iteration would try to consume the
@@ -55,6 +67,13 @@ same value again. Create the move-only value inside the loop when each
 iteration needs a fresh owner, or transfer it after the loop. A `return` that
 transfers a value is allowed because it exits the routine instead of reaching
 another iteration.
+
+Deferred bodies also participate in ownership checking. When a `dfr` or `edf`
+body references a move-only binding from an enclosing scope, that binding is
+reserved until the registration scope exits and the selected deferred work has
+run. A later transfer in the same scope is rejected with both the transfer and
+deferred-use locations. If the deferred block belongs to a nested scope, the
+reservation ends with that nested scope.
 
 ## Recursive owned data
 

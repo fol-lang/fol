@@ -166,6 +166,44 @@ fn core_instruction_rendering_emits_record_field_accesses_as_native_member_reads
 }
 
 #[test]
+fn core_instruction_rendering_moves_unique_record_fields() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(41), "main", LoweredBlockId(0));
+    let base = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: None,
+        name: Some("holder".to_string()),
+    });
+    let pointer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let access = LoweredInstr {
+        id: LoweredInstrId(41),
+        result: Some(pointer),
+        kind: LoweredInstrKind::FieldAccess {
+            base,
+            field: "pointer".to_string(),
+        },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &access)
+        .expect("unique field access");
+
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r41__l1__pointer = l__pkg__entry__app__r41__l0__holder.pointer;"
+    );
+}
+
+#[test]
 fn core_instruction_rendering_emits_scalar_intrinsics_as_native_rust_ops() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();

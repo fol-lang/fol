@@ -1929,9 +1929,30 @@ pub(crate) fn checked_type_contains_generic_param(
         Some(CheckedType::Array { element_type, .. })
         | Some(CheckedType::Vector { element_type })
         | Some(CheckedType::Sequence { element_type })
+        | Some(CheckedType::Channel { element_type })
+        | Some(CheckedType::ChannelSender { element_type })
         | Some(CheckedType::Optional {
             inner: element_type,
+        })
+        | Some(CheckedType::Owned {
+            inner: element_type,
+        })
+        | Some(CheckedType::Borrowed {
+            inner: element_type,
+            ..
+        })
+        | Some(CheckedType::Pointer {
+            target: element_type,
+            ..
         }) => checked_type_contains_generic_param(typed, *element_type),
+        Some(CheckedType::Eventual {
+            value_type,
+            error_type,
+        }) => {
+            checked_type_contains_generic_param(typed, *value_type)
+                || error_type
+                    .is_some_and(|error| checked_type_contains_generic_param(typed, error))
+        }
         Some(CheckedType::Error { inner }) => {
             inner.is_some_and(|inner| checked_type_contains_generic_param(typed, inner))
         }

@@ -33,6 +33,15 @@ Current milestone note:
   - `examples/fail_generic_standard_constraint_m1m2`
 - generic routine lowering now succeeds for the shipped Milestone 1 example set
 - generic routine backend execution now works for the shipped positive Milestone 1 examples
+- ownership at a generic call boundary follows the concrete argument: copy-safe
+  arguments remain available to the caller, while owned values and unique
+  pointers move. Inside a routine, an unconstrained generic parameter is
+  conservatively move-only because the routine cannot prove that every future
+  instantiation is copy-safe; forwarding it therefore moves rather than
+  deep-cloning a unique value
+- an unresolved generic parameter cannot cross `[>]` or `| async` until FOL
+  defines a thread-safety and lifetime contract for generics; calls whose
+  arguments infer concrete thread-safe types remain valid
 - receiver-qualified generic routines, matching default arguments, and
   concrete instantiated generic-type receivers and concrete recoverable error
   types are now part of the executable Milestone 1 subset

@@ -243,14 +243,27 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::FieldAccess { base, field } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
+            let result_moves = instruction
+                .result
+                .and_then(|local_id| routine.locals.get(local_id))
+                .and_then(|local| local.type_id)
+                .is_some_and(|type_id| type_table.moves_on_transfer(type_id));
             let base_id = *base;
             let base = render_local_name(package_identity, routine, base_id)?;
             let field = crate::escape_rust_field_ident(field);
             if routine.mutex_params.contains(&base_id) {
+                if result_moves {
+                    return Err(BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        "move-only fields cannot be transferred out of a mutex guard",
+                    ));
+                }
                 let guard = render_mutex_guard_name(base_id);
                 Ok(format!(
                     "{result} = {guard}.as_ref().expect(\"mutex field access requires .lock()\").{field}.clone();"
                 ))
+            } else if result_moves {
+                Ok(format!("{result} = {base}.{field};"))
             } else {
                 Ok(format!("{result} = {base}.{field}.clone();"))
             }
