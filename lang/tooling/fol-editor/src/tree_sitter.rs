@@ -959,6 +959,40 @@ mod tests {
     }
 
     #[test]
+    fn generated_bundle_queries_structure_channel_loop_iteration_binders() {
+        let root = build_bundle_root("channel_loop_iteration_binder");
+        let source = repo_root().join("examples/proc_channel_loop_m2/src/main.fol");
+
+        for (query_name, capture, text) in [
+            ("highlights", "operator", "in"),
+            ("highlights", "variable", "value"),
+            ("locals", "local.definition", "value"),
+            ("symbols", "symbol.variable", "value"),
+        ] {
+            let output = run_tree_sitter_query(
+                &root,
+                &root.join(format!("queries/fol/{query_name}.scm")),
+                &source,
+            );
+            assert!(
+                output.status.success(),
+                "tree-sitter {query_name} query failed for channel loop:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.lines().any(|line| {
+                    line.contains(capture) && line.contains(&format!("text: `{text}`"))
+                }),
+                "channel loop query '{query_name}' lost {capture} capture for '{text}':\n{stdout}"
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn generated_bundle_locals_query_captures_v2_generic_example_bindings() {
         let root = build_bundle_root("locals_v2_generic_example");
         let output = run_tree_sitter_query(

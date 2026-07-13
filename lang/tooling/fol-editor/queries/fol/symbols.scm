@@ -13,6 +13,7 @@
 (con_decl (typed_binding name: (identifier) @symbol.variable))
 (lab_decl (typed_binding name: (identifier) @symbol.variable))
 (select_arm binding: (identifier) @symbol.variable)
+(iteration_header binding: (identifier) @symbol.variable)
 (seg_decl name: (identifier) @symbol.namespace)
 (std_decl name: (identifier) @symbol.type)
 (use_decl name: (identifier) @symbol.namespace)

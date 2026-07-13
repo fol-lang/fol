@@ -5,6 +5,7 @@ use fol_resolver::{ResolvedProgram, SymbolKind};
 use super::helpers::{
     ensure_assignable, loop_body_scope, merge_recoverable_effects, node_origin, plain_value_expr,
     record_symbol_type, reject_recoverable_error_shell_conversion, unsupported_node_surface,
+    with_node_origin,
 };
 use super::{type_body, type_node, type_node_with_expectation};
 use super::{TypeContext, TypedExpr};
@@ -213,7 +214,8 @@ pub(crate) fn type_loop(
                     "channel loop receiver",
                 )?
                 .required_value("channel loop receiver does not have a type")?;
-                let item_type = super::helpers::channel_element_type(typed, channel_type)?;
+                let item_type =
+                    super::helpers::channel_receiver_element_type(typed, channel_type)?;
                 // Channel iteration lowers each blocking receive through an
                 // optional shell so channel closure can terminate the loop.
                 // Retain that synthetic shell type in compiler truth even
@@ -302,11 +304,14 @@ pub(crate) fn type_select(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
     context: TypeContext,
+    node: &AstNode,
     arms: &[SelectArm],
     default: Option<&[AstNode]>,
 ) -> Result<TypedExpr, TypecheckError> {
     if !typed.capability_model().supports_processor() {
-        return Err(TypecheckError::new(
+        return Err(with_node_origin(
+            resolved,
+            node,
             TypecheckErrorKind::Unsupported,
             "select requires hosted std support; declare the bundled internal standard dependency",
         ));
@@ -342,7 +347,7 @@ pub(crate) fn type_select(
             "select receiver",
         )?
         .required_value("select receiver does not have a type")?;
-        let item_type = super::helpers::channel_element_type(typed, channel_type)?;
+        let item_type = super::helpers::channel_receiver_element_type(typed, channel_type)?;
         typed
             .type_table_mut()
             .intern(crate::CheckedType::Optional { inner: item_type });

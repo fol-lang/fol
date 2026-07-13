@@ -298,6 +298,23 @@ pub(crate) fn apply_expected_shell_wrap(
             recoverable_error_type: None,
         });
     }
+    if matches!(
+        type_table.get(value.type_id),
+        Some(crate::LoweredType::Borrowed { inner, .. }) if *inner == expected_type
+    ) {
+        let result_local = cursor.allocate_local(expected_type, None);
+        cursor.push_instr(
+            Some(result_local),
+            LoweredInstrKind::ReadBorrow {
+                borrow: value.local_id,
+            },
+        )?;
+        return Ok(LoweredValue {
+            local_id: result_local,
+            type_id: expected_type,
+            recoverable_error_type: None,
+        });
+    }
     match type_table.get(expected_type) {
         Some(crate::LoweredType::Owned { inner }) if *inner == value.type_id => {
             let result_local = cursor.allocate_local(expected_type, None);

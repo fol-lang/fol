@@ -382,6 +382,9 @@ pub enum AstNode {
 
     /// Multi-arm channel select statement.
     Select {
+        /// Syntax node for the `select` keyword so capability diagnostics can
+        /// be attached even when the statement only contains an empty default arm.
+        syntax_id: Option<SyntaxNodeId>,
         arms: Vec<SelectArm>,
         default: Option<Vec<AstNode>>,
     },
@@ -477,6 +480,7 @@ impl AstNode {
             | AstNode::Dfr { syntax_id, .. }
             | AstNode::Edf { syntax_id, .. }
             | AstNode::Loop { syntax_id, .. }
+            | AstNode::Select { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,
             AstNode::Commented { node, .. } => node.syntax_id(),
             _ => None,
@@ -766,7 +770,7 @@ impl AstNode {
                 }
                 children
             }
-            AstNode::Select { arms, default } => {
+            AstNode::Select { arms, default, .. } => {
                 let mut children = Vec::new();
                 for arm in arms {
                     children.push(&arm.channel);

@@ -398,6 +398,49 @@ pub(super) fn verify_instruction(
             );
             verify_local_reference(routine, instr.id.0, "borrow owner", *owner, errors);
         }
+        crate::LoweredInstrKind::ReadBorrow { borrow } => {
+            verify_local_reference(routine, instr.id.0, "borrow operand", *borrow, errors);
+            let borrow_type = routine
+                .locals
+                .get(*borrow)
+                .and_then(|local| local.type_id)
+                .and_then(|type_id| workspace.type_table().get(type_id));
+            match borrow_type {
+                Some(crate::LoweredType::Borrowed { inner, .. }) => {
+                    if workspace.type_table().moves_on_transfer(*inner)
+                        || workspace.type_table().contains_generic_parameter(*inner)
+                    {
+                        errors.push(LoweringError::with_kind(
+                            LoweringErrorKind::InvalidInput,
+                            format!(
+                                "lowered routine '{}' instruction {} reads a move-only or generic value out of a borrow",
+                                routine.name, instr.id.0
+                            ),
+                        ));
+                    }
+                    let result_type = instr
+                        .result
+                        .and_then(|result| routine.locals.get(result))
+                        .and_then(|local| local.type_id);
+                    if result_type != Some(*inner) {
+                        errors.push(LoweringError::with_kind(
+                            LoweringErrorKind::InvalidInput,
+                            format!(
+                                "lowered routine '{}' instruction {} must write the borrowed inner type",
+                                routine.name, instr.id.0
+                            ),
+                        ));
+                    }
+                }
+                _ => errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' instruction {} reads from a non-borrow local",
+                        routine.name, instr.id.0
+                    ),
+                )),
+            }
+        }
         crate::LoweredInstrKind::ConstructPointer { type_id, value, .. } => {
             verify_type_reference(
                 workspace,

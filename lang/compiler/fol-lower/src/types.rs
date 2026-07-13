@@ -1,6 +1,6 @@
 use crate::ids::LoweredTypeId;
 use fol_resolver::{PackageIdentity, SymbolId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LoweredBuiltinType {
@@ -123,6 +123,65 @@ impl LoweredTypeTable {
 
     pub fn intern_builtin(&mut self, builtin: LoweredBuiltinType) -> LoweredTypeId {
         self.intern(LoweredType::Builtin(builtin))
+    }
+
+    /// Whether transferring a value of `id` consumes its source. Uniqueness is
+    /// transitive: an aggregate containing an owned value, unique pointer,
+    /// eventual, or receiver endpoint must move as a whole rather than clone.
+    pub fn moves_on_transfer(&self, id: LoweredTypeId) -> bool {
+        fn moves(
+            table: &LoweredTypeTable,
+            id: LoweredTypeId,
+            visiting: &mut BTreeSet<LoweredTypeId>,
+        ) -> bool {
+            if !visiting.insert(id) {
+                return false;
+            }
+            let result = match table.get(id) {
+                Some(LoweredType::Owned { .. })
+                | Some(LoweredType::Pointer { shared: false, .. })
+                | Some(LoweredType::Eventual { .. })
+                | Some(LoweredType::Channel { .. }) => true,
+                Some(LoweredType::Array { element_type, .. })
+                | Some(LoweredType::Vector { element_type })
+                | Some(LoweredType::Sequence { element_type })
+                | Some(LoweredType::Optional {
+                    inner: element_type,
+                }) => moves(table, *element_type, visiting),
+                Some(LoweredType::Error { inner }) => {
+                    inner.is_some_and(|inner| moves(table, inner, visiting))
+                }
+                Some(LoweredType::Set { member_types }) => member_types
+                    .iter()
+                    .any(|member| moves(table, *member, visiting)),
+                Some(LoweredType::Map {
+                    key_type,
+                    value_type,
+                }) => {
+                    moves(table, *key_type, visiting)
+                        || moves(table, *value_type, visiting)
+                }
+                Some(LoweredType::Record { fields }) => fields
+                    .values()
+                    .any(|field| moves(table, *field, visiting)),
+                Some(LoweredType::Entry { variants }) => variants
+                    .values()
+                    .flatten()
+                    .any(|variant| moves(table, *variant, visiting)),
+                Some(LoweredType::Builtin(_))
+                | Some(LoweredType::GenericParameter { .. })
+                | Some(LoweredType::Named { .. })
+                | Some(LoweredType::Borrowed { .. })
+                | Some(LoweredType::Pointer { shared: true, .. })
+                | Some(LoweredType::ChannelSender { .. })
+                | Some(LoweredType::Routine(_))
+                | None => false,
+            };
+            visiting.remove(&id);
+            result
+        }
+
+        moves(self, id, &mut BTreeSet::new())
     }
 
     /// Whether `id` mentions an unbound generic parameter anywhere in its
@@ -403,5 +462,33 @@ mod tests {
                 fields: BTreeMap::from([("x".to_string(), int_id), ("y".to_string(), int_id),]),
             })
         );
+    }
+
+    #[test]
+    fn aggregate_transfer_is_move_only_when_a_field_is_unique() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let unique = table.intern(LoweredType::Pointer {
+            target: int_id,
+            shared: false,
+        });
+        let shared = table.intern(LoweredType::Pointer {
+            target: int_id,
+            shared: true,
+        });
+        let unique_record = table.intern(LoweredType::Record {
+            fields: BTreeMap::from([("value".to_string(), unique)]),
+        });
+        let shared_record = table.intern(LoweredType::Record {
+            fields: BTreeMap::from([("value".to_string(), shared)]),
+        });
+        let unique_array = table.intern(LoweredType::Array {
+            element_type: unique_record,
+            size: Some(1),
+        });
+
+        assert!(table.moves_on_transfer(unique_record));
+        assert!(table.moves_on_transfer(unique_array));
+        assert!(!table.moves_on_transfer(shared_record));
     }
 }

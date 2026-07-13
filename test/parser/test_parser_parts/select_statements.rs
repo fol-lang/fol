@@ -19,7 +19,7 @@ fn test_select_statement_parsing() {
                     AstNode::ProDecl { body, .. }
                         if body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Select { arms, default }
+                            AstNode::Select { arms, default, .. }
                                 if arms.len() == 2
                                     && arms[0].binding == "left"
                                     && arms[1].binding == "right"

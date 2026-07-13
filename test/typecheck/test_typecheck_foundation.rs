@@ -1257,18 +1257,27 @@ fn echo_intrinsic_requires_std_fol_model_in_core() {
 
 #[test]
 fn owned_heap_binding_requires_memo_model() {
-    let errors = typecheck_fixture_folder_errors_with_config(
-        &[(
-            "main.fol",
-            "fun[] main(): int = {\n    @var value: int = 1;\n    return 0;\n};\n",
-        )],
-        TypecheckConfig {
-            capability_model: TypecheckCapabilityModel::Core,
-        },
-    );
-    assert!(errors.iter().any(|error| error
-        .message()
-        .contains("heap allocation binding requires heap support")));
+    for declaration in [
+        "@var value: int = 1;",
+        "@var value = 1;",
+        "var[new] value = 1;",
+    ] {
+        let source = format!(
+            "fun[] main(): int = {{\n    {declaration}\n    return 0;\n}};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Core,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| error
+                .message()
+                .contains("heap allocation binding requires heap support")),
+            "core must reject heap allocation for '{declaration}': {errors:#?}"
+        );
+    }
 }
 
 #[test]
@@ -1471,6 +1480,75 @@ fn borrow_bindings_cannot_be_reborrowed() {
 }
 
 #[test]
+fn borrow_bindings_cannot_borrow_an_owner_after_it_moves() {
+    for initializer in ["owner", "#owner"] {
+        let source = format!(
+            "typ Item: rec = {{ value: int }};\n\
+             fun[] main(): int = {{\n\
+                 @var owner: Item = {{ value = 7 }};\n\
+                 @var moved: Item = owner;\n\
+                 var[bor] view: Item = {initializer};\n\
+                 return moved.value;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("cannot borrow from an owner whose value was already moved")
+            }),
+            "borrow initializer '{initializer}' must reject a moved owner: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn move_only_values_cannot_be_transferred_out_of_borrows() {
+    for (surface, source) in [
+        (
+            "direct pointer",
+            "fun[] steal(value[bor]: ptr[int]): ptr[int] = {\n\
+                 return value;\n\
+             };\n",
+        ),
+        (
+            "record containing a pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] steal(value[bor]: Holder): Holder = {\n\
+                 return value;\n\
+             };\n",
+        ),
+        (
+            "pointer placed in an array",
+            "fun[] steal(value[bor]: ptr[int]): arr[ptr[int], 1] = {\n\
+                 return { value };\n\
+             };\n",
+        ),
+        (
+            "pointer placed in a positional record",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] steal(value[bor]: ptr[int]): Holder = {\n\
+                 return { value };\n\
+             };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains(
+                        "move-only value cannot be transferred out of borrow binding 'value'",
+                    )
+            }),
+            "{surface} must not clone a unique value through a borrow: {errors:#?}"
+        );
+    }
+}
+
+#[test]
 fn borrow_parameters_require_explicit_call_site_borrowing() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
@@ -1612,7 +1690,7 @@ fn public_runtime_model_matrix_keeps_mem_between_core_and_std() {
 }
 
 #[test]
-fn mutex_operations_require_an_explicit_mux_parameter() {
+fn unknown_lock_method_is_not_treated_as_a_mutex_operation() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
@@ -1628,9 +1706,37 @@ fn mutex_operations_require_an_explicit_mux_parameter() {
     );
 
     assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
-            && error.message().contains(".lock() requires a [mux] parameter")
+        error.kind() == TypecheckErrorKind::InvalidInput
+            && error
+                .message()
+                .contains("method 'lock' is not available for the receiver type")
     }));
+    assert!(errors
+        .iter()
+        .all(|error| !error.message().contains("requires a [mux] parameter")));
+}
+
+#[test]
+fn ordinary_lock_and_unlock_method_names_remain_available() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Gate: rec = { value: int };\n\
+             pro (Gate)lock(): non = { return; };\n\
+             fun (Gate)unlock(): int = { return self.value; };\n\
+             fun[] use(gate: Gate): int = {\n\
+                 gate.lock();\n\
+                 return gate.unlock();\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Core,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "use"))
+        .is_some());
 }
 
 #[test]
@@ -2026,6 +2132,177 @@ fn sender_only_capture_cannot_receive_from_its_channel() {
     assert!(errors.iter().any(|error| error
         .message()
         .contains("captured endpoint 'channel[tx]' is sender-only")));
+}
+
+#[test]
+fn channel_send_consumes_move_only_payloads() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 @var owned: int = 42;\n\
+                 owned | channel[tx];\n\
+                 return owned;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of moved heap-owned binding 'owned'")
+    }));
+}
+
+#[test]
+fn sender_only_locals_cannot_receive_through_select_or_iteration() {
+    for (surface, body) in [
+        (
+            "select",
+            "select {\n\
+                 when sender[rx] as value { return value; }\n\
+                 * { return 0; }\n\
+             }",
+        ),
+        (
+            "channel iteration",
+            "for (value in sender[rx]) {\n\
+                 return value;\n\
+             }",
+        ),
+    ] {
+        let source = format!(
+            "fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 var sender = channel[tx];\n\
+                 {body}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("sender-only channel endpoints cannot receive")
+            }),
+            "{surface} should reject a sender-only local before lowering, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn borrowed_values_cannot_cross_spawn_or_async_boundaries() {
+    for (surface, statement) in [
+        ("spawn", "[>]inspect(#owner);"),
+        ("async", "var pending = inspect(#owner) | async;"),
+    ] {
+        let source = format!(
+            "fun[] inspect(value[bor]: int): int = {{ return 0; }};\n\
+             fun[] main(): int = {{\n\
+                 var owner: int = 42;\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("borrowed values cannot cross a spawn or async thread boundary")
+            }),
+            "{surface} should reject a borrowed argument, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn spawn_rejects_method_non_call_and_parameterized_anonymous_tasks() {
+    for (surface, task, expected) in [
+        (
+            "method call",
+            "worker.run()",
+            "spawn requires a direct unqualified routine call",
+        ),
+        (
+            "non-call expression",
+            "42",
+            "spawn requires a direct unqualified routine call",
+        ),
+        (
+            "parameterized anonymous routine",
+            "fun(value: int): int = { return value; }",
+            "a directly spawned anonymous routine cannot declare call parameters",
+        ),
+    ] {
+        let source = format!(
+            "typ Worker: rec = {{ value: int }};\n\
+             fun (Worker)run(): int = {{ return 1; }};\n\
+             fun[] main(): int = {{\n\
+                 var worker: Worker = {{ value = 0 }};\n\
+                 [>]{task};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains(expected)),
+            "{surface} should be rejected during typecheck, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn anonymous_recoverable_spawn_cannot_discard_its_error() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 [>]fun(): int / int = {\n\
+                     when(true) {\n\
+                         case(true) { report 9; }\n\
+                         * { return 0; }\n\
+                     }\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("spawning a recoverable routine without await discards its error")));
 }
 
 #[test]

@@ -741,17 +741,24 @@
   {
     "type": "each_stmt",
     "named": true,
-    "fields": {},
+    "fields": {
+      "header": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "loop_header",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
-      "multiple": true,
+      "multiple": false,
       "required": true,
       "types": [
         {
           "type": "flow_body",
-          "named": true
-        },
-        {
-          "type": "loop_header_atom",
           "named": true
         }
       ]
@@ -1120,17 +1127,24 @@
   {
     "type": "for_stmt",
     "named": true,
-    "fields": {},
+    "fields": {
+      "header": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "loop_header",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
-      "multiple": true,
+      "multiple": false,
       "required": true,
       "types": [
         {
           "type": "flow_body",
-          "named": true
-        },
-        {
-          "type": "loop_header_atom",
           "named": true
         }
       ]
@@ -1343,6 +1357,94 @@
     }
   },
   {
+    "type": "iteration_binder_declaration",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "char_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "iteration_header",
+    "named": true,
+    "fields": {
+      "binding": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "char_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "declaration": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "iteration_binder_declaration",
+            "named": true
+          }
+        ]
+      },
+      "iterable": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "lab_decl",
     "named": true,
     "fields": {
@@ -1428,39 +1530,26 @@
     }
   },
   {
-    "type": "loop_header_atom",
+    "type": "loop_header",
     "named": true,
-    "fields": {},
+    "fields": {
+      "condition": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": false,
-      "required": true,
+      "required": false,
       "types": [
         {
-          "type": "boolean_literal",
-          "named": true
-        },
-        {
-          "type": "channel_access",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "integer_literal",
-          "named": true
-        },
-        {
-          "type": "nil_literal",
-          "named": true
-        },
-        {
-          "type": "qualified_path",
-          "named": true
-        },
-        {
-          "type": "string_literal",
+          "type": "iteration_header",
           "named": true
         }
       ]
@@ -3285,10 +3374,6 @@
     "named": false
   },
   {
-    "type": "_",
-    "named": false
-  },
-  {
     "type": "ali",
     "named": false
   },
@@ -3444,10 +3529,6 @@
   },
   {
     "type": "lab",
-    "named": false
-  },
-  {
-    "type": "let",
     "named": false
   },
   {

@@ -10,6 +10,7 @@ pub(super) const FALLBACK_ALIAS_PREFIXES: &[&str] = &["ali[] ", "ali[", "ali "];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CompletionContext {
     Plain,
+    PipeStage,
     TypePosition,
     QualifiedPath { qualifier: String },
     DotTrigger,
@@ -28,6 +29,16 @@ pub(crate) fn completion_context(
         .map(|(_, tail)| tail)
         .unwrap_or(prefix);
     let trimmed = line_prefix.trim_end();
+
+    if trimmed.rsplit_once('|').is_some_and(|(left, stage)| {
+        !left.ends_with('|')
+            && stage
+                .trim_start()
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    }) {
+        return CompletionContext::PipeStage;
+    }
 
     if trimmed.ends_with('.') {
         return CompletionContext::DotTrigger;
@@ -384,6 +395,46 @@ mod tests {
         );
 
         assert_eq!(context, CompletionContext::Plain);
+    }
+
+    #[test]
+    fn completion_context_detects_pipe_stage_prefixes_without_matching_recovery_pipes() {
+        let uri = EditorDocumentUri::from_file_path(PathBuf::from("/tmp/pipe_context.fol")).unwrap();
+        let document = EditorDocument::new(
+            uri,
+            1,
+            "fun[] main(): int = {\n    var pending = work(1) | aw\n};\n".to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            completion_context(
+                &document,
+                LspPosition {
+                    line: 1,
+                    character: 30,
+                },
+            ),
+            CompletionContext::PipeStage
+        );
+
+        let uri = EditorDocumentUri::from_file_path(PathBuf::from("/tmp/recovery_context.fol"))
+            .unwrap();
+        let document = EditorDocument::new(
+            uri,
+            1,
+            "fun[] main(): int = {\n    return probe() || fallback\n};\n".to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            completion_context(
+                &document,
+                LspPosition {
+                    line: 1,
+                    character: 30,
+                },
+            ),
+            CompletionContext::Plain
+        );
     }
 
     #[test]

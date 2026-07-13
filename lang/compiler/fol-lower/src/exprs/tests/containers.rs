@@ -621,6 +621,32 @@ fn unsupported_lowering_surfaces_report_explicit_boundary_messages() {
 }
 
 #[test]
+fn borrowed_values_lower_to_explicit_plain_value_reads() {
+    let workspace = super::lower_fixture_workspace(
+        "fun[] read(value[bor]: int): int = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var owner: int = 7;\n\
+             return read(#owner);\n\
+         };\n",
+    );
+    let read = workspace
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "read")
+        .expect("borrow-reading routine should lower");
+
+    assert!(
+        read.instructions
+            .iter()
+            .any(|instr| matches!(instr.kind, LoweredInstrKind::ReadBorrow { .. })),
+        "using a borrow where its inner value is expected must read through the reference"
+    );
+}
+
+#[test]
 fn audited_v1_lowering_boundaries_fail_with_explicit_messages() {
     // Typecheck now rejects when/of branches before lowering runs, so the
     // remaining lowering boundary is exercised directly against the when-case

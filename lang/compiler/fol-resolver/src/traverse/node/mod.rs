@@ -810,7 +810,7 @@ fn traverse_node_inner(
                 routine_context,
             )?;
         }
-        AstNode::Select { arms, default } => {
+        AstNode::Select { arms, default, .. } => {
             for arm in arms {
                 traverse_node(
                     session,

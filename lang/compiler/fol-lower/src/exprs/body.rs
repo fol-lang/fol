@@ -663,7 +663,7 @@ pub(crate) fn lower_body_node(
             )?;
             Ok(None)
         }
-        AstNode::Select { arms, default } => {
+        AstNode::Select { arms, default, .. } => {
             super::flow::lower_select_statement(
                 typed_package,
                 type_table,
@@ -854,24 +854,15 @@ pub(crate) fn lower_body_node(
             method,
             args,
         } => {
-            if method == "lock" || method == "unlock" {
+            let mutex = (method == "lock" || method == "unlock")
+                .then(|| direct_local_identifier_value(typed_package, cursor, object))
+                .flatten()
+                .filter(|value| cursor.routine.mutex_params.contains(&value.local_id));
+            if let Some(mutex) = mutex {
                 if !args.is_empty() {
                     return Err(LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
                         format!("mutex .{method}() does not accept arguments"),
-                    ));
-                }
-                let mutex = direct_local_identifier_value(typed_package, cursor, object)
-                    .ok_or_else(|| {
-                        LoweringError::with_kind(
-                            LoweringErrorKind::InvalidInput,
-                            format!("mutex .{method}() requires a local [mux] parameter"),
-                        )
-                    })?;
-                if !cursor.routine.mutex_params.contains(&mutex.local_id) {
-                    return Err(LoweringError::with_kind(
-                        LoweringErrorKind::InvalidInput,
-                        format!(".{method}() requires a [mux] parameter"),
                     ));
                 }
                 if method == "lock" {

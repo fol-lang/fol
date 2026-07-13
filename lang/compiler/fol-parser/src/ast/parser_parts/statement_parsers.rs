@@ -13,6 +13,7 @@ impl AstParser {
                 "Expected 'select' statement".to_string(),
             ));
         }
+        let syntax_id = self.record_syntax_origin(&select_token);
 
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
@@ -40,7 +41,11 @@ impl AstParser {
                             .to_string(),
                     ));
                 }
-                return Ok(AstNode::Select { arms, default });
+                return Ok(AstNode::Select {
+                    syntax_id,
+                    arms,
+                    default,
+                });
             }
             if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)) {
                 if default.is_some() {

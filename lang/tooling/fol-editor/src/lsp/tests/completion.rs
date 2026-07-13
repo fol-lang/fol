@@ -3,7 +3,8 @@ use super::super::{
     LspPosition, LspTextDocumentIdentifier,
 };
 use super::helpers::{
-    copied_example_package_root, open_document, sample_loc_workspace_root, sample_package_root,
+    copied_example_package_root, hosted_sample_package_root, open_document,
+    sample_loc_workspace_root, sample_package_root,
 };
 use crate::EditorConfig;
 use std::fs;
@@ -186,6 +187,8 @@ fn lsp_server_returns_builtin_type_completions_in_type_positions() {
     assert!(labels.contains(&"seq"));
     assert!(labels.contains(&"opt"));
     assert!(labels.contains(&"err"));
+    assert!(labels.contains(&"ptr"));
+    assert!(!labels.contains(&"chn"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -244,11 +247,57 @@ fn lsp_server_filters_heap_type_surfaces_from_core_type_completion() {
     assert!(labels.contains(&"arr".to_string()));
     assert!(labels.contains(&"opt".to_string()));
     assert!(labels.contains(&"err".to_string()));
+    assert!(labels.contains(&"ptr".to_string()));
+    assert!(!labels.contains(&"chn".to_string()));
     assert!(!labels.contains(&"str".to_string()));
     assert!(!labels.contains(&"vec".to_string()));
     assert!(!labels.contains(&"seq".to_string()));
     assert!(!labels.contains(&"set".to_string()));
     assert!(!labels.contains(&"map".to_string()));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_offers_hosted_structured_type_surfaces() {
+    let (root, uri) = hosted_sample_package_root("completion_hosted_type_surfaces");
+    fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    var value: ;\n    return 0;\n};\n",
+    )
+    .unwrap();
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.clone(), &text);
+
+    let completion = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(362),
+            method: "textDocument/completion".to_string(),
+            params: Some(
+                serde_json::to_value(LspCompletionParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: LspPosition {
+                        line: 1,
+                        character: 15,
+                    },
+                    context: None,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+
+    let labels = serde_json::from_value::<LspCompletionList>(completion.result.unwrap())
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|item| item.label)
+        .collect::<Vec<_>>();
+    assert!(labels.contains(&"ptr".to_string()));
+    assert!(labels.contains(&"chn".to_string()));
 
     fs::remove_dir_all(root).ok();
 }

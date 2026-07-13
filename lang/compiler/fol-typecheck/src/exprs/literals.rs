@@ -268,6 +268,13 @@ fn type_positional_record_init(
             format!("record field '{}'", field.name),
             field_origin,
         )?;
+        super::bindings::mark_plain_identifier_move(
+            typed,
+            resolved,
+            context,
+            Some(element),
+            actual,
+        )?;
     }
 
     // Fields not covered by a positional value must have a default.
@@ -433,6 +440,13 @@ pub(crate) fn type_linear_container_literal(
         } else {
             inferred_element = Some(actual);
         }
+        super::bindings::mark_plain_identifier_move(
+            typed,
+            resolved,
+            context,
+            Some(element),
+            actual,
+        )?;
     }
 
     let element_type = inferred_element.ok_or_else(|| {
@@ -526,6 +540,13 @@ pub(crate) fn type_set_literal(
         } else {
             member_types.push(actual);
         }
+        super::bindings::mark_plain_identifier_move(
+            typed,
+            resolved,
+            context,
+            Some(element),
+            actual,
+        )?;
     }
 
     Ok(Some(
@@ -619,6 +640,20 @@ pub(crate) fn type_map_literal(
         } else {
             inferred_value_type = Some(actual_value);
         }
+        super::bindings::mark_plain_identifier_move(
+            typed,
+            resolved,
+            context,
+            Some(key),
+            actual_key,
+        )?;
+        super::bindings::mark_plain_identifier_move(
+            typed,
+            resolved,
+            context,
+            Some(value),
+            actual_value,
+        )?;
     }
 
     Ok(Some(typed.type_table_mut().intern(CheckedType::Map {

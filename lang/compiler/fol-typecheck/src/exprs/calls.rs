@@ -707,7 +707,30 @@ pub(crate) fn type_method_call(
     method: &str,
     args: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
-    if method == "lock" || method == "unlock" {
+    let mutex_receiver = (method == "lock" || method == "unlock")
+        .then(|| {
+            let AstNode::Identifier {
+                name,
+                syntax_id: Some(syntax_id),
+            } = strip_comments(object)
+            else {
+                return None;
+            };
+            let mutex_symbol = resolved
+                .references
+                .iter()
+                .find(|reference| {
+                    reference.syntax_id == Some(*syntax_id)
+                        && reference.kind == ReferenceKind::Identifier
+                })
+                .and_then(|reference| reference.resolved)?;
+            typed
+                .typed_symbol(mutex_symbol)
+                .is_some_and(|symbol| symbol.is_mutex)
+                .then_some((name.as_str(), mutex_symbol))
+        })
+        .flatten();
+    if let Some((name, mutex_symbol)) = mutex_receiver {
         if !typed.capability_model().supports_processor() {
             return Err(unsupported_node_surface(
                 resolved,
@@ -730,41 +753,6 @@ pub(crate) fn type_method_call(
             },
             object,
         )?;
-        let AstNode::Identifier {
-            name,
-            syntax_id: Some(syntax_id),
-        } = strip_comments(object)
-        else {
-            return Err(unsupported_node_surface(
-                resolved,
-                object,
-                format!("mutex .{method}() requires a local [mux] parameter"),
-            ));
-        };
-        let mutex_symbol = resolved
-            .references
-            .iter()
-            .find(|reference| {
-                reference.syntax_id == Some(*syntax_id)
-                    && reference.kind == ReferenceKind::Identifier
-            })
-            .and_then(|reference| reference.resolved)
-            .ok_or_else(|| {
-                internal_error(
-                    format!("mutex operation on '{name}' lost its resolved symbol"),
-                    node_origin(resolved, object),
-                )
-            })?;
-        let is_mutex = typed
-            .typed_symbol(mutex_symbol)
-            .is_some_and(|symbol| symbol.is_mutex);
-        if !is_mutex {
-            return Err(unsupported_node_surface(
-                resolved,
-                object,
-                format!(".{method}() requires a [mux] parameter; '{name}' is not mutex-guarded"),
-            ));
-        }
         let origin = node_origin(resolved, node)
             .or_else(|| node_origin(resolved, object))
             .ok_or_else(|| internal_error("mutex operation lost its syntax origin", None))?;

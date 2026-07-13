@@ -3,7 +3,8 @@ use crate::testing::package_identity;
 use fol_intrinsics::intrinsic_by_canonical_name;
 use fol_lower::{
     LoweredBlockId, LoweredBuiltinType, LoweredInstr, LoweredInstrId, LoweredInstrKind,
-    LoweredLocal, LoweredLocalId, LoweredRoutine, LoweredRoutineId, LoweredTypeTable,
+    LoweredLocal, LoweredLocalId, LoweredRoutine, LoweredRoutineId, LoweredType,
+    LoweredTypeTable,
 };
 use fol_resolver::PackageSourceKind;
 
@@ -35,6 +36,41 @@ fn runtime_shaped_instruction_rendering_emits_length_via_runtime_prelude() {
     assert_eq!(
         rendered,
         "l__pkg__entry__app__r7__l1__count = rt::len(&l__pkg__entry__app__r7__l0__items);"
+    );
+}
+
+#[test]
+fn borrowed_value_reads_clone_through_the_reference() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let borrowed_id = table.intern(LoweredType::Borrowed {
+        inner: int_id,
+        mutable: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(8), "read", LoweredBlockId(0));
+    let borrow = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(borrowed_id),
+        name: Some("borrow".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("value".to_string()),
+    });
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(21),
+        result: Some(result),
+        kind: LoweredInstrKind::ReadBorrow { borrow },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("borrow read");
+
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r8__l1__value = (*l__pkg__entry__app__r8__l0__borrow).clone();"
     );
 }
 

@@ -386,32 +386,12 @@ pub fn render_transfer_expr(
         .locals
         .get(local_id)
         .and_then(|local| local.type_id)
-        .is_some_and(|type_id| type_moves_on_transfer(type_table, type_id, 0));
+        .is_some_and(|type_id| type_table.moves_on_transfer(type_id));
     Ok(if moves {
         name
     } else {
         format!("{name}.clone()")
     })
-}
-
-fn type_moves_on_transfer(
-    type_table: &LoweredTypeTable,
-    type_id: LoweredTypeId,
-    depth: usize,
-) -> bool {
-    if depth > 32 {
-        return false;
-    }
-    match type_table.get(type_id) {
-        Some(LoweredType::Owned { .. }) => true,
-        Some(LoweredType::Pointer { shared: false, .. }) => true,
-        Some(LoweredType::Eventual { .. }) => true,
-        Some(LoweredType::Channel { .. }) => true,
-        Some(LoweredType::Optional { inner }) | Some(LoweredType::Error { inner: Some(inner) }) => {
-            type_moves_on_transfer(type_table, *inner, depth + 1)
-        }
-        _ => false,
-    }
 }
 
 pub fn rendered_result_local(

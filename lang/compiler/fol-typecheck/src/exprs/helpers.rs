@@ -247,6 +247,78 @@ pub(crate) fn type_contains_shared_pointer(
     contains(typed, type_id, &mut BTreeSet::new())
 }
 
+pub(crate) fn type_contains_borrowed(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    fn contains(
+        typed: &TypedProgram,
+        type_id: CheckedTypeId,
+        visiting: &mut BTreeSet<CheckedTypeId>,
+    ) -> bool {
+        if !visiting.insert(type_id) {
+            return false;
+        }
+        let result = if let Some(apparent) = typed.apparent_type_override(type_id) {
+            contains(typed, apparent, visiting)
+        } else {
+            match typed.type_table().get(type_id) {
+                Some(CheckedType::Borrowed { .. }) => true,
+                Some(CheckedType::Declared { symbol, args, .. }) => {
+                    args.iter().any(|arg| contains(typed, *arg, visiting))
+                        || typed
+                            .typed_symbol(*symbol)
+                            .and_then(|symbol| symbol.declared_type)
+                            .is_some_and(|declared| contains(typed, declared, visiting))
+                }
+                Some(CheckedType::Record { fields }) => fields
+                    .values()
+                    .any(|field| contains(typed, *field, visiting)),
+                Some(CheckedType::Entry { variants }) => variants
+                    .values()
+                    .flatten()
+                    .any(|variant| contains(typed, *variant, visiting)),
+                Some(CheckedType::Array { element_type, .. })
+                | Some(CheckedType::Vector { element_type })
+                | Some(CheckedType::Sequence { element_type })
+                | Some(CheckedType::Channel { element_type })
+                | Some(CheckedType::ChannelSender { element_type }) => {
+                    contains(typed, *element_type, visiting)
+                }
+                Some(CheckedType::Set { member_types }) => member_types
+                    .iter()
+                    .any(|member| contains(typed, *member, visiting)),
+                Some(CheckedType::Map {
+                    key_type,
+                    value_type,
+                }) => {
+                    contains(typed, *key_type, visiting)
+                        || contains(typed, *value_type, visiting)
+                }
+                Some(CheckedType::Optional { inner })
+                | Some(CheckedType::Owned { inner })
+                | Some(CheckedType::Pointer { target: inner, .. }) => {
+                    contains(typed, *inner, visiting)
+                }
+                Some(CheckedType::Error { inner }) => {
+                    inner.is_some_and(|inner| contains(typed, inner, visiting))
+                }
+                Some(CheckedType::Eventual {
+                    value_type,
+                    error_type,
+                }) => {
+                    contains(typed, *value_type, visiting)
+                        || error_type.is_some_and(|error| contains(typed, error, visiting))
+                }
+                Some(CheckedType::Builtin(_))
+                | Some(CheckedType::Routine(_))
+                | None => false,
+            }
+        };
+        visiting.remove(&type_id);
+        result
+    }
+
+    contains(typed, type_id, &mut BTreeSet::new())
+}
+
 pub(crate) fn observe_context(context: TypeContext) -> TypeContext {
     TypeContext {
         error_call_mode: ErrorCallMode::Observe,

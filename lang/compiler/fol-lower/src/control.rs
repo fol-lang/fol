@@ -193,6 +193,9 @@ pub enum LoweredInstrKind {
         owner: LoweredLocalId,
         mutable: bool,
     },
+    ReadBorrow {
+        borrow: LoweredLocalId,
+    },
     ConstructPointer {
         type_id: LoweredTypeId,
         value: LoweredLocalId,

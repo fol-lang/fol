@@ -1,5 +1,7 @@
 (source_file) @local.scope
 (block) @local.scope
+(for_stmt) @local.scope
+(each_stmt) @local.scope
 
 (fun_decl declaration: (plain_fun_decl name: (identifier) @local.definition.function))
 (fun_decl declaration: (method_decl name: (identifier) @local.definition.method))
@@ -14,5 +16,6 @@
 (con_decl (typed_binding name: (identifier) @local.definition))
 (lab_decl (typed_binding name: (identifier) @local.definition))
 (select_arm binding: (identifier) @local.definition)
+(iteration_header binding: (identifier) @local.definition)
 
 (identifier) @local.reference

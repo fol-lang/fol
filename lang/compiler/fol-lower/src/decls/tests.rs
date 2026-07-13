@@ -579,6 +579,67 @@ mod tests {
     }
 
     #[test]
+    fn generic_owned_and_pointer_fields_only_emit_concrete_runtime_decls() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_memory_fields_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "typ OwnedBox(T): rec = { value: @T };\n\
+             typ PointerBox(T): rec = { value: ptr[T] };\n\
+             fun[] read_owned(value: OwnedBox[int]): int = { return 0; };\n\
+             fun[] read_pointer(value: PointerBox[int]): int = { return 0; };\n\
+             fun[] main(): int = { return 0; };\n",
+        )
+        .expect("should write generic memory-field lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+        let lowered = crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect("generic memory-field lowering should succeed");
+        let package = lowered.entry_package();
+
+        for routine_name in ["read_owned", "read_pointer"] {
+            let routine = package
+                .routine_decls
+                .values()
+                .find(|routine| routine.name == routine_name)
+                .expect("generic memory-field reader should lower");
+            let signature = routine
+                .signature
+                .and_then(|signature| lowered.type_table().get(signature))
+                .and_then(|signature| match signature {
+                    LoweredType::Routine(signature) => Some(signature),
+                    _ => None,
+                })
+                .expect("reader should retain a lowered routine signature");
+            let parameter_type = signature.params[0];
+
+            assert!(
+                package
+                    .type_decls
+                    .values()
+                    .any(|decl| decl.runtime_type == parameter_type),
+                "{routine_name} parameter type must retain a concrete runtime declaration"
+            );
+        }
+    }
+
+    #[test]
     fn declaration_lowering_records_top_level_globals_with_storage_types() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_globals_{}.fol",

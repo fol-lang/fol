@@ -79,6 +79,13 @@ pub(crate) fn type_binary_op(
                 "channel send value".to_string(),
                 node_origin(resolved, left),
             )?;
+            super::bindings::mark_plain_identifier_move(
+                typed,
+                resolved,
+                context,
+                Some(left),
+                value_type,
+            )?;
             return Ok(TypedExpr::none());
         }
         BinaryOperator::PipeOr

@@ -604,7 +604,7 @@ fn validate_node_public_surface(
                 validate_node_public_surface(package, stmt)?;
             }
         }
-        AstNode::Select { arms, default } => {
+        AstNode::Select { arms, default, .. } => {
             for arm in arms {
                 validate_node_public_surface(package, &arm.channel)?;
                 for stmt in &arm.body {

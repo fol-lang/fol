@@ -33,6 +33,15 @@ pub(crate) fn type_binding_initializer(
     .and_then(|symbol_id| resolved.symbol(symbol_id))
     .and_then(|symbol| symbol.origin.clone());
 
+    if heap_owned && typed.capability_model() == crate::TypecheckCapabilityModel::Core {
+        let message =
+            "heap allocation binding requires heap support and is unavailable in 'fol_model = core'";
+        return Err(binding_origin.clone().map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+            |origin| TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+        ));
+    }
+
     let Some(symbol_id) = find_symbol_in_scope_chain(
         resolved,
         context.source_unit_id,
@@ -476,6 +485,14 @@ fn register_borrow_binding(
                 .and_then(|symbol| symbol.origin.clone())
         })
         .ok_or_else(|| internal_error("borrow binding lost its syntax origin", None))?;
+    if let Some(move_origin) = typed.moved_binding_origin(owner).cloned() {
+        return Err(TypecheckError::with_origin(
+            TypecheckErrorKind::Ownership,
+            "cannot borrow from an owner whose value was already moved",
+            origin,
+        )
+        .with_related_origin(move_origin, "ownership moved here"));
+    }
     reject_reborrow_source(typed, owner, origin.clone())?;
 
     if mutable
@@ -533,11 +550,28 @@ pub(crate) fn mark_plain_identifier_move(
     else {
         return Ok(());
     };
+    if let Some(CheckedType::Borrowed { inner, .. }) = typed.type_table().get(actual_type) {
+        if ownership_or_unknown_moves_on_transfer(typed, *inner) {
+            let message = format!(
+                "move-only value cannot be transferred out of borrow binding '{name}'"
+            );
+            return Err(node_origin(resolved, value).map_or_else(
+                || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::Ownership,
+                        message.clone(),
+                        origin,
+                    )
+                },
+            ));
+        }
+    }
     let eventual = matches!(
         typed.type_table().get(actual_type),
         Some(CheckedType::Eventual { .. })
     );
-    let ownership_move = ownership_moves_on_transfer(typed, actual_type, 0);
+    let ownership_move = ownership_moves_on_transfer(typed, actual_type);
     if !eventual && !ownership_move {
         return Ok(());
     }
@@ -596,23 +630,126 @@ pub(crate) fn reject_repeated_outer_move(
     }))
 }
 
-fn ownership_moves_on_transfer(
+fn ownership_moves_on_transfer(typed: &TypedProgram, type_id: crate::CheckedTypeId) -> bool {
+    ownership_moves_on_transfer_inner(typed, type_id, false, &mut BTreeSet::new())
+}
+
+fn ownership_or_unknown_moves_on_transfer(
     typed: &TypedProgram,
     type_id: crate::CheckedTypeId,
-    depth: usize,
 ) -> bool {
-    if depth > 32 {
+    ownership_moves_on_transfer_inner(typed, type_id, true, &mut BTreeSet::new())
+}
+
+fn ownership_moves_on_transfer_inner(
+    typed: &TypedProgram,
+    type_id: crate::CheckedTypeId,
+    generic_is_move_only: bool,
+    visiting: &mut BTreeSet<crate::CheckedTypeId>,
+) -> bool {
+    if !visiting.insert(type_id) {
         return false;
     }
-    match typed.type_table().get(type_id) {
-        Some(CheckedType::Owned { .. })
-        | Some(CheckedType::Pointer { shared: false, .. })
-        | Some(CheckedType::Channel { .. }) => true,
-        Some(CheckedType::Optional { inner }) | Some(CheckedType::Error { inner: Some(inner) }) => {
-            ownership_moves_on_transfer(typed, *inner, depth + 1)
+    let moves = if let Some(apparent) = typed.apparent_type_override(type_id) {
+        ownership_moves_on_transfer_inner(typed, apparent, generic_is_move_only, visiting)
+    } else {
+        match typed.type_table().get(type_id) {
+            Some(CheckedType::Owned { .. })
+            | Some(CheckedType::Pointer { shared: false, .. })
+            | Some(CheckedType::Eventual { .. })
+            | Some(CheckedType::Channel { .. }) => true,
+            Some(CheckedType::Declared {
+                kind: crate::DeclaredTypeKind::GenericParameter,
+                ..
+            }) => generic_is_move_only,
+            Some(CheckedType::Declared { symbol, args, .. }) => {
+                args.iter().any(|arg| {
+                    ownership_moves_on_transfer_inner(
+                        typed,
+                        *arg,
+                        generic_is_move_only,
+                        visiting,
+                    )
+                }) || typed
+                    .typed_symbol(*symbol)
+                    .and_then(|symbol| symbol.declared_type)
+                    .is_some_and(|declared| {
+                        ownership_moves_on_transfer_inner(
+                            typed,
+                            declared,
+                            generic_is_move_only,
+                            visiting,
+                        )
+                    })
+            }
+            Some(CheckedType::Array { element_type, .. })
+            | Some(CheckedType::Vector { element_type })
+            | Some(CheckedType::Sequence { element_type }) => ownership_moves_on_transfer_inner(
+                typed,
+                *element_type,
+                generic_is_move_only,
+                visiting,
+            ),
+            Some(CheckedType::Optional { inner })
+            | Some(CheckedType::Error { inner: Some(inner) }) => {
+                ownership_moves_on_transfer_inner(
+                    typed,
+                    *inner,
+                    generic_is_move_only,
+                    visiting,
+                )
+            }
+            Some(CheckedType::Set { member_types }) => member_types.iter().any(|member| {
+                ownership_moves_on_transfer_inner(
+                    typed,
+                    *member,
+                    generic_is_move_only,
+                    visiting,
+                )
+            }),
+            Some(CheckedType::Map {
+                key_type,
+                value_type,
+            }) => {
+                ownership_moves_on_transfer_inner(
+                    typed,
+                    *key_type,
+                    generic_is_move_only,
+                    visiting,
+                ) || ownership_moves_on_transfer_inner(
+                    typed,
+                    *value_type,
+                    generic_is_move_only,
+                    visiting,
+                )
+            }
+            Some(CheckedType::Record { fields }) => fields.values().any(|field| {
+                ownership_moves_on_transfer_inner(
+                    typed,
+                    *field,
+                    generic_is_move_only,
+                    visiting,
+                )
+            }),
+            Some(CheckedType::Entry { variants }) => variants.values().flatten().any(|variant| {
+                ownership_moves_on_transfer_inner(
+                    typed,
+                    *variant,
+                    generic_is_move_only,
+                    visiting,
+                )
+            }),
+            Some(CheckedType::Builtin(_))
+            | Some(CheckedType::Borrowed { .. })
+            | Some(CheckedType::Pointer { shared: true, .. })
+            | Some(CheckedType::ChannelSender { .. })
+            | Some(CheckedType::Error { inner: None })
+            | Some(CheckedType::Routine(_))
+            | None => false,
         }
-        _ => false,
-    }
+    };
+    visiting.remove(&type_id);
+    moves
 }
 
 pub(crate) fn type_record_init(

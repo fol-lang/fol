@@ -12,7 +12,9 @@ use crate::{
     TypecheckErrorKind, TypecheckResult, TypedProgram,
 };
 use fol_intrinsics::{select_intrinsic, IntrinsicSurface};
-use fol_parser::ast::{AstNode, CallSurface, ChannelEndpoint, FolType, ParsedSourceUnitKind};
+use fol_parser::ast::{
+    AstNode, CallSurface, ChannelEndpoint, FolType, ParsedSourceUnitKind, UnaryOperator,
+};
 use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId};
 use std::collections::BTreeMap;
 
@@ -278,6 +280,33 @@ pub(crate) fn apply_spawn_argument_boundary(
                     .and_then(|syntax_id| typed.typed_node(syntax_id))
                     .and_then(|node| node.inferred_type)
             });
+        let direct_borrow = matches!(
+            helpers::strip_comments(arg),
+            AstNode::UnaryOp {
+                op: UnaryOperator::BorrowFrom,
+                ..
+            }
+        );
+        if direct_borrow
+            || resolved_type
+                .is_some_and(|type_id| helpers::type_contains_borrowed(typed, type_id))
+        {
+            return Err(node_origin(resolved, arg).map_or_else(
+                || {
+                    TypecheckError::new(
+                        TypecheckErrorKind::Ownership,
+                        "borrowed values cannot cross a spawn or async thread boundary; pass a clonable stack value or move an owned value",
+                    )
+                },
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::Ownership,
+                        "borrowed values cannot cross a spawn or async thread boundary; pass a clonable stack value or move an owned value",
+                        origin,
+                    )
+                },
+            ));
+        }
         let Some(resolved_type) = resolved_type else {
             continue;
         };
@@ -311,6 +340,37 @@ pub(crate) fn apply_spawn_argument_boundary(
         }
     }
     Ok(())
+}
+
+fn reject_unsupported_spawn_task_surface(
+    resolved: &ResolvedProgram,
+    task: &AstNode,
+) -> Result<(), TypecheckError> {
+    match helpers::strip_comments(task) {
+        AstNode::FunctionCall {
+            surface: CallSurface::Plain,
+            ..
+        } => Ok(()),
+        AstNode::AnonymousFun { params, .. }
+        | AstNode::AnonymousPro { params, .. }
+        | AstNode::AnonymousLog { params, .. }
+            if params.is_empty() =>
+        {
+            Ok(())
+        }
+        AstNode::AnonymousFun { .. }
+        | AstNode::AnonymousPro { .. }
+        | AstNode::AnonymousLog { .. } => Err(unsupported_node_surface(
+            resolved,
+            task,
+            "a directly spawned anonymous routine cannot declare call parameters",
+        )),
+        _ => Err(unsupported_node_surface(
+            resolved,
+            task,
+            "spawn requires a direct unqualified routine call or a zero-parameter anonymous routine in V3; qualified calls, method calls, and other expressions are not supported",
+        )),
+    }
 }
 
 pub(crate) fn type_node_with_expectation(
@@ -446,7 +506,18 @@ fn type_node_with_expectation_inner(
             // Method targets are selected by call typing, so their channel
             // receiver effect can only be checked after the task is typed.
             reject_direct_spawn_channel_receiver(typed, resolved, task)?;
-            if observed.recoverable_effect.is_some() {
+            let anonymous_recoverable = matches!(
+                helpers::strip_comments(task),
+                AstNode::AnonymousFun { .. }
+                    | AstNode::AnonymousPro { .. }
+                    | AstNode::AnonymousLog { .. }
+            ) && observed
+                .value_type
+                .and_then(|type_id| typed.type_table().get(type_id))
+                .is_some_and(|typ| {
+                    matches!(typ, CheckedType::Routine(signature) if signature.error_type.is_some())
+                });
+            if observed.recoverable_effect.is_some() || anonymous_recoverable {
                 return Err(node_origin(resolved, node).map_or_else(
                     || TypecheckError::new(
                         TypecheckErrorKind::Unsupported,
@@ -460,6 +531,7 @@ fn type_node_with_expectation_inner(
                 ));
             }
             apply_spawn_argument_boundary(typed, resolved, task)?;
+            reject_unsupported_spawn_task_surface(resolved, task)?;
             Ok(TypedExpr::none())
         }
         AstNode::FunDecl {
@@ -1020,8 +1092,8 @@ fn type_node_with_expectation_inner(
             node,
             "range expressions are not yet supported",
         )),
-        AstNode::Select { arms, default } => {
-            controlflow::type_select(typed, resolved, context, arms, default.as_deref())
+        AstNode::Select { arms, default, .. } => {
+            controlflow::type_select(typed, resolved, context, node, arms, default.as_deref())
         }
         AstNode::Return { value } => {
             controlflow::type_return(typed, resolved, context, value.as_deref())

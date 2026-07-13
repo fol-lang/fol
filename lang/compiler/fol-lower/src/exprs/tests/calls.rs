@@ -1245,3 +1245,35 @@ fn procedure_style_method_call_lowering_emits_void_call_instruction() {
         "procedure-style method call should have no result local"
     );
 }
+
+#[test]
+fn ordinary_lock_and_unlock_methods_lower_as_calls() {
+    let workspace = lower_fixture_workspace(
+        "typ Gate: rec = { value: int };\n\
+         pro (Gate)lock(): non = { return; };\n\
+         fun (Gate)unlock(): int = { return self.value; };\n\
+         fun[] main(gate: Gate): int = {\n\
+             gate.lock();\n\
+             return gate.unlock();\n\
+         };",
+    );
+    let routine = workspace
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+
+    assert_eq!(
+        routine
+            .instructions
+            .iter()
+            .filter(|instr| matches!(instr.kind, LoweredInstrKind::Call { .. }))
+            .count(),
+        2,
+    );
+    assert!(routine.instructions.iter().all(|instr| !matches!(
+        instr.kind,
+        LoweredInstrKind::MutexLock { .. } | LoweredInstrKind::MutexUnlock { .. }
+    )));
+}

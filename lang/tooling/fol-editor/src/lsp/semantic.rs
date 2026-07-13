@@ -7,7 +7,9 @@ use fol_parser::ast::{AstNode, ParsedSourceUnitKind, SyntaxNodeId};
 use fol_typecheck::{
     editor_builtin_type_names, editor_container_type_names, editor_implemented_intrinsics,
     editor_intrinsic_available_in_model, editor_shell_type_names,
-    editor_type_family_available_in_model, EditorTypeFamily, TypecheckCapabilityModel,
+    editor_processor_keyword_available_in_model, editor_processor_keyword_infos,
+    editor_structured_type_infos, editor_type_family_available_in_model,
+    EditorProcessorKeywordContext, EditorTypeFamily, TypecheckCapabilityModel,
 };
 use std::path::Path;
 use std::path::PathBuf;
@@ -401,8 +403,9 @@ impl SemanticSnapshot {
         if self.current_program().is_none() {
             return self.fallback_completion_items(document, position, context);
         }
+        let pipe_stage = context == CompletionContext::PipeStage;
         match context {
-            CompletionContext::Plain => {}
+            CompletionContext::Plain | CompletionContext::PipeStage => {}
             CompletionContext::TypePosition => {
                 let mut items = self.type_surface_completion_items();
                 items.extend(self.visible_named_type_completion_items());
@@ -420,7 +423,11 @@ impl SemanticSnapshot {
         let mut items = self.local_completion_items(position);
         items.extend(self.current_package_top_level_completion_items());
         items.extend(self.import_alias_completion_items(position));
-        items.extend(self.keyword_completion_items());
+        if pipe_stage {
+            items.extend(self.processor_pipe_stage_completion_items());
+        } else {
+            items.extend(self.keyword_completion_items());
+        }
         dedupe_completion_items(items)
     }
 
@@ -506,6 +513,7 @@ impl SemanticSnapshot {
         position: LspPosition,
         context: CompletionContext,
     ) -> Vec<EditorCompletionItem> {
+        let pipe_stage = context == CompletionContext::PipeStage;
         match context {
             CompletionContext::DotTrigger => self.dot_intrinsic_fallback_completion_items(),
             CompletionContext::QualifiedPath { qualifier } => {
@@ -517,7 +525,7 @@ impl SemanticSnapshot {
                 items.extend(self.fallback_imported_named_type_items(document));
                 dedupe_completion_items(items)
             }
-            CompletionContext::Plain => {
+            CompletionContext::Plain | CompletionContext::PipeStage => {
                 if position_to_offset(&document.text, position).is_none() {
                     if let Some(line) = document.text.lines().nth(position.line as usize) {
                         if line.contains("::") {
@@ -534,7 +542,11 @@ impl SemanticSnapshot {
                 let mut items = self.fallback_local_scope_items(document, position);
                 items.extend(self.fallback_current_package_top_level_items(document, position));
                 items.extend(self.fallback_import_alias_items(document));
-                items.extend(self.keyword_completion_items());
+                if pipe_stage {
+                    items.extend(self.processor_pipe_stage_completion_items());
+                } else {
+                    items.extend(self.keyword_completion_items());
+                }
                 dedupe_completion_items(items)
             }
         }
@@ -566,6 +578,12 @@ impl SemanticSnapshot {
                     editor_type_family_available_in_model(model, shell_type_family(name))
                 })
                 .map(|name| completion_builtin_type_item(name)),
+        );
+        items.extend(
+            editor_structured_type_infos()
+                .iter()
+                .filter(|info| editor_type_family_available_in_model(model, info.family))
+                .map(|info| completion_builtin_type_item(info.name)),
         );
         items
     }
@@ -666,17 +684,32 @@ impl SemanticSnapshot {
             CONTROL_KEYWORDS, DECLARATION_KEYWORDS, DIAGNOSTIC_KEYWORDS, LITERAL_KEYWORDS,
         };
         // LSP CompletionItemKind::Keyword == 14.
+        let model = self.active_model();
         DECLARATION_KEYWORDS
             .iter()
             .chain(CONTROL_KEYWORDS.iter())
             .chain(LITERAL_KEYWORDS.iter())
             .chain(DIAGNOSTIC_KEYWORDS.iter())
-            .map(|keyword| EditorCompletionItem {
-                label: (*keyword).to_string(),
-                kind: 14,
-                detail: Some("keyword".to_string()),
-                insert_text: None,
+            .filter(|keyword| {
+                editor_processor_keyword_infos()
+                    .iter()
+                    .find(|info| info.name == **keyword)
+                    .is_none_or(|info| {
+                        info.context == EditorProcessorKeywordContext::Plain
+                            && editor_processor_keyword_available_in_model(model, *info)
+                    })
             })
+            .map(|keyword| completion_keyword_item(keyword))
+            .collect()
+    }
+
+    fn processor_pipe_stage_completion_items(&self) -> Vec<EditorCompletionItem> {
+        let model = self.active_model();
+        editor_processor_keyword_infos()
+            .iter()
+            .filter(|info| info.context == EditorProcessorKeywordContext::PipeStage)
+            .filter(|info| editor_processor_keyword_available_in_model(model, **info))
+            .map(|info| completion_keyword_item(info.name))
             .collect()
     }
 
@@ -2317,6 +2350,16 @@ fn shell_type_family(name: &str) -> EditorTypeFamily {
         "opt" => EditorTypeFamily::OptionalShell,
         "err" => EditorTypeFamily::ErrorShell,
         _ => EditorTypeFamily::RecordLike,
+    }
+}
+
+fn completion_keyword_item(keyword: &str) -> EditorCompletionItem {
+    // LSP CompletionItemKind::Keyword == 14.
+    EditorCompletionItem {
+        label: keyword.to_string(),
+        kind: 14,
+        detail: Some("keyword".to_string()),
+        insert_text: None,
     }
 }
 

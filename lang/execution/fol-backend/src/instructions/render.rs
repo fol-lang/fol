@@ -355,6 +355,11 @@ pub fn render_core_instruction_in_workspace(
                 if *mutable { "mut " } else { "" }
             ))
         }
+        LoweredInstrKind::ReadBorrow { borrow } => {
+            let result = rendered_result_local(package_identity, routine, instruction)?;
+            let borrow = render_local_name(package_identity, routine, *borrow)?;
+            Ok(format!("{result} = (*{borrow}).clone();"))
+        }
         LoweredInstrKind::ConstructPointer { value, shared, .. } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;

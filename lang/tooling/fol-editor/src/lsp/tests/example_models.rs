@@ -200,6 +200,10 @@ fn lsp_server_surfaces_v3_processor_m1_spawn_state_and_failures() {
 
     for (example, expected) in [
         (
+            "examples/fail_proc_spawn_in_core_m1",
+            "spawn requires hosted std support",
+        ),
+        (
             "examples/fail_proc_spawn_in_memo_m1",
             "spawn requires hosted std support",
         ),
@@ -280,6 +284,18 @@ fn lsp_server_surfaces_v3_processor_m2_channel_state_and_failures() {
             "examples/fail_proc_channel_in_core_m2",
             "channel types require hosted std support",
         ),
+        (
+            "examples/fail_proc_channel_in_memo_m2",
+            "channel types require hosted std support",
+        ),
+        (
+            "examples/fail_proc_channel_capture_rx_m2",
+            "captured endpoint 'channel[tx]' is sender-only",
+        ),
+        (
+            "examples/fail_proc_channel_spawn_consumer_m2",
+            "routine 'consume' receives from a channel and cannot be spawned directly",
+        ),
     ] {
         let (root, uri) = copied_example_package_root(example);
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
@@ -336,8 +352,20 @@ fn lsp_server_surfaces_v3_processor_m3_select_and_mutex_state() {
             "old select(channel as binding) form is not supported",
         ),
         (
+            "examples/fail_proc_select_in_core_m3",
+            "select requires hosted std support",
+        ),
+        (
+            "examples/fail_proc_select_in_memo_m3",
+            "select requires hosted std support",
+        ),
+        (
             "examples/fail_proc_mutex_double_paren_m3",
             "Expected generic parameter name",
+        ),
+        (
+            "examples/fail_proc_mutex_in_core_m3",
+            "mutex parameters require hosted std support",
         ),
         (
             "examples/fail_proc_mutex_in_memo_m3",
@@ -432,6 +460,18 @@ fn lsp_server_surfaces_v3_processor_m4_eventual_state_and_failures() {
         (
             "examples/fail_proc_async_in_core_m4",
             "async pipe stages require hosted std support",
+        ),
+        (
+            "examples/fail_proc_async_in_memo_m4",
+            "async pipe stages require hosted std support",
+        ),
+        (
+            "examples/fail_proc_await_in_core_m4",
+            "await pipe stages require hosted std support",
+        ),
+        (
+            "examples/fail_proc_await_in_memo_m4",
+            "await pipe stages require hosted std support",
         ),
     ] {
         let (root, uri) = copied_example_package_root(example);
