@@ -20,7 +20,6 @@ module.exports = grammar({
     [$.generic_param, $.param],
     [$.generic_param, $.type_expr],
     [$.if_stmt, $.if_expr],
-    [$.select_stmt, $.select_expr],
     [$.expr, $.range_expr],
     [$.else_clause, $.if_expr],
   ],
@@ -46,7 +45,7 @@ module.exports = grammar({
     ),
 
     use_decl: $ => seq('use', field('name', $.identifier), ':', field('source_kind', $.source_kind), '=', '{', field('target', $.string_literal), '}'),
-    var_decl: $ => seq(choice('var', '+var', '~var', '-var', '!var', '?var', '@var'), optional(field('modifiers', $.decl_modifiers)), $.typed_binding, '=', field('value', $.expr)),
+    var_decl: $ => seq(choice('var', '+var', '~var', '-var', '!var', '?var', '@var'), optional(field('modifiers', $.decl_modifiers)), $.typed_binding, optional(seq('=', field('value', $.expr)))),
     con_decl: $ => seq(choice('con', '-con'), optional(field('modifiers', $.decl_modifiers)), $.typed_binding, '=', field('value', $.expr)),
     lab_decl: $ => seq('lab', optional(field('modifiers', $.decl_modifiers)), $.typed_binding, '=', field('value', $.expr)),
     fun_decl: $ => seq('fun', optional(field('modifiers', $.decl_modifiers)), field('declaration', choice($.plain_fun_decl, $.method_decl))),
@@ -105,11 +104,14 @@ module.exports = grammar({
     entry_type: _ => 'ent',
 
     type_expr: $ => choice(
+      $.pointer_type,
+      $.channel_type,
       $.generic_type_expr,
       $.qualified_path,
       $.identifier,
       $.container_type,
       $.shell_type,
+      $.owned_type,
     ),
 
     generic_type_expr: $ => seq(
@@ -119,11 +121,24 @@ module.exports = grammar({
       ']',
     ),
     container_type: $ => seq(choice('arr', 'vec', 'seq', 'set', 'map'), '[', commaSep1(choice($.type_expr, $.integer_literal)), ']'),
-    shell_type: $ => seq(choice('opt', 'err'), '[', $.type_expr, ']'),
+    channel_type: $ => seq('chn', '[', field('element', $.type_expr), ']'),
+    pointer_type: $ => prec(2, seq(
+      'ptr',
+      '[',
+      optional(seq(field('qualifier', choice('shared', 'raw')), ',')),
+      field('target', $.type_expr),
+      ']',
+    )),
+    shell_type: $ => choice(
+      seq(choice('opt', 'err'), '[', $.type_expr, ']'),
+      seq('opt', $.owned_type),
+      seq('opt', $.pointer_type),
+    ),
+    owned_type: $ => seq('@', $.type_expr),
 
     block: $ => seq('{', repeat(choice($.stmt, ';')), optional($.expr), '}'),
     type_block: $ => seq('{', repeat(choice($.var_decl, $.field_decl, $.record_field, ';', ',', $.comment, $.doc_comment)), '}'),
-    field_decl: $ => seq('var', optional(field('modifiers', $.decl_modifiers)), $.typed_binding),
+    field_decl: $ => prec(2, seq('var', optional(field('modifiers', $.decl_modifiers)), $.typed_binding)),
     record_field: $ => prec.right(seq($.typed_binding, optional(seq('=', field('default', $.expr))))),
     standard_block: $ => seq(
       '{',
@@ -163,6 +178,7 @@ module.exports = grammar({
       $.return_stmt,
       $.yield_stmt,
       $.dfr_stmt,
+      $.edf_stmt,
       $.report_stmt,
       $.panic_stmt,
       $.assert_stmt,
@@ -186,6 +202,7 @@ module.exports = grammar({
     return_stmt: $ => prec.right(seq('return', optional($.expr))),
     yield_stmt: $ => prec.right(seq('yield', optional($.expr))),
     dfr_stmt: $ => seq('dfr', $.block),
+    edf_stmt: $ => seq('edf', $.block),
     report_stmt: $ => prec.right(seq('report', $.expr)),
     panic_stmt: $ => prec.right(seq('panic', $.expr)),
     assert_stmt: $ => prec.right(seq('assert', optional($.expr))),
@@ -193,7 +210,20 @@ module.exports = grammar({
     break_stmt: $ => prec.right(seq('break', optional($.expr))),
     if_stmt: $ => prec.right(seq('if', '(', $.expr, ')', $.flow_body, optional($.else_clause))),
     else_clause: $ => seq('else', $.flow_body),
-    select_stmt: $ => seq('select', '(', $.expr, optional(seq('as', $.identifier)), ')', $.block),
+    select_stmt: $ => seq('select', $.select_block),
+    select_block: $ => seq(
+      '{',
+      repeat1(choice($.select_arm, $.select_default_arm, $.comment, $.doc_comment)),
+      '}',
+    ),
+    select_arm: $ => seq(
+      'when',
+      field('channel', choice($.channel_access, $.identifier, $.qualified_path)),
+      'as',
+      field('binding', $.identifier),
+      $.block,
+    ),
+    select_default_arm: $ => seq('*', $.block),
     while_stmt: $ => seq('while', '(', $.expr, ')', $.flow_body),
     for_stmt: $ => seq('for', '(', repeat1(choice($.loop_header_atom, 'in', 'when', ';', ':', ',', '_', 'var', 'let', 'con', 'lab')), ')', $.flow_body),
     each_stmt: $ => seq('each', '(', repeat1(choice($.loop_header_atom, 'in', 'when', ';', ':', ',', '_', 'var', 'let', 'con', 'lab')), ')', $.flow_body),
@@ -204,6 +234,7 @@ module.exports = grammar({
     default_clause: $ => seq('*', $.block),
     flow_body: $ => choice(prec(1, $.block), prec.right(1, seq('=>', choice(prec(1, $.block), $.stmt)))),
     loop_header_atom: $ => choice(
+      $.channel_access,
       $.qualified_path,
       $.identifier,
       $.integer_literal,
@@ -214,13 +245,14 @@ module.exports = grammar({
 
     expr: $ => choice(
       $.pipe_or_expr,
+      $.pipe_expr,
       $.binary_expr,
       $.unary_expr,
       $.if_expr,
-      $.select_expr,
       $.when_expr,
       $.loop_expr,
       $.range_expr,
+      $.spawn_expr,
       $.anonymous_fun_expr,
       $.anonymous_pro_expr,
       $.anonymous_log_expr,
@@ -228,16 +260,18 @@ module.exports = grammar({
     ),
 
     pipe_or_expr: $ => prec.left(1, seq(field('left', choice($.expr_atom, $.unary_expr)), '||', field('right', $.expr))),
+    pipe_expr: $ => prec.left(1, seq(field('left', choice($.expr_atom, $.unary_expr)), '|', field('right', $.expr))),
     binary_expr: $ => prec.left(2, seq(field('left', choice($.expr_atom, $.unary_expr)), field('operator', choice(
       '==', '!=', '<=', '>=', '<', '>', '&&', '+', '-', '*', '/', '%', '^',
       'or', 'xor', 'nor', 'and', 'nand', 'as', 'cast', 'is', 'has', 'in', 'on', 'of', 'at'
     )), field('right', $.expr))),
-    unary_expr: $ => prec.right(3, seq(field('operator', choice('not', '-')), field('operand', $.expr_atom))),
+    unary_expr: $ => prec.right(3, seq(field('operator', choice('not', '-', '&', '*', '#', '!')), field('operand', $.expr_atom))),
     expr_atom: $ => choice(
       $.check_expr,
       $.call_expr,
       $.dot_intrinsic,
       $.field_access,
+      $.channel_access,
       $.index_access,
       $.qualified_path,
       $.identifier,
@@ -249,7 +283,6 @@ module.exports = grammar({
       $.await_expr,
       $.do_expr,
       $.if_expr,
-      $.select_expr,
       $.range_expr,
       $.anonymous_fun_expr,
       $.anonymous_pro_expr,
@@ -266,16 +299,20 @@ module.exports = grammar({
     ),
 
     if_expr: $ => prec.right(1, seq('if', '(', $.expr, ')', field('then', $.flow_body), 'else', field('else', $.flow_body))),
-    select_expr: $ => seq('select', '(', $.expr, optional(seq('as', $.identifier)), ')', $.block),
     range_expr: $ => choice(
       prec.right(seq(field('start', choice($.expr_atom, $.unary_expr)), field('operator', choice('..', '...')), field('end', $.expr))),
       prec.right(seq(field('operator', choice('..', '...')), field('end', $.expr))),
       prec.right(seq(field('start', choice($.expr_atom, $.unary_expr)), field('operator', choice('..', '...')))),
     ),
+    spawn_expr: $ => prec.right(4, seq('[>]', field('task', $.expr_atom))),
     anonymous_fun_expr: $ => seq('fun', optional($.decl_modifiers), $.params, optional($.routine_capture_list), optional($.return_type), optional($.error_type), choice('=', '=>'), $.routine_body_expr),
     anonymous_pro_expr: $ => seq('pro', optional($.decl_modifiers), $.params, optional($.routine_capture_list), optional($.return_type), optional($.error_type), choice('=', '=>'), $.routine_body_expr),
     anonymous_log_expr: $ => seq('log', optional($.decl_modifiers), $.params, optional($.routine_capture_list), optional($.return_type), optional($.error_type), choice('=', '=>'), $.routine_body_expr),
-    routine_capture_list: $ => seq('[', optional(commaSep($.identifier)), ']'),
+    routine_capture_list: $ => seq('[', optional(commaSep($.routine_capture)), ']'),
+    routine_capture: $ => seq(
+      field('binding', $.identifier),
+      optional(seq('[', field('endpoint', choice('tx', 'rx')), ']')),
+    ),
     routine_body_expr: $ => choice(prec(1, $.block), prec.right(1, seq('=>', choice(prec(1, $.block), $.stmt)))),
     call_expr: $ => prec.left(3, seq(
       field('callee', choice($.qualified_path, $.identifier, $.field_access)),
@@ -298,12 +335,18 @@ module.exports = grammar({
     check_expr: $ => seq('check', '(', $.expr, ')'),
     dot_intrinsic: $ => seq('.', field('name', $.identifier), '(', optional(commaSep($.expr)), ')'),
     field_access: $ => prec.left(4, seq(
-      field('receiver', choice($.identifier, $.qualified_path, $.field_access, $.self_expr, $.index_access, $.call_expr)),
+      field('receiver', choice($.identifier, $.qualified_path, $.field_access, $.self_expr, $.channel_access, $.index_access, $.call_expr)),
       '.',
       field('field', $.identifier),
     )),
+    channel_access: $ => prec.left(5, seq(
+      field('channel', choice($.identifier, $.qualified_path, $.field_access)),
+      '[',
+      field('endpoint', choice('tx', 'rx')),
+      ']',
+    )),
     index_access: $ => prec.left(4, seq(
-      field('container', choice($.identifier, $.qualified_path, $.field_access, $.index_access)),
+      field('container', choice($.identifier, $.qualified_path, $.field_access, $.channel_access, $.index_access)),
       '[',
       field('index', $.expr),
       ']',

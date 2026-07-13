@@ -130,6 +130,8 @@ pub enum UnaryOperator {
     Not,
     Ref,
     Deref,
+    BorrowFrom,
+    GiveBack,
     Unwrap,
 }
 
@@ -191,7 +193,7 @@ pub fn decl_visibility(options: &[DeclOption]) -> ParsedDeclVisibility {
     }
 }
 
-/// Whether a `var`/`lab` binding was declared mutable (`var[mut]` / `var[~]`).
+/// Whether a `var`/`lab` binding was declared mutable (`var[mut]` / `~var`).
 /// Bindings are immutable by default per the variables chapter of the book.
 pub fn binding_is_mutable(options: &[VarOption]) -> bool {
     options

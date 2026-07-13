@@ -1,0 +1,10 @@
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var channel: chn[int];
+    [>]fun()[channel[tx]] = {
+        42 | channel[tx];
+    };
+    var value: int = channel[rx];
+    return std::io::echo_int(value);
+};

@@ -73,11 +73,7 @@ impl DiagnosticReport {
         self.add_diagnostic(producer.to_diagnostic());
     }
 
-    pub fn add_error(
-        &mut self,
-        message: impl Into<String>,
-        location: Option<DiagnosticLocation>,
-    ) {
+    pub fn add_error(&mut self, message: impl Into<String>, location: Option<DiagnosticLocation>) {
         let diagnostic = Diagnostic::from_message(message, Severity::Error, location);
         self.add_diagnostic(diagnostic);
     }
@@ -91,11 +87,7 @@ impl DiagnosticReport {
         self.add_diagnostic(diagnostic);
     }
 
-    pub fn add_info(
-        &mut self,
-        message: impl Into<String>,
-        location: Option<DiagnosticLocation>,
-    ) {
+    pub fn add_info(&mut self, message: impl Into<String>, location: Option<DiagnosticLocation>) {
         let diagnostic = Diagnostic::from_message(message, Severity::Info, location);
         self.add_diagnostic(diagnostic);
     }
@@ -508,8 +500,7 @@ mod tests {
         };
 
         report.add_diagnostic(Diagnostic::error("P1002", "first").with_primary_label(loc.clone()));
-        report
-            .add_diagnostic(Diagnostic::error("P1002", "second").with_primary_label(loc.clone()));
+        report.add_diagnostic(Diagnostic::error("P1002", "second").with_primary_label(loc.clone()));
         report.add_diagnostic(Diagnostic::error("P1002", "third").with_primary_label(loc.clone()));
 
         assert_eq!(

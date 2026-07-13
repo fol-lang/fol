@@ -10,19 +10,169 @@ use super::containers::{
 use super::cursor::{DeferScopeKind, LoweredValue, RoutineCursor, WorkspaceDeclIndex};
 use super::flow::lower_when_expression;
 use super::helpers::{
-    describe_binary_operator, describe_unary_operator,
-    literal_type_id, lower_assignment_target, lower_entry_variant_access, lower_unwrap_expression,
+    describe_binary_operator, describe_unary_operator, literal_type_id, lower_assignment_target,
+    lower_entry_variant_access, lower_unwrap_expression,
 };
 use crate::{
-    control::{LoweredInstrKind, LoweredBinaryOp, LoweredUnaryOp},
+    control::{LoweredBinaryOp, LoweredInstrKind, LoweredUnaryOp},
     ids::LoweredTypeId,
     types::{LoweredRoutineType, LoweredType},
     LoweredBlock, LoweredLocal, LoweredRoutine, LoweringError, LoweringErrorKind,
 };
 use fol_intrinsics::{select_intrinsic, IntrinsicSurface};
-use fol_parser::ast::{AstNode, CallSurface, FolType, Literal};
+use fol_parser::ast::{AstNode, CallSurface, ChannelEndpoint, FolType, Literal};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolKind};
 use std::collections::BTreeMap;
+
+pub(crate) fn channel_binding_local(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    cursor: &RoutineCursor<'_>,
+    channel: &AstNode,
+) -> Result<(crate::LoweredLocalId, LoweredTypeId), LoweringError> {
+    let channel = match channel {
+        AstNode::Commented { node, .. } => node.as_ref(),
+        other => other,
+    };
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        name,
+    } = channel
+    else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            "channel endpoints currently require a local channel binding",
+        ));
+    };
+    let symbol = typed_package
+        .program
+        .resolved()
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id)
+                && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("channel binding '{name}' does not resolve"),
+            )
+        })?;
+    let local = cursor
+        .routine
+        .local_symbols
+        .get(&symbol)
+        .copied()
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("channel binding '{name}' does not retain a lowered local"),
+            )
+        })?;
+    let type_id = cursor
+        .routine
+        .locals
+        .get(local)
+        .and_then(|local| local.type_id)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("channel binding '{name}' does not retain a lowered type"),
+            )
+        })?;
+    if !matches!(type_table.get(type_id), Some(LoweredType::Channel { .. })) {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!("channel binding '{name}' is not a lowered chn[T] value"),
+        ));
+    }
+    Ok((local, type_id))
+}
+
+pub(crate) fn lower_channel_access(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    cursor: &mut RoutineCursor<'_>,
+    channel: &AstNode,
+    endpoint: ChannelEndpoint,
+) -> Result<LoweredValue, LoweringError> {
+    let (channel_local, channel_type) =
+        channel_binding_local(typed_package, type_table, cursor, channel)?;
+    let Some(LoweredType::Channel { element_type }) = type_table.get(channel_type) else {
+        unreachable!("channel_binding_local verifies the lowered type")
+    };
+    let result_type = match endpoint {
+        ChannelEndpoint::Tx => type_table
+            .find(&LoweredType::ChannelSender {
+                element_type: *element_type,
+            })
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "channel sender type was not translated into lowered IR",
+                )
+            })?,
+        ChannelEndpoint::Rx => *element_type,
+    };
+    let result_local = cursor.allocate_local(result_type, None);
+    cursor.push_instr(
+        Some(result_local),
+        match endpoint {
+            ChannelEndpoint::Tx => LoweredInstrKind::ChannelSender {
+                channel: channel_local,
+            },
+            ChannelEndpoint::Rx => LoweredInstrKind::ChannelReceive {
+                channel: channel_local,
+            },
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: result_type,
+        recoverable_error_type: None,
+    })
+}
+
+pub(crate) fn lower_channel_send(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    value: &AstNode,
+    channel: &AstNode,
+) -> Result<(), LoweringError> {
+    let (channel_local, channel_type) =
+        channel_binding_local(typed_package, type_table, cursor, channel)?;
+    let Some(LoweredType::Channel { element_type }) = type_table.get(channel_type) else {
+        unreachable!("channel_binding_local verifies the lowered type")
+    };
+    let lowered_value = lower_expression_expected(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        Some(*element_type),
+        value,
+    )?;
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::ChannelSend {
+            channel: channel_local,
+            value: lowered_value.local_id,
+        },
+    )?;
+    Ok(())
+}
 
 pub(crate) fn lower_expression(
     typed_package: &fol_typecheck::TypedPackage,
@@ -61,6 +211,15 @@ pub(crate) fn lower_expression_expected(
     expected_type: Option<LoweredTypeId>,
     node: &AstNode,
 ) -> Result<LoweredValue, LoweringError> {
+    if let Some(borrowed) = lower_direct_borrow_reference(
+        typed_package,
+        type_table,
+        cursor,
+        expected_type,
+        node,
+    )? {
+        return Ok(borrowed);
+    }
     let lowered = lower_expression_observed(
         typed_package,
         type_table,
@@ -83,6 +242,63 @@ pub(crate) fn lower_expression_expected(
         ));
     }
     apply_expected_shell_wrap(type_table, cursor, expected_type, lowered)
+}
+
+fn lower_direct_borrow_reference(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    cursor: &mut RoutineCursor<'_>,
+    expected_type: Option<LoweredTypeId>,
+    node: &AstNode,
+) -> Result<Option<LoweredValue>, LoweringError> {
+    let Some(expected_type) = expected_type else {
+        return Ok(None);
+    };
+    let Some(crate::LoweredType::Borrowed { mutable, .. }) = type_table.get(expected_type) else {
+        return Ok(None);
+    };
+    let source = match node {
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::BorrowFrom,
+            operand,
+        } => operand.as_ref(),
+        other => other,
+    };
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = source
+    else {
+        return Ok(None);
+    };
+    let symbol = typed_package
+        .program
+        .resolved()
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id)
+                && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved);
+    let Some(owner) = symbol.and_then(|symbol| cursor.routine.local_symbols.get(&symbol).copied())
+    else {
+        return Ok(None);
+    };
+    let result_local = cursor.allocate_local(expected_type, None);
+    cursor.push_instr(
+        Some(result_local),
+        LoweredInstrKind::ConstructBorrow {
+            type_id: expected_type,
+            owner,
+            mutable: *mutable,
+        },
+    )?;
+    Ok(Some(LoweredValue {
+        local_id: result_local,
+        type_id: expected_type,
+        recoverable_error_type: None,
+    }))
 }
 
 pub(crate) fn lower_expression_observed(
@@ -176,15 +392,60 @@ fn lower_expression_observed_inner(
             op: fol_parser::ast::UnaryOperator::Neg,
             operand,
         } => lower_unary_op(
-            typed_package, type_table, checked_type_map, current_identity,
-            decl_index, cursor, source_unit_id, scope_id, LoweredUnaryOp::Neg, operand,
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            LoweredUnaryOp::Neg,
+            operand,
         ),
         AstNode::UnaryOp {
             op: fol_parser::ast::UnaryOperator::Not,
             operand,
         } => lower_unary_op(
-            typed_package, type_table, checked_type_map, current_identity,
-            decl_index, cursor, source_unit_id, scope_id, LoweredUnaryOp::Not, operand,
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            LoweredUnaryOp::Not,
+            operand,
+        ),
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::Ref,
+            operand,
+        } => lower_pointer_address(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            expected_type,
+            operand,
+        ),
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::Deref,
+            operand,
+        } => lower_pointer_deref(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            operand,
         ),
         AstNode::UnaryOp { op, .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
@@ -193,6 +454,63 @@ fn lower_expression_observed_inner(
                 describe_unary_operator(op)
             ),
         )),
+        AstNode::BinaryOp {
+            op: fol_parser::ast::BinaryOperator::Pipe,
+            left,
+            right,
+        } if matches!(right.as_ref(), AstNode::AsyncStage) => super::calls::lower_async_call(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            left,
+        ),
+        AstNode::BinaryOp {
+            op: fol_parser::ast::BinaryOperator::Pipe,
+            left,
+            right,
+        } if matches!(right.as_ref(), AstNode::AwaitStage) => {
+            let eventual = lower_expression(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                left,
+            )?;
+            let Some(LoweredType::Eventual {
+                value_type,
+                error_type,
+            }) = type_table.get(eventual.type_id)
+            else {
+                return Err(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "| await requires a lowered eventual value",
+                ));
+            };
+            let value_type = *value_type;
+            let error_type = *error_type;
+            let result_local = cursor.allocate_local(value_type, None);
+            cursor.push_instr(
+                Some(result_local),
+                LoweredInstrKind::AwaitEventual {
+                    eventual: eventual.local_id,
+                    error_type,
+                },
+            )?;
+            Ok(LoweredValue {
+                local_id: result_local,
+                type_id: value_type,
+                recoverable_error_type: error_type,
+            })
+        }
         AstNode::BinaryOp {
             op: fol_parser::ast::BinaryOperator::PipeOr,
             left,
@@ -237,8 +555,17 @@ fn lower_expression_observed_inner(
                 }
             };
             lower_binary_op(
-                typed_package, type_table, checked_type_map, current_identity,
-                decl_index, cursor, source_unit_id, scope_id, lowered_op, left, right,
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                lowered_op,
+                left,
+                right,
             )
         }
         AstNode::RecordInit { fields, .. } => lower_record_initializer(
@@ -250,7 +577,10 @@ fn lower_expression_observed_inner(
             cursor,
             source_unit_id,
             scope_id,
-            expected_type,
+            expected_type.and_then(|type_id| match type_table.get(type_id) {
+                Some(crate::LoweredType::Owned { inner }) => Some(*inner),
+                _ => Some(type_id),
+            }),
             fields,
         ),
         AstNode::ContainerLiteral {
@@ -437,7 +767,8 @@ fn lower_expression_observed_inner(
                 receiver.type_id,
                 *syntax_id,
             )?;
-            let typed_node = syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+            let typed_node =
+                syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
             let result_type = typed_node
                 .and_then(|node| node.inferred_type)
                 .and_then(|checked_type| checked_type_map.get(&checked_type).copied())
@@ -468,14 +799,12 @@ fn lower_expression_observed_inner(
                     )
                 })?
                 .to_vec();
-            let param_names = decl_index
-                .routine_param_names(callee)
-                .ok_or_else(|| {
-                    LoweringError::with_kind(
-                        LoweringErrorKind::InvalidInput,
-                        format!("method '{method}' does not retain lowered parameter names"),
-                    )
-                })?;
+            let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!("method '{method}' does not retain lowered parameter names"),
+                )
+            })?;
             let param_defaults = decl_index
                 .routine_param_defaults(callee)
                 .cloned()
@@ -594,18 +923,24 @@ fn lower_expression_observed_inner(
             )? {
                 return apply_expected_shell_wrap(type_table, cursor, expected_type, entry_value);
             }
-            let base = lower_expression(
-                typed_package,
-                type_table,
-                checked_type_map,
-                current_identity,
-                decl_index,
-                cursor,
-                source_unit_id,
-                scope_id,
-                object,
+            let base = direct_local_identifier_value(typed_package, cursor, object).map_or_else(
+                || {
+                    lower_expression(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        object,
+                    )
+                },
+                Ok,
             )?;
-            let Some(result_type) = field_access_type(type_table, base.type_id, field) else {
+            let Some(result_type) = field_access_type(type_table, decl_index, base.type_id, field)
+            else {
                 return Err(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
                     format!("field access '.{field}' does not map to a lowered record field"),
@@ -928,13 +1263,14 @@ fn lower_expression_observed_inner(
                     start,
                 )?
             } else {
-                let int_type = literal_type_id(typed_package, checked_type_map, &Literal::Integer(0))
-                    .ok_or_else(|| {
-                        LoweringError::with_kind(
-                            LoweringErrorKind::InvalidInput,
-                            "int type not found for slice default start bound",
-                        )
-                    })?;
+                let int_type =
+                    literal_type_id(typed_package, checked_type_map, &Literal::Integer(0))
+                        .ok_or_else(|| {
+                            LoweringError::with_kind(
+                                LoweringErrorKind::InvalidInput,
+                                "int type not found for slice default start bound",
+                            )
+                        })?;
                 let zero_local = cursor.allocate_local(int_type, None);
                 cursor.push_instr(
                     Some(zero_local),
@@ -959,13 +1295,14 @@ fn lower_expression_observed_inner(
                     end,
                 )?
             } else {
-                let int_type = literal_type_id(typed_package, checked_type_map, &Literal::Integer(0))
-                    .ok_or_else(|| {
-                        LoweringError::with_kind(
-                            LoweringErrorKind::InvalidInput,
-                            "int type not found for slice default end bound",
-                        )
-                    })?;
+                let int_type =
+                    literal_type_id(typed_package, checked_type_map, &Literal::Integer(0))
+                        .ok_or_else(|| {
+                            LoweringError::with_kind(
+                                LoweringErrorKind::InvalidInput,
+                                "int type not found for slice default end bound",
+                            )
+                        })?;
                 let len_local = cursor.allocate_local(int_type, None);
                 cursor.push_instr(
                     Some(len_local),
@@ -979,9 +1316,7 @@ fn lower_expression_observed_inner(
                     recoverable_error_type: None,
                 }
             };
-            let Some(result_type) =
-                slice_access_type(type_table, lowered_container.type_id)
-            else {
+            let Some(result_type) = slice_access_type(type_table, lowered_container.type_id) else {
                 return Err(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
                     "slice access does not map to a lowered container type",
@@ -1011,11 +1346,10 @@ fn lower_expression_observed_inner(
             "block expression lowering is not yet implemented",
         )),
         // Beyond V1 — deferred
-        AstNode::AsyncStage
-        | AstNode::AwaitStage
-        | AstNode::Spawn { .. }
-        | AstNode::ChannelAccess { .. }
-        | AstNode::Select { .. } => Err(LoweringError::with_kind(
+        AstNode::ChannelAccess { channel, endpoint } => {
+            lower_channel_access(typed_package, type_table, cursor, channel, endpoint.clone())
+        }
+        AstNode::AsyncStage | AstNode::AwaitStage | AstNode::Spawn { .. } | AstNode::Select { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
             "concurrency primitives (async, await, spawn, channels, select) are not yet supported",
         )),
@@ -1053,9 +1387,9 @@ fn lower_expression_observed_inner(
             LoweringErrorKind::InvalidInput,
             "break statement should not appear in expression lowering",
         )),
-        AstNode::Dfr { .. } => Err(LoweringError::with_kind(
+        AstNode::Dfr { .. } | AstNode::Edf { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            "dfr statement should not appear in expression lowering",
+            "dfr/edf statement should not appear in expression lowering",
         )),
         AstNode::Inquiry { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
@@ -1083,6 +1417,36 @@ fn lower_expression_observed_inner(
     apply_expected_shell_wrap(type_table, cursor, expected_type, lowered)
 }
 
+pub(crate) fn direct_local_identifier_value(
+    typed_package: &fol_typecheck::TypedPackage,
+    cursor: &RoutineCursor<'_>,
+    node: &AstNode,
+) -> Option<LoweredValue> {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = node
+    else {
+        return None;
+    };
+    let symbol = typed_package
+        .program
+        .resolved()
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })?
+        .resolved?;
+    let local_id = cursor.routine.local_symbols.get(&symbol).copied()?;
+    let type_id = cursor.routine.locals.get(local_id)?.type_id?;
+    Some(LoweredValue {
+        local_id,
+        type_id,
+        recoverable_error_type: None,
+    })
+}
+
 fn resolve_fol_type_to_lowered(
     typed_package: &fol_typecheck::TypedPackage,
     checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
@@ -1108,9 +1472,7 @@ fn resolve_fol_type_to_lowered(
                 .resolved()
                 .references
                 .iter()
-                .find(|r| {
-                    r.syntax_id == Some(syntax_id) && r.kind == ReferenceKind::TypeName
-                })
+                .find(|r| r.syntax_id == Some(syntax_id) && r.kind == ReferenceKind::TypeName)
                 .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
@@ -1123,16 +1485,15 @@ fn resolve_fol_type_to_lowered(
                     format!("type annotation '{name}' does not resolve to a symbol"),
                 )
             })?;
-            let typed_symbol =
-                typed_package
-                    .program
-                    .typed_symbol(symbol_id)
-                    .ok_or_else(|| {
-                        LoweringError::with_kind(
-                            LoweringErrorKind::InvalidInput,
-                            format!("type annotation '{name}' lost its typed symbol"),
-                        )
-                    })?;
+            let typed_symbol = typed_package
+                .program
+                .typed_symbol(symbol_id)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("type annotation '{name}' lost its typed symbol"),
+                    )
+                })?;
             return typed_symbol
                 .declared_type
                 .and_then(|id| checked_type_map.get(&id).copied())
@@ -1159,8 +1520,7 @@ fn resolve_fol_type_to_lowered(
                 .references
                 .iter()
                 .find(|r| {
-                    r.syntax_id == Some(syntax_id)
-                        && r.kind == ReferenceKind::QualifiedTypeName
+                    r.syntax_id == Some(syntax_id) && r.kind == ReferenceKind::QualifiedTypeName
                 })
                 .ok_or_else(|| {
                     LoweringError::with_kind(
@@ -1180,19 +1540,15 @@ fn resolve_fol_type_to_lowered(
                     ),
                 )
             })?;
-            let typed_symbol =
-                typed_package
-                    .program
-                    .typed_symbol(symbol_id)
-                    .ok_or_else(|| {
-                        LoweringError::with_kind(
-                            LoweringErrorKind::InvalidInput,
-                            format!(
-                                "qualified type '{}' lost its typed symbol",
-                                path.joined()
-                            ),
-                        )
-                    })?;
+            let typed_symbol = typed_package
+                .program
+                .typed_symbol(symbol_id)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("qualified type '{}' lost its typed symbol", path.joined()),
+                    )
+                })?;
             return typed_symbol
                 .declared_type
                 .and_then(|id| checked_type_map.get(&id).copied())
@@ -1222,7 +1578,7 @@ fn resolve_fol_type_to_lowered(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn lower_anonymous_routine(
+pub(crate) fn lower_anonymous_routine(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
     checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
@@ -1232,21 +1588,52 @@ fn lower_anonymous_routine(
     source_unit_id: SourceUnitId,
     _scope_id: ScopeId,
     syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
-    captures: &[String],
+    captures: &[fol_parser::ast::RoutineCapture],
     params: &[fol_parser::ast::Parameter],
     return_type: Option<&FolType>,
     error_type: Option<&FolType>,
     body: &[AstNode],
 ) -> Result<LoweredValue, LoweringError> {
-    if !captures.is_empty() {
-        return Err(LoweringError::with_kind(
-            LoweringErrorKind::Unsupported,
-            "anonymous routines with captures are not yet supported",
-        ));
+    // Resolve parameter types
+    let routine_scope_id =
+        syntax_id.and_then(|sid| typed_package.program.resolved().scope_for_syntax(sid));
+    let mut capture_lowered_types = Vec::with_capacity(captures.len());
+    for capture in captures {
+        let scope_id = routine_scope_id.ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "anonymous routine capture does not retain a routine scope",
+            )
+        })?;
+        let capture_symbol = crate::decls::find_symbol_in_scope_or_descendants(
+            &typed_package.program,
+            source_unit_id,
+            scope_id,
+            SymbolKind::Capture,
+            &capture.name,
+        )
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("capture '{}' does not retain a lowering symbol", capture.name),
+            )
+        })?;
+        let capture_type = typed_package
+            .program
+            .typed_symbol(capture_symbol)
+            .and_then(|symbol| symbol.declared_type)
+            .and_then(|checked| checked_type_map.get(&checked).copied())
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!("capture '{}' does not retain a lowered type", capture.name),
+                )
+            })?;
+        capture_lowered_types.push((capture_symbol, capture_type, capture.name.clone()));
     }
 
-    // Resolve parameter types
-    let mut param_lowered_types = Vec::with_capacity(params.len());
+    let mut param_lowered_types = Vec::with_capacity(captures.len() + params.len());
+    param_lowered_types.extend(capture_lowered_types.iter().map(|(_, typ, _)| *typ));
     for param in params {
         param_lowered_types.push(resolve_fol_type_to_lowered(
             typed_package,
@@ -1258,11 +1645,19 @@ fn lower_anonymous_routine(
     // Resolve return and error types
     let lowered_return_type = match return_type {
         None | Some(FolType::None) => None,
-        Some(ty) => Some(resolve_fol_type_to_lowered(typed_package, checked_type_map, ty)?),
+        Some(ty) => Some(resolve_fol_type_to_lowered(
+            typed_package,
+            checked_type_map,
+            ty,
+        )?),
     };
     let lowered_error_type = match error_type {
         None | Some(FolType::None) => None,
-        Some(ty) => Some(resolve_fol_type_to_lowered(typed_package, checked_type_map, ty)?),
+        Some(ty) => Some(resolve_fol_type_to_lowered(
+            typed_package,
+            checked_type_map,
+            ty,
+        )?),
     };
 
     // Find the signature type in the lowered type table
@@ -1293,10 +1688,21 @@ fn lower_anonymous_routine(
     anon_routine.entry_block = entry_block;
 
     // Set up parameters
-    let routine_scope_id = syntax_id
-        .and_then(|sid| typed_package.program.resolved().scope_for_syntax(sid));
     let mut next_local_index = 0;
-    for (param, &param_type) in params.iter().zip(param_lowered_types.iter()) {
+    for (capture_symbol, capture_type, capture_name) in &capture_lowered_types {
+        let local_id = anon_routine.locals.push(LoweredLocal {
+            id: crate::LoweredLocalId(next_local_index),
+            type_id: Some(*capture_type),
+            name: Some(capture_name.clone()),
+        });
+        anon_routine.local_symbols.insert(*capture_symbol, local_id);
+        anon_routine.params.push(local_id);
+        next_local_index += 1;
+    }
+    for (param, &param_type) in params
+        .iter()
+        .zip(param_lowered_types.iter().skip(captures.len()))
+    {
         let local_id = anon_routine.locals.push(LoweredLocal {
             id: crate::LoweredLocalId(next_local_index),
             type_id: Some(param_type),
@@ -1339,6 +1745,9 @@ fn lower_anonymous_routine(
         DeferScopeKind::Ordinary,
     )?
     .map(|value| value.local_id);
+    if !anon_cursor.current_block_terminated()? && lowered_return_type.is_none() {
+        anon_cursor.terminate_current_block(crate::LoweredTerminator::Return { value: None })?;
+    }
     cursor.next_routine_index = anon_cursor.next_routine_index;
     let nested_anon = std::mem::take(&mut anon_cursor.anonymous_routines);
     drop(anon_cursor);
@@ -1350,7 +1759,9 @@ fn lower_anonymous_routine(
     let result_local = cursor.allocate_local(signature_type_id, None);
     cursor.push_instr(
         Some(result_local),
-        LoweredInstrKind::RoutineRef { routine: routine_id },
+        LoweredInstrKind::RoutineRef {
+            routine: routine_id,
+        },
     )?;
     Ok(LoweredValue {
         local_id: result_local,
@@ -1474,9 +1885,9 @@ fn binary_op_result_type(
         | LoweredBinaryOp::Ge
         | LoweredBinaryOp::And
         | LoweredBinaryOp::Or
-        | LoweredBinaryOp::Xor => {
-            checked_type_map.get(&typed_package.program.builtin_types().bool_).copied()
-        }
+        | LoweredBinaryOp::Xor => checked_type_map
+            .get(&typed_package.program.builtin_types().bool_)
+            .copied(),
     }
 }
 
@@ -1495,12 +1906,26 @@ fn lower_binary_op(
     right: &AstNode,
 ) -> Result<LoweredValue, LoweringError> {
     let left_val = lower_expression(
-        typed_package, type_table, checked_type_map, current_identity,
-        decl_index, cursor, source_unit_id, scope_id, left,
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        left,
     )?;
     let right_val = lower_expression(
-        typed_package, type_table, checked_type_map, current_identity,
-        decl_index, cursor, source_unit_id, scope_id, right,
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        right,
     )?;
     let result_type = binary_op_result_type(typed_package, checked_type_map, op, left_val.type_id)
         .ok_or_else(|| {
@@ -1539,22 +1964,27 @@ fn lower_unary_op(
     operand: &AstNode,
 ) -> Result<LoweredValue, LoweringError> {
     let operand_val = lower_expression(
-        typed_package, type_table, checked_type_map, current_identity,
-        decl_index, cursor, source_unit_id, scope_id, operand,
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        operand,
     )?;
     let result_type = match op {
         LoweredUnaryOp::Neg => operand_val.type_id,
-        LoweredUnaryOp::Not => {
-            checked_type_map
-                .get(&typed_package.program.builtin_types().bool_)
-                .copied()
-                .ok_or_else(|| {
-                    LoweringError::with_kind(
-                        LoweringErrorKind::InvalidInput,
-                        "boolean result type could not be resolved in the lowered type table",
-                    )
-                })?
-        }
+        LoweredUnaryOp::Not => checked_type_map
+            .get(&typed_package.program.builtin_types().bool_)
+            .copied()
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "boolean result type could not be resolved in the lowered type table",
+                )
+            })?,
     };
     let result_local = cursor.allocate_local(result_type, None);
     cursor.push_instr(
@@ -1567,6 +1997,115 @@ fn lower_unary_op(
     Ok(LoweredValue {
         local_id: result_local,
         type_id: result_type,
+        recoverable_error_type: None,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_pointer_address(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    expected_type: Option<LoweredTypeId>,
+    operand: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
+    let value = lower_expression(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        operand,
+    )?;
+    let pointer_type = expected_type
+        .filter(|type_id| matches!(type_table.get(*type_id), Some(LoweredType::Pointer { .. })))
+        .or_else(|| {
+            type_table.find(&LoweredType::Pointer {
+                target: value.type_id,
+                shared: false,
+            })
+        })
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "address-of expression does not retain a lowered pointer type",
+            )
+        })?;
+    let shared = matches!(
+        type_table.get(pointer_type),
+        Some(LoweredType::Pointer { shared: true, .. })
+    );
+    let result_local = cursor.allocate_local(pointer_type, None);
+    cursor.push_instr(
+        Some(result_local),
+        LoweredInstrKind::ConstructPointer {
+            type_id: pointer_type,
+            value: value.local_id,
+            shared,
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: pointer_type,
+        recoverable_error_type: None,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_pointer_deref(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    operand: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
+    let pointer = direct_local_identifier_value(typed_package, cursor, operand).map_or_else(
+        || {
+            lower_expression(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                operand,
+            )
+        },
+        Ok,
+    )?;
+    let target = match type_table.get(pointer.type_id) {
+        Some(LoweredType::Pointer { target, .. }) => *target,
+        _ => {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "dereference lowering requires a pointer operand",
+            ))
+        }
+    };
+    let result_local = cursor.allocate_local(target, None);
+    cursor.push_instr(
+        Some(result_local),
+        LoweredInstrKind::DerefPointer {
+            pointer: pointer.local_id,
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: target,
         recoverable_error_type: None,
     })
 }

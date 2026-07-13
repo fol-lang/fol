@@ -1,0 +1,13 @@
+typ Item: rec = {
+    value: int,
+};
+
+fun[] inspect(item[bor]: Item): int = {
+    return item.value;
+};
+
+fun[] main(): int = {
+    var owner: Item = { value = 7 };
+    var seen: int = inspect(#owner);
+    return owner.value + seen;
+};

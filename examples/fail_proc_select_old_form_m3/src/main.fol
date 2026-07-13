@@ -1,0 +1,7 @@
+fun[] main(): int = {
+    var channel: chn[int];
+    select(channel as value) {
+        return value;
+    };
+    return 0;
+};

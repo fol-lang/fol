@@ -1,0 +1,10 @@
+fun[] consume(value: ptr[shared, int]): int = {
+    return *value;
+};
+
+fun[] main(): int = {
+    var value: int = 7;
+    var shared: ptr[shared, int] = &value;
+    [>]consume(shared);
+    return 0;
+};

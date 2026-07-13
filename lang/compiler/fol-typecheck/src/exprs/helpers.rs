@@ -24,7 +24,9 @@ pub(crate) fn reject_recoverable_plain_use(
         "{usage} cannot use '/ ErrorType' routine results as plain values in V1; handle them immediately with '||' or check(...), or use err[...] when you need a storable value"
     );
     Err(match origin {
-        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin),
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+        }
         None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
     })
 }
@@ -95,6 +97,9 @@ pub(crate) fn apparent_type_id(
             continue;
         }
         match typed.type_table().get(current) {
+            Some(CheckedType::Owned { inner }) | Some(CheckedType::Borrowed { inner, .. }) => {
+                current = *inner;
+            }
             Some(CheckedType::Declared { symbol, .. }) => {
                 if !seen.insert(*symbol) {
                     return Err(TypecheckError::new(
@@ -115,6 +120,23 @@ pub(crate) fn apparent_type_id(
             }
             _ => return Ok(current),
         }
+    }
+}
+
+pub(crate) fn channel_element_type(
+    typed: &TypedProgram,
+    channel_type: CheckedTypeId,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let apparent = apparent_type_id(typed, channel_type)?;
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Channel { element_type }) => Ok(*element_type),
+        _ => Err(TypecheckError::new(
+            TypecheckErrorKind::InvalidInput,
+            format!(
+                "channel endpoint access requires chn[T], got '{}'",
+                describe_type(typed, channel_type)
+            ),
+        )),
     }
 }
 
@@ -179,7 +201,10 @@ pub(crate) fn unwrap_shell_result_type(
     })
 }
 
-pub(crate) fn origin_for(resolved: &ResolvedProgram, syntax_id: SyntaxNodeId) -> Option<SyntaxOrigin> {
+pub(crate) fn origin_for(
+    resolved: &ResolvedProgram,
+    syntax_id: SyntaxNodeId,
+) -> Option<SyntaxOrigin> {
     resolved.syntax_index().origin(syntax_id).cloned()
 }
 
@@ -489,27 +514,32 @@ pub(crate) fn is_v1_assignable(
     }
 
     Ok(match typed.type_table().get(expected_apparent) {
-        Some(CheckedType::Optional { inner }) if *inner == actual_apparent => true,
-        Some(CheckedType::Error { inner: Some(inner) }) if *inner == actual_apparent => true,
+        Some(CheckedType::Owned { inner }) if *inner == actual_apparent => true,
+        Some(CheckedType::Optional { inner }) => {
+            apparent_type_id(typed, *inner)? == actual_apparent
+        }
+        Some(CheckedType::Error { inner: Some(inner) }) => {
+            apparent_type_id(typed, *inner)? == actual_apparent
+        }
         // Routine values are compatible on their callable SHAPE. Parameter
         // names and defaultedness are per-declaration metadata (they are
         // part of the interned identity so named-argument binding stays
         // correct), but they must not block passing one routine where a
         // same-shaped routine type is expected.
-        Some(CheckedType::Routine(expected_routine)) => match typed
-            .type_table()
-            .get(actual_apparent)
-        {
-            Some(CheckedType::Routine(actual_routine)) => {
-                expected_routine.params == actual_routine.params
-                    && expected_routine.return_type == actual_routine.return_type
-                    && expected_routine.error_type == actual_routine.error_type
-                    && expected_routine.variadic_index == actual_routine.variadic_index
-                    && expected_routine.generic_params == actual_routine.generic_params
-                    && expected_routine.generic_constraints == actual_routine.generic_constraints
+        Some(CheckedType::Routine(expected_routine)) => {
+            match typed.type_table().get(actual_apparent) {
+                Some(CheckedType::Routine(actual_routine)) => {
+                    expected_routine.params == actual_routine.params
+                        && expected_routine.return_type == actual_routine.return_type
+                        && expected_routine.error_type == actual_routine.error_type
+                        && expected_routine.variadic_index == actual_routine.variadic_index
+                        && expected_routine.generic_params == actual_routine.generic_params
+                        && expected_routine.generic_constraints
+                            == actual_routine.generic_constraints
+                }
+                _ => false,
             }
-            _ => false,
-        },
+        }
         _ => false,
     })
 }
@@ -610,10 +640,46 @@ pub(crate) fn ensure_assignable_target(
             }
             Ok(())
         }
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::Deref,
+            operand,
+        } => {
+            let name = match strip_comments(operand) {
+                AstNode::Identifier { name, .. } => name.as_str(),
+                _ => {
+                    return Err(TypecheckError::new(
+                        TypecheckErrorKind::InvalidInput,
+                        "dereference assignment requires a pointer binding identifier",
+                    ))
+                }
+            };
+            ensure_binding_reassignable(typed, resolved, source_unit_id, scope_id, name)?;
+            let pointer_type = find_symbol_in_scope_chain(
+                resolved,
+                source_unit_id,
+                scope_id,
+                name,
+                SymbolKind::ValueBinding,
+            )
+            .and_then(|symbol| typed.typed_symbol(symbol))
+            .and_then(|symbol| symbol.declared_type)
+            .and_then(|type_id| typed.type_table().get(type_id));
+            match pointer_type {
+                Some(CheckedType::Pointer { shared: false, .. }) => Ok(()),
+                Some(CheckedType::Pointer { shared: true, .. }) => Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    "cannot write through ptr[shared, T]; shared pointers are read-only",
+                )),
+                _ => Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    "dereference assignment requires a pointer binding",
+                )),
+            }
+        }
         _ => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
             "assignment targets must currently be plain identifiers, qualified identifiers, \
-             or a field of a mutable record binding",
+             a field of a mutable record binding, or a unique-pointer dereference",
         )),
     }
 }
@@ -630,9 +696,7 @@ fn ensure_binding_reassignable(
 ) -> Result<(), TypecheckError> {
     let known_immutable = [SymbolKind::ValueBinding, SymbolKind::LabelBinding]
         .into_iter()
-        .find_map(|kind| {
-            find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind)
-        })
+        .find_map(|kind| find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind))
         .and_then(|symbol_id| typed.typed_symbol(symbol_id))
         .is_some_and(|symbol| !symbol.is_mutable);
     if known_immutable {
@@ -653,13 +717,15 @@ fn binding_is_mutable_by_name(
     scope_id: ScopeId,
     name: &str,
 ) -> bool {
-    [SymbolKind::ValueBinding, SymbolKind::LabelBinding]
+    [
+        SymbolKind::ValueBinding,
+        SymbolKind::LabelBinding,
+        SymbolKind::Parameter,
+    ]
         .into_iter()
-        .find_map(|kind| {
-            find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind)
-        })
+        .find_map(|kind| find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind))
         .and_then(|symbol_id| typed.typed_symbol(symbol_id))
-        .map(|symbol| symbol.is_mutable)
+        .map(|symbol| symbol.is_mutable || symbol.is_mutex)
         .unwrap_or(false)
 }
 

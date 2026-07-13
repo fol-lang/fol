@@ -26,7 +26,22 @@ fn collect_generic_params_from_type(
         LoweredType::Array { element_type, .. }
         | LoweredType::Vector { element_type }
         | LoweredType::Sequence { element_type }
-        | LoweredType::Optional { inner: element_type } => {
+        | LoweredType::Channel { element_type }
+        | LoweredType::ChannelSender { element_type }
+        | LoweredType::Optional {
+            inner: element_type,
+        }
+        | LoweredType::Owned {
+            inner: element_type,
+        }
+        | LoweredType::Borrowed {
+            inner: element_type,
+            ..
+        }
+        | LoweredType::Pointer {
+            target: element_type,
+            ..
+        } => {
             collect_generic_params_from_type(type_table, *element_type, params);
         }
         LoweredType::Map {
@@ -39,6 +54,15 @@ fn collect_generic_params_from_type(
         LoweredType::Error { inner } => {
             if let Some(inner) = inner {
                 collect_generic_params_from_type(type_table, *inner, params);
+            }
+        }
+        LoweredType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            collect_generic_params_from_type(type_table, *value_type, params);
+            if let Some(error_type) = error_type {
+                collect_generic_params_from_type(type_table, *error_type, params);
             }
         }
         LoweredType::Set { member_types } => {
@@ -67,7 +91,7 @@ fn collect_generic_params_from_type(
                 collect_generic_params_from_type(type_table, err, params);
             }
         }
-        LoweredType::Builtin(_) => {}
+        LoweredType::Builtin(_) | LoweredType::Named { .. } => {}
     }
 }
 
@@ -89,10 +113,7 @@ fn render_generic_clause(signature: &LoweredRoutineType, type_table: &LoweredTyp
             "<{}>",
             params
                 .iter()
-                .map(|name| format!(
-                    "{}: Clone + Default",
-                    crate::sanitize_backend_ident(name)
-                ))
+                .map(|name| format!("{}: Clone + Default", crate::sanitize_backend_ident(name)))
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -114,20 +135,24 @@ fn recoverable_error_type_for_local_inner(
     if depth > 8 {
         return None;
     }
-    routine.instructions.iter().find_map(|instruction| match &instruction.kind {
-        fol_lower::LoweredInstrKind::Call { error_type, .. }
-        | fol_lower::LoweredInstrKind::CallIndirect { error_type, .. }
-            if instruction.result == Some(local_id) =>
-        {
-            *error_type
-        }
-        // Chained fallbacks join a still-wrapped recoverable through a
-        // StoreLocal; the join local carries the same FolRecover shape.
-        fol_lower::LoweredInstrKind::StoreLocal { local, value } if *local == local_id => {
-            recoverable_error_type_for_local_inner(routine, *value, depth + 1)
-        }
-        _ => None,
-    })
+    routine
+        .instructions
+        .iter()
+        .find_map(|instruction| match &instruction.kind {
+            fol_lower::LoweredInstrKind::Call { error_type, .. }
+            | fol_lower::LoweredInstrKind::CallIndirect { error_type, .. }
+            | fol_lower::LoweredInstrKind::AwaitEventual { error_type, .. }
+                if instruction.result == Some(local_id) =>
+            {
+                *error_type
+            }
+            // Chained fallbacks join a still-wrapped recoverable through a
+            // StoreLocal; the join local carries the same FolRecover shape.
+            fol_lower::LoweredInstrKind::StoreLocal { local, value } if *local == local_id => {
+                recoverable_error_type_for_local_inner(routine, *value, depth + 1)
+            }
+            _ => None,
+        })
 }
 
 pub fn render_global_declaration(
@@ -355,6 +380,14 @@ fn render_param_list(
                     format!("routine parameter {} is missing a signature type", index),
                 )
             })?;
+            let rendered_type = if routine.mutex_params.contains(local_id) {
+                format!(
+                    "rt::FolMutex<{}>",
+                    render_rust_type_in_workspace(Some(workspace), type_table, type_id)?
+                )
+            } else {
+                render_rust_type_in_workspace(Some(workspace), type_table, type_id)?
+            };
             Ok(format!(
                 "{}: {}",
                 mangle_local_name(
@@ -363,7 +396,7 @@ fn render_param_list(
                     *local_id,
                     local.name.as_deref()
                 ),
-                render_rust_type_in_workspace(Some(workspace), type_table, type_id)?
+                rendered_type
             ))
         })
         .collect()
@@ -377,7 +410,10 @@ fn render_local_declaration(
     local: &fol_lower::LoweredLocal,
     type_table: &LoweredTypeTable,
 ) -> BackendResult<String> {
-    let rendered_type = match (local.type_id, recoverable_error_type_for_local(routine, local_id)) {
+    let mut rendered_type = match (
+        local.type_id,
+        recoverable_error_type_for_local(routine, local_id),
+    ) {
         (Some(type_id), Some(error_type)) => format!(
             "rt::FolRecover<{}, {}>",
             render_rust_type_in_workspace(Some(workspace), type_table, type_id)?,
@@ -388,7 +424,24 @@ fn render_local_declaration(
         }
         (None, _) => "_".to_string(),
     };
+    if routine.mutex_params.contains(&local_id)
+        && recoverable_error_type_for_local(routine, local_id).is_none()
+    {
+        rendered_type = format!("rt::FolMutex<{rendered_type}>");
+    }
     let initializer = match local.type_id.and_then(|id| type_table.get(id)) {
+        Some(fol_lower::LoweredType::Borrowed { .. }) => {
+            return Ok(format!(
+                "    let mut {}: {};",
+                mangle_local_name(
+                    package_identity,
+                    routine.id,
+                    local_id,
+                    local.name.as_deref()
+                ),
+                rendered_type,
+            ));
+        }
         Some(fol_lower::LoweredType::Routine(routine_type)) => {
             let dummy_params: Vec<String> = routine_type
                 .params
@@ -661,9 +714,8 @@ mod tests {
         ));
         assert!(!rendered
             .contains("l__pkg__entry__app__r3__l0__flag: rt::FolInt = Default::default();"));
-        assert!(rendered.contains(
-            "unreachable!(\"backend routine shell 'compute' should not be executed\")"
-        ));
+        assert!(rendered
+            .contains("unreachable!(\"backend routine shell 'compute' should not be executed\")"));
         assert_eq!(temp_id, LoweredLocalId(1));
     }
 
@@ -703,8 +755,10 @@ mod tests {
 
         let workspace = sample_lowered_workspace();
         let snapshot = [
-            render_global_declaration(&workspace, &package_identity, &global, &table).expect("global"),
-            render_routine_signature(&workspace, &package_identity, &routine, &table).expect("signature"),
+            render_global_declaration(&workspace, &package_identity, &global, &table)
+                .expect("global"),
+            render_routine_signature(&workspace, &package_identity, &routine, &table)
+                .expect("signature"),
             render_routine_shell(&workspace, &package_identity, &routine, &table).expect("shell"),
         ]
         .join("\n");

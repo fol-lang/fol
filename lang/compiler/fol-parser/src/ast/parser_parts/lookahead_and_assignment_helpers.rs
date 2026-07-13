@@ -5,6 +5,25 @@ impl AstParser {
         &self,
         tokens: &fol_lexer::lexer::stage3::Elements,
     ) -> bool {
+        if tokens
+            .curr(false)
+            .ok()
+            .is_some_and(|token| matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)))
+        {
+            let significant = tokens
+                .next_vec()
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|token| !Self::key_is_soft_ignorable(&token.key()))
+                .take(2)
+                .collect::<Vec<_>>();
+            return matches!(
+                significant.as_slice(),
+                [name, assign]
+                    if Self::token_can_be_logical_name(&name.key())
+                        && matches!(assign.key(), KEYWORD::Symbol(SYMBOL::Equal))
+            );
+        }
         let mut found_compound_symbol = false;
         let mut square_depth = 0usize;
         let mut round_depth = 0usize;
@@ -402,10 +421,7 @@ impl AstParser {
     ) -> Result<(), ParseError> {
         if let Ok(next) = tokens.curr(false) {
             if next.loc().row() > decl_line && next.key().is_assign() {
-                return Err(ParseError::from_token(
-                    decl_token,
-                    message.to_string(),
-                ));
+                return Err(ParseError::from_token(decl_token, message.to_string()));
             }
         }
         Ok(())
@@ -413,10 +429,7 @@ impl AstParser {
 
     /// Used for error recovery: after a failed declaration parse, advance
     /// past the junk so the main loop can re-enter on the next declaration.
-    pub(super) fn sync_to_next_declaration(
-        &self,
-        tokens: &mut fol_lexer::lexer::stage3::Elements,
-    ) {
+    pub(super) fn sync_to_next_declaration(&self, tokens: &mut fol_lexer::lexer::stage3::Elements) {
         for _ in 0..8_192 {
             match tokens.curr(false) {
                 Ok(token) => {

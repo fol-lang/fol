@@ -13,5 +13,6 @@
 (var_decl (typed_binding name: (identifier) @local.definition))
 (con_decl (typed_binding name: (identifier) @local.definition))
 (lab_decl (typed_binding name: (identifier) @local.definition))
+(select_arm binding: (identifier) @local.definition)
 
 (identifier) @local.reference

@@ -1,0 +1,10 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "proc_async_await_m4", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({ name = "proc-async-await-m4", root = "src/main.fol", fol_model = "memo" });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

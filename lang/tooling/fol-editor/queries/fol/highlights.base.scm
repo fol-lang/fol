@@ -21,7 +21,10 @@
 (if_expr "else" @keyword.conditional)
 "else" @keyword.conditional
 (select_stmt "select" @keyword.conditional)
-(select_expr "select" @keyword.conditional)
+(select_arm "when" @keyword.conditional)
+(select_arm "as" @keyword)
+(select_arm binding: (identifier) @variable)
+(select_default_arm "*" @keyword.conditional)
 (when_expr "when" @keyword.conditional)
 (case_clause "case" @keyword.conditional)
 (default_clause "*" @keyword.conditional)
@@ -32,12 +35,14 @@
 (return_stmt "return" @keyword.return)
 (yield_stmt "yield" @keyword.return)
 (dfr_stmt "dfr" @keyword.repeat)
+(edf_stmt "edf" @keyword.exception)
 (report_stmt "report" @keyword.exception)
 (panic_stmt "panic" @keyword.exception)
 (assert_stmt "assert" @keyword.exception)
 (unreachable_stmt) @keyword.exception
 (check_expr "check" @keyword.exception)
 (break_stmt "break" @keyword.repeat)
+(spawn_expr "[>]" @keyword)
 __FOL_SOURCE_KIND_LINES__
 (use_decl ":" @punctuation.delimiter)
 (use_decl "=" @operator)
@@ -75,7 +80,14 @@ __FOL_SOURCE_KIND_LINES__
 (shell_type "[" @punctuation.bracket "]" @punctuation.bracket)
 (generic_type_expr "[" @punctuation.bracket "]" @punctuation.bracket)
 __FOL_CONTAINER_TYPE_LINES__
+(channel_type "chn" @type.builtin)
+(channel_type "[" @punctuation.bracket "]" @punctuation.bracket)
+(channel_access "[" @punctuation.bracket "]" @punctuation.bracket)
+(channel_access endpoint: ["tx" "rx"] @attribute)
 __FOL_SHELL_TYPE_LINES__
+(owned_type "@" @operator)
+(pointer_type "ptr" @type.builtin)
+(pointer_type qualifier: ["shared" "raw"] @attribute)
 (record_type) @type.builtin
 (entry_type) @type.builtin
 (typed_binding type: (type_expr (generic_type_expr base: (identifier) @type.builtin))
@@ -152,8 +164,11 @@ __FOL_SHELL_TYPE_LINES__
 (binary_expr operator: "of" @operator)
 (binary_expr operator: "at" @operator)
 (unary_expr operator: "not" @operator)
+(unary_expr operator: ["&" "*" "#" "!"] @operator)
 (routine_capture_list "[" @punctuation.bracket "]" @punctuation.bracket)
 (routine_capture_list "," @punctuation.delimiter)
+(routine_capture endpoint: ["tx" "rx"] @attribute)
+(pipe_expr "|" @operator)
 (this_expr) @variable.builtin
 (self_expr) @variable.builtin
 (where_expr) @keyword

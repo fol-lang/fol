@@ -1,5 +1,5 @@
 pro main(): int = {
-    select(channel as bad__binding) {
-        return 0;
-    }
+    select {
+        when channel as bad__binding { return 0; }
+    };
 };

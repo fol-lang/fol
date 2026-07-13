@@ -3,6 +3,31 @@ use fol_resolver::{ReferenceKind, ResolverErrorKind, ScopeKind, SymbolKind};
 use std::fs;
 
 #[test]
+fn test_resolver_resolves_owned_recursive_type_edges_nominally() {
+    let temp_root = unique_temp_root("type_resolution_owned_recursive");
+    fs::create_dir_all(&temp_root).unwrap();
+    fs::write(
+        temp_root.join("main.fol"),
+        "typ Node: rec = {\n    value: int,\n    next: opt @Node,\n};\n",
+    )
+    .unwrap();
+
+    let resolved = resolve_package_from_folder(temp_root.to_str().unwrap());
+    let node = resolved
+        .symbols_in_scope(resolved.program_scope)
+        .into_iter()
+        .find(|symbol| symbol.kind == SymbolKind::Type && symbol.name == "Node")
+        .expect("Node should resolve as a nominal type declaration");
+    assert!(resolved.references.iter().any(|reference| {
+        reference.kind == ReferenceKind::TypeName
+            && reference.name == "Node"
+            && reference.resolved == Some(node.id)
+    }));
+
+    fs::remove_dir_all(temp_root).ok();
+}
+
+#[test]
 fn test_resolver_resolves_named_types_against_top_level_type_symbols() {
     let temp_root = unique_temp_root("type_resolution_named");
     fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");

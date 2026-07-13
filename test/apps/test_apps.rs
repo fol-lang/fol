@@ -1282,7 +1282,7 @@ fn fail_dfr_return_nested_fixture_fails_cleanly() {
     let fixture = fixture_root("fail_dfr_return_nested");
 
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "return is not allowed inside dfr blocks in V1");
+    assert_output_contains(&output, "return is not allowed inside dfr/edf blocks");
 }
 
 #[test]
@@ -1290,7 +1290,7 @@ fn fail_dfr_break_nested_fixture_fails_cleanly() {
     let fixture = fixture_root("fail_dfr_break_nested");
 
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "break is not allowed inside dfr blocks in V1");
+    assert_output_contains(&output, "break is not allowed inside dfr/edf blocks");
 }
 
 #[test]
@@ -1309,7 +1309,7 @@ fn fail_generic_routine_fixture_now_executes_as_supported_generic_code() {
 fn fail_pointer_type_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_pointer_type");
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "pointer");
+    assert_output_contains(&output, "raw pointers are a V4 interop surface");
 }
 
 #[test]

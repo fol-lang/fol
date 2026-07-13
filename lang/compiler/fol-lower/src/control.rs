@@ -4,7 +4,7 @@ use crate::ids::{
 };
 use fol_intrinsics::IntrinsicId;
 use fol_resolver::{SourceUnitId, SymbolId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweredOperand {
@@ -96,6 +96,48 @@ pub enum LoweredInstrKind {
         args: Vec<LoweredLocalId>,
         error_type: Option<LoweredTypeId>,
     },
+    SpawnCall {
+        callee: LoweredRoutineId,
+        args: Vec<LoweredLocalId>,
+    },
+    AsyncCall {
+        callee: LoweredRoutineId,
+        args: Vec<LoweredLocalId>,
+        error_type: Option<LoweredTypeId>,
+    },
+    AwaitEventual {
+        eventual: LoweredLocalId,
+        error_type: Option<LoweredTypeId>,
+    },
+    ChannelSender {
+        channel: LoweredLocalId,
+    },
+    ChannelSend {
+        channel: LoweredLocalId,
+        value: LoweredLocalId,
+    },
+    ChannelReceive {
+        channel: LoweredLocalId,
+    },
+    ChannelReceiveOptional {
+        channel: LoweredLocalId,
+    },
+    ChannelTryReceive {
+        channel: LoweredLocalId,
+    },
+    ChannelIsClosed {
+        channel: LoweredLocalId,
+    },
+    ProcessorYield,
+    MutexLock {
+        mutex: LoweredLocalId,
+    },
+    MutexUnlock {
+        mutex: LoweredLocalId,
+    },
+    OptionalHasValue {
+        operand: LoweredLocalId,
+    },
     IntrinsicCall {
         intrinsic: IntrinsicId,
         args: Vec<LoweredLocalId>,
@@ -132,6 +174,33 @@ pub enum LoweredInstrKind {
     ConstructOptional {
         type_id: LoweredTypeId,
         value: Option<LoweredLocalId>,
+    },
+    ConstructOwned {
+        type_id: LoweredTypeId,
+        value: LoweredLocalId,
+    },
+    ConsumeOwned {
+        value: LoweredLocalId,
+    },
+    ConstructBorrow {
+        type_id: LoweredTypeId,
+        owner: LoweredLocalId,
+        mutable: bool,
+    },
+    ConstructPointer {
+        type_id: LoweredTypeId,
+        value: LoweredLocalId,
+        shared: bool,
+    },
+    DerefPointer {
+        pointer: LoweredLocalId,
+    },
+    StoreDeref {
+        pointer: LoweredLocalId,
+        value: LoweredLocalId,
+    },
+    GiveBackBorrow {
+        borrow: LoweredLocalId,
     },
     ConstructError {
         type_id: LoweredTypeId,
@@ -235,6 +304,7 @@ pub struct LoweredRoutine {
     pub signature: Option<LoweredTypeId>,
     pub receiver_type: Option<LoweredTypeId>,
     pub params: Vec<LoweredLocalId>,
+    pub mutex_params: BTreeSet<LoweredLocalId>,
     pub local_symbols: BTreeMap<SymbolId, LoweredLocalId>,
     pub locals: IdTable<LoweredLocalId, LoweredLocal>,
     pub blocks: IdTable<LoweredBlockId, LoweredBlock>,
@@ -253,6 +323,7 @@ impl LoweredRoutine {
             signature: None,
             receiver_type: None,
             params: Vec::new(),
+            mutex_params: BTreeSet::new(),
             local_symbols: BTreeMap::new(),
             locals: IdTable::new(),
             blocks: IdTable::new(),

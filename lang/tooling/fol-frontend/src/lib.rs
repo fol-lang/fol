@@ -34,10 +34,10 @@ pub use clean::{clean_workspace, clean_workspace_with_config};
 pub use cli::{
     BuildCommand, CheckCommand, CodeCommand, CodeSubcommand, CompleteCommand, CompletionCommand,
     CompletionShellArg, EditorPathCommand, EditorReferenceCommand, EditorRenameCommand,
-    EmitCommand, EmitLoweredCommand, EmitRustCommand, EmitSubcommand, ExplainCommand,
-    FetchCommand, FrontendCli, FrontendCommand, FrontendProfile, InitCommand, NewCommand,
-    PackCommand, PackSubcommand, ParseError, ParseErrorKind, RunCommand, TestCommand,
-    ToolCommand, ToolSubcommand, UnitCommand, UpdateCommand,
+    EmitCommand, EmitLoweredCommand, EmitRustCommand, EmitSubcommand, ExplainCommand, FetchCommand,
+    FrontendCli, FrontendCommand, FrontendProfile, InitCommand, NewCommand, PackCommand,
+    PackSubcommand, ParseError, ParseErrorKind, RunCommand, TestCommand, ToolCommand,
+    ToolSubcommand, UnitCommand, UpdateCommand,
 };
 pub use compile::{
     build_workspace, build_workspace_for_profile_with_config, build_workspace_with_config,
@@ -60,10 +60,9 @@ pub use discovery::{
     DiscoveredRoot, PackageRoot, WorkspaceRoot, PACKAGE_FILE_NAME, WORKSPACE_FILE_NAME,
 };
 pub use editor::{
-    editor_completion_command, editor_format_command, editor_highlight_command,
-    editor_lsp_command, editor_lsp_stdio, editor_parse_command, editor_references_command,
-    editor_rename_command, editor_semantic_tokens_command, editor_symbols_command,
-    editor_tree_generate_command,
+    editor_completion_command, editor_format_command, editor_highlight_command, editor_lsp_command,
+    editor_lsp_stdio, editor_parse_command, editor_references_command, editor_rename_command,
+    editor_semantic_tokens_command, editor_symbols_command, editor_tree_generate_command,
 };
 pub use errors::{FrontendError, FrontendErrorKind, FrontendResult};
 pub use explain::{explain_command, render_explain, ExplainRendering};
@@ -100,15 +99,9 @@ impl Frontend {
         let (output, result) = run_command_from_args(args)?;
         let rendered = output
             .render_command_summary(&result)
-            .map_err(|error| FrontendError::new(
-                FrontendErrorKind::Internal,
-                error.to_string()
-            ))?;
+            .map_err(|error| FrontendError::new(FrontendErrorKind::Internal, error.to_string()))?;
         writeln!(std::io::stdout(), "{rendered}")
-            .map_err(|error| FrontendError::new(
-                FrontendErrorKind::Internal,
-                error.to_string()
-            ))?;
+            .map_err(|error| FrontendError::new(FrontendErrorKind::Internal, error.to_string()))?;
         Ok(())
     }
 }
@@ -332,11 +325,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(
-            root.join("build.fol"),
-            semantic_dispatch_build(),
-        )
-        .unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -367,11 +356,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(
-            root.join("build.fol"),
-            semantic_dispatch_build(),
-        )
-        .unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -435,11 +420,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(
-            root.join("build.fol"),
-            semantic_dispatch_build(),
-        )
-        .unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -532,7 +513,10 @@ mod tests {
             config.build_optimize_override.as_deref(),
             Some("release-fast")
         );
-        assert_eq!(config.build_option_overrides, vec!["strip=true".to_string()]);
+        assert_eq!(
+            config.build_option_overrides,
+            vec!["strip=true".to_string()]
+        );
     }
 
     #[test]
@@ -557,8 +541,7 @@ mod tests {
             ..FrontendConfig::default()
         };
 
-        let result =
-            dispatch::dispatch_workspace_command(&command, &workspace, &config).unwrap();
+        let result = dispatch::dispatch_workspace_command(&command, &workspace, &config).unwrap();
 
         assert_eq!(result.command, "check");
         assert!(result.summary.contains("checked 1 workspace package(s)"));

@@ -103,7 +103,18 @@ fn dfr_blocks_typecheck_as_scope_exit_statements() {
 }
 
 #[test]
-fn dfr_blocks_reject_break_in_v1() {
+fn shared_pointer_recursion_typechecks_nominally() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Node: rec = { value: int, next: opt ptr[shared, Node] };\n\
+         fun[] main(): int = { return 0; };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn dfr_blocks_reject_break() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] bad_break(): int = {\n\
@@ -122,14 +133,14 @@ fn dfr_blocks_reject_break_in_v1() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("break is not allowed inside dfr blocks in V1")
+                    .contains("break is not allowed inside dfr/edf blocks")
         }),
         "Expected deferred break rejection, got: {errors:?}"
     );
 }
 
 #[test]
-fn dfr_blocks_reject_nested_return_in_v1() {
+fn dfr_blocks_reject_nested_return() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] bad_return(): int = {\n\
@@ -149,7 +160,7 @@ fn dfr_blocks_reject_nested_return_in_v1() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("return is not allowed inside dfr blocks in V1")
+                    .contains("return is not allowed inside dfr/edf blocks")
         }),
         "Expected deferred nested return rejection, got: {errors:?}"
     );
@@ -1243,6 +1254,22 @@ fn echo_intrinsic_requires_std_fol_model_in_core() {
 }
 
 #[test]
+fn owned_heap_binding_requires_memo_model() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n    @var value: int = 1;\n    return 0;\n};\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Core,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("heap allocation binding requires heap support")));
+}
+
+#[test]
 fn echo_intrinsic_requires_std_fol_model_in_mem() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
@@ -2021,8 +2048,7 @@ fn propagation_typing_rejects_incompatible_error_types_in_plain_value_contexts()
 
 #[test]
 fn self_referential_record_type_is_rejected_without_panicking() {
-    // A self-referential record has no finite runtime shape in the structural
-    // model (a direct `next: Node` field would be infinitely sized). The
+    // A direct self-referential value field has no finite runtime shape. The
     // checker rejects it with an honest, located diagnostic rather than
     // accepting an unbuildable type or overflowing the stack during lowering.
     let errors = typecheck_fixture_folder_errors(&[(
@@ -2039,7 +2065,8 @@ fn self_referential_record_type_is_rejected_without_panicking() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
-                && error.message().contains("recursive type 'Node' is not yet supported")
+                && error.message().contains("recursive value type 'Node'")
+                && error.message().contains("opt @Node")
         }),
         "Expected a self-referential record to be rejected with an honest boundary, got: {errors:?}"
     );
@@ -2346,7 +2373,7 @@ fn panic_terminates_when_arms_and_stays_out_of_defer() {
     assert!(
         errors
             .iter()
-            .any(|error| error.message().contains("panic is not allowed inside dfr blocks")),
+            .any(|error| error.message().contains("panic is not allowed inside dfr/edf blocks")),
         "dfr should keep an explicit panic boundary: {errors:#?}"
     );
 }

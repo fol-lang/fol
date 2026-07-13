@@ -1,9 +1,11 @@
 //! Hosted runtime tier surface, including console-facing formatting hooks.
 
 use crate::core::RuntimeTier;
+use std::sync::{Mutex, OnceLock};
+use std::sync::{mpsc, Arc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 
-pub use crate::{crate_name, CRATE_NAME};
-pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};
 pub use crate::abi::{check_recoverable, recoverable_succeeded, FolRecover};
 pub use crate::aggregate::{
     render_echo, render_entry, render_entry_debug, render_record, render_record_debug,
@@ -14,15 +16,298 @@ pub use crate::containers::{
     index_array, index_seq, index_vec, lookup_map, render_array, render_map, render_seq,
     render_set, render_vec, slice_seq, slice_vec, FolArray,
 };
+pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};
 pub use crate::shell::{
     unwrap_error_shell, unwrap_error_shell_ref, unwrap_optional_shell, unwrap_optional_shell_ref,
     FolError, FolOption,
 };
 pub use crate::value::{impossible, FolBool, FolChar, FolFloat, FolInt, FolNever};
+pub use crate::{crate_name, CRATE_NAME};
 
 pub const HAS_HEAP: bool = true;
 pub const HAS_OS: bool = true;
 pub const TIER: RuntimeTier = RuntimeTier::new("std", HAS_HEAP, HAS_OS);
+
+fn task_handles() -> &'static Mutex<Vec<JoinHandle<()>>> {
+    static TASKS: OnceLock<Mutex<Vec<JoinHandle<()>>>> = OnceLock::new();
+    TASKS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+pub fn spawn_task<F>(task: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    task_handles()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .push(std::thread::spawn(task));
+}
+
+pub fn join_all_tasks() {
+    loop {
+        let handles = {
+            let mut tasks = task_handles()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            std::mem::take(&mut *tasks)
+        };
+        if handles.is_empty() {
+            break;
+        }
+        for handle in handles {
+            handle.join().expect("spawned FOL task panicked");
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct FolEventual<T> {
+    receiver: Mutex<Option<mpsc::Receiver<T>>>,
+}
+
+impl<T> Default for FolEventual<T> {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        drop(sender);
+        Self {
+            receiver: Mutex::new(Some(receiver)),
+        }
+    }
+}
+
+impl<T> FolEventual<T> {
+    pub fn await_value(&self) -> T {
+        self.receiver
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+            .expect("eventual can only be awaited once")
+            .recv()
+            .expect("eventual producer ended without a value")
+    }
+}
+
+pub fn spawn_eventual<T, F>(task: F) -> FolEventual<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let (sender, receiver) = mpsc::channel();
+    task_handles()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .push(std::thread::spawn(move || {
+            let value = task();
+            let _ = sender.send(value);
+        }));
+    FolEventual {
+        receiver: Mutex::new(Some(receiver)),
+    }
+}
+
+#[derive(Debug)]
+pub struct FolChannel<T> {
+    sender: Mutex<Option<mpsc::Sender<T>>>,
+    receiver: Arc<Mutex<mpsc::Receiver<T>>>,
+    receiver_closed: Arc<AtomicBool>,
+}
+
+impl<T> Default for FolChannel<T> {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        Self {
+            sender: Mutex::new(Some(sender)),
+            receiver: Arc::new(Mutex::new(receiver)),
+            receiver_closed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl<T> Clone for FolChannel<T> {
+    fn clone(&self) -> Self {
+        let sender = self
+            .sender
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .cloned();
+        Self {
+            sender: Mutex::new(sender),
+            receiver: self.receiver.clone(),
+            receiver_closed: self.receiver_closed.clone(),
+        }
+    }
+}
+
+impl<T> FolChannel<T> {
+    pub fn sender(&self) -> FolSender<T> {
+        let sender = self
+            .sender
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .expect("channel transmitter is no longer available")
+            .clone();
+        FolSender(sender)
+    }
+
+    pub fn send(&self, value: T) {
+        self.sender().send(value);
+    }
+
+    fn close_local_sender(&self) {
+        self.sender
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+    }
+
+    pub fn receive(&self) -> T {
+        self.close_local_sender();
+        self.receiver
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .recv()
+            .expect("receive from a closed channel")
+    }
+
+    pub fn receive_optional(&self) -> FolOption<T> {
+        self.close_local_sender();
+        self.receiver
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .recv()
+            .ok()
+            .into()
+    }
+
+    pub fn try_receive(&self) -> FolOption<T> {
+        self.close_local_sender();
+        match self
+            .receiver
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .try_recv()
+        {
+            Ok(value) => Some(value).into(),
+            Err(mpsc::TryRecvError::Empty) => None.into(),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.receiver_closed.store(true, Ordering::Release);
+                None.into()
+            }
+        }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.receiver_closed.load(Ordering::Acquire)
+    }
+}
+
+pub fn yield_processor() {
+    std::thread::yield_now();
+}
+
+#[derive(Debug)]
+pub struct FolSender<T>(mpsc::Sender<T>);
+
+impl<T> Clone for FolSender<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T> Default for FolSender<T> {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        drop(receiver);
+        Self(sender)
+    }
+}
+
+impl<T> FolSender<T> {
+    pub fn send(&self, value: T) {
+        self.0.send(value).expect("send to a closed channel");
+    }
+}
+
+#[derive(Debug)]
+pub struct FolMutex<T> {
+    value: Arc<Mutex<T>>,
+    gate: Arc<AtomicBool>,
+    owns_gate: AtomicBool,
+}
+
+impl<T: Default> Default for FolMutex<T> {
+    fn default() -> Self {
+        Self {
+            value: Arc::new(Mutex::new(T::default())),
+            gate: Arc::new(AtomicBool::new(false)),
+            owns_gate: AtomicBool::new(false),
+        }
+    }
+}
+
+impl<T> Clone for FolMutex<T> {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+            gate: self.gate.clone(),
+            owns_gate: AtomicBool::new(false),
+        }
+    }
+}
+
+impl<T> FolMutex<T> {
+    pub fn from_value(value: T) -> Self {
+        Self {
+            value: Arc::new(Mutex::new(value)),
+            gate: Arc::new(AtomicBool::new(false)),
+            owns_gate: AtomicBool::new(false),
+        }
+    }
+
+    pub fn lock(&self) {
+        if self.owns_gate.load(Ordering::Acquire) {
+            return;
+        }
+        while self
+            .gate
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            std::thread::yield_now();
+        }
+        self.owns_gate.store(true, Ordering::Release);
+    }
+
+    pub fn unlock(&self) {
+        if self.owns_gate.swap(false, Ordering::AcqRel) {
+            self.gate.store(false, Ordering::Release);
+        }
+    }
+
+    pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
+        let value = self
+            .value
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        read(&value)
+    }
+
+    pub fn with_mut<R>(&self, write: impl FnOnce(&mut T) -> R) -> R {
+        let mut value = self
+            .value
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        write(&mut value)
+    }
+}
+
+impl<T> Drop for FolMutex<T> {
+    fn drop(&mut self) {
+        self.unlock();
+    }
+}
 
 pub fn echo<T: FolEchoFormat>(value: T) -> T {
     println!("{}", value.fol_echo_format());
@@ -132,6 +417,23 @@ mod tests {
         assert!(base_memo_tier().has_heap);
         assert!(capabilities().has_heap);
         assert!(capabilities().has_os);
+    }
+
+    #[test]
+    fn spawned_tasks_and_nested_spawns_are_joined() {
+        let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let outer_completed = completed.clone();
+        spawn_task(move || {
+            outer_completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let inner_completed = outer_completed.clone();
+            spawn_task(move || {
+                inner_completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            });
+        });
+
+        join_all_tasks();
+
+        assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::{EditorConfig, EditorDocument, EditorError, EditorErrorKind, EditorResult};
 use fol_package::{
-    build_artifact::BuildArtifactFolModel, build_runtime::BuildRuntimeArtifact,
-    build_api::DependencySourceKind, build_runtime::BuildRuntimeDependency,
+    build_api::DependencySourceKind, build_artifact::BuildArtifactFolModel,
+    build_runtime::BuildRuntimeArtifact, build_runtime::BuildRuntimeDependency,
     evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest,
 };
 use fol_typecheck::TypecheckCapabilityModel;
@@ -101,7 +101,14 @@ pub(crate) fn discover_workspace_roots(
         .root_markers
         .iter()
         .filter(|marker| marker.as_str() != "build.fol")
-        .find_map(|marker| find_upward_marker(directory, marker));
+        .find_map(|marker| find_upward_marker(directory, marker))
+        // Test runners and shell environments may put a generic `.git`
+        // directory directly in their ambient temporary directory. Treating
+        // that shared scratch directory as a FOL workspace makes overlays copy
+        // unrelated temporary trees and can recursively copy themselves.
+        // A real workspace nested under the temporary directory still wins
+        // because its root is more specific than the ambient temp root.
+        .filter(|root| !std::env::temp_dir().starts_with(root));
     let analysis_root = workspace_root
         .clone()
         .or_else(|| package_root.clone())
@@ -238,11 +245,12 @@ fn copy_directory_tree(from: &Path, to: &Path) -> EditorResult<()> {
         // rewrite or delete object files mid-copy, surfacing spurious
         // "No such file" failures. Skip those non-source directories entirely.
         if file_type.is_dir() {
-            if entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| matches!(name, "target" | ".git" | ".jj" | ".hg" | ".svn" | "node_modules"))
-            {
+            if entry.file_name().to_str().is_some_and(|name| {
+                matches!(
+                    name,
+                    "target" | ".git" | ".jj" | ".hg" | ".svn" | "node_modules"
+                )
+            }) {
                 continue;
             }
         }
@@ -370,15 +378,17 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     fn temp_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
+        let root = std::env::temp_dir().join(format!(
             "fol_editor_workspace_{}_{}_{}",
             label,
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("system time should be after epoch")
-            .as_nanos()
-        ))
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join(".git")).unwrap();
+        root
     }
 
     fn copy_dir_all(src: &Path, dst: &Path) {
@@ -458,7 +468,10 @@ mod tests {
         let mapping = map_document_workspace(&src.join("main.fol"), &EditorConfig::default())
             .expect("mapping should succeed");
 
-        assert_eq!(mapping.active_fol_model, Some(TypecheckCapabilityModel::Core));
+        assert_eq!(
+            mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Core)
+        );
 
         fs::remove_dir_all(root).ok();
     }
@@ -468,11 +481,14 @@ mod tests {
         let root = copied_example_root("examples/std_bundled_fmt");
         let document = root.join("src/main.fol");
 
-        let mapping =
-            map_document_workspace(&document, &EditorConfig::default()).expect("mapping should succeed");
+        let mapping = map_document_workspace(&document, &EditorConfig::default())
+            .expect("mapping should succeed");
 
         assert_eq!(mapping.package_root, Some(root.clone()));
-        assert_eq!(mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
+        assert_eq!(
+            mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Std)
+        );
 
         fs::remove_dir_all(root).ok();
     }
@@ -482,11 +498,14 @@ mod tests {
         let root = copied_example_root("examples/std_alias_pkg");
         let document = root.join("src/main.fol");
 
-        let mapping =
-            map_document_workspace(&document, &EditorConfig::default()).expect("mapping should succeed");
+        let mapping = map_document_workspace(&document, &EditorConfig::default())
+            .expect("mapping should succeed");
 
         assert_eq!(mapping.package_root, Some(root.clone()));
-        assert_eq!(mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
+        assert_eq!(
+            mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Std)
+        );
 
         fs::remove_dir_all(root).ok();
     }
@@ -526,14 +545,20 @@ mod tests {
 
         let src_mapping = map_document_workspace(&src.join("main.fol"), &EditorConfig::default())
             .expect("mapping should succeed");
-        let test_mapping =
-            map_document_workspace(&tests.join("app.fol"), &EditorConfig::default())
-                .expect("mapping should succeed");
-        let build_mapping = map_document_workspace(&root.join("build.fol"), &EditorConfig::default())
+        let test_mapping = map_document_workspace(&tests.join("app.fol"), &EditorConfig::default())
             .expect("mapping should succeed");
+        let build_mapping =
+            map_document_workspace(&root.join("build.fol"), &EditorConfig::default())
+                .expect("mapping should succeed");
 
-        assert_eq!(src_mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
-        assert_eq!(test_mapping.active_fol_model, Some(TypecheckCapabilityModel::Core));
+        assert_eq!(
+            src_mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Std)
+        );
+        assert_eq!(
+            test_mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Core)
+        );
         assert_eq!(build_mapping.active_fol_model, None);
 
         fs::remove_dir_all(root).ok();
@@ -552,9 +577,18 @@ mod tests {
         // The workspace-level build.fol declares the bundled internal `std`
         // dependency, so memo-model members typecheck at the effective hosted
         // capability while the core member keeps its no-heap boundary.
-        assert_eq!(app_mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
-        assert_eq!(core_mapping.active_fol_model, Some(TypecheckCapabilityModel::Core));
-        assert_eq!(memo_mapping.active_fol_model, Some(TypecheckCapabilityModel::Std));
+        assert_eq!(
+            app_mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Std)
+        );
+        assert_eq!(
+            core_mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Core)
+        );
+        assert_eq!(
+            memo_mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Std)
+        );
 
         fs::remove_dir_all(root).ok();
     }
@@ -590,7 +624,10 @@ mod tests {
 
         let mapping = map_document_workspace(&root.join("notes.fol"), &EditorConfig::default())
             .expect("mapping should succeed for package-local helper file");
-        assert_eq!(mapping.active_fol_model, Some(TypecheckCapabilityModel::Memo));
+        assert_eq!(
+            mapping.active_fol_model,
+            Some(TypecheckCapabilityModel::Memo)
+        );
 
         fs::remove_dir_all(root).ok();
     }
@@ -644,11 +681,7 @@ mod tests {
     fn workspace_mapping_keeps_real_mixed_workspace_helper_files_conservative() {
         let root = copied_example_root("examples/mixed_models_workspace");
         let helper = root.join("notes.fol");
-        fs::write(
-            &helper,
-            "fun[] helper(): int = {\n    return 7;\n};\n",
-        )
-        .unwrap();
+        fs::write(&helper, "fun[] helper(): int = {\n    return 7;\n};\n").unwrap();
 
         let mapping = map_document_workspace(&helper, &EditorConfig::default())
             .expect("mapping should succeed for real mixed-workspace helper file");
@@ -707,7 +740,11 @@ mod tests {
         let shared_src = root.join("shared/src");
         fs::create_dir_all(&app_src).unwrap();
         fs::create_dir_all(&shared_src).unwrap();
-        fs::write(root.join("fol.work.yaml"), "members:\n  - app\n  - shared\n").unwrap();
+        fs::write(
+            root.join("fol.work.yaml"),
+            "members:\n  - app\n  - shared\n",
+        )
+        .unwrap();
         fs::write(root.join("app/build.fol"), "name: app\nversion: 0.1.0\n").unwrap();
         fs::write(
             root.join("app/build.fol"),
@@ -719,7 +756,11 @@ mod tests {
             "use shared: loc = {\"../shared\"};\n\nfun[] main(): int = {\n    return shared::helper();\n};\n",
         )
         .unwrap();
-        fs::write(root.join("shared/build.fol"), "name: shared\nversion: 0.1.0\n").unwrap();
+        fs::write(
+            root.join("shared/build.fol"),
+            "name: shared\nversion: 0.1.0\n",
+        )
+        .unwrap();
         fs::write(
             root.join("shared/build.fol"),
             "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
@@ -735,19 +776,16 @@ mod tests {
         let mapping =
             map_document_workspace(&path, &EditorConfig::default()).expect("mapping should work");
         let uri = EditorDocumentUri::from_file_path(path.clone()).unwrap();
-        let document = EditorDocument::new(
-            uri,
-            2,
-            fs::read_to_string(&path).unwrap(),
-        )
-        .unwrap();
+        let document = EditorDocument::new(uri, 2, fs::read_to_string(&path).unwrap()).unwrap();
         let overlay = materialize_analysis_overlay(&mapping, &document).unwrap();
 
         // The overlay keeps the whole analysis tree so sibling local-import
         // targets (`use shared: loc = {"../shared"}`) stay resolvable.
         assert_eq!(
             overlay.package_root(),
-            Some(overlay.analysis_root().join("app").as_path()).map(|path| path.to_path_buf()).as_deref()
+            Some(overlay.analysis_root().join("app").as_path())
+                .map(|path| path.to_path_buf())
+                .as_deref()
         );
         assert!(overlay.analysis_root().join("app/src/main.fol").is_file());
         assert!(overlay.analysis_root().join("app/build.fol").is_file());

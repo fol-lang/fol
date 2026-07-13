@@ -199,18 +199,8 @@ fn shell_typing_rejects_mismatched_optional_payloads() {
 }
 
 #[test]
-fn shell_typing_rejects_pointer_surfaces_as_v3_only() {
-    let errors = typecheck_fixture_folder_errors(&[("main.fol", "ali CounterPtr: ptr[int];\n")]);
-
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("pointer types are planned for a future release")
-        }),
-        "Expected a V3 pointer-boundary diagnostic, got: {errors:?}"
-    );
+fn shell_typing_accepts_shipped_v3_pointer_types() {
+    let _typed = typecheck_fixture_folder(&[("main.fol", "ali CounterPtr: ptr[int];\n")]);
 }
 
 #[test]
@@ -339,12 +329,10 @@ fn operator_typing_rejects_invalid_scalar_pairs_and_pointer_operators() {
     );
     assert!(
         errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("pointer operators are planned for a future release")
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error.message().contains("got 'ptr[int]'")
         }),
-        "Expected a pointer-operator boundary diagnostic, got: {errors:?}"
+        "Expected the typed pointer result to mismatch the int return, got: {errors:?}"
     );
 }
 
@@ -802,7 +790,7 @@ fn intrinsic_diagnostic_typing_rejects_wrong_arity_for_echo() {
 }
 
 #[test]
-fn intrinsic_v3_boundary_typing_reports_explicit_milestone_guidance() {
+fn retired_memory_intrinsics_are_unknown_and_deallocation_is_v4_only() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] free_value(value: int): int = {\n\
@@ -823,18 +811,17 @@ fn intrinsic_v3_boundary_typing_reports_explicit_milestone_guidance() {
     )]);
 
     for intrinsic in [
-        ".de_alloc(...) is planned for a future release",
-        ".give_back(...) is planned for a future release",
-        ".address_of(...) is planned for a future release",
-        ".pointer_value(...) is planned for a future release",
-        ".borrow_from(...) is planned for a future release",
+        ".de_alloc(...) is a V4/FFI boundary and is not part of V3",
+        "unknown dot-root intrinsic '.give_back(...)'",
+        "unknown dot-root intrinsic '.address_of(...)'",
+        "unknown dot-root intrinsic '.pointer_value(...)'",
+        "unknown dot-root intrinsic '.borrow_from(...)'",
     ] {
         assert!(
             errors.iter().any(|error| {
-                error.kind() == TypecheckErrorKind::Unsupported
-                    && error.message().contains(intrinsic)
+                error.message().contains(intrinsic)
             }),
-            "Expected explicit V3 intrinsic boundary diagnostic containing '{intrinsic}', got: {errors:?}"
+            "Expected retired/boundary intrinsic diagnostic containing '{intrinsic}', got: {errors:?}"
         );
     }
 }

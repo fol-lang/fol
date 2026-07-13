@@ -122,7 +122,10 @@ mod integration_tests {
         for file in files {
             let text = std::fs::read_to_string(&file).expect("Should read source fixture file");
             for (index, line) in text.lines().enumerate() {
-                if ignored_snippets.iter().any(|snippet| line.contains(snippet)) {
+                if ignored_snippets
+                    .iter()
+                    .any(|snippet| line.contains(snippet))
+                {
                     continue;
                 }
                 if line_has_unquoted_use_target(line) {
@@ -226,6 +229,15 @@ mod integration_tests {
     }
 
     fn open_lsp_document(server: &mut EditorLspServer, uri: String, text: &str) {
+        if let Some(path) = uri.strip_prefix("file://").map(std::path::PathBuf::from) {
+            let parent = path.parent().unwrap_or(path.as_path());
+            let root = parent
+                .ancestors()
+                .find(|candidate| candidate.join("build.fol").is_file())
+                .unwrap_or(parent);
+            std::fs::create_dir_all(root.join(".git"))
+                .expect("LSP test workspace marker should be creatable");
+        }
         let diagnostics = server
             .handle_notification(JsonRpcNotification {
                 jsonrpc: "2.0".to_string(),
@@ -469,7 +481,6 @@ mod integration_tests {
         parsed.entries[0].selected_revision.clone()
     }
 
-
     #[cfg(test)]
     #[path = "integration_pipeline.rs"]
     mod pipeline;
@@ -561,8 +572,7 @@ mod integration_tests {
         use std::collections::BTreeSet;
 
         fn highlights_scm() -> String {
-            let path = repo_root()
-                .join("lang/tooling/fol-editor/queries/fol/highlights.scm");
+            let path = repo_root().join("lang/tooling/fol-editor/queries/fol/highlights.scm");
             std::fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("should read highlights.scm: {e}"))
         }
@@ -584,7 +594,11 @@ mod integration_tests {
             names
         }
 
-        fn extract_node_label_names(text: &str, node_type: &str, capture: &str) -> BTreeSet<String> {
+        fn extract_node_label_names(
+            text: &str,
+            node_type: &str,
+            capture: &str,
+        ) -> BTreeSet<String> {
             let mut names = BTreeSet::new();
             for line in text.lines() {
                 let trimmed = line.trim();

@@ -12,18 +12,15 @@ use crate::{
     TypecheckErrorKind, TypecheckResult, TypedProgram,
 };
 use fol_intrinsics::{select_intrinsic, IntrinsicSurface};
-use fol_parser::ast::{
-    AstNode, CallSurface, FolType, ParsedSourceUnitKind,
-};
+use fol_parser::ast::{AstNode, CallSurface, ChannelEndpoint, FolType, ParsedSourceUnitKind};
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId};
 use std::collections::BTreeMap;
 
-pub(crate) use helpers::{inline_body_block_scope, loop_binder_scope};
 use helpers::{
-    binding_kind_for, describe_type, ensure_assignable, ensure_assignable_target,
-    internal_error, node_origin, origin_for, plain_value_expr,
-    unsupported_node_surface,
+    binding_kind_for, describe_type, ensure_assignable, ensure_assignable_target, internal_error,
+    node_origin, origin_for, plain_value_expr, unsupported_node_surface,
 };
+pub(crate) use helpers::{inline_body_block_scope, loop_binder_scope};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ErrorCallMode {
@@ -169,18 +166,28 @@ fn type_node_with_expectation_inner(
             operators::type_binary_op(typed, resolved, context, op, left, right)
         }
         AstNode::UnaryOp { op, operand } => {
-            operators::type_unary_op(typed, resolved, context, node, op, operand)
+            operators::type_unary_op(
+                typed,
+                resolved,
+                context,
+                node,
+                op,
+                operand,
+                expected_type,
+            )
         }
         AstNode::VarDecl {
             name,
             type_hint: _,
             value,
+            options,
             ..
         }
         | AstNode::LabDecl {
             name,
             type_hint: _,
             value,
+            options,
             ..
         } => bindings::type_binding_initializer(
             typed,
@@ -189,6 +196,15 @@ fn type_node_with_expectation_inner(
             name,
             value.as_deref(),
             binding_kind_for(node),
+            options
+                .iter()
+                .any(|option| matches!(option, fol_parser::ast::VarOption::New)),
+            options
+                .iter()
+                .any(|option| matches!(option, fol_parser::ast::VarOption::Borrowing)),
+            options
+                .iter()
+                .any(|option| matches!(option, fol_parser::ast::VarOption::Mutable)),
         ),
         AstNode::Literal(literal) => Ok(TypedExpr::value(literals::type_literal(
             typed,
@@ -211,9 +227,7 @@ fn type_node_with_expectation_inner(
         AstNode::RecordInit {
             syntax_id: _,
             fields,
-        } => {
-            bindings::type_record_init(typed, resolved, context, fields, expected_type)
-        }
+        } => bindings::type_record_init(typed, resolved, context, fields, expected_type),
         AstNode::Identifier { name, syntax_id } => {
             references::type_identifier_reference(typed, resolved, context, name, *syntax_id)
         }
@@ -222,17 +236,96 @@ fn type_node_with_expectation_inner(
         }
         AstNode::AsyncStage => Err(TypecheckError::new(
             TypecheckErrorKind::Unsupported,
-            "async pipe stages are planned for a future release",
+            if typed.capability_model().supports_processor() {
+                "async is a pipe stage and must appear as call() | async"
+            } else {
+                "async pipe stages require hosted std support; declare the bundled internal standard dependency"
+            },
         )),
         AstNode::AwaitStage => Err(TypecheckError::new(
             TypecheckErrorKind::Unsupported,
-            "await pipe stages are planned for a future release",
+            if typed.capability_model().supports_processor() {
+                "await is a pipe stage and must appear as eventual | await"
+            } else {
+                "await pipe stages require hosted std support; declare the bundled internal standard dependency"
+            },
         )),
-        AstNode::Spawn { .. } => Err(unsupported_node_surface(
-            resolved,
-            node,
-            "spawn expressions are planned for a future release",
-        )),
+        AstNode::Spawn { task } => {
+            if !typed.capability_model().supports_processor() {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    node,
+                    "spawn requires hosted std support; declare the bundled internal standard dependency",
+                ));
+            }
+            let observed = type_node_with_expectation(
+                typed,
+                resolved,
+                TypeContext {
+                    error_call_mode: ErrorCallMode::Observe,
+                    ..context
+                },
+                task,
+                None,
+            )?;
+            if observed.recoverable_effect.is_some() {
+                return Err(node_origin(resolved, node).map_or_else(
+                    || TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "spawning a recoverable routine without await discards its error; make the callee infallible or pipe through async",
+                    ),
+                    |origin| TypecheckError::with_origin(
+                        TypecheckErrorKind::Unsupported,
+                        "spawning a recoverable routine without await discards its error; make the callee infallible or pipe through async",
+                        origin,
+                    ),
+                ));
+            }
+            if let AstNode::FunctionCall { args, .. } = task.as_ref() {
+                for arg in args {
+                    let Some(syntax_id) = arg.syntax_id() else {
+                        continue;
+                    };
+                    let resolved_reference = resolved
+                        .references
+                        .iter()
+                        .find(|reference| reference.syntax_id == Some(syntax_id));
+                    let resolved_type = resolved_reference
+                        .and_then(|reference| typed.typed_reference(reference.id))
+                        .and_then(|reference| reference.resolved_type);
+                    let shared_pointer = resolved_type
+                        .and_then(|type_id| typed.type_table().get(type_id))
+                        .is_some_and(|typ| {
+                            matches!(typ, CheckedType::Pointer { shared: true, .. })
+                        });
+                    if shared_pointer {
+                        return Err(node_origin(resolved, arg).map_or_else(
+                            || TypecheckError::new(
+                                TypecheckErrorKind::Ownership,
+                                "shared Rc pointers cannot cross a spawn boundary; use a [mux] parameter for cross-thread sharing",
+                            ),
+                            |origin| TypecheckError::with_origin(
+                                TypecheckErrorKind::Ownership,
+                                "shared Rc pointers cannot cross a spawn boundary; use a [mux] parameter for cross-thread sharing",
+                                origin,
+                            ),
+                        ));
+                    }
+                    let owned = resolved_type
+                        .and_then(|type_id| typed.type_table().get(type_id))
+                        .is_some_and(|typ| matches!(typ, CheckedType::Owned { .. }));
+                    if owned {
+                        if let (Some(symbol), Some(origin)) = (
+                            resolved_reference.and_then(|reference| reference.resolved),
+                            node_origin(resolved, arg),
+                        ) {
+                            typed.mark_binding_moved(symbol, origin);
+                        }
+                    }
+                }
+            }
+            Ok(TypedExpr::none())
+        }
         AstNode::FunDecl {
             name,
             syntax_id,
@@ -263,7 +356,10 @@ fn type_node_with_expectation_inner(
             inquiries,
             ..
         } => {
-            if let Some(message) = decls::unsupported_routine_param_surface_message(params) {
+            if let Some(message) = decls::unsupported_routine_param_surface_message(
+                params,
+                typed.capability_model(),
+            ) {
                 return Err(unsupported_node_surface(resolved, node, message));
             }
             let routine_scope = syntax_id
@@ -271,9 +367,7 @@ fn type_node_with_expectation_inner(
                 .ok_or_else(|| {
                     TypecheckError::new(
                         TypecheckErrorKind::ScopeResolutionFailed,
-                        format!(
-                            "routine '{name}' has no scope mapping in the resolved program"
-                        ),
+                        format!("routine '{name}' has no scope mapping in the resolved program"),
                     )
                 })?;
             let expected_return_type = match return_type.as_ref() {
@@ -366,14 +460,10 @@ fn type_node_with_expectation_inner(
             inquiries,
             ..
         } => {
-            if !captures.is_empty() {
-                return Err(unsupported_node_surface(
-                    resolved,
-                    node,
-                    "anonymous routines with captures are not yet supported",
-                ));
-            }
-            if let Some(message) = decls::unsupported_routine_param_surface_message(params) {
+            if let Some(message) = decls::unsupported_routine_param_surface_message(
+                params,
+                typed.capability_model(),
+            ) {
                 return Err(unsupported_node_surface(resolved, node, message));
             }
             for param in params {
@@ -397,9 +487,68 @@ fn type_node_with_expectation_inner(
             let routine_scope = syntax_id
                 .and_then(|id| resolved.scope_for_syntax(id))
                 .unwrap_or(context.scope_id);
-            let mut lowered_params = Vec::with_capacity(params.len());
+            let mut lowered_params = Vec::with_capacity(captures.len() + params.len());
+            for capture in captures {
+                match capture.endpoint {
+                    Some(ChannelEndpoint::Tx) => {}
+                    Some(ChannelEndpoint::Rx) => {
+                        return Err(unsupported_node_surface(
+                            resolved,
+                            node,
+                            "a channel receiver cannot be cloned into a spawned capture; capture c[tx] and keep c[rx] in the receiving routine",
+                        ));
+                    }
+                    None => {
+                        return Err(unsupported_node_surface(
+                            resolved,
+                            node,
+                            "V3 anonymous captures must name a channel endpoint such as c[tx]",
+                        ));
+                    }
+                }
+                let outer_symbol = decls::find_symbol_id_in_scope(
+                    resolved,
+                    context.source_unit_id,
+                    context.scope_id,
+                    &[
+                        fol_resolver::SymbolKind::ValueBinding,
+                        fol_resolver::SymbolKind::Parameter,
+                        fol_resolver::SymbolKind::Capture,
+                    ],
+                    &capture.name,
+                )?;
+                let capture_type = typed
+                    .typed_symbol(outer_symbol)
+                    .and_then(|symbol| symbol.declared_type)
+                    .ok_or_else(|| {
+                        TypecheckError::new(
+                            TypecheckErrorKind::InvalidInput,
+                            format!("capture '{}' does not retain a type", capture.name),
+                        )
+                    })?;
+                if !matches!(
+                    typed.type_table().get(capture_type),
+                    Some(CheckedType::Channel { .. })
+                ) {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        format!("capture '{}[tx]' requires a chn[T] binding", capture.name),
+                    ));
+                }
+                let capture_symbol = decls::find_symbol_id_in_scope(
+                    resolved,
+                    context.source_unit_id,
+                    routine_scope,
+                    &[fol_resolver::SymbolKind::Capture],
+                    &capture.name,
+                )?;
+                decls::record_symbol_type(typed, capture_symbol, capture_type)?;
+                lowered_params.push(capture_type);
+            }
             for param in params {
-                let param_type = decls::lower_type(typed, resolved, routine_scope, &param.param_type)?;
+                let param_type =
+                    decls::lower_type(typed, resolved, routine_scope, &param.param_type)?;
                 if let Ok(param_symbol_id) = decls::find_symbol_id_in_scope(
                     resolved,
                     context.source_unit_id,
@@ -464,21 +613,32 @@ fn type_node_with_expectation_inner(
                     });
                 }
             }
-            let routine_type_id = typed.type_table_mut().intern(CheckedType::Routine(RoutineType {
-                generic_params: Vec::new(),
-                generic_constraints: BTreeMap::new(),
-                param_names: vec![String::new(); lowered_params.len()],
-                param_defaults: vec![None; lowered_params.len()],
-                variadic_index: params
-                    .iter()
-                    .position(|param| param.is_variadic),
-                params: lowered_params,
-                return_type: expected_return_type,
-                error_type: expected_error_type,
-            }));
+            let routine_type_id =
+                typed
+                    .type_table_mut()
+                    .intern(CheckedType::Routine(RoutineType {
+                        generic_params: Vec::new(),
+                        generic_constraints: BTreeMap::new(),
+                        param_names: vec![String::new(); lowered_params.len()],
+                        param_defaults: vec![None; lowered_params.len()],
+                        variadic_index: params.iter().position(|param| param.is_variadic),
+                        params: lowered_params,
+                        return_type: expected_return_type,
+                        error_type: expected_error_type,
+                    }));
             Ok(TypedExpr::value(routine_type_id))
         }
-        AstNode::Block { statements, .. } => type_body(typed, resolved, context, statements),
+        AstNode::Block { statements, .. } => {
+            let block_context = inline_body_block_scope(
+                resolved,
+                context.source_unit_id,
+                context.scope_id,
+                statements,
+            )
+            .map(|scope_id| TypeContext { scope_id, ..context })
+            .unwrap_or(context);
+            type_body(typed, resolved, block_context, statements)
+        }
         AstNode::Program { declarations } => type_body(typed, resolved, context, declarations),
         AstNode::When {
             expr,
@@ -496,19 +656,13 @@ fn type_node_with_expectation_inner(
                 context.scope_id,
                 target,
             )?;
-            let expected = type_node(typed, resolved, context, target)?.required_value(
-                "assignment target does not have a type",
-            )?;
+            let expected = type_node(typed, resolved, context, target)?
+                .required_value("assignment target does not have a type")?;
             let actual =
                 type_node_with_expectation(typed, resolved, context, value, Some(expected))?
                     .required_value("assignment value does not have a type")?;
-            ensure_assignable(
-                typed,
-                expected,
-                actual,
-                "assignment".to_string(),
-                None,
-            )?;
+            ensure_assignable(typed, expected, actual, "assignment".to_string(), None)?;
+            bindings::mark_plain_identifier_move(typed, resolved, Some(value), actual)?;
             Ok(TypedExpr::value(expected))
         }
         AstNode::FunctionCall {
@@ -531,7 +685,9 @@ fn type_node_with_expectation_inner(
             args,
             syntax_id,
             ..
-        } if name == "report" => calls::type_report_call(typed, resolved, context, args, *syntax_id),
+        } if name == "report" => {
+            calls::type_report_call(typed, resolved, context, args, *syntax_id)
+        }
         AstNode::FunctionCall {
             name,
             args,
@@ -541,22 +697,11 @@ fn type_node_with_expectation_inner(
         } => {
             if let Ok(entry) = select_intrinsic(IntrinsicSurface::KeywordCall, name) {
                 calls::type_keyword_intrinsic_call(
-                    typed,
-                    resolved,
-                    context,
-                    entry,
-                    args,
-                    *syntax_id,
+                    typed, resolved, context, entry, args, *syntax_id,
                 )
             } else {
                 calls::type_function_call(
-                    typed,
-                    resolved,
-                    context,
-                    name,
-                    type_args,
-                    args,
-                    *syntax_id,
+                    typed, resolved, context, name, type_args, args, *syntax_id,
                 )
             }
         }
@@ -568,19 +713,53 @@ fn type_node_with_expectation_inner(
             method,
             args,
             ..
-        } => {
-            calls::type_method_call(typed, resolved, context, node, object, method, args)
-        }
+        } => calls::type_method_call(typed, resolved, context, node, object, method, args),
         AstNode::FieldAccess { object, field } => {
             access::type_field_access(typed, resolved, context, object, field, expected_type)
         }
-        AstNode::ChannelAccess { .. } => Err(unsupported_node_surface(
-            resolved,
-            node,
-            "channel endpoint access is planned for a future release",
-        )),
+        AstNode::ChannelAccess { channel, endpoint } => {
+            if !typed.capability_model().supports_processor() {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    node,
+                    "channel endpoint access requires hosted std support; declare the bundled internal standard dependency",
+                ));
+            }
+            let channel_raw = type_node(typed, resolved, context, channel)?;
+            let channel_type = plain_value_expr(
+                typed,
+                context,
+                channel_raw,
+                node_origin(resolved, channel),
+                "channel endpoint receiver",
+            )?
+            .required_value("channel endpoint receiver does not have a type")?;
+            let element_type = helpers::channel_element_type(typed, channel_type)?;
+            Ok(match endpoint {
+                ChannelEndpoint::Tx => TypedExpr::value(
+                    typed
+                        .type_table_mut()
+                        .intern(CheckedType::ChannelSender { element_type }),
+                ),
+                ChannelEndpoint::Rx => TypedExpr::value(element_type),
+            })
+        }
         AstNode::IndexAccess { container, index } => {
-            access::type_index_access(typed, resolved, context, container, index)
+            if matches!(
+                helpers::strip_comments(container),
+                AstNode::ChannelAccess {
+                    endpoint: ChannelEndpoint::Rx,
+                    ..
+                }
+            ) {
+                Err(unsupported_node_surface(
+                    resolved,
+                    node,
+                    "channel receivers are blocking pull expressions and cannot be indexed; use 'var value = channel[rx]' or iterate 'for value in channel[rx]'",
+                ))
+            } else {
+                access::type_index_access(typed, resolved, context, container, index)
+            }
         }
         AstNode::SliceAccess {
             container,
@@ -609,26 +788,28 @@ fn type_node_with_expectation_inner(
             node,
             "range expressions are not yet supported",
         )),
-        AstNode::Select { .. } => Err(unsupported_node_surface(
+        AstNode::Select { arms, default } => controlflow::type_select(
+            typed,
             resolved,
-            node,
-            "select/channel semantics are planned for a future release",
-        )),
+            context,
+            arms,
+            default.as_deref(),
+        ),
         AstNode::Return { value } => {
             controlflow::type_return(typed, resolved, context, value.as_deref())
         }
         AstNode::Break => Ok(TypedExpr::value(typed.builtin_types().never)),
-        AstNode::Dfr { body, .. } => {
+        AstNode::Dfr { body, .. } | AstNode::Edf { body, .. } => {
             if body_contains_return(body) {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
-                    "return is not allowed inside dfr blocks in V1",
+                    "return is not allowed inside dfr/edf blocks",
                 ));
             }
             if body_contains_break(body) {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
-                    "break is not allowed inside dfr blocks in V1",
+                    "break is not allowed inside dfr/edf blocks",
                 ));
             }
             // Deferred blocks replay at every exit; a diverging terminator
@@ -636,7 +817,7 @@ fn type_node_with_expectation_inner(
             if body_contains_panic(body) {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
-                    "panic is not allowed inside dfr blocks in V1",
+                    "panic is not allowed inside dfr/edf blocks",
                 ));
             }
             let _ = type_body(typed, resolved, context, body)?;
@@ -739,7 +920,10 @@ fn node_contains_panic(node: &AstNode) -> bool {
         | AstNode::AnonymousFun { .. }
         | AstNode::AnonymousPro { .. }
         | AstNode::AnonymousLog { .. } => false,
-        _ => node.children().iter().any(|child| node_contains_panic(child)),
+        _ => node
+            .children()
+            .iter()
+            .any(|child| node_contains_panic(child)),
     }
 }
 
@@ -770,9 +954,13 @@ fn body_contains_break(nodes: &[AstNode]) -> bool {
                 | fol_parser::ast::WhenCase::Has { body, .. }
                 | fol_parser::ast::WhenCase::On { body, .. }
                 | fol_parser::ast::WhenCase::Of { body, .. } => body_contains_break(body),
-            }) || default.as_ref().is_some_and(|body| body_contains_break(body))
+            }) || default
+                .as_ref()
+                .is_some_and(|body| body_contains_break(body))
         }
-        AstNode::Loop { body, .. } | AstNode::Dfr { body, .. } => body_contains_break(body),
+        AstNode::Loop { body, .. }
+        | AstNode::Dfr { body, .. }
+        | AstNode::Edf { body, .. } => body_contains_break(body),
         AstNode::FunDecl { .. }
         | AstNode::ProDecl { .. }
         | AstNode::LogDecl { .. }
@@ -792,7 +980,10 @@ fn node_contains_return(node: &AstNode) -> bool {
         | AstNode::AnonymousFun { .. }
         | AstNode::AnonymousPro { .. }
         | AstNode::AnonymousLog { .. } => false,
-        _ => node.children().iter().any(|child| node_contains_return(child)),
+        _ => node
+            .children()
+            .iter()
+            .any(|child| node_contains_return(child)),
     }
 }
 
@@ -810,7 +1001,10 @@ fn node_contains_report(node: &AstNode) -> bool {
         | AstNode::AnonymousFun { .. }
         | AstNode::AnonymousPro { .. }
         | AstNode::AnonymousLog { .. } => false,
-        _ => node.children().iter().any(|child| node_contains_report(child)),
+        _ => node
+            .children()
+            .iter()
+            .any(|child| node_contains_report(child)),
     }
 }
 
@@ -855,23 +1049,27 @@ pub(crate) fn type_body(
     context: TypeContext,
     nodes: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
-    let mut final_expr = TypedExpr::none();
-    for node in nodes {
-        let node_expr = type_node(typed, resolved, context, node)?;
-        if node_expr.value_type.is_some() {
-            final_expr = node_expr;
-            if node_expr.is_never(typed) {
-                return Ok(final_expr);
+    let result = (|| {
+        let mut final_expr = TypedExpr::none();
+        for node in nodes {
+            let node_expr = type_node(typed, resolved, context, node)?;
+            if node_expr.value_type.is_some() {
+                final_expr = node_expr;
+                if node_expr.is_never(typed) {
+                    return Ok(final_expr);
+                }
             }
         }
-    }
-    Ok(final_expr)
+        Ok(final_expr)
+    })();
+    typed.release_borrows_in_scope(context.scope_id);
+    result
 }
 
 #[cfg(test)]
 mod tests {
-    use super::literals::type_literal_simple;
     use super::helpers::{expected_nil_shell_type, unwrap_shell_result_type};
+    use super::literals::type_literal_simple;
     use crate::{BuiltinType, CheckedType, TypedProgram};
     use fol_parser::ast::{AstParser, Literal};
     use fol_resolver::resolve_package;

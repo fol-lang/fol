@@ -1,4 +1,5 @@
 use crate::ids::LoweredTypeId;
+use fol_resolver::{PackageIdentity, SymbolId};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -18,11 +19,27 @@ pub struct LoweredRoutineType {
     pub error_type: Option<LoweredTypeId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LoweredType {
     Builtin(LoweredBuiltinType),
     GenericParameter {
         name: String,
+    },
+    Named {
+        package: PackageIdentity,
+        symbol: SymbolId,
+        name: String,
+    },
+    Owned {
+        inner: LoweredTypeId,
+    },
+    Borrowed {
+        inner: LoweredTypeId,
+        mutable: bool,
+    },
+    Pointer {
+        target: LoweredTypeId,
+        shared: bool,
     },
     Array {
         element_type: LoweredTypeId,
@@ -33,6 +50,16 @@ pub enum LoweredType {
     },
     Sequence {
         element_type: LoweredTypeId,
+    },
+    Channel {
+        element_type: LoweredTypeId,
+    },
+    ChannelSender {
+        element_type: LoweredTypeId,
+    },
+    Eventual {
+        value_type: LoweredTypeId,
+        error_type: Option<LoweredTypeId>,
     },
     Set {
         member_types: Vec<LoweredTypeId>,
@@ -107,15 +134,36 @@ impl LoweredTypeTable {
         };
         match lowered_type {
             LoweredType::GenericParameter { .. } => true,
-            LoweredType::Builtin(_) => false,
+            LoweredType::Builtin(_) | LoweredType::Named { .. } => false,
             LoweredType::Array { element_type, .. }
             | LoweredType::Vector { element_type }
             | LoweredType::Sequence { element_type }
+            | LoweredType::Channel { element_type }
+            | LoweredType::ChannelSender { element_type }
+            | LoweredType::Owned {
+                inner: element_type,
+            }
+            | LoweredType::Borrowed {
+                inner: element_type,
+                ..
+            }
+            | LoweredType::Pointer {
+                target: element_type,
+                ..
+            }
             | LoweredType::Optional {
                 inner: element_type,
             } => self.contains_generic_parameter(*element_type),
             LoweredType::Error { inner } => {
                 inner.is_some_and(|inner| self.contains_generic_parameter(inner))
+            }
+            LoweredType::Eventual {
+                value_type,
+                error_type,
+            } => {
+                self.contains_generic_parameter(*value_type)
+                    || error_type
+                        .is_some_and(|error_type| self.contains_generic_parameter(error_type))
             }
             LoweredType::Set { member_types } => member_types
                 .iter()
@@ -169,11 +217,33 @@ impl LoweredTypeTable {
             LoweredType::Array { element_type, .. }
             | LoweredType::Vector { element_type }
             | LoweredType::Sequence { element_type }
+            | LoweredType::Channel { element_type }
+            | LoweredType::ChannelSender { element_type }
+            | LoweredType::Owned {
+                inner: element_type,
+            }
+            | LoweredType::Borrowed {
+                inner: element_type,
+                ..
+            }
+            | LoweredType::Pointer {
+                target: element_type,
+                ..
+            }
             | LoweredType::Optional {
                 inner: element_type,
             } => self.contains_generic_structural_type(*element_type),
             LoweredType::Error { inner } => {
                 inner.is_some_and(|inner| self.contains_generic_structural_type(inner))
+            }
+            LoweredType::Eventual {
+                value_type,
+                error_type,
+            } => {
+                self.contains_generic_structural_type(*value_type)
+                    || error_type.is_some_and(|error_type| {
+                        self.contains_generic_structural_type(error_type)
+                    })
             }
             LoweredType::Set { member_types } => member_types
                 .iter()
@@ -190,14 +260,16 @@ impl LoweredTypeTable {
                     .params
                     .iter()
                     .any(|param| self.contains_generic_structural_type(*param))
-                    || signature
-                        .return_type
-                        .is_some_and(|return_type| self.contains_generic_structural_type(return_type))
+                    || signature.return_type.is_some_and(|return_type| {
+                        self.contains_generic_structural_type(return_type)
+                    })
                     || signature
                         .error_type
                         .is_some_and(|error_type| self.contains_generic_structural_type(error_type))
             }
-            LoweredType::Builtin(_) | LoweredType::GenericParameter { .. } => false,
+            LoweredType::Builtin(_)
+            | LoweredType::Named { .. }
+            | LoweredType::GenericParameter { .. } => false,
         }
     }
 
@@ -214,16 +286,38 @@ impl LoweredTypeTable {
             LoweredType::GenericParameter { name } => {
                 out.insert(name.clone());
             }
-            LoweredType::Builtin(_) => {}
+            LoweredType::Builtin(_) | LoweredType::Named { .. } => {}
             LoweredType::Array { element_type, .. }
             | LoweredType::Vector { element_type }
             | LoweredType::Sequence { element_type }
+            | LoweredType::Channel { element_type }
+            | LoweredType::ChannelSender { element_type }
+            | LoweredType::Owned {
+                inner: element_type,
+            }
+            | LoweredType::Borrowed {
+                inner: element_type,
+                ..
+            }
+            | LoweredType::Pointer {
+                target: element_type,
+                ..
+            }
             | LoweredType::Optional {
                 inner: element_type,
             } => self.collect_generic_parameter_names(*element_type, out),
             LoweredType::Error { inner } => {
                 if let Some(inner) = inner {
                     self.collect_generic_parameter_names(*inner, out);
+                }
+            }
+            LoweredType::Eventual {
+                value_type,
+                error_type,
+            } => {
+                self.collect_generic_parameter_names(*value_type, out);
+                if let Some(error_type) = error_type {
+                    self.collect_generic_parameter_names(*error_type, out);
                 }
             }
             LoweredType::Set { member_types } => {

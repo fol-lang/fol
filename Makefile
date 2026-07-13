@@ -14,7 +14,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c run r test t tree help h clean docs release
+.PHONY: build b compile c fmt f run r test t tree help h clean docs release
 
 SHELL := /bin/bash
 
@@ -30,8 +30,16 @@ compile:
 
 c: compile
 
+fmt:
+	@cargo fmt --all
+
+f: fmt
+
+ARGS ?=
+DIR ?= $(TOP_DIR)
+
 run:
-	@cargo run
+	@cd $(DIR) && cargo run --manifest-path $(TOP_DIR)/Cargo.toml -- $(ARGS)
 
 r: run
 
@@ -41,9 +49,11 @@ tree:
 	@cargo run -- tool tree generate $(TREE_DIR)
 
 
+TEST_ARGS ?=
+
 test:
-	@cargo test --workspace
-	@cargo test -- --ignored
+	@cargo test --workspace $(TEST_ARGS)
+	@cargo test -- $(TEST_ARGS) --ignored
 
 t: test
 
@@ -54,6 +64,7 @@ help:
 	@echo "Available targets:"
 	@echo "  build        Build project"
 	@echo "  compile      Configure and generate build files"
+	@echo "  fmt          Format the Rust workspace"
 	@echo "  run          Run the main executable"
 	@echo "  tree         Regenerate the checked-in tree-sitter bundle"
 	@echo "  test         Run tests"

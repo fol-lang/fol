@@ -1,13 +1,12 @@
 use crate::{
-    format_document_in_place,
     fol_tree_sitter_config, fol_tree_sitter_corpus, fol_tree_sitter_grammar,
     fol_tree_sitter_highlights_query, fol_tree_sitter_query_snapshots,
-    fol_tree_sitter_symbols_query, EditorConfig, EditorDocumentUri, EditorError,
-    EditorErrorKind, EditorLspServer, EditorResult, JsonRpcId, JsonRpcNotification,
+    fol_tree_sitter_symbols_query, format_document_in_place, EditorConfig, EditorDocumentUri,
+    EditorError, EditorErrorKind, EditorLspServer, EditorResult, JsonRpcId, JsonRpcNotification,
     JsonRpcRequest, LspCompletionList, LspCompletionParams, LspDidOpenTextDocumentParams,
     LspLocation, LspPosition, LspReferenceContext, LspReferenceParams, LspRenameParams,
-    LspSemanticTokens, LspSemanticTokensParams, LspTextDocumentIdentifier,
-    LspTextDocumentItem, LspWorkspaceEdit,
+    LspSemanticTokens, LspSemanticTokensParams, LspTextDocumentIdentifier, LspTextDocumentItem,
+    LspWorkspaceEdit,
 };
 use std::path::Path;
 
@@ -208,9 +207,12 @@ pub fn editor_semantic_tokens_file(path: &Path) -> EditorResult<EditorCommandSum
             ),
         })?
         .expect("semantic token request should return a response");
-    let tokens: LspSemanticTokens =
-        serde_json::from_value(response.result.expect("semantic tokens result should exist"))
-            .expect("semantic tokens should deserialize");
+    let tokens: LspSemanticTokens = serde_json::from_value(
+        response
+            .result
+            .expect("semantic tokens result should exist"),
+    )
+    .expect("semantic tokens should deserialize");
     let encoded_entries = tokens.data.len();
     let token_count = encoded_entries / 5;
 
@@ -288,7 +290,10 @@ pub fn editor_references_file(
 
     Ok(EditorCommandSummary::new(
         "references",
-        format!("resolved {} references at the requested position", references.len()),
+        format!(
+            "resolved {} references at the requested position",
+            references.len()
+        ),
     )
     .with_detail(format!("path={}", canonical.display()))
     .with_detail(format!("line={}", position.line))
@@ -431,7 +436,12 @@ pub fn editor_completion_file(
 
     Ok(EditorCommandSummary::new(
         "completion",
-        format!("{} completion items at {}:{}", completions.items.len(), position.line, position.character),
+        format!(
+            "{} completion items at {}:{}",
+            completions.items.len(),
+            position.line,
+            position.character
+        ),
     )
     .with_detail(format!("path={}", canonical.display()))
     .with_detail(format!("line={}", position.line))
@@ -602,16 +612,19 @@ fn write_bundle_file(path: &Path, contents: &str) -> EditorResult<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        compiler_dot_intrinsic_names_csv, compiler_import_kinds_csv, semantic_token_legend_csv,
-        editor_format_file, editor_highlight_file, editor_lsp_entrypoint, editor_parse_file,
-        editor_references_file, editor_rename_file, editor_semantic_tokens_file,
-        editor_symbols_file, editor_tree_generate_bundle, sorted_query_captures,
+        compiler_dot_intrinsic_names_csv, compiler_import_kinds_csv, editor_format_file,
+        editor_highlight_file, editor_lsp_entrypoint, editor_parse_file, editor_references_file,
+        editor_rename_file, editor_semantic_tokens_file, editor_symbols_file,
+        editor_tree_generate_bundle, semantic_token_legend_csv, sorted_query_captures,
     };
     use crate::{fol_tree_sitter_grammar, fol_tree_sitter_query_snapshots, LspPosition};
     use std::path::{Path, PathBuf};
 
     fn repo_root() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().expect("repo root should resolve")
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("repo root should resolve")
     }
 
     /// Builds a self-contained temp package whose entry file contains a
@@ -631,6 +644,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
         std::fs::write(
             root.join("build.fol"),
             "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"rename_probe\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"rename_probe\", root = \"src/main.fol\", fol_model = \"core\" });\n    return;\n};\n",
@@ -851,8 +865,14 @@ mod tests {
             ]
         );
         assert_eq!(semantic_tokens.command, "semantic-tokens");
-        assert_eq!(semantic_tokens.details[0], format!("path={}", showcase.display()));
-        assert_eq!(semantic_tokens.details[1], format!("lines={showcase_lines}"));
+        assert_eq!(
+            semantic_tokens.details[0],
+            format!("path={}", showcase.display())
+        );
+        assert_eq!(
+            semantic_tokens.details[1],
+            format!("lines={showcase_lines}")
+        );
         let token_count = semantic_tokens.details[2]
             .strip_prefix("token_count=")
             .unwrap()

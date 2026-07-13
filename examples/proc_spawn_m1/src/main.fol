@@ -1,0 +1,10 @@
+use std: pkg = {"std"};
+
+fun[] worker(): int = {
+    return std::io::echo_int(17);
+};
+
+fun[] main(): int = {
+    [>]worker();
+    return 0;
+};

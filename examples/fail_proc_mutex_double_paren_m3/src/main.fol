@@ -1,0 +1,7 @@
+fun[] old_mutex(((value)): int): int = {
+    return value;
+};
+
+fun[] main(): int = {
+    return old_mutex(1);
+};

@@ -424,9 +424,11 @@ Processor pillar (`plan/V3_PROC.md`):
   user-nameable) eventual type and error handling identical to the synchronous
   call site
 
-These pillars are plans, not yet an implemented `V3` promise. A processor or
-memory surface counts as `V3` only when it works through the full compiler chain
-that matters for it, exactly like the `V1`/`V2` rule above.
+Both V3 pillars are implemented across the compiler, runtime/backend, editor,
+tree-sitter, examples, tests, and book. Processor P1 uses one OS thread per
+spawn and joins at exit; P2 ships unbounded MPSC channels; P3 ships source-order
+polling select and `[mux]` shared mutation; P4 ships internal eventuals with
+synchronous error transparency. Every processor surface remains `std`-only.
 
 ## What V4 means
 

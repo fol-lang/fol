@@ -19,8 +19,11 @@ fn test_select_statement_parsing() {
                     AstNode::ProDecl { body, .. }
                         if body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Select { binding, body, .. }
-                                if binding.as_deref() == Some("c") && !body.is_empty()
+                            AstNode::Select { arms, default }
+                                if arms.len() == 2
+                                    && arms[0].binding == "left"
+                                    && arms[1].binding == "right"
+                                    && default.is_none()
                         ))
                 )
             }));
@@ -37,25 +40,10 @@ fn test_select_statement_without_binding_parsing() {
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
-    let ast = parser
+    let error = parser
         .parse(&mut lexer)
-        .expect("Parser should parse binding-free select statements");
-
-    match ast {
-        AstNode::Program { declarations } => {
-            assert!(declarations.iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::ProDecl { body, .. }
-                        if body.iter().any(|stmt| matches!(
-                            stmt,
-                            AstNode::Select { binding, .. } if binding.is_none()
-                        ))
-                )
-            }));
-        }
-        _ => panic!("Expected program node"),
-    }
+        .expect_err("old binding-free select header must no longer parse");
+    assert!(format!("{error:?}").contains("old select(channel as binding) form"));
 }
 
 #[test]
@@ -65,30 +53,8 @@ fn test_select_pipe_stage_parsing() {
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
-    let ast = parser
+    let error = parser
         .parse(&mut lexer)
-        .expect("Parser should parse select stages on pipes");
-
-    let return_value = match ast {
-        AstNode::Program { declarations } => declarations
-            .iter()
-            .find_map(|node| match node {
-                AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
-                    _ => None,
-                }),
-                _ => None,
-            })
-            .expect("Expected return statement"),
-        _ => panic!("Expected program node"),
-    };
-
-    assert!(matches!(
-        return_value,
-        AstNode::BinaryOp {
-            op: fol_parser::ast::BinaryOperator::Pipe,
-            right,
-            ..
-        } if matches!(right.as_ref(), AstNode::Select { binding, .. } if binding.as_deref() == Some("c"))
-    ));
+        .expect_err("old select pipe stages must no longer parse");
+    assert!(format!("{error:?}").contains("old select(channel as binding) form"));
 }

@@ -41,44 +41,36 @@ Current `V1` note:
 
 ### Passing values
 
-In the current `V1` compiler, procedure parameters are ordinary typed inputs.
-You pass values to them exactly as you would pass values to any other routine.
-
-The more ambitious ownership- and borrowing-specific parameter rules described
-in older drafts are not part of the current `V1` procedure contract yet.
+Procedure parameters are ordinary typed inputs unless the parameter has an
+explicit ownership option. Values passed to ordinary parameters follow the
+type's transfer rule. A parameter written as `name[bor]: T` borrows its
+argument for the call without taking ownership.
 
 Simple example:
-```
-pro[] write_line(text: str): non = {
-    .echo(text)
-}
+
+```fol
+pro[] inspect(value[bor]: int): int = {
+    return value;
+};
 
 pro[] main(): int = {
-    var message: str = "hello"
-    write_line(message)
-    return 0
-}
+    var value: int = 7;
+    return inspect(value);
+};
 ```
 
 ### Ownership and borrowing
 
-Ownership-, borrowing-, and pointer-specific procedure semantics are part of the
-later `V3` systems milestone, not the current `V1` compiler surface.
-
-Older drafts used several experimental spellings for those ideas, including:
-
-- all-caps borrowable parameter names
-- `.give_back(...)`
-- double-parenthesis routine parameters
-
-Those forms should be read as future design notes, not as current language
-guarantees.
-
-The current authoritative split is:
+The authoritative version split is:
 
 - ordinary procedures and functions are part of `V1`
 - recoverable routine errors are part of `V1`
-- ownership/borrowing calling conventions are part of `V3`
+- explicit `name[bor]: T` borrow parameters are part of the shipped `V3`
+  memory contract
+- typed pointers and unique heap ownership are also part of that `V3` contract
+
+Borrow give-back uses the `!borrow` prefix. Ownership behavior never depends on
+identifier casing, and there is no alternate parenthesized parameter grammar.
 
 See the memory chapters and [VERSIONS.md](../../../VERSIONS.md) for the version
 boundary.

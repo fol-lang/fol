@@ -14,7 +14,6 @@ fn temp_root(label: &str) -> PathBuf {
     ))
 }
 
-
 fn write_rename_fixture_package(root: &PathBuf) {
     fs::create_dir_all(root.join("src")).expect("should create rename fixture src dir");
     fs::write(
@@ -45,7 +44,6 @@ fn write_rename_fixture_package(root: &PathBuf) {
     )
     .expect("should write rename fixture entry");
 }
-
 
 fn write_cross_package_rename_fixture(root: &PathBuf) {
     fs::create_dir_all(root.join("app/src")).expect("should create app root");
@@ -79,11 +77,7 @@ fn write_cross_package_rename_fixture(root: &PathBuf) {
     .expect("should write main source");
     fs::write(
         root.join("shared/lib.fol"),
-        concat!(
-            "fun[exp] helper(): int = {\n",
-            "    return 7;\n",
-            "};\n",
-        ),
+        concat!("fun[exp] helper(): int = {\n", "    return 7;\n", "};\n",),
     )
     .expect("should write shared source");
 }
@@ -359,11 +353,9 @@ fn editor_file_commands_dispatch_against_real_fol_fixtures() {
     )
     .expect("editor rename should dispatch");
     fs::remove_dir_all(&rename_root).ok();
-    let (_, semantic_tokens) = run_command_from_args_in_dir(
-        ["fol", "tool", "semantic-tokens", fixture],
-        &root,
-    )
-    .expect("editor semantic-tokens should dispatch");
+    let (_, semantic_tokens) =
+        run_command_from_args_in_dir(["fol", "tool", "semantic-tokens", fixture], &root)
+            .expect("editor semantic-tokens should dispatch");
 
     assert_eq!(parse.command, "parse");
     assert!(parse.summary.contains("grammar_bytes="));
@@ -532,11 +524,7 @@ fn editor_rename_command_supports_same_package_namespaced_symbols() {
     .expect("should write main source");
     fs::write(
         root.join("api/lib.fol"),
-        concat!(
-            "fun[exp] helper(): int = {\n",
-            "    return 7;\n",
-            "};\n",
-        ),
+        concat!("fun[exp] helper(): int = {\n", "    return 7;\n", "};\n",),
     )
     .expect("should write namespaced helper");
 
@@ -569,7 +557,14 @@ fn editor_commands_respect_requested_output_mode() {
     let fixture_path = root.join("test/apps/fixtures/record_flow/main.fol");
     let fixture = fixture_path.to_string_lossy();
     let (output, result) = run_command_from_args_in_dir(
-        ["fol", "tool", "--output", "plain", "parse", fixture.as_ref()],
+        [
+            "fol",
+            "tool",
+            "--output",
+            "plain",
+            "parse",
+            fixture.as_ref(),
+        ],
         &root,
     )
     .expect("editor parse should support output mode");
@@ -607,8 +602,7 @@ fn editor_format_command_does_not_require_workspace_discovery() {
     let root = temp_root("format_no_workspace");
     fs::create_dir_all(&root).expect("should create temp root");
     let file = root.join("sample.fol");
-    fs::write(&file, "fun[] main(): int = {\nreturn 0;\n};\n")
-        .expect("should write sample source");
+    fs::write(&file, "fun[] main(): int = {\nreturn 0;\n};\n").expect("should write sample source");
 
     let (_, result) = run_command_from_args_in_dir(
         ["fol", "tool", "format", file.to_string_lossy().as_ref()],
@@ -634,11 +628,8 @@ fn editor_format_command_does_not_mutate_unrelated_files() {
     let sibling = root.join("sibling.fol");
     fs::write(&target, "fun[] main(): int = {\nreturn 0;\n};\n")
         .expect("should write target source");
-    fs::write(
-        &sibling,
-        "fun[] keep(): int = {\n    return 7\n}\n",
-    )
-    .expect("should write sibling source");
+    fs::write(&sibling, "fun[] keep(): int = {\n    return 7\n}\n")
+        .expect("should write sibling source");
 
     let (_, result) = run_command_from_args_in_dir(
         ["fol", "tool", "format", target.to_string_lossy().as_ref()],
@@ -665,7 +656,14 @@ fn editor_command_plain_output_stays_snapshot_stable_for_real_fixtures() {
     let fixture_path = root.join("xtra/logtiny/src/log.fol");
     let fixture = fixture_path.to_string_lossy();
     let (output, result) = run_command_from_args_in_dir(
-        ["fol", "tool", "--output", "plain", "symbols", fixture.as_ref()],
+        [
+            "fol",
+            "tool",
+            "--output",
+            "plain",
+            "symbols",
+            fixture.as_ref(),
+        ],
         &root,
     )
     .expect("editor symbols should support plain output");
@@ -676,7 +674,7 @@ fn editor_command_plain_output_stays_snapshot_stable_for_real_fixtures() {
     assert_eq!(
         rendered,
         format!(
-            "command: symbols\nsummary: symbol query ready with 912 bytes (lines=64, path={}, query_snapshots=3, symbol_candidates=1)",
+            "command: symbols\nsummary: symbol query ready with 964 bytes (lines=64, path={}, query_snapshots=3, symbol_candidates=1)",
             fixture_path.display()
         )
     );
@@ -687,8 +685,7 @@ fn editor_format_plain_output_stays_snapshot_stable() {
     let root = temp_root("format_plain_snapshot");
     fs::create_dir_all(&root).expect("should create temp root");
     let file = root.join("sample.fol");
-    fs::write(&file, "fun[] main(): int = {\nreturn 0;\n};\n")
-        .expect("should write sample source");
+    fs::write(&file, "fun[] main(): int = {\nreturn 0;\n};\n").expect("should write sample source");
 
     let (output, result) = run_command_from_args_in_dir(
         [

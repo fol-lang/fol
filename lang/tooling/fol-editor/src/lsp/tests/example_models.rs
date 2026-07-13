@@ -1,10 +1,10 @@
-use super::helpers::{copied_example_package_root, open_document};
 use super::super::{
     EditorLspServer, JsonRpcId, JsonRpcRequest, LspCompletionContext, LspCompletionList,
-    LspCompletionParams, LspDefinitionParams, LspDocumentSymbolParams, LspHover,
-    LspHoverParams, LspLocation, LspPosition, LspSemanticTokens, LspSemanticTokensParams,
+    LspCompletionParams, LspDefinitionParams, LspDocumentSymbolParams, LspHover, LspHoverParams,
+    LspLocation, LspPosition, LspSemanticTokens, LspSemanticTokensParams,
     LspTextDocumentIdentifier, LspWorkspaceSymbolParams,
 };
+use super::helpers::{copied_example_package_root, open_document};
 use crate::EditorConfig;
 use std::fs;
 
@@ -52,6 +52,28 @@ fn find_nth_position(text: &str, needle: &str, ordinal: usize) -> LspPosition {
 fn lsp_server_opens_real_model_example_packages_cleanly() {
     for example in [
         "examples/core_dfr",
+        "examples/mem_linked_list_m1",
+        "examples/mem_tree_m1",
+        "examples/mem_move_stack_vs_heap_m1",
+        "examples/mem_borrow_m2",
+        "examples/mem_borrow_giveback_m2",
+        "examples/mem_borrow_param_m2",
+        "examples/mem_mut_borrow_m2",
+        "examples/mem_edf_m2",
+        "examples/mem_ptr_unique_m3",
+        "examples/mem_ptr_shared_m3",
+        "examples/mem_ptr_shared_recursive_m3",
+        "examples/proc_spawn_m1",
+        "examples/proc_spawn_move_heap_m1",
+        "examples/proc_channel_m2",
+        "examples/proc_channel_pull_m2",
+        "examples/proc_channel_capture_m2",
+        "examples/proc_channel_loop_m2",
+        "examples/proc_select_m3",
+        "examples/proc_mutex_m3",
+        "examples/proc_mutex_explicit_unlock_m3",
+        "examples/proc_async_await_m4",
+        "examples/proc_await_error_m4",
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
@@ -80,10 +102,541 @@ fn lsp_server_opens_real_model_example_packages_cleanly() {
         let diagnostics = open_document(&mut server, uri, &text);
 
         assert!(
-            diagnostics.iter().all(|published| published.diagnostics.is_empty()),
+            diagnostics
+                .iter()
+                .all(|published| published.diagnostics.is_empty()),
             "real example '{example}' should open without editor diagnostics: {diagnostics:#?}"
         );
 
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_surfaces_v3_processor_m1_spawn_state_and_failures() {
+    let (root, uri) = copied_example_package_root("examples/proc_spawn_m1");
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), &text);
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
+
+    let mut spawn = find_nth_position(&text, "[>]", 1);
+    spawn.character += 1;
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1630),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: spawn,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    assert!(hover
+        .expect("spawn marker should have hover")
+        .contents
+        .contains("joined at process exit"));
+    fs::remove_dir_all(root).ok();
+
+    for (example, expected) in [
+        (
+            "examples/fail_proc_spawn_in_memo_m1",
+            "spawn requires hosted std support",
+        ),
+        (
+            "examples/fail_proc_spawn_rc_cross_m1",
+            "shared Rc pointers cannot cross a spawn boundary",
+        ),
+        (
+            "examples/fail_proc_spawn_recoverable_m1",
+            "spawning a recoverable routine without await discards its error",
+        ),
+        (
+            "examples/fail_proc_spawn_heap_use_after_move_m1",
+            "use of moved heap-owned binding 'owned'",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        let diagnostics = open_document(&mut server, uri, &text);
+        let rendered = diagnostics
+            .iter()
+            .flat_map(|published| published.diagnostics.iter())
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            rendered.iter().any(|message| message.contains(expected)),
+            "'{example}' should surface '{expected}', got {rendered:?}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_surfaces_v3_processor_m2_channel_state_and_failures() {
+    let (root, uri) = copied_example_package_root("examples/proc_channel_pull_m2");
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), &text);
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
+
+    for (needle, expected, id) in [
+        ("tx", "non-blocking send of `int`", 1640),
+        ("rx", "blocking receive of `int`", 1641),
+    ] {
+        let position = find_nth_position(&text, needle, 1);
+        let hover = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(id),
+                method: "textDocument/hover".to_string(),
+                params: Some(
+                    serde_json::to_value(LspHoverParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position,
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+        assert!(hover
+            .expect("channel endpoint should have hover")
+            .contents
+            .contains(expected));
+    }
+    fs::remove_dir_all(root).ok();
+
+    for (example, expected) in [
+        (
+            "examples/fail_proc_channel_index_m2",
+            "channel receivers are blocking pull expressions and cannot be indexed",
+        ),
+        (
+            "examples/fail_proc_channel_in_core_m2",
+            "channel types require hosted std support",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        let diagnostics = open_document(&mut server, uri, &text);
+        let rendered = diagnostics
+            .iter()
+            .flat_map(|published| published.diagnostics.iter())
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            rendered.iter().any(|message| message.contains(expected)),
+            "'{example}' should surface '{expected}', got {rendered:?}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_surfaces_v3_processor_m3_select_and_mutex_state() {
+    let (root, uri) = copied_example_package_root("examples/proc_mutex_m3");
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), &text);
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
+    let position = find_nth_position(&text, "mux", 1);
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1650),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    assert!(hover
+        .expect("mux option should have hover")
+        .contents
+        .contains("mutex-guarded shared `Counter`"));
+    fs::remove_dir_all(root).ok();
+
+    for (example, expected) in [
+        (
+            "examples/fail_proc_select_old_form_m3",
+            "old select(channel as binding) form is not supported",
+        ),
+        (
+            "examples/fail_proc_mutex_double_paren_m3",
+            "Expected generic parameter name",
+        ),
+        (
+            "examples/fail_proc_mutex_in_memo_m3",
+            "mutex parameters require hosted std support",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        let diagnostics = open_document(&mut server, uri, &text);
+        let rendered = diagnostics
+            .iter()
+            .flat_map(|published| published.diagnostics.iter())
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            rendered.iter().any(|message| message.contains(expected)),
+            "'{example}' should surface '{expected}', got {rendered:?}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_surfaces_v3_processor_m4_eventual_state_and_failures() {
+    let (root, uri) = copied_example_package_root("examples/proc_async_await_m4");
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), &text);
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
+    for (needle, expected, id) in [
+        ("async", "yields an eventual (internal type)", 1660),
+        ("await", "preserves its recoverable error type", 1661),
+    ] {
+        let position = find_nth_position(&text, needle, 1);
+        let hover = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(id),
+                method: "textDocument/hover".to_string(),
+                params: Some(
+                    serde_json::to_value(LspHoverParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position,
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+        assert!(hover
+            .expect("eventual pipe stage should have hover")
+            .contents
+            .contains(expected));
+    }
+    fs::remove_dir_all(root).ok();
+
+    for (example, expected) in [
+        (
+            "examples/fail_proc_evt_named_m4",
+            "eventual types are internal in V3 and cannot be named",
+        ),
+        (
+            "examples/fail_proc_async_in_core_m4",
+            "async pipe stages require hosted std support",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        let diagnostics = open_document(&mut server, uri, &text);
+        let rendered = diagnostics
+            .iter()
+            .flat_map(|published| published.diagnostics.iter())
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            rendered.iter().any(|message| message.contains(expected)),
+            "'{example}' should surface '{expected}', got {rendered:?}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_surfaces_v3_memory_m1_navigation_and_state() {
+    let (root, uri) = copied_example_package_root("examples/mem_linked_list_m1");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), &text);
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
+
+    let mut owned_node = find_nth_position(&text, "@Node", 1);
+    owned_node.character += 1;
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1600),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: owned_node,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    assert!(hover
+        .expect("@Node should have compiler-backed hover")
+        .contents
+        .contains("owned heap type"));
+    let definition = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1601),
+            method: "textDocument/definition".to_string(),
+            params: Some(
+                serde_json::to_value(LspDefinitionParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: owned_node,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let definition: Option<LspLocation> =
+        serde_json::from_value(definition.result.unwrap()).unwrap();
+    let definition = definition.expect("@Node should navigate to Node");
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start.line, 0);
+    fs::remove_dir_all(root).ok();
+
+    let (root, uri) = copied_example_package_root("examples/mem_move_stack_vs_heap_m1");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.clone(), &text);
+    let mut moved_owner = find_nth_position(&text, "heap_a", 2);
+    moved_owner.character += 1;
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1602),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri },
+                    position: moved_owner,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    assert!(hover
+        .expect("moved owner should retain compiler-backed hover")
+        .contents
+        .contains("moved; ownership transferred"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_surfaces_v3_memory_m1_failures() {
+    for (example, expected) in [
+        ("examples/fail_mem_use_after_move_m1", "O1001"),
+        (
+            "examples/fail_mem_recursive_value_m1",
+            "guard the recursive edge with owned heap indirection",
+        ),
+        (
+            "examples/fail_mem_heap_in_core_m1",
+            "heap allocation binding requires heap support",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root(example);
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        let diagnostics = open_document(&mut server, uri, &text);
+        let rendered = diagnostics
+            .iter()
+            .flat_map(|published| published.diagnostics.iter())
+            .map(|diagnostic| format!("{} {}", diagnostic.code, diagnostic.message))
+            .collect::<Vec<_>>();
+        assert!(
+            rendered.iter().any(|message| message.contains(expected)),
+            "'{example}' should surface '{expected}', got {rendered:?}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_surfaces_v3_memory_m2_borrow_and_edf_state() {
+    let (root, uri) = copied_example_package_root("examples/mem_borrow_giveback_m2");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), &text);
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
+
+    let mut borrow = find_nth_position(&text, "view", 1);
+    borrow.character += 1;
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1610),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: borrow,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    assert!(hover
+        .expect("borrow binding should retain compiler-backed hover")
+        .contents
+        .contains("borrow of owner"));
+    fs::remove_dir_all(root).ok();
+
+    let (root, uri) = copied_example_package_root("examples/mem_edf_m2");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.clone(), &text);
+    let mut edf = find_nth_position(&text, "edf", 1);
+    edf.character += 1;
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1611),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri },
+                    position: edf,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    assert!(hover
+        .expect("edf keyword should have hover")
+        .contents
+        .contains("error-only defer"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_surfaces_v3_memory_m2_failures() {
+    for (example, expected) in [
+        ("examples/fail_mem_owner_while_borrowed_m2", "O2001"),
+        ("examples/fail_mem_second_mut_borrow_m2", "O2002"),
+        (
+            "examples/fail_mem_mut_borrow_immutable_owner_m2",
+            "O2003",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root(example);
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        let diagnostics = open_document(&mut server, uri, &text);
+        let rendered = diagnostics
+            .iter()
+            .flat_map(|published| published.diagnostics.iter())
+            .map(|diagnostic| format!("{} {}", diagnostic.code, diagnostic.message))
+            .collect::<Vec<_>>();
+        assert!(
+            rendered.iter().any(|message| message.contains(expected)),
+            "'{example}' should surface '{expected}', got {rendered:?}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_surfaces_v3_memory_m3_pointer_state_and_failures() {
+    let (root, uri) = copied_example_package_root("examples/mem_ptr_shared_m3");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), &text);
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
+    let mut pointer = find_nth_position(&text, "first", 2);
+    pointer.character += 1;
+    let hover = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1620),
+            method: "textDocument/hover".to_string(),
+            params: Some(
+                serde_json::to_value(LspHoverParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: pointer,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
+    let contents = hover.expect("shared pointer should have hover").contents;
+    assert!(contents.contains("shared refcount pointer"));
+    assert!(contents.contains("dereference yields int"));
+    assert!(contents.contains("cycles leak"));
+    fs::remove_dir_all(root).ok();
+
+    for (example, expected) in [
+        ("examples/fail_mem_ptr_raw_m3", "V4 interop surface"),
+        (
+            "examples/fail_mem_ptr_in_core_m3",
+            "pointer construction requires heap support",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root(example);
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        let diagnostics = open_document(&mut server, uri, &text);
+        let rendered = diagnostics
+            .iter()
+            .flat_map(|published| published.diagnostics.iter())
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            rendered.iter().any(|message| message.contains(expected)),
+            "'{example}' should surface '{expected}', got {rendered:?}"
+        );
         fs::remove_dir_all(root).ok();
     }
 }
@@ -359,7 +912,8 @@ fn lsp_server_reports_missing_bundled_std_dependency_from_editor_path() {
         ),
     )
     .unwrap();
-    let text = "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n";
+    let text =
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n";
     fs::write(root.join("src/main.fol"), text).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     let diagnostics = open_document(&mut server, uri, text);
@@ -568,7 +1122,8 @@ fn lsp_server_returns_definitions_for_v2_generic_call_sites() {
             })
             .unwrap()
             .unwrap();
-        let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+        let definition: Option<LspLocation> =
+            serde_json::from_value(definition.result.unwrap()).unwrap();
         let definition = definition.expect("generic call-site definition should resolve");
 
         // Cross-file examples resolve into a sibling source unit; only
@@ -645,8 +1200,7 @@ fn lsp_server_returns_hover_and_definition_for_generic_receiver_examples() {
             .unwrap();
         let definition: Option<LspLocation> =
             serde_json::from_value(definition.result.unwrap()).unwrap();
-        let definition =
-            definition.expect("generic receiver call-site definition should resolve");
+        let definition = definition.expect("generic receiver call-site definition should resolve");
         assert!(definition.uri.starts_with("file://"));
         assert_eq!(
             definition.range.start.line, decl_line,
@@ -659,8 +1213,7 @@ fn lsp_server_returns_hover_and_definition_for_generic_receiver_examples() {
     // Cross-file: the method call in main.fol resolves into the sibling
     // source unit that declares the generic receiver routine.
     {
-        let (root, uri) =
-            copied_example_package_root("examples/generic_receiver_cross_file_m1");
+        let (root, uri) = copied_example_package_root("examples/generic_receiver_cross_file_m1");
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
         let mut server = EditorLspServer::new(EditorConfig::default());
         open_document(&mut server, uri.clone(), &text);
@@ -682,8 +1235,7 @@ fn lsp_server_returns_hover_and_definition_for_generic_receiver_examples() {
             .unwrap();
         let definition: Option<LspLocation> =
             serde_json::from_value(definition.result.unwrap()).unwrap();
-        let definition =
-            definition.expect("cross-file generic receiver definition should resolve");
+        let definition = definition.expect("cross-file generic receiver definition should resolve");
         assert!(
             definition.uri.ends_with("shared.fol"),
             "cross-file definition should land in the declaring unit: {definition:?}"
@@ -740,7 +1292,8 @@ fn lsp_server_returns_hover_and_definition_for_positive_generic_type_example() {
         })
         .unwrap()
         .unwrap();
-    let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+    let definition: Option<LspLocation> =
+        serde_json::from_value(definition.result.unwrap()).unwrap();
     let definition = definition.expect("generic-type definition should resolve");
     assert_eq!(definition.uri, uri);
     assert_eq!(definition.range.start.line, 2);
@@ -795,7 +1348,8 @@ fn lsp_server_returns_hover_and_definition_for_positive_constrained_generic_exam
         })
         .unwrap()
         .unwrap();
-    let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+    let definition: Option<LspLocation> =
+        serde_json::from_value(definition.result.unwrap()).unwrap();
     let definition = definition.expect("constrained-generic call-site definition should resolve");
     assert_eq!(definition.uri, uri);
     // The constrained-generic definition lands in the same file; the
@@ -810,7 +1364,13 @@ fn lsp_server_returns_hover_and_definition_for_positive_constrained_generic_exam
 fn lsp_server_returns_hover_and_definition_for_v2_standards_examples() {
     let cases = [
         ("examples/standards_protocol_m2", "(geo)", 1, "geo", "area"),
-        ("examples/standards_protocol_pair_m2", "(geo)", 1, "geo", "area"),
+        (
+            "examples/standards_protocol_pair_m2",
+            "(geo)",
+            1,
+            "geo",
+            "area",
+        ),
     ];
 
     for (example, contract_needle, contract_ordinal, expected_standard, requirement_name) in cases {
@@ -861,7 +1421,8 @@ fn lsp_server_returns_hover_and_definition_for_v2_standards_examples() {
             })
             .unwrap()
             .unwrap();
-        let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+        let definition: Option<LspLocation> =
+            serde_json::from_value(definition.result.unwrap()).unwrap();
         let definition = definition.expect("standard contract-header definition should resolve");
         assert_eq!(definition.uri, uri);
         assert_eq!(definition.range.start.line, 0);
@@ -948,7 +1509,8 @@ fn lsp_server_returns_hover_and_definition_for_v2_multi_standard_examples() {
         })
         .unwrap()
         .unwrap();
-    let definition: Option<LspLocation> = serde_json::from_value(definition.result.unwrap()).unwrap();
+    let definition: Option<LspLocation> =
+        serde_json::from_value(definition.result.unwrap()).unwrap();
     let definition = definition.expect("multi-standard contract definition should resolve");
     assert_eq!(definition.uri, contracts_uri);
     assert_eq!(definition.range.start.line, 0);

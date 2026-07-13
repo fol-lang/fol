@@ -1,7 +1,6 @@
 use crate::{
-    decls, exprs, CheckedType, CheckedTypeId, TypecheckConfig, TypecheckError,
-    TypecheckErrorKind, TypecheckResult, TypedExportMount, TypedPackage, TypedProgram,
-    TypedWorkspace,
+    decls, exprs, CheckedType, CheckedTypeId, TypecheckConfig, TypecheckError, TypecheckErrorKind,
+    TypecheckResult, TypedExportMount, TypedPackage, TypedProgram, TypedWorkspace,
 };
 use fol_resolver::{MountedSymbolProvenance, PackageIdentity, SymbolId};
 use std::collections::{BTreeMap, BTreeSet};
@@ -139,7 +138,8 @@ impl TypecheckSession {
                 self.hydrate_mounted_symbol_types(&mut typed, typed_packages)
             {
                 errors.append(&mut package_errors);
-            } else if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed) {
+            } else if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed)
+            {
                 errors.append(&mut package_errors);
             } else if let Err(mut package_errors) = exprs::type_program(&mut typed) {
                 errors.append(&mut package_errors);
@@ -341,8 +341,7 @@ impl TypecheckSession {
                     TypecheckErrorKind::TypeImportFailed,
                     format!(
                         "type import failed: type {} is missing from package '{}' type table",
-                        source_type_id.0,
-                        source_identity.canonical_root,
+                        source_type_id.0, source_identity.canonical_root,
                     ),
                 )
             })?;
@@ -351,7 +350,12 @@ impl TypecheckSession {
             CheckedType::Builtin(builtin) => {
                 target_program.type_table_mut().intern_builtin(builtin)
             }
-            CheckedType::Declared { symbol, name, kind, args } => {
+            CheckedType::Declared {
+                symbol,
+                name,
+                kind,
+                args,
+            } => {
                 // A generic instantiation carries type args in the SOURCE
                 // program; translate each into the target program so the
                 // imported instance keeps its nominal `(symbol, args)` identity.
@@ -373,7 +377,12 @@ impl TypecheckSession {
                     // their declared type would chase a self-reference.
                     target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args })
+                        .intern(CheckedType::Declared {
+                            symbol,
+                            name,
+                            kind,
+                            args: translated_args,
+                        })
                 } else if let Some(translated_symbol) = translated_symbol_id(
                     source_identity,
                     source_program,
@@ -392,13 +401,18 @@ impl TypecheckSession {
                     .typed_symbol(symbol)
                     .and_then(|typed_symbol| typed_symbol.declared_type)
                 {
-                    let shell_type = target_program
-                        .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args });
+                    let shell_type =
+                        target_program
+                            .type_table_mut()
+                            .intern(CheckedType::Declared {
+                                symbol,
+                                name,
+                                kind,
+                                args: translated_args,
+                            });
                     // Guard against cyclic declared types: cache the shell
                     // before expanding so re-entry terminates.
-                    imported_cache
-                        .insert((source_identity.clone(), source_type_id), shell_type);
+                    imported_cache.insert((source_identity.clone(), source_type_id), shell_type);
                     // A generic instantiation's apparent shape is the source's
                     // own apparent override (its substituted record), not the
                     // generic template; import that if present, else the body.
@@ -420,7 +434,12 @@ impl TypecheckSession {
                 } else {
                     target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args })
+                        .intern(CheckedType::Declared {
+                            symbol,
+                            name,
+                            kind,
+                            args: translated_args,
+                        })
                 }
             }
             CheckedType::Array { element_type, size } => {
@@ -461,6 +480,63 @@ impl TypecheckSession {
                 target_program
                     .type_table_mut()
                     .intern(CheckedType::Sequence { element_type })
+            }
+            CheckedType::Channel { element_type } => {
+                let element_type = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    element_type,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Channel { element_type })
+            }
+            CheckedType::ChannelSender { element_type } => {
+                let element_type = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    element_type,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::ChannelSender { element_type })
+            }
+            CheckedType::Eventual {
+                value_type,
+                error_type,
+            } => {
+                let value_type = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    value_type,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                let error_type = error_type
+                    .map(|error_type| {
+                        self.import_type_id(
+                            target_program,
+                            source_identity,
+                            source_program,
+                            error_type,
+                            mounted_symbol_map,
+                            imported_cache,
+                        )
+                    })
+                    .transpose()?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Eventual {
+                        value_type,
+                        error_type,
+                    })
             }
             CheckedType::Set { member_types } => {
                 let member_types = member_types
@@ -517,6 +593,45 @@ impl TypecheckSession {
                 target_program
                     .type_table_mut()
                     .intern(CheckedType::Optional { inner })
+            }
+            CheckedType::Owned { inner } => {
+                let inner = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    inner,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Owned { inner })
+            }
+            CheckedType::Borrowed { inner, mutable } => {
+                let inner = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    inner,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Borrowed { inner, mutable })
+            }
+            CheckedType::Pointer { target, shared } => {
+                let target = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    target,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Pointer { target, shared })
             }
             CheckedType::Error { inner } => {
                 let inner = inner

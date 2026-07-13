@@ -365,7 +365,7 @@ fn test_select_binding_illegal_name_reports_offending_token_location() {
         message
     );
     assert_eq!(
-        line, 2,
+        line, 3,
         "Illegal select bindings should anchor to the select header line"
     );
     assert!(

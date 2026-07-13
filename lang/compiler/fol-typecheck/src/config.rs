@@ -14,6 +14,10 @@ impl TypecheckCapabilityModel {
             Self::Std => "std",
         }
     }
+
+    pub fn supports_processor(self) -> bool {
+        matches!(self, Self::Std)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

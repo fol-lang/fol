@@ -1,0 +1,6 @@
+fun[] main(): int = {
+    var value: int = 7;
+    var first: ptr[shared, int] = &value;
+    var second: ptr[shared, int] = first;
+    return *first + *second;
+};

@@ -1,7 +1,6 @@
 use crate::{
     diagnostic_to_lsp, location_to_range, EditorDocument, EditorError, EditorErrorKind,
-    EditorResult, LspDiagnostic, LspLocation, LspPosition, LspRange, LspTextEdit,
-    LspWorkspaceEdit,
+    EditorResult, LspDiagnostic, LspLocation, LspPosition, LspRange, LspTextEdit, LspWorkspaceEdit,
 };
 use fol_intrinsics::IntrinsicSurface;
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind, SyntaxNodeId};
@@ -14,14 +13,13 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use super::completion_helpers::{
-    completion_builtin_type_item,
-    completion_intrinsic_item, completion_item_from_symbol, completion_namespace_item,
-    completion_symbol_is_plain_top_level_candidate, completion_symbol_is_root_visible,
-    current_routine_name, dedupe_completion_items, fallback_decl_name,
-    fallback_items_from_package_dir, position_to_offset, render_checked_type, render_symbol_kind,
-    symbol_kind_code, symbol_visibility_matches_namespace_root, mark_fallback_completion_items,
-    CompletionContext,
-    FALLBACK_ALIAS_PREFIXES, FALLBACK_ROUTINE_PREFIXES, FALLBACK_TYPE_PREFIXES,
+    completion_builtin_type_item, completion_intrinsic_item, completion_item_from_symbol,
+    completion_namespace_item, completion_symbol_is_plain_top_level_candidate,
+    completion_symbol_is_root_visible, current_routine_name, dedupe_completion_items,
+    fallback_decl_name, fallback_items_from_package_dir, mark_fallback_completion_items,
+    position_to_offset, render_checked_type, render_symbol_kind, symbol_kind_code,
+    symbol_visibility_matches_namespace_root, CompletionContext, FALLBACK_ALIAS_PREFIXES,
+    FALLBACK_ROUTINE_PREFIXES, FALLBACK_TYPE_PREFIXES,
 };
 use super::types::{
     EditorCompletionItem, LspCodeLens, LspCommand, LspDocumentHighlight, LspDocumentSymbol,
@@ -74,7 +72,10 @@ impl SemanticSnapshot {
         let call_site = self.call_site_at_position(program, document, cursor_offset)?;
         let reference = reference_for_syntax_id(program, call_site.callee_syntax_id)?;
         let symbol_id = reference.resolved?;
-        let declared_type = typed_package.program.typed_symbol(symbol_id)?.declared_type?;
+        let declared_type = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
         let signature = match typed_package.program.type_table().get(declared_type) {
             Some(fol_typecheck::CheckedType::Routine(signature)) => signature,
             _ => return None,
@@ -85,19 +86,26 @@ impl SemanticSnapshot {
             .map(|type_id| render_checked_type(typed_package.program.type_table(), *type_id))
             .collect::<Vec<_>>();
         let label = render_signature_label(
-            program.symbol(symbol_id).map(|symbol| symbol.name.as_str()).unwrap_or(&call_site.display_name),
+            program
+                .symbol(symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or(&call_site.display_name),
             &parameters,
-            signature.return_type.map(|type_id| {
-                render_checked_type(typed_package.program.type_table(), type_id)
-            }),
-            signature.error_type.map(|type_id| {
-                render_checked_type(typed_package.program.type_table(), type_id)
-            }),
+            signature
+                .return_type
+                .map(|type_id| render_checked_type(typed_package.program.type_table(), type_id)),
+            signature
+                .error_type
+                .map(|type_id| render_checked_type(typed_package.program.type_table(), type_id)),
         );
         let active_parameter = if parameters.is_empty() {
             None
         } else {
-            Some(call_site.active_parameter.min(parameters.len().saturating_sub(1)) as u32)
+            Some(
+                call_site
+                    .active_parameter
+                    .min(parameters.len().saturating_sub(1)) as u32,
+            )
         };
         Some(LspSignatureHelp {
             signatures: vec![LspSignatureInformation {
@@ -143,10 +151,9 @@ impl SemanticSnapshot {
                 {
                     return None;
                 }
-                let suggestion = diagnostic
-                    .suggestions
-                    .iter()
-                    .find(|suggestion| suggestion.replacement.is_some() && suggestion.location.is_some())?;
+                let suggestion = diagnostic.suggestions.iter().find(|suggestion| {
+                    suggestion.replacement.is_some() && suggestion.location.is_some()
+                })?;
                 let suggestion_location = suggestion.location.as_ref()?;
                 if suggestion_location.file.as_deref()? != path_text {
                     return None;
@@ -156,7 +163,10 @@ impl SemanticSnapshot {
                     uri.to_string(),
                     vec![LspTextEdit {
                         range: location_to_range(suggestion_location),
-                        new_text: suggestion.replacement.clone().expect("replacement checked above"),
+                        new_text: suggestion
+                            .replacement
+                            .clone()
+                            .expect("replacement checked above"),
                     }],
                 );
                 Some(super::types::LspCodeAction {
@@ -182,8 +192,12 @@ impl SemanticSnapshot {
         let mut entries = std::collections::BTreeSet::new();
 
         for symbol in program.all_symbols() {
-            let Some(origin) = symbol.origin.as_ref() else { continue };
-            let Some(file) = origin.file.as_ref() else { continue };
+            let Some(origin) = symbol.origin.as_ref() else {
+                continue;
+            };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
             if file != &path_text {
                 continue;
             }
@@ -215,11 +229,15 @@ impl SemanticSnapshot {
             let Some(token_type) = semantic_token_type_for_symbol_kind(symbol.kind) else {
                 continue;
             };
-            let Some(syntax_id) = reference.anchor() else { continue };
+            let Some(syntax_id) = reference.anchor() else {
+                continue;
+            };
             let Some(origin) = program.syntax_index().origin(syntax_id) else {
                 continue;
             };
-            let Some(file) = origin.file.as_ref() else { continue };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
             if file != &path_text {
                 continue;
             }
@@ -237,7 +255,11 @@ impl SemanticSnapshot {
         let mut previous_start = 0_u32;
         for (index, (line, start, length, token_type, modifiers)) in entries.into_iter().enumerate()
         {
-            let delta_line = if index == 0 { line } else { line - previous_line };
+            let delta_line = if index == 0 {
+                line
+            } else {
+                line - previous_line
+            };
             let delta_start = if index == 0 || delta_line != 0 {
                 start
             } else {
@@ -297,8 +319,7 @@ impl SemanticSnapshot {
                 }
 
                 let package_root_namespace = source_unit.namespace == package.identity.display_name
-                    || source_unit.namespace
-                        == format!("{}::src", package.identity.display_name);
+                    || source_unit.namespace == format!("{}::src", package.identity.display_name);
                 let qualified_name = if package_root_namespace {
                     symbol.name.clone()
                 } else {
@@ -309,8 +330,10 @@ impl SemanticSnapshot {
                 } else {
                     source_unit.namespace.as_str()
                 };
-                let container_name =
-                    Some(format!("{container_namespace} ({})", package.identity.display_name));
+                let container_name = Some(format!(
+                    "{container_namespace} ({})",
+                    package.identity.display_name
+                ));
                 if !query.is_empty() {
                     let package_name = package.identity.display_name.to_ascii_lowercase();
                     let namespace = source_unit.namespace.to_ascii_lowercase();
@@ -347,7 +370,13 @@ impl SemanticSnapshot {
                 .cmp(&right.name)
                 .then(left.container_name.cmp(&right.container_name))
                 .then(left.location.uri.cmp(&right.location.uri))
-                .then(left.location.range.start.line.cmp(&right.location.range.start.line))
+                .then(
+                    left.location
+                        .range
+                        .start
+                        .line
+                        .cmp(&right.location.range.start.line),
+                )
                 .then(
                     left.location
                         .range
@@ -394,7 +423,6 @@ impl SemanticSnapshot {
         items.extend(self.keyword_completion_items());
         dedupe_completion_items(items)
     }
-
 
     /// Build-file (`build.fol`) completions come straight from the
     /// compiler-owned build semantic registry instead of an editor-owned
@@ -451,7 +479,8 @@ impl SemanticSnapshot {
         let family = classify_build_receiver(&document.text, receiver)?;
 
         let mut items = Vec::new();
-        let push_family = |target: BuildSemanticTypeFamily, items: &mut Vec<EditorCompletionItem>| {
+        let push_family = |target: BuildSemanticTypeFamily,
+                           items: &mut Vec<EditorCompletionItem>| {
             for signature in fol_package::canonical_build_context_method_signatures()
                 .into_iter()
                 .chain(fol_package::canonical_graph_method_signatures())
@@ -519,9 +548,7 @@ impl SemanticSnapshot {
         let model = self.active_model();
         let mut items = editor_builtin_type_names()
             .iter()
-            .filter(|name| {
-                editor_type_family_available_in_model(model, builtin_type_family(name))
-            })
+            .filter(|name| editor_type_family_available_in_model(model, builtin_type_family(name)))
             .map(|name| completion_builtin_type_item(name))
             .collect::<Vec<_>>();
         items.extend(
@@ -535,7 +562,9 @@ impl SemanticSnapshot {
         items.extend(
             editor_shell_type_names()
                 .iter()
-                .filter(|name| editor_type_family_available_in_model(model, shell_type_family(name)))
+                .filter(|name| {
+                    editor_type_family_available_in_model(model, shell_type_family(name))
+                })
                 .map(|name| completion_builtin_type_item(name)),
         );
         items
@@ -683,9 +712,7 @@ impl SemanticSnapshot {
     }
 
     // COMPILER-BACKED: reads from resolved program namespace/source-unit scopes
-    fn current_package_top_level_completion_items(
-        &self,
-    ) -> Vec<EditorCompletionItem> {
+    fn current_package_top_level_completion_items(&self) -> Vec<EditorCompletionItem> {
         let Some(program) = self.current_program() else {
             return Vec::new();
         };
@@ -848,17 +875,19 @@ impl SemanticSnapshot {
     ) -> Vec<EditorCompletionItem> {
         mark_fallback_completion_items(
             self.fallback_current_package_top_level_items(
-            document,
-            LspPosition {
-                line: u32::MAX,
-                character: u32::MAX,
-            },
+                document,
+                LspPosition {
+                    line: u32::MAX,
+                    character: u32::MAX,
+                },
+            )
+            .into_iter()
+            .filter(|item| {
+                item.detail.as_deref() == Some("type")
+                    || item.detail.as_deref() == Some("type alias")
+            })
+            .collect(),
         )
-        .into_iter()
-        .filter(|item| {
-            item.detail.as_deref() == Some("type") || item.detail.as_deref() == Some("type alias")
-        })
-        .collect())
     }
 
     // FALLBACK: text-matches `use ` prefix to find import aliases
@@ -1033,7 +1062,10 @@ impl SemanticSnapshot {
 
     fn current_resolved_package(
         &self,
-    ) -> Option<(&fol_resolver::ResolvedPackage, &fol_resolver::ResolvedProgram)> {
+    ) -> Option<(
+        &fol_resolver::ResolvedPackage,
+        &fol_resolver::ResolvedProgram,
+    )> {
         let resolved = self.resolved_workspace.as_ref()?;
         let analyzed_path = self.analyzed_path.as_ref()?;
         let path_text = analyzed_path.to_string_lossy();
@@ -1124,36 +1156,90 @@ impl SemanticSnapshot {
     }
 
     // COMPILER-BACKED: resolved symbol + typed type (no text fallback)
-    pub(super) fn hover_for_symbol(
-        &self,
-        symbol_id: fol_resolver::SymbolId,
-    ) -> Option<LspHover> {
+    pub(super) fn hover_for_symbol(&self, symbol_id: fol_resolver::SymbolId) -> Option<LspHover> {
         let (package, program) = self.current_resolved_package()?;
         let symbol = program.symbol(symbol_id)?;
         // Local bindings may not carry a declaration origin yet; hover still
         // has useful kind/name/type content without a highlight range.
         let origin = symbol.origin.as_ref();
-        let type_summary = self
+        let typed_package = self
             .typed_workspace
             .as_ref()
-            .and_then(|typed| typed.package(&package.identity))
+            .and_then(|typed| typed.package(&package.identity));
+        let type_summary = typed_package
             .and_then(|typed_package| typed_package.program.typed_symbol(symbol_id))
             .and_then(|typed_symbol| typed_symbol.declared_type)
             .map(|type_id| {
-                let typed_package = self
-                    .typed_workspace
-                    .as_ref()
-                    .and_then(|typed| typed.package(&package.identity))
+                let typed_package = typed_package
                     .expect("typed package should exist when declared type is available");
                 render_checked_type(typed_package.program.type_table(), type_id)
             })
             .unwrap_or_else(|| "unknown".to_string());
+        let ownership_summary = typed_package
+            .and_then(|typed_package| typed_package.program.moved_binding_origin(symbol_id))
+            .map(|origin| {
+                format!(
+                    " (moved; ownership transferred at {}:{})",
+                    origin.line, origin.column
+                )
+            })
+            .unwrap_or_default();
+        let borrow_summary = typed_package
+            .and_then(|typed_package| {
+                typed_package
+                    .program
+                    .borrow_for_binding(symbol_id)
+                    .map(|borrow| {
+                        let owner = program
+                            .symbol(borrow.owner)
+                            .map(|symbol| symbol.name.as_str())
+                            .unwrap_or("owner");
+                        format!(
+                            " ({} borrow of {owner})",
+                            if borrow.mutable { "mutable" } else { "shared" }
+                        )
+                    })
+                    .or_else(|| {
+                        typed_package.program.borrow_for_owner(symbol_id).map(|borrow| {
+                            let binding = program
+                                .symbol(borrow.binding)
+                                .map(|symbol| symbol.name.as_str())
+                                .unwrap_or("borrow");
+                            format!(
+                                " (inaccessible while borrow {binding} is active in its lexical scope)"
+                            )
+                        })
+                    })
+            })
+            .unwrap_or_default();
+        let pointer_summary = typed_package
+            .and_then(|typed_package| {
+                let type_id = typed_package.program.typed_symbol(symbol_id)?.declared_type?;
+                match typed_package.program.type_table().get(type_id)? {
+                    fol_typecheck::CheckedType::Pointer { target, shared } => Some(if *shared {
+                        format!(
+                            " (shared refcount pointer; dereference yields {}; reference cycles leak until weak references exist)",
+                            render_checked_type(typed_package.program.type_table(), *target)
+                        )
+                    } else {
+                        format!(
+                            " (unique pointer; dereference yields {}; construction requires memo+)",
+                            render_checked_type(typed_package.program.type_table(), *target)
+                        )
+                    }),
+                    _ => None,
+                }
+            })
+            .unwrap_or_default();
         Some(LspHover {
             contents: format!(
-                "{} {}: {}",
+                "{} {}: {}{}{}{}",
                 render_symbol_kind(symbol.kind),
                 symbol.name,
-                type_summary
+                type_summary,
+                ownership_summary,
+                borrow_summary,
+                pointer_summary
             ),
             range: origin.map(|origin| {
                 location_to_range(&fol_diagnostics::DiagnosticLocation {
@@ -1236,12 +1322,19 @@ impl SemanticSnapshot {
             }
         }
 
-        for hit in program.all_references().filter(|hit| hit.resolved == Some(symbol_id)) {
-            let Some(syntax_id) = hit.anchor() else { continue };
+        for hit in program
+            .all_references()
+            .filter(|hit| hit.resolved == Some(symbol_id))
+        {
+            let Some(syntax_id) = hit.anchor() else {
+                continue;
+            };
             let Some(origin) = program.syntax_index().origin(syntax_id) else {
                 continue;
             };
-            let Some(file) = origin.file.as_ref() else { continue };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
             let source_file = self.map_analyzed_file_to_source(file);
             locations.push(LspLocation {
                 uri: format!("file://{source_file}"),
@@ -1301,73 +1394,108 @@ impl SemanticSnapshot {
             ));
         };
 
-            // Parameters now carry their own declaration origin (the parameter
-            // NAME span), so renaming one rewrites the parameter declaration and
-            // its uses rather than the routine header. That makes `Parameter`
-            // safe to rename within the same file.
-            if !matches!(
-                symbol.kind,
-                fol_resolver::SymbolKind::ValueBinding
-                    | fol_resolver::SymbolKind::LabelBinding
-                    | fol_resolver::SymbolKind::DestructureBinding
-                    | fol_resolver::SymbolKind::Parameter
-                    | fol_resolver::SymbolKind::Routine
-                    | fol_resolver::SymbolKind::Type
-                    | fol_resolver::SymbolKind::Alias
-                    | fol_resolver::SymbolKind::Definition
-                    | fol_resolver::SymbolKind::Capture
-                    | fol_resolver::SymbolKind::LoopBinder
-                    | fol_resolver::SymbolKind::RollingBinder
-            ) {
-                return Err(EditorError::new(
+        // Parameters now carry their own declaration origin (the parameter
+        // NAME span), so renaming one rewrites the parameter declaration and
+        // its uses rather than the routine header. That makes `Parameter`
+        // safe to rename within the same file.
+        if !matches!(
+            symbol.kind,
+            fol_resolver::SymbolKind::ValueBinding
+                | fol_resolver::SymbolKind::LabelBinding
+                | fol_resolver::SymbolKind::DestructureBinding
+                | fol_resolver::SymbolKind::Parameter
+                | fol_resolver::SymbolKind::Routine
+                | fol_resolver::SymbolKind::Type
+                | fol_resolver::SymbolKind::Alias
+                | fol_resolver::SymbolKind::Definition
+                | fol_resolver::SymbolKind::Capture
+                | fol_resolver::SymbolKind::LoopBinder
+                | fol_resolver::SymbolKind::RollingBinder
+        ) {
+            return Err(EditorError::new(
                     EditorErrorKind::InvalidInput,
                     format!(
                         "rename currently supports same-file local and current-package top-level symbols only, not {}",
                         render_symbol_kind(symbol.kind)
                     ),
                 ));
-            }
+        }
 
-            let supports_current_package_top_level = matches!(
-                symbol.kind,
-                fol_resolver::SymbolKind::Routine
-                    | fol_resolver::SymbolKind::Type
-                    | fol_resolver::SymbolKind::Alias
-                    | fol_resolver::SymbolKind::Definition
-            );
-            let path_is_in_current_package = |file: &str| {
-                analyzed_package_root
-                    .map(|root| Path::new(file).starts_with(root))
-                    .unwrap_or(false)
+        let supports_current_package_top_level = matches!(
+            symbol.kind,
+            fol_resolver::SymbolKind::Routine
+                | fol_resolver::SymbolKind::Type
+                | fol_resolver::SymbolKind::Alias
+                | fol_resolver::SymbolKind::Definition
+        );
+        let path_is_in_current_package = |file: &str| {
+            analyzed_package_root
+                .map(|root| Path::new(file).starts_with(root))
+                .unwrap_or(false)
+        };
+        let mut edits = Vec::new();
+        let declaration = symbol.origin.as_ref().ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename target is missing a declaration location",
+            )
+        })?;
+        let declaration_file = declaration.file.as_ref().ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename target is missing a declaration file",
+            )
+        })?;
+        // Build manifests (`build.fol`) declare the build entry graph, not
+        // ordinary renameable source. The build entry routine name is a
+        // fixed contract with the build system, so rename stays outside the
+        // safe boundary for symbols declared in a build file.
+        if Path::new(declaration_file)
+            .file_name()
+            .and_then(|name| name.to_str())
+            == Some("build.fol")
+        {
+            return Err(EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename does not support build entry symbols",
+            ));
+        }
+        if declaration_file != &analyzed_path_text
+            && !(supports_current_package_top_level && path_is_in_current_package(declaration_file))
+        {
+            return Err(EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename currently refuses multi-package symbols",
+            ));
+        }
+        edits.push((
+            self.map_analyzed_file_to_source(declaration_file),
+            LspTextEdit {
+                range: location_to_range(&fol_diagnostics::DiagnosticLocation {
+                    file: Some(self.map_analyzed_file_to_source(declaration_file)),
+                    line: declaration.line,
+                    column: declaration.column,
+                    length: Some(declaration.length),
+                }),
+                new_text: new_name.to_string(),
+            },
+        ));
+
+        for hit in program
+            .all_references()
+            .filter(|hit| hit.resolved == Some(symbol_id))
+        {
+            let Some(syntax_id) = hit.anchor() else {
+                continue;
             };
-            let mut edits = Vec::new();
-            let declaration = symbol.origin.as_ref().ok_or_else(|| {
-                EditorError::new(
-                    EditorErrorKind::InvalidInput,
-                    "rename target is missing a declaration location",
-                )
-            })?;
-            let declaration_file = declaration.file.as_ref().ok_or_else(|| {
-                EditorError::new(
-                    EditorErrorKind::InvalidInput,
-                    "rename target is missing a declaration file",
-                )
-            })?;
-            // Build manifests (`build.fol`) declare the build entry graph, not
-            // ordinary renameable source. The build entry routine name is a
-            // fixed contract with the build system, so rename stays outside the
-            // safe boundary for symbols declared in a build file.
-            if Path::new(declaration_file).file_name().and_then(|name| name.to_str())
-                == Some("build.fol")
-            {
-                return Err(EditorError::new(
-                    EditorErrorKind::InvalidInput,
-                    "rename does not support build entry symbols",
-                ));
-            }
-            if declaration_file != &analyzed_path_text
-                && !(supports_current_package_top_level
-                    && path_is_in_current_package(declaration_file))
+            let Some(origin) = program.syntax_index().origin(syntax_id) else {
+                continue;
+            };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
+            if file != &analyzed_path_text
+                && !(supports_current_package_top_level && path_is_in_current_package(file))
             {
                 return Err(EditorError::new(
                     EditorErrorKind::InvalidInput,
@@ -1375,75 +1503,48 @@ impl SemanticSnapshot {
                 ));
             }
             edits.push((
-                self.map_analyzed_file_to_source(declaration_file),
+                self.map_analyzed_file_to_source(file),
                 LspTextEdit {
                     range: location_to_range(&fol_diagnostics::DiagnosticLocation {
-                        file: Some(self.map_analyzed_file_to_source(declaration_file)),
-                        line: declaration.line,
-                        column: declaration.column,
-                        length: Some(declaration.length),
+                        file: Some(self.map_analyzed_file_to_source(file)),
+                        line: origin.line,
+                        column: origin.column,
+                        length: Some(origin.length),
                     }),
                     new_text: new_name.to_string(),
                 },
             ));
+        }
 
-            for hit in program.all_references().filter(|hit| hit.resolved == Some(symbol_id)) {
-                let Some(syntax_id) = hit.anchor() else { continue };
-                let Some(origin) = program.syntax_index().origin(syntax_id) else {
-                    continue;
-                };
-                let Some(file) = origin.file.as_ref() else { continue };
-                if file != &analyzed_path_text
-                    && !(supports_current_package_top_level && path_is_in_current_package(file))
-                {
-                    return Err(EditorError::new(
-                        EditorErrorKind::InvalidInput,
-                        "rename currently refuses multi-package symbols",
-                    ));
-                }
-                edits.push((
-                    self.map_analyzed_file_to_source(file),
-                    LspTextEdit {
-                        range: location_to_range(&fol_diagnostics::DiagnosticLocation {
-                            file: Some(self.map_analyzed_file_to_source(file)),
-                            line: origin.line,
-                            column: origin.column,
-                            length: Some(origin.length),
-                        }),
-                        new_text: new_name.to_string(),
-                    },
-                ));
-            }
-
+        edits.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.range.start.line.cmp(&right.1.range.start.line))
+                .then(
+                    left.1
+                        .range
+                        .start
+                        .character
+                        .cmp(&right.1.range.start.character),
+                )
+        });
+        edits.dedup_by(|left, right| left == right);
+        let mut changes = std::collections::BTreeMap::new();
+        for (file, edit) in edits {
+            changes
+                .entry(format!("file://{file}"))
+                .or_insert_with(Vec::new)
+                .push(edit);
+        }
+        for edits in changes.values_mut() {
             edits.sort_by(|left, right| {
-                left.0
-                    .cmp(&right.0)
-                    .then(left.1.range.start.line.cmp(&right.1.range.start.line))
-                    .then(
-                        left.1
-                            .range
-                            .start
-                            .character
-                            .cmp(&right.1.range.start.character),
-                    )
-            });
-            edits.dedup_by(|left, right| left == right);
-            let mut changes = std::collections::BTreeMap::new();
-            for (file, edit) in edits {
-                changes
-                    .entry(format!("file://{file}"))
-                    .or_insert_with(Vec::new)
-                    .push(edit);
-            }
-            for edits in changes.values_mut() {
-                edits.sort_by(|left, right| {
-                    left.range
+                left.range
                     .start
                     .line
                     .cmp(&right.range.start.line)
                     .then(left.range.start.character.cmp(&right.range.start.character))
-                });
-            }
+            });
+        }
         Ok(LspWorkspaceEdit { changes })
     }
 
@@ -1533,11 +1634,11 @@ impl SemanticSnapshot {
     pub(super) fn type_definition_at(&self, position: LspPosition) -> Option<LspLocation> {
         let symbol_id = self.symbol_at_position(position)?;
         let (package, _) = self.current_resolved_package()?;
-        let typed_package = self
-            .typed_workspace
-            .as_ref()?
-            .package(&package.identity)?;
-        let type_id = typed_package.program.typed_symbol(symbol_id)?.declared_type?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
         let type_symbol = declared_type_symbol(typed_package.program.type_table(), type_id)?;
         self.definition_for_symbol(type_symbol)
     }
@@ -1716,7 +1817,9 @@ impl SemanticSnapshot {
             ) {
                 continue;
             }
-            let Some(origin) = &symbol.origin else { continue };
+            let Some(origin) = &symbol.origin else {
+                continue;
+            };
             let Some(file) = &origin.file else { continue };
             if file != &path_text {
                 continue;
@@ -1772,7 +1875,9 @@ impl SemanticSnapshot {
             if symbol.kind != fol_resolver::SymbolKind::Routine || symbol.name != "main" {
                 continue;
             }
-            let Some(origin) = &symbol.origin else { continue };
+            let Some(origin) = &symbol.origin else {
+                continue;
+            };
             let Some(file) = &origin.file else { continue };
             if file != &path_text {
                 continue;
@@ -1810,7 +1915,10 @@ impl SemanticSnapshot {
 
     fn current_syntax_source_unit(
         &self,
-    ) -> Option<(&fol_resolver::ResolvedProgram, &fol_parser::ast::ParsedSourceUnit)> {
+    ) -> Option<(
+        &fol_resolver::ResolvedProgram,
+        &fol_parser::ast::ParsedSourceUnit,
+    )> {
         let (_, program) = self.current_resolved_package()?;
         let resolved_unit = self.current_source_unit(program)?;
         let syntax_unit = program.syntax().source_units.get(resolved_unit.id.0)?;
@@ -1874,13 +1982,15 @@ mod tests {
 
         let items = snapshot.fallback_local_named_type_items(&document);
         assert_eq!(
-            items.iter()
+            items
+                .iter()
                 .find(|item| item.label == "LocalRec")
                 .and_then(|item| item.detail.as_deref()),
             Some("type (fallback)")
         );
         assert_eq!(
-            items.iter()
+            items
+                .iter()
                 .find(|item| item.label == "LocalAlias")
                 .and_then(|item| item.detail.as_deref()),
             Some("type alias (fallback)")
@@ -1918,7 +2028,8 @@ mod tests {
 
         let items = snapshot.fallback_qualified_completion_items("shared");
         assert_eq!(
-            items.iter()
+            items
+                .iter()
                 .find(|item| item.label == "helper")
                 .and_then(|item| item.detail.as_deref()),
             Some("routine (fallback)")
@@ -1965,7 +2076,8 @@ mod tests {
             },
         );
         assert_eq!(
-            items.iter()
+            items
+                .iter()
                 .find(|item| item.label == "value")
                 .and_then(|item| item.detail.as_deref()),
             Some("binding")
@@ -2029,7 +2141,9 @@ fn visit_call_sites(
                 choose_better_call_site(best, candidate);
             }
         }
-        AstNode::QualifiedFunctionCall { path: qualified, .. } => {
+        AstNode::QualifiedFunctionCall {
+            path: qualified, ..
+        } => {
             if let Some(syntax_id) = qualified.syntax_id() {
                 if let Some(candidate) = signature_call_site(
                     program,
@@ -2221,7 +2335,6 @@ fn reference_at_position_in_program(
     })
 }
 
-
 /// Applying a rename with an illegal identifier would write syntactically
 /// broken source; validate the new name before producing any edit.
 fn ensure_renameable_identifier(new_name: &str) -> EditorResult<()> {
@@ -2309,7 +2422,10 @@ fn classify_build_receiver(
         if value.contains(".add_run(") {
             return Some(Family::RunHandle);
         }
-        if value.contains(".install(") || value.contains(".install_file(") || value.contains(".install_dir(") {
+        if value.contains(".install(")
+            || value.contains(".install_file(")
+            || value.contains(".install_dir(")
+        {
             return Some(Family::InstallHandle);
         }
     }
@@ -2325,10 +2441,7 @@ fn origin_contains(origin: &fol_parser::ast::SyntaxOrigin, line: usize, column: 
 
 /// Heuristic: does the binding whose name ends at `origin` carry an explicit
 /// `: type` annotation? Used to suppress redundant inlay type hints.
-fn binding_has_explicit_annotation(
-    text: &str,
-    origin: &fol_parser::ast::SyntaxOrigin,
-) -> bool {
+fn binding_has_explicit_annotation(text: &str, origin: &fol_parser::ast::SyntaxOrigin) -> bool {
     let Some(line) = text.lines().nth(origin.line.saturating_sub(1)) else {
         return false;
     };
@@ -2435,7 +2548,11 @@ fn scan_brace_blocks(text: &str) -> Vec<(LspPosition, LspPosition)> {
 
 fn document_full_range(text: &str) -> LspRange {
     let last_line = text.lines().count().saturating_sub(1) as u32;
-    let last_len = text.lines().last().map(|line| line.chars().count()).unwrap_or(0) as u32;
+    let last_len = text
+        .lines()
+        .last()
+        .map(|line| line.chars().count())
+        .unwrap_or(0) as u32;
     LspRange {
         start: LspPosition {
             line: 0,
@@ -2449,7 +2566,8 @@ fn document_full_range(text: &str) -> LspRange {
 }
 
 fn range_contains_position(range: &LspRange, position: LspPosition) -> bool {
-    let after_start = (position.line, position.character) >= (range.start.line, range.start.character);
+    let after_start =
+        (position.line, position.character) >= (range.start.line, range.start.character);
     let before_end = (position.line, position.character) <= (range.end.line, range.end.character);
     after_start && before_end
 }
@@ -2509,7 +2627,6 @@ fn build_selection_chain(ranges: &[LspRange]) -> LspSelectionRange {
         parent: None,
     })
 }
-
 
 fn offset_for_origin(text: &str, origin: &fol_parser::ast::SyntaxOrigin) -> Option<usize> {
     offset_for_position(
@@ -2659,8 +2776,7 @@ fn semantic_token_type_for_symbol_kind(kind: fol_resolver::SymbolKind) -> Option
         | fol_resolver::SymbolKind::LoopBinder
         | fol_resolver::SymbolKind::RollingBinder
         | fol_resolver::SymbolKind::Definition => Some(4),
-        fol_resolver::SymbolKind::Segment
-        | fol_resolver::SymbolKind::Standard => None,
+        fol_resolver::SymbolKind::Segment | fol_resolver::SymbolKind::Standard => None,
     }
 }
 
@@ -2703,11 +2819,15 @@ fn syntax_document_symbol_for_node(
     node: &AstNode,
 ) -> Option<LspDocumentSymbol> {
     let (name, kind, syntax_id) = match node {
-        AstNode::FunDecl { name, syntax_id, .. }
-        | AstNode::ProDecl { name, syntax_id, .. }
-        | AstNode::LogDecl { name, syntax_id, .. } => {
-            (name.clone(), 12, (*syntax_id)?)
+        AstNode::FunDecl {
+            name, syntax_id, ..
         }
+        | AstNode::ProDecl {
+            name, syntax_id, ..
+        }
+        | AstNode::LogDecl {
+            name, syntax_id, ..
+        } => (name.clone(), 12, (*syntax_id)?),
         _ => return None,
     };
     let selection_origin = program.syntax_index().origin(syntax_id)?.clone();

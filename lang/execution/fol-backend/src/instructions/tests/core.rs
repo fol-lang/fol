@@ -50,14 +50,11 @@ fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes()
     };
 
     let const_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &const_instr)
-            .expect("const");
+        render_core_instruction(&package_identity, &table, &routine, &const_instr).expect("const");
     let load_local_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &load_local)
-            .expect("load");
+        render_core_instruction(&package_identity, &table, &routine, &load_local).expect("load");
     let store_local_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &store_local)
-            .expect("store");
+        render_core_instruction(&package_identity, &table, &routine, &store_local).expect("store");
 
     assert!(const_rendered.contains("l__pkg__entry__app__r0__l0__value = 7_i64;"));
     assert!(load_local_rendered.contains(
@@ -107,7 +104,9 @@ fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_site
         package: "app".to_string(),
         namespace: "app".to_string(),
     });
-    package.routine_decls.insert(LoweredRoutineId(9), callee_routine);
+    package
+        .routine_decls
+        .insert(LoweredRoutineId(9), callee_routine);
     let workspace = LoweredWorkspace::new(
         package_identity.clone(),
         BTreeMap::from([(package_identity.clone(), package)]),
@@ -356,7 +355,9 @@ fn combined_core_instruction_snapshot_stays_stable() {
         package: "app".to_string(),
         namespace: "app".to_string(),
     });
-    package.routine_decls.insert(LoweredRoutineId(8), callee_routine);
+    package
+        .routine_decls
+        .insert(LoweredRoutineId(8), callee_routine);
     let workspace = LoweredWorkspace::new(
         package_identity.clone(),
         BTreeMap::from([(package_identity.clone(), package)]),
@@ -439,7 +440,7 @@ fn combined_core_instruction_snapshot_stays_stable() {
             "l__pkg__entry__app__r6__l3__tmp = 7_i64;\n",
             "l__pkg__entry__app__r6__l0__lhs = l__pkg__entry__app__r6__l3__tmp.clone();\n",
             "l__pkg__entry__app__r6__l1__rhs = l__pkg__entry__app__r6__l0__lhs.clone();\n",
-            "l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs, l__pkg__entry__app__r6__l1__rhs);\n",
+            "l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs.clone(), l__pkg__entry__app__r6__l1__rhs.clone());\n",
             "l__pkg__entry__app__r6__l4__same = l__pkg__entry__app__r6__l0__lhs == l__pkg__entry__app__r6__l1__rhs;\n",
             "l__pkg__entry__app__r6__l4__same = !l__pkg__entry__app__r6__l2__flag;\n",
             "l__pkg__entry__app__r6__l3__tmp = l__pkg__entry__app__r6__l1__rhs.count.clone();"
@@ -453,11 +454,13 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
     let mut table = LoweredTypeTable::new();
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
-    let fn_sig = table.intern(fol_lower::LoweredType::Routine(fol_lower::LoweredRoutineType {
-        params: vec![int_id],
-        return_type: Some(int_id),
-        error_type: None,
-    }));
+    let fn_sig = table.intern(fol_lower::LoweredType::Routine(
+        fol_lower::LoweredRoutineType {
+            params: vec![int_id],
+            return_type: Some(int_id),
+            error_type: None,
+        },
+    ));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(10), "caller", LoweredBlockId(0));
     let result_local = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -465,8 +468,7 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
         name: Some("fptr".to_string()),
     });
 
-    let mut callee_routine =
-        LoweredRoutine::new(LoweredRoutineId(11), "target", LoweredBlockId(0));
+    let mut callee_routine = LoweredRoutine::new(LoweredRoutineId(11), "target", LoweredBlockId(0));
     callee_routine.source_unit_id = Some(SourceUnitId(0));
     callee_routine.signature = Some(fn_sig);
     let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
@@ -514,11 +516,13 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
-    let fn_sig = table.intern(fol_lower::LoweredType::Routine(fol_lower::LoweredRoutineType {
-        params: vec![int_id],
-        return_type: Some(int_id),
-        error_type: None,
-    }));
+    let fn_sig = table.intern(fol_lower::LoweredType::Routine(
+        fol_lower::LoweredRoutineType {
+            params: vec![int_id],
+            return_type: Some(int_id),
+            error_type: None,
+        },
+    ));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(12), "main", LoweredBlockId(0));
     let callee_local = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -545,9 +549,8 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
             error_type: None,
         },
     };
-    let rendered =
-        render_core_instruction(&package_identity, &table, &routine, &call_indirect)
-            .expect("call indirect");
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &call_indirect)
+        .expect("call indirect");
 
     assert_eq!(
         rendered,

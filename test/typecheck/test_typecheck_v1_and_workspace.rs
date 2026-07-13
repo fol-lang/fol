@@ -95,7 +95,7 @@ fn v1_boundary_rejects_anonymous_routines_with_captures_before_lowering() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("anonymous routines with captures are not yet supported")
+                    .contains("V3 anonymous captures must name a channel endpoint")
         }),
         "Expected anonymous capture rejection before lowering, got: {errors:?}"
     );
@@ -418,34 +418,24 @@ fn v1_boundary_keeps_protocol_conformance_while_rejecting_later_surfaces() {
 }
 
 #[test]
-fn v1_boundary_rejects_v3_declaration_surfaces() {
+fn current_boundary_rejects_unshipped_system_declaration_surfaces() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "!var cached: int = 1;\n\
          ?var watching: int = 1;\n\
-         @var fresh: int = 1;\n\
-         var[bor] borrowed: int = 1;\n\
-         ali Bus: chn[int];\n\
-         fun hold(((meshes)): vec[int]): int = {\n\
-             return 0;\n\
-         };\n\
          ",
     )]);
 
     for expected in [
         "static binding semantics are not yet supported",
         "reactive binding semantics are not yet supported",
-        "heap/new binding semantics are planned for a future release",
-        "borrowing binding semantics are planned for a future release",
-        "channel types are planned for a future release",
-        "mutex parameter semantics are planned for a future release",
     ] {
         assert!(
             errors.iter().any(|error| {
                 error.kind() == TypecheckErrorKind::Unsupported
                     && error.message().contains(expected)
             }),
-            "Expected a V3 declaration boundary diagnostic containing '{expected}', got: {errors:?}"
+            "Expected an unshipped declaration boundary diagnostic containing '{expected}', got: {errors:?}"
         );
     }
 }
@@ -458,50 +448,10 @@ fn v1_boundary_rejects_v3_expression_surfaces() {
              var span: int = 0;\n\
              span = 1..2;\n\
              return 0;\n\
-         };\n\
-         fun channelDemo(value: int): int = {\n\
-             var recv: int = 0;\n\
-             recv = value[rx];\n\
-             return 0;\n\
-         };\n\
-         fun spawnDemo(value: int): int = {\n\
-             var task: int = 0;\n\
-             task = [>]value;\n\
-             return 0;\n\
-         };\n\
-         fun asyncDemo(value: int): int = {\n\
-             var next: int = 0;\n\
-             next = value | async;\n\
-             return 0;\n\
-         };\n\
-         fun awaitDemo(value: int): int = {\n\
-             var next: int = 0;\n\
-             next = value | await;\n\
-             return 0;\n\
-         };\n\
-         pro selectDemo(value: int): int = {\n\
-             select(value) {\n\
-                 return 0;\n\
-             }\n\
-         };\n\
-         fun anonDemo(): int = {\n\
-             var worker: int = 0;\n\
-             worker = fun(((locks)): vec[int]): int = {\n\
-                 return 0;\n\
-             };\n\
-             return 0;\n\
          };\n",
     )]);
 
-    for expected in [
-        "range expressions are not yet supported",
-        "channel endpoint access is planned for a future release",
-        "spawn expressions are planned for a future release",
-        "async pipe stages are planned for a future release",
-        "await pipe stages are planned for a future release",
-        "select/channel semantics are planned for a future release",
-        "mutex parameter semantics are planned for a future release",
-    ] {
+    for expected in ["range expressions are not yet supported"] {
         assert!(
             errors.iter().any(|error| {
                 error.kind() == TypecheckErrorKind::Unsupported

@@ -1,4 +1,6 @@
-use crate::{LoweredGlobalId, LoweredRoutineId, LoweredWorkspace, LoweringError, LoweringErrorKind};
+use crate::{
+    LoweredGlobalId, LoweredRoutineId, LoweredWorkspace, LoweringError, LoweringErrorKind,
+};
 use std::collections::BTreeSet;
 
 use super::helpers::{verify_local_reference, verify_type_reference};
@@ -18,20 +20,24 @@ fn recoverable_error_type_for_local_inner(
     if depth > 8 {
         return None;
     }
-    routine.instructions.iter().find_map(|instr| match &instr.kind {
-        crate::LoweredInstrKind::Call { error_type, .. }
-        | crate::LoweredInstrKind::CallIndirect { error_type, .. }
-            if instr.result == Some(local_id) =>
-        {
-            *error_type
-        }
-        // Chained fallbacks join a still-wrapped recoverable through a
-        // StoreLocal; follow the stored source.
-        crate::LoweredInstrKind::StoreLocal { local, value } if *local == local_id => {
-            recoverable_error_type_for_local_inner(routine, *value, depth + 1)
-        }
-        _ => None,
-    })
+    routine
+        .instructions
+        .iter()
+        .find_map(|instr| match &instr.kind {
+            crate::LoweredInstrKind::Call { error_type, .. }
+            | crate::LoweredInstrKind::CallIndirect { error_type, .. }
+            | crate::LoweredInstrKind::AwaitEventual { error_type, .. }
+                if instr.result == Some(local_id) =>
+            {
+                *error_type
+            }
+            // Chained fallbacks join a still-wrapped recoverable through a
+            // StoreLocal; follow the stored source.
+            crate::LoweredInstrKind::StoreLocal { local, value } if *local == local_id => {
+                recoverable_error_type_for_local_inner(routine, *value, depth + 1)
+            }
+            _ => None,
+        })
 }
 
 pub(super) fn verify_instruction(
@@ -120,6 +126,85 @@ pub(super) fn verify_instruction(
                     errors,
                 );
             }
+        }
+        crate::LoweredInstrKind::SpawnCall { callee, args } => {
+            if !valid_routine_ids.contains(callee) {
+                errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' spawns missing routine {}",
+                        routine.name, callee.0
+                    ),
+                ));
+            }
+            for arg in args {
+                verify_local_reference(routine, instr.id.0, "spawn arg", *arg, errors);
+            }
+        }
+        crate::LoweredInstrKind::AsyncCall {
+            callee,
+            args,
+            error_type,
+        } => {
+            if !valid_routine_ids.contains(callee) {
+                errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' starts missing async routine {}",
+                        routine.name, callee.0
+                    ),
+                ));
+            }
+            for arg in args {
+                verify_local_reference(routine, instr.id.0, "async arg", *arg, errors);
+            }
+            if let Some(error_type) = error_type {
+                verify_type_reference(
+                    workspace,
+                    package,
+                    routine,
+                    instr.id.0,
+                    "async error type",
+                    *error_type,
+                    errors,
+                );
+            }
+        }
+        crate::LoweredInstrKind::AwaitEventual {
+            eventual,
+            error_type,
+        } => {
+            verify_local_reference(routine, instr.id.0, "eventual", *eventual, errors);
+            if let Some(error_type) = error_type {
+                verify_type_reference(
+                    workspace,
+                    package,
+                    routine,
+                    instr.id.0,
+                    "await error type",
+                    *error_type,
+                    errors,
+                );
+            }
+        }
+        crate::LoweredInstrKind::ChannelSender { channel }
+        | crate::LoweredInstrKind::ChannelReceive { channel }
+        | crate::LoweredInstrKind::ChannelReceiveOptional { channel }
+        | crate::LoweredInstrKind::ChannelTryReceive { channel }
+        | crate::LoweredInstrKind::ChannelIsClosed { channel } => {
+            verify_local_reference(routine, instr.id.0, "channel", *channel, errors);
+        }
+        crate::LoweredInstrKind::ChannelSend { channel, value } => {
+            verify_local_reference(routine, instr.id.0, "channel", *channel, errors);
+            verify_local_reference(routine, instr.id.0, "channel value", *value, errors);
+        }
+        crate::LoweredInstrKind::OptionalHasValue { operand } => {
+            verify_local_reference(routine, instr.id.0, "optional operand", *operand, errors);
+        }
+        crate::LoweredInstrKind::ProcessorYield => {}
+        crate::LoweredInstrKind::MutexLock { mutex }
+        | crate::LoweredInstrKind::MutexUnlock { mutex } => {
+            verify_local_reference(routine, instr.id.0, "mutex", *mutex, errors);
         }
         crate::LoweredInstrKind::IntrinsicCall { intrinsic, args } => {
             if fol_intrinsics::intrinsic_by_id(*intrinsic).is_none() {
@@ -284,6 +369,55 @@ pub(super) fn verify_instruction(
             if let Some(value) = value {
                 verify_local_reference(routine, instr.id.0, "shell value", *value, errors);
             }
+        }
+        crate::LoweredInstrKind::ConstructOwned { type_id, value } => {
+            verify_type_reference(
+                workspace,
+                package,
+                routine,
+                instr.id.0,
+                "owned construction type",
+                *type_id,
+                errors,
+            );
+            verify_local_reference(routine, instr.id.0, "owned value", *value, errors);
+        }
+        crate::LoweredInstrKind::ConsumeOwned { value } => {
+            verify_local_reference(routine, instr.id.0, "owned value", *value, errors);
+        }
+        crate::LoweredInstrKind::ConstructBorrow { type_id, owner, .. } => {
+            verify_type_reference(
+                workspace,
+                package,
+                routine,
+                instr.id.0,
+                "borrow construction type",
+                *type_id,
+                errors,
+            );
+            verify_local_reference(routine, instr.id.0, "borrow owner", *owner, errors);
+        }
+        crate::LoweredInstrKind::ConstructPointer { type_id, value, .. } => {
+            verify_type_reference(
+                workspace,
+                package,
+                routine,
+                instr.id.0,
+                "pointer construction type",
+                *type_id,
+                errors,
+            );
+            verify_local_reference(routine, instr.id.0, "pointer value", *value, errors);
+        }
+        crate::LoweredInstrKind::DerefPointer { pointer } => {
+            verify_local_reference(routine, instr.id.0, "pointer operand", *pointer, errors);
+        }
+        crate::LoweredInstrKind::StoreDeref { pointer, value } => {
+            verify_local_reference(routine, instr.id.0, "pointer store target", *pointer, errors);
+            verify_local_reference(routine, instr.id.0, "pointer store value", *value, errors);
+        }
+        crate::LoweredInstrKind::GiveBackBorrow { borrow } => {
+            verify_local_reference(routine, instr.id.0, "returned borrow", *borrow, errors);
         }
         crate::LoweredInstrKind::FieldAccess { base, .. } => {
             verify_local_reference(routine, instr.id.0, "field base", *base, errors);

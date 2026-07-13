@@ -224,15 +224,15 @@ join-at-exit, capture rules).
 
 Tracked slices:
 
-- [ ] W1. `std`-only tier gate for the whole processor surface, established at
+- [x] W1. `std`-only tier gate for the whole processor surface, established at
   spawn.
-- [ ] W2. `[>]` thread-per-spawn backend + join-all-at-exit; delete the spawn
+- [x] W2. `[>]` thread-per-spawn backend + join-all-at-exit; delete the spawn
   rejection.
-- [ ] W3. Capture/move rule at the spawn boundary (stack clone, `@` move, `Rc`
+- [x] W3. Capture/move rule at the spawn boundary (stack clone, `@` move, `Rc`
   rejected).
-- [ ] W4. Fire-and-forget requires an infallible callee.
-- [ ] W5. LSP + tree-sitter: spawn hover/diagnostics, sigil highlight.
-- [ ] W6. Positive and `fail_*` spawn examples build/run/reject as specified.
+- [x] W4. Fire-and-forget requires an infallible callee.
+- [x] W5. LSP + tree-sitter: spawn hover/diagnostics, sigil highlight.
+- [x] W6. Positive and `fail_*` spawn examples build/run/reject as specified.
 
 
 # 5. Workstream X: P2 — Channels
@@ -314,14 +314,14 @@ pull/iterate, dead `[rx][i]`).
 
 Tracked slices:
 
-- [ ] X1. `chn[T]` MPSC/unbounded semantics + endpoint typing; delete channel and
+- [x] X1. `chn[T]` MPSC/unbounded semantics + endpoint typing; delete channel and
   endpoint rejections.
-- [ ] X2. `expr | c[tx]` send, `var x = c[rx]` blocking pull, `for msg in c[rx]`
+- [x] X2. `expr | c[tx]` send, `var x = c[rx]` blocking pull, `for msg in c[rx]`
   iteration; remove `[rx][i]` indexing.
-- [ ] X3. Endpoint capture in spawned routines with sender-clone / last-drop-
+- [x] X3. Endpoint capture in spawned routines with sender-clone / last-drop-
   closes semantics.
-- [ ] X4. LSP + tree-sitter: endpoint hover/diagnostics, index-rejection message.
-- [ ] X5. Positive and `fail_*` channel examples build/run/reject as specified.
+- [x] X4. LSP + tree-sitter: endpoint hover/diagnostics, index-rejection message.
+- [x] X5. Positive and `fail_*` channel examples build/run/reject as specified.
 
 
 # 6. Workstream Y: P3 — Select Multiplexing and Mutex Parameters
@@ -412,14 +412,14 @@ section: `when` arms not `[rx][c]`).
 
 Tracked slices:
 
-- [ ] Y1. Multi-arm `select { when ... }` (parser replace, AST, typecheck,
+- [x] Y1. Multi-arm `select { when ... }` (parser replace, AST, typecheck,
   poll-loop lowering) with honest closed-arm/default-arm/fairness notes; delete
   the old `select(...)` form and its rejections.
-- [ ] Y2. `[mux]` mutex parameters via the Q5 seam (`Arc<Mutex<T>>`,
+- [x] Y2. `[mux]` mutex parameters via the Q5 seam (`Arc<Mutex<T>>`,
   `.lock()`/`.unlock()`, auto-unlock); delete the `((x))` form and the mutex
   rejection.
-- [ ] Y3. LSP + tree-sitter: select arms, `[mux]` param, dead-form rejection.
-- [ ] Y4. Positive and `fail_*` select/mutex examples build/run/reject as
+- [x] Y3. LSP + tree-sitter: select arms, `[mux]` param, dead-form rejection.
+- [x] Y4. Positive and `fail_*` select/mutex examples build/run/reject as
   specified.
 
 
@@ -488,12 +488,12 @@ transparency, join-at-exit).
 
 Tracked slices:
 
-- [ ] Z1. `| async` / `| await` with an internal (non-nameable) eventual type;
+- [x] Z1. `| async` / `| await` with an internal (non-nameable) eventual type;
   delete the async/await rejections; join-all-at-exit.
-- [ ] Z2. Error transparency: every V2 error path works identically on an awaited
+- [x] Z2. Error transparency: every V2 error path works identically on an awaited
   value, with no new surface.
-- [ ] Z3. LSP + tree-sitter: async/await hover/diagnostics, keyword highlights.
-- [ ] Z4. Positive and `fail_*` eventual examples build/run/reject as specified.
+- [x] Z3. LSP + tree-sitter: async/await hover/diagnostics, keyword highlights.
+- [x] Z4. Positive and `fail_*` eventual examples build/run/reject as specified.
 
 
 # 8. Workstream AA: Book Updates Required (Processor Pillar)
@@ -533,11 +533,11 @@ Contradictions to fix (chapter -> exact edit):
 
 Tracked slices:
 
-- [ ] AA1. Rewrite `200_corutines.md` (dead `[rx][i]`, dead `((x))`, dead
+- [x] AA1. Rewrite `200_corutines.md` (dead `[rx][i]`, dead `((x))`, dead
   single-channel `select`, MPSC/unbounded, thread-per-spawn wording).
-- [ ] AA2. Rewrite `100_eventuals.md` (internal eventual, error transparency, no
+- [x] AA2. Rewrite `100_eventuals.md` (internal eventual, error transparency, no
   async runtime).
-- [ ] AA3. State the `std`-only tier requirement in both chapters.
+- [x] AA3. State the `std`-only tier requirement in both chapters.
 
 
 # 9. Workstream BB: Editor and Tree-Sitter Hardening (Cross-Cutting)
@@ -570,13 +570,13 @@ Primary files:
 
 Tracked slices:
 
-- [ ] BB1. Editor / tree-sitter updates shipped alongside W (spawn sigil,
+- [x] BB1. Editor / tree-sitter updates shipped alongside W (spawn sigil,
   hover/diagnostics).
-- [ ] BB2. Editor / tree-sitter updates shipped alongside X (endpoint keywords,
+- [x] BB2. Editor / tree-sitter updates shipped alongside X (endpoint keywords,
   index-rejection).
-- [ ] BB3. Editor / tree-sitter updates shipped alongside Y (multi-arm select,
+- [x] BB3. Editor / tree-sitter updates shipped alongside Y (multi-arm select,
   `[mux]` param, dead-form rejection).
-- [ ] BB4. Editor / tree-sitter updates shipped alongside Z (async/await keyword
+- [x] BB4. Editor / tree-sitter updates shipped alongside Z (async/await keyword
   highlights, hover).
 
 Rule:

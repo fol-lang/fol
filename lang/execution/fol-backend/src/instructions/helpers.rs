@@ -249,16 +249,33 @@ pub fn render_type_default_expr_in_workspace(
         LoweredType::Builtin(LoweredBuiltinType::Float) => Ok("0.0_f64".to_string()),
         LoweredType::Builtin(LoweredBuiltinType::Bool) => Ok("false".to_string()),
         LoweredType::Builtin(LoweredBuiltinType::Char) => Ok("'\\0'".to_string()),
-        LoweredType::Builtin(LoweredBuiltinType::Str) => Ok("rt_model::FolStr::new(\"\")".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Str) => {
+            Ok("rt_model::FolStr::new(\"\")".to_string())
+        }
         LoweredType::Builtin(LoweredBuiltinType::Never) => Err(BackendError::new(
             BackendErrorKind::Unsupported,
             "never-typed globals cannot be default-initialized",
         )),
         LoweredType::GenericParameter { name } => Err(BackendError::new(
             BackendErrorKind::Unsupported,
-            format!(
-                "backend execution for generic parameter type '{name}' is not implemented yet"
-            ),
+            format!("backend execution for generic parameter type '{name}' is not implemented yet"),
+        )),
+        LoweredType::Named { .. } => Ok(format!(
+            "{}::default()",
+            crate::render_rust_type_in_workspace(workspace, type_table, type_id)?
+        )),
+        LoweredType::Owned { inner } => Ok(format!(
+            "Box::new({})",
+            render_type_default_expr_in_workspace(workspace, type_table, *inner)?
+        )),
+        LoweredType::Borrowed { .. } => Err(BackendError::new(
+            BackendErrorKind::Unsupported,
+            "borrowed references cannot be default-initialized",
+        )),
+        LoweredType::Pointer { target, shared } => Ok(format!(
+            "{}::new({})",
+            if *shared { "std::rc::Rc" } else { "Box" },
+            render_type_default_expr_in_workspace(workspace, type_table, *target)?
         )),
         LoweredType::Array {
             element_type,
@@ -266,7 +283,9 @@ pub fn render_type_default_expr_in_workspace(
         } => {
             let element_default =
                 render_type_default_expr_in_workspace(workspace, type_table, *element_type)?;
-            Ok(format!("std::array::from_fn(|_| ({element_default}).clone())"))
+            Ok(format!(
+                "std::array::from_fn(|_| ({element_default}).clone())"
+            ))
         }
         LoweredType::Array { size: None, .. } => Err(BackendError::new(
             BackendErrorKind::Unsupported,
@@ -274,6 +293,9 @@ pub fn render_type_default_expr_in_workspace(
         )),
         LoweredType::Vector { .. } => Ok("rt_model::FolVec::new(vec![])".to_string()),
         LoweredType::Sequence { .. } => Ok("rt_model::FolSeq::new(vec![])".to_string()),
+        LoweredType::Channel { .. } => Ok("rt::FolChannel::default()".to_string()),
+        LoweredType::ChannelSender { .. } => Ok("rt::FolSender::default()".to_string()),
+        LoweredType::Eventual { .. } => Ok("rt::FolEventual::default()".to_string()),
         LoweredType::Set { .. } => Ok("rt_model::FolSet::from_items(vec![])".to_string()),
         LoweredType::Map { .. } => Ok("rt_model::FolMap::from_pairs(vec![])".to_string()),
         LoweredType::Optional { .. } => Ok("rt::FolOption::nil()".to_string()),
@@ -339,6 +361,56 @@ pub fn render_clone_expr(
 ) -> BackendResult<String> {
     let name = render_local_name(package_identity, routine, local_id)?;
     Ok(format!("{name}.clone()"))
+}
+
+pub fn render_transfer_expr(
+    type_table: &LoweredTypeTable,
+    package_identity: &PackageIdentity,
+    routine: &LoweredRoutine,
+    local_id: fol_lower::LoweredLocalId,
+) -> BackendResult<String> {
+    let name = render_local_name(package_identity, routine, local_id)?;
+    let local_type = routine
+        .locals
+        .get(local_id)
+        .and_then(|local| local.type_id)
+        .and_then(|type_id| type_table.get(type_id));
+    if let Some(LoweredType::Borrowed { mutable, .. }) = local_type {
+        return Ok(if *mutable {
+            format!("&mut *{name}")
+        } else {
+            name
+        });
+    }
+    let moves = routine
+        .locals
+        .get(local_id)
+        .and_then(|local| local.type_id)
+        .is_some_and(|type_id| type_moves_on_transfer(type_table, type_id, 0));
+    Ok(if moves {
+        name
+    } else {
+        format!("{name}.clone()")
+    })
+}
+
+fn type_moves_on_transfer(
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+    depth: usize,
+) -> bool {
+    if depth > 32 {
+        return false;
+    }
+    match type_table.get(type_id) {
+        Some(LoweredType::Owned { .. }) => true,
+        Some(LoweredType::Pointer { shared: false, .. }) => true,
+        Some(LoweredType::Eventual { .. }) => true,
+        Some(LoweredType::Optional { inner }) | Some(LoweredType::Error { inner: Some(inner) }) => {
+            type_moves_on_transfer(type_table, *inner, depth + 1)
+        }
+        _ => false,
+    }
 }
 
 pub fn rendered_result_local(

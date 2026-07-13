@@ -1,0 +1,20 @@
+use std: pkg = {"std"};
+
+fun[] probe(fail: bol): int / int = {
+    edf {
+        std::io::echo_int(2);
+    };
+    dfr {
+        std::io::echo_int(1);
+    };
+    when(fail) {
+        case(true) { report 7; }
+        * { return 0; }
+    }
+};
+
+fun[] main(): int = {
+    var success: int = probe(false) || 9;
+    var failure: int = probe(true) || 9;
+    return success + failure - 9;
+};

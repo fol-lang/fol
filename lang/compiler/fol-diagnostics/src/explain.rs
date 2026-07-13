@@ -114,6 +114,33 @@ macro_rules! explanation {
 /// - `K11*` — `fol-build` (`BuildEvaluationErrorKind`)
 /// - `F*`  — `fol-frontend` (`FrontendErrorKind`)
 static REGISTRY: &[Explanation] = &[
+    explanation!(
+        "O1001",
+        "ownership violation",
+        "A value was used after its ownership moved, or while ownership rules made it inaccessible.\n\n\
+         Heap-owned values move when rebound; stack values clone. Use the value before moving it,\n\
+         borrow it when borrowing is appropriate, or restructure the owning scope."
+    ),
+    explanation!(
+        "O2001",
+        "owner accessed while borrowed",
+        "A lexical borrow is still active, so the owner is inaccessible. Let the borrow scope end or return the borrower early with `!binding`."
+    ),
+    explanation!(
+        "O2002",
+        "conflicting borrow",
+        "A mutable borrow is exclusive. Return the active borrower or enter a later lexical scope before borrowing the same owner again."
+    ),
+    explanation!(
+        "O2003",
+        "mutable borrow of immutable owner",
+        "A mutable borrow requires an owner declared with `var[mut]` and a borrower declared with `var[mut, bor]`."
+    ),
+    explanation!(
+        "O2004",
+        "returned borrow reused",
+        "The borrow was returned with `!binding`; the borrower is no longer accessible after give-back."
+    ),
     // ── Parser (fol-parser :: ParseErrorKind) ──────────────────────────
     explanation!(
         "P1001",
@@ -275,7 +302,8 @@ static REGISTRY: &[Explanation] = &[
          - a heap-backed value (`str`, `vec[...]`, `seq[...]`, `set[...]`,\n\
            `map[...]`) is used under `fol_model = core`\n\
          - `.echo(...)` is used without the bundled hosted `std` dependency\n\
-         - a feature is planned for a later release (e.g. borrowing bindings)\n\n\
+         - a feature is outside the current release boundary (for example raw\n\
+           pointers or explicit deallocation at the V4/FFI boundary)\n\n\
          How to fix:\n\
          - move to `fol_model = memo` for heap-backed values, or add bundled `std`\n\
            for hosted facilities like `.echo(...)`\n\
@@ -567,7 +595,10 @@ mod tests {
             assert_eq!(code, code.to_ascii_uppercase(), "code must be uppercase");
             assert!(seen.insert(code), "duplicate registered code: {code}");
         }
-        assert!(seen.len() >= 30, "registry should cover the real code surface");
+        assert!(
+            seen.len() >= 30,
+            "registry should cover the real code surface"
+        );
     }
 
     #[test]

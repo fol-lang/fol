@@ -447,6 +447,7 @@ impl Element {
             "return" => self.set_key(Keyword(BUILDIN::Return)),
             "yield" => self.set_key(Keyword(BUILDIN::Yield)),
             "dfr" => self.set_key(Keyword(BUILDIN::Dfr)),
+            "edf" => self.set_key(Keyword(BUILDIN::Edf)),
             "panic" => self.set_key(Keyword(BUILDIN::Panic)),
             "report" => self.set_key(Keyword(BUILDIN::Report)),
             "check" => self.set_key(Keyword(BUILDIN::Check)),

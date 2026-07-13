@@ -2,8 +2,7 @@ use crate::{
     mangle_package_module_name, plan_generated_crate_layout, plan_namespace_layouts,
     plan_package_layouts, render_entry_definition, render_entry_trait_impl,
     render_global_declaration, render_record_definition, render_record_trait_impl,
-    render_routine_definition, render_rust_type_in_workspace,
-    BackendArtifact, BackendConfig,
+    render_routine_definition, render_rust_type_in_workspace, BackendArtifact, BackendConfig,
     BackendError, BackendErrorKind, BackendResult, BackendRuntimeTier, BackendSession,
     EmittedRustFile,
 };
@@ -35,18 +34,21 @@ pub fn emit_main_rs_for_config(
     let layout = plan_generated_crate_layout(session);
     let entry_candidate = session.select_buildable_entry_candidate()?;
     let entry_name = &session.entry_identity().display_name;
+    let join_tasks = matches!(config.runtime_tier(), BackendRuntimeTier::Std)
+        .then_some("\n    rt::join_all_tasks();")
+        .unwrap_or("");
     let entry_wrapper = match resolve_entry_callable(session, entry_candidate, config.runtime_tier())? {
         EntryCallable {
             rust_path,
             call_args,
             recoverable: false,
-        } => format!("    let _ = {rust_path}({call_args});"),
+        } => format!("    let _ = {rust_path}({call_args});{join_tasks}"),
         EntryCallable {
             rust_path,
             call_args,
             recoverable: true,
         } => format!(
-            "    let __fol_outcome = rt::outcome_from_recoverable({rust_path}({call_args}));\n    if let Some(__fol_message) = rt::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
+            "    let __fol_outcome = rt::outcome_from_recoverable({rust_path}({call_args}));{join_tasks}\n    if let Some(__fol_message) = rt::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
         ),
     };
     let runtime_tier = config.runtime_tier();
@@ -224,16 +226,25 @@ pub fn emit_generated_crate_skeleton_for_config(
     // instead of letting one overwrite the other.
     let mut merged: Vec<EmittedRustFile> = Vec::new();
     for file in files {
-        if let Some(existing) = merged.iter_mut().find(|existing| existing.path == file.path) {
-            let (decls, body) = if file.contents.lines().all(|line| {
-                line.trim().is_empty() || line.trim_start().starts_with("pub mod ")
-            }) {
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|existing| existing.path == file.path)
+        {
+            let (decls, body) = if file
+                .contents
+                .lines()
+                .all(|line| line.trim().is_empty() || line.trim_start().starts_with("pub mod "))
+            {
                 (file.contents.clone(), existing.contents.clone())
             } else {
                 (existing.contents.clone(), file.contents.clone())
             };
-            existing.contents = format!("{}
-{}", decls.trim_end(), body);
+            existing.contents = format!(
+                "{}
+{}",
+                decls.trim_end(),
+                body
+            );
         } else {
             merged.push(file);
         }
@@ -326,7 +337,10 @@ fn resolve_entry_callable(
     let signature_id = routine.signature.ok_or_else(|| {
         BackendError::new(
             BackendErrorKind::InvalidInput,
-            format!("entry routine '{}' is missing a lowered signature", entry_candidate.name),
+            format!(
+                "entry routine '{}' is missing a lowered signature",
+                entry_candidate.name
+            ),
         )
     })?;
     let signature = match session.workspace().type_table().get(signature_id) {
@@ -344,21 +358,27 @@ fn resolve_entry_callable(
     let source_unit_id = routine.source_unit_id.ok_or_else(|| {
         BackendError::new(
             BackendErrorKind::InvalidInput,
-            format!("entry routine '{}' is missing a source unit", entry_candidate.name),
-        )
-    })?;
-    let namespace_plan = plan_namespace_layouts(session).into_iter().find(|plan| {
-        plan.package_identity == entry_candidate.package_identity
-            && plan.source_unit_ids.contains(&source_unit_id)
-    }).ok_or_else(|| {
-        BackendError::new(
-            BackendErrorKind::InvalidInput,
             format!(
-                "entry routine '{}' does not map to a namespace layout",
+                "entry routine '{}' is missing a source unit",
                 entry_candidate.name
             ),
         )
     })?;
+    let namespace_plan = plan_namespace_layouts(session)
+        .into_iter()
+        .find(|plan| {
+            plan.package_identity == entry_candidate.package_identity
+                && plan.source_unit_ids.contains(&source_unit_id)
+        })
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "entry routine '{}' does not map to a namespace layout",
+                    entry_candidate.name
+                ),
+            )
+        })?;
     render_routine_definition(
         session.workspace(),
         &entry_candidate.package_identity,
@@ -408,7 +428,9 @@ fn render_entry_call_args(
     let rendered = params
         .iter()
         .enumerate()
-        .map(|(index, type_id)| render_entry_arg_expr(session, type_table, *type_id, index, runtime_tier))
+        .map(|(index, type_id)| {
+            render_entry_arg_expr(session, type_table, *type_id, index, runtime_tier)
+        })
         .collect::<BackendResult<Vec<_>>>()?;
     Ok(rendered.join(", "))
 }
@@ -423,7 +445,10 @@ fn render_entry_arg_expr(
     let Some(ty) = type_table.get(type_id) else {
         return Err(BackendError::new(
             BackendErrorKind::InvalidInput,
-            format!("entry parameter type {:?} is missing from the lowered type table", type_id),
+            format!(
+                "entry parameter type {:?} is missing from the lowered type table",
+                type_id
+            ),
         ));
     };
     let expr = match ty {
@@ -434,21 +459,22 @@ fn render_entry_arg_expr(
             format!("__fol_cli_arg({index}).and_then(|raw| raw.parse::<rt::FolFloat>().ok()).unwrap_or_default()")
         }
         LoweredType::Builtin(LoweredBuiltinType::Bool) => {
-            format!("__fol_cli_arg({index}).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()")
+            format!(
+                "__fol_cli_arg({index}).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()"
+            )
         }
         LoweredType::Builtin(LoweredBuiltinType::Char) => {
-            format!("__fol_cli_arg({index}).and_then(|raw| __fol_parse_char(&raw)).unwrap_or_default()")
+            format!(
+                "__fol_cli_arg({index}).and_then(|raw| __fol_parse_char(&raw)).unwrap_or_default()"
+            )
         }
         LoweredType::Builtin(LoweredBuiltinType::Str) => {
             format!("__fol_cli_arg({index}).map(rt_model::FolStr::from).unwrap_or_default()")
         }
         LoweredType::Builtin(LoweredBuiltinType::Never) => "rt::impossible()".to_string(),
         _ => {
-            let rendered_type = render_rust_type_in_workspace(
-                Some(session.workspace()),
-                type_table,
-                type_id,
-            )?;
+            let rendered_type =
+                render_rust_type_in_workspace(Some(session.workspace()), type_table, type_id)?;
             let _ = runtime_tier;
             format!("<{rendered_type} as Default>::default()")
         }

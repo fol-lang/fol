@@ -1,0 +1,5 @@
+fun[] main(): int = {
+    var[imu] owner: int = 7;
+    var[mut, bor] view: int = owner;
+    return 0;
+};

@@ -1,7 +1,7 @@
 use crate::types::GenericConstraint;
 use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
-use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId};
+use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::BTreeMap;
 
@@ -40,6 +40,7 @@ pub struct TypedSymbol {
     /// Mirrors the resolver's binding mutability (`var[mut]`/`lab[mut]`).
     /// Drives field-assignment legality.
     pub is_mutable: bool,
+    pub is_mutex: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +126,15 @@ pub struct RecordFieldLayout {
     pub default: Option<AstNode>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveBorrow {
+    pub owner: SymbolId,
+    pub binding: SymbolId,
+    pub scope: ScopeId,
+    pub mutable: bool,
+    pub origin: SyntaxOrigin,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
     capability_model: TypecheckCapabilityModel,
@@ -142,11 +152,16 @@ pub struct TypedProgram {
     constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
     record_layouts: BTreeMap<CheckedTypeId, Vec<RecordFieldLayout>>,
     /// Generic instantiations whose structural shape is currently being
-    /// computed. A recursive type (`typ Node(T) = { next: Node[T] }`) reaches
-    /// its own instantiation while expanding it; this guard breaks the cycle so
-    /// the self-reference resolves to the interned nominal node instead of
-    /// re-expanding forever. Transient — empty outside active lowering.
+    /// computed. Recursive value instantiation reaches its own node while
+    /// expanding; this guard breaks the cycle so the checker can issue the
+    /// finite-layout diagnostic. Transient — empty outside active lowering.
     active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
+    moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
+    active_borrows: BTreeMap<SymbolId, Vec<ActiveBorrow>>,
+    borrow_bindings: BTreeMap<SymbolId, ActiveBorrow>,
+    borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
+    owner_borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
+    returned_borrows: BTreeMap<SymbolId, SyntaxOrigin>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -235,6 +250,88 @@ impl TypedWorkspace {
 }
 
 impl TypedProgram {
+    pub(crate) fn mark_binding_moved(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        self.moved_bindings.entry(symbol).or_insert(origin);
+    }
+
+    pub fn moved_binding_origin(&self, symbol: SymbolId) -> Option<&SyntaxOrigin> {
+        self.moved_bindings.get(&symbol)
+    }
+
+    pub fn active_borrow_for_owner(&self, owner: SymbolId) -> Option<&ActiveBorrow> {
+        self.active_borrows.get(&owner).and_then(|borrows| borrows.first())
+    }
+
+    pub fn active_borrow_binding(&self, binding: SymbolId) -> Option<&ActiveBorrow> {
+        self.borrow_bindings.get(&binding)
+    }
+
+    pub fn borrow_for_binding(&self, binding: SymbolId) -> Option<&ActiveBorrow> {
+        self.borrow_history.get(&binding)
+    }
+
+    pub fn borrow_for_owner(&self, owner: SymbolId) -> Option<&ActiveBorrow> {
+        self.owner_borrow_history.get(&owner)
+    }
+
+    pub fn returned_borrow_origin(&self, binding: SymbolId) -> Option<&SyntaxOrigin> {
+        self.returned_borrows.get(&binding)
+    }
+
+    pub(crate) fn register_borrow(&mut self, borrow: ActiveBorrow) -> Option<ActiveBorrow> {
+        let conflict = self.active_borrows.get(&borrow.owner).and_then(|active| {
+            active
+                .iter()
+                .find(|existing| borrow.mutable || existing.mutable)
+                .cloned()
+        });
+        if conflict.is_some() {
+            return conflict;
+        }
+        self.active_borrows
+            .entry(borrow.owner)
+            .or_default()
+            .push(borrow.clone());
+        self.borrow_history.insert(borrow.binding, borrow.clone());
+        self.owner_borrow_history
+            .entry(borrow.owner)
+            .or_insert_with(|| borrow.clone());
+        self.borrow_bindings.insert(borrow.binding, borrow);
+        None
+    }
+
+    pub(crate) fn give_back_borrow(&mut self, binding: SymbolId, origin: SyntaxOrigin) -> bool {
+        let Some(borrow) = self.borrow_bindings.remove(&binding) else {
+            return false;
+        };
+        if let Some(active) = self.active_borrows.get_mut(&borrow.owner) {
+            active.retain(|entry| entry.binding != binding);
+            if active.is_empty() {
+                self.active_borrows.remove(&borrow.owner);
+            }
+        }
+        self.returned_borrows.insert(binding, origin);
+        true
+    }
+
+    pub(crate) fn release_borrows_in_scope(&mut self, scope: ScopeId) {
+        let bindings = self
+            .borrow_bindings
+            .iter()
+            .filter_map(|(binding, borrow)| (borrow.scope == scope).then_some(*binding))
+            .collect::<Vec<_>>();
+        for binding in bindings {
+            if let Some(borrow) = self.borrow_bindings.remove(&binding) {
+                if let Some(active) = self.active_borrows.get_mut(&borrow.owner) {
+                    active.retain(|entry| entry.binding != binding);
+                    if active.is_empty() {
+                        self.active_borrows.remove(&borrow.owner);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn from_resolved(resolved: fol_resolver::ResolvedProgram) -> Self {
         Self::from_resolved_with_model(resolved, TypecheckCapabilityModel::Std)
     }
@@ -274,6 +371,7 @@ impl TypedProgram {
                         generic_params: Vec::new(),
                         generic_constraints: BTreeMap::new(),
                         is_mutable: symbol.is_mutable,
+                        is_mutex: false,
                     },
                 )
             })
@@ -328,6 +426,12 @@ impl TypedProgram {
             method_call_targets: BTreeMap::new(),
             constraint_call_sites: std::collections::BTreeSet::new(),
             record_layouts: BTreeMap::new(),
+            moved_bindings: BTreeMap::new(),
+            active_borrows: BTreeMap::new(),
+            borrow_bindings: BTreeMap::new(),
+            borrow_history: BTreeMap::new(),
+            owner_borrow_history: BTreeMap::new(),
+            returned_borrows: BTreeMap::new(),
         }
     }
 
@@ -344,7 +448,9 @@ impl TypedProgram {
 
     /// The ordered field layout for a record type, if one was recorded.
     pub fn record_layout(&self, type_id: CheckedTypeId) -> Option<&[RecordFieldLayout]> {
-        self.record_layouts.get(&type_id).map(|fields| fields.as_slice())
+        self.record_layouts
+            .get(&type_id)
+            .map(|fields| fields.as_slice())
     }
 
     pub fn record_method_call_target(&mut self, syntax_id: SyntaxNodeId, symbol_id: SymbolId) {

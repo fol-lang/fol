@@ -414,11 +414,9 @@ fn dependency_root_for_query(
             fol_package::PackageDependencySourceKind::Git => {
                 package_store_root.join(&dependency.alias)
             }
-            fol_package::PackageDependencySourceKind::Internal => {
-                std_root
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(|| package_store_root.join(&dependency.alias))
-            }
+            fol_package::PackageDependencySourceKind::Internal => std_root
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| package_store_root.join(&dependency.alias)),
         });
     }
 

@@ -165,7 +165,14 @@ impl AstParser {
             return Ok(vec![node]);
         }
 
-        if (AstParser::token_can_be_logical_name(&key) || key.is_textual_literal())
+        if matches!(key, KEYWORD::Keyword(BUILDIN::Edf)) {
+            let node = self.parse_edf_stmt(tokens)?;
+            return Ok(vec![node]);
+        }
+
+        if (AstParser::token_can_be_logical_name(&key)
+            || key.is_textual_literal()
+            || matches!(key, KEYWORD::Symbol(SYMBOL::Star)))
             && self.lookahead_is_assignment(tokens)
         {
             let node = self.parse_assignment_stmt(tokens)?;

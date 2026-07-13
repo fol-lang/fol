@@ -8,7 +8,7 @@ fn test_resolver_select_bindings_are_scoped_to_select_bodies() {
     fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
     fs::write(
         temp_root.join("main.fol"),
-        "pro main(channel: int): int = {\n    select(channel as current) {\n        return current;\n    }\n};\n",
+        "pro main(channel: int): int = {\n    select {\n        when channel as current { return current; }\n    };\n};\n",
     )
     .expect("Should write the select binding fixture");
 
@@ -59,7 +59,7 @@ fn test_resolver_select_bindings_do_not_leak_outside_select_bodies() {
     fs::create_dir_all(&temp_root).expect("Should create a temporary resolver fixture directory");
     fs::write(
         temp_root.join("main.fol"),
-        "pro main(channel: int): int = {\n    select(channel as current) {\n        return current;\n    }\n    return current;\n};\n",
+        "pro main(channel: int): int = {\n    select {\n        when channel as current { return current; }\n    };\n    return current;\n};\n",
     )
     .expect("Should write the leaking select binding fixture");
 

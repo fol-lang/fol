@@ -88,7 +88,10 @@ mod tests {
         assert!(names.contains(&"len"));
         assert!(names.contains(&"echo"));
         assert!(names.contains(&"de_alloc"));
-        assert!(names.contains(&"pointer_value"));
+        assert!(!names.contains(&"pointer_value"));
+        assert!(!names.contains(&"give_back"));
+        assert!(!names.contains(&"address_of"));
+        assert!(!names.contains(&"borrow_from"));
     }
 
     #[test]
@@ -223,38 +226,16 @@ mod tests {
     }
 
     #[test]
-    fn deferred_memory_and_pointer_registry_entries_stay_stable() {
-        let expected = [
-            ("de_alloc", IntrinsicId::new(16), IntrinsicCategory::Memory),
-            ("give_back", IntrinsicId::new(17), IntrinsicCategory::Memory),
-            (
-                "address_of",
-                IntrinsicId::new(18),
-                IntrinsicCategory::Pointer,
-            ),
-            (
-                "pointer_value",
-                IntrinsicId::new(19),
-                IntrinsicCategory::Pointer,
-            ),
-            (
-                "borrow_from",
-                IntrinsicId::new(20),
-                IntrinsicCategory::Pointer,
-            ),
-        ];
-
-        for (name, id, category) in expected {
-            let entry = intrinsic_by_canonical_name(name)
-                .unwrap_or_else(|| panic!("deferred intrinsic '{name}' should exist"));
-            assert_eq!(entry.id, id);
-            assert_eq!(entry.category, category);
-            assert_eq!(entry.surface, IntrinsicSurface::DotRootCall);
-            assert_eq!(entry.availability, IntrinsicAvailability::V3);
-            assert_eq!(entry.status, IntrinsicStatus::Unsupported);
-            assert_eq!(entry.arity, IntrinsicArity::Exactly(1));
-            assert_eq!(entry.lowering_mode, IntrinsicLoweringMode::Reject);
-        }
+    fn explicit_deallocation_stays_at_the_v4_ffi_boundary() {
+        let entry = intrinsic_by_canonical_name("de_alloc")
+            .expect("explicit deallocation boundary should remain registered");
+        assert_eq!(entry.id, IntrinsicId::new(16));
+        assert_eq!(entry.category, IntrinsicCategory::Memory);
+        assert_eq!(entry.surface, IntrinsicSurface::DotRootCall);
+        assert_eq!(entry.availability, IntrinsicAvailability::V4);
+        assert_eq!(entry.status, IntrinsicStatus::Unsupported);
+        assert_eq!(entry.arity, IntrinsicArity::Exactly(1));
+        assert_eq!(entry.lowering_mode, IntrinsicLoweringMode::Reject);
     }
 
     #[test]
@@ -478,7 +459,7 @@ mod tests {
         );
         assert_eq!(
             roadmap_for_intrinsic(de_alloc.id),
-            Some(IntrinsicRoadmap::V3)
+            Some(IntrinsicRoadmap::V4)
         );
         assert!(intrinsics_for_roadmap(IntrinsicRoadmap::CurrentV1)
             .iter()
@@ -496,7 +477,7 @@ mod tests {
             IntrinsicRoadmap::CurrentV1,
             IntrinsicRoadmap::LikelyV1x,
             IntrinsicRoadmap::V2,
-            IntrinsicRoadmap::V3,
+            IntrinsicRoadmap::V4,
             IntrinsicRoadmap::CoreStdInstead,
         ] {
             let entries = intrinsics_for_roadmap(roadmap);
@@ -587,7 +568,7 @@ mod tests {
         );
         assert_eq!(
             wrong_version_message(de_alloc, IntrinsicAvailability::V1),
-            ".de_alloc(...) is planned for a future release"
+            ".de_alloc(...) is a V4/FFI boundary and is not part of V3"
         );
         assert_eq!(
             unsupported_intrinsic_message(de_alloc),

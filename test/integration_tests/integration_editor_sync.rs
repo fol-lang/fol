@@ -1,10 +1,10 @@
 use super::*;
 use fol_editor::{
     editor_highlight_file, editor_tree_generate_bundle, fol_tree_sitter_highlights_query,
-    fol_tree_sitter_locals_query, fol_tree_sitter_symbols_query, EditorConfig,
-    EditorDocumentUri, EditorLspServer, JsonRpcId, JsonRpcNotification, JsonRpcRequest,
-    LspCompletionContext, LspCompletionList, LspCompletionParams, LspDefinitionParams, LspHover,
-    LspHoverParams, LspLocation, LspPosition, LspTextDocumentIdentifier,
+    fol_tree_sitter_locals_query, fol_tree_sitter_symbols_query, EditorConfig, EditorDocumentUri,
+    EditorLspServer, JsonRpcId, JsonRpcNotification, JsonRpcRequest, LspCompletionContext,
+    LspCompletionList, LspCompletionParams, LspDefinitionParams, LspHover, LspHoverParams,
+    LspLocation, LspPosition, LspTextDocumentIdentifier,
 };
 
 fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) {
@@ -27,14 +27,21 @@ fn copied_example_root(example_path: &str) -> std::path::PathBuf {
     let temp_root = unique_temp_root(&format!("editor_sync_{}", example_path.replace('/', "_")));
     let target = temp_root.join("workspace");
     copy_dir_all(&source, &target);
+    std::fs::create_dir_all(target.join(".git"))
+        .expect("copied editor example workspace marker should be creatable");
     let build_source = std::fs::read_to_string(target.join("build.fol")).unwrap_or_default();
-    if build_source.contains("source = \"internal\"") && build_source.contains("target = \"standard\"") {
+    if build_source.contains("source = \"internal\"")
+        && build_source.contains("target = \"standard\"")
+    {
         let bundled_std_root =
             fol_package::available_bundled_std_root().expect("bundled std root should exist");
         let std_alias_root = target.join(".fol/pkg/std");
         copy_dir_all(&bundled_std_root, &std_alias_root);
-        std::fs::write(target.join("fol.work.yaml"), "package_store_root: .fol/pkg\n")
-            .expect("should write workspace package-store override");
+        std::fs::write(
+            target.join("fol.work.yaml"),
+            "package_store_root: .fol/pkg\n",
+        )
+        .expect("should write workspace package-store override");
     }
     target
 }
@@ -73,12 +80,18 @@ fn test_editor_sync_suite_exports_compiler_backed_highlight_metadata() {
     let expected_intrinsics = format!("intrinsic_names={}", intrinsic_names.join(","));
 
     assert!(
-        summary.details.iter().any(|detail| detail == &expected_import_kinds),
+        summary
+            .details
+            .iter()
+            .any(|detail| detail == &expected_import_kinds),
         "highlight summary should surface compiler import kinds: {:#?}",
         summary.details
     );
     assert!(
-        summary.details.iter().any(|detail| detail == &expected_intrinsics),
+        summary
+            .details
+            .iter()
+            .any(|detail| detail == &expected_intrinsics),
         "highlight summary should surface compiler intrinsic names: {:#?}",
         summary.details
     );
@@ -136,9 +149,8 @@ fn test_editor_sync_suite_lsp_keeps_model_boundary_diagnostics() {
         .collect::<Vec<_>>();
 
     assert!(
-        diagnostics
-            .iter()
-            .any(|message| message.contains("str requires heap support and is unavailable in 'fol_model = core'")),
+        diagnostics.iter().any(|message| message
+            .contains("str requires heap support and is unavailable in 'fol_model = core'")),
         "core example should keep model-aware diagnostics: {diagnostics:?}"
     );
 
@@ -251,14 +263,16 @@ fn test_editor_sync_suite_lsp_handles_bundled_std_definition_requests_without_ov
         })
         .unwrap()
         .unwrap();
-    let _definition: Option<LspLocation> = serde_json::from_value(response.result.unwrap()).unwrap();
+    let _definition: Option<LspLocation> =
+        serde_json::from_value(response.result.unwrap()).unwrap();
 
     std::fs::remove_dir_all(root).ok();
 }
 
 #[test]
 fn test_editor_sync_suite_lsp_handles_bundled_std_io_hover_and_definition_without_override() {
-    let source = "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::io::echo_int(7);\n};\n";
+    let source =
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::io::echo_int(7);\n};\n";
     let root = copied_example_root("examples/std_bundled_io");
     let source_path = root.join("src/main.fol");
     std::fs::write(&source_path, source).expect("should write example source");

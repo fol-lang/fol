@@ -94,7 +94,10 @@ pub fn fol_tree_sitter_query_snapshots() -> &'static [TreeSitterQuerySnapshot] {
 fn generate_highlights_query() -> String {
     HIGHLIGHTS_QUERY_BASE
         .replace("__FOL_SOURCE_KIND_LINES__", &render_source_kind_lines())
-        .replace("__FOL_CONTAINER_TYPE_LINES__", &render_container_type_lines())
+        .replace(
+            "__FOL_CONTAINER_TYPE_LINES__",
+            &render_container_type_lines(),
+        )
         .replace("__FOL_SHELL_TYPE_LINES__", &render_shell_type_lines())
         .replace(
             "__FOL_BUILTIN_TYPE_REGEX__",
@@ -157,7 +160,10 @@ mod tests {
     use std::process::Command;
 
     fn repo_root() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().expect("repo root should resolve")
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("repo root should resolve")
     }
 
     fn temp_root(label: &str) -> PathBuf {
@@ -288,7 +294,7 @@ mod tests {
             "check_expr",
             "unary_expr",
             "if_expr",
-            "select_expr",
+            "select_stmt",
             "range_expr",
             "anonymous_fun_expr",
             "anonymous_pro_expr",
@@ -406,7 +412,10 @@ mod tests {
 
     #[test]
     fn checked_in_highlight_query_matches_generated_output() {
-        assert_eq!(CHECKED_IN_HIGHLIGHTS_QUERY, fol_tree_sitter_highlights_query());
+        assert_eq!(
+            CHECKED_IN_HIGHLIGHTS_QUERY,
+            fol_tree_sitter_highlights_query()
+        );
     }
 
     #[test]
@@ -521,7 +530,6 @@ mod tests {
             "(if_expr \"if\" @keyword.conditional)",
             "(if_expr \"else\" @keyword.conditional)",
             "(select_stmt \"select\" @keyword.conditional)",
-            "(select_expr \"select\" @keyword.conditional)",
             "(when_expr \"when\" @keyword.conditional)",
             "(loop_expr \"loop\" @keyword.repeat)",
             "(while_stmt \"while\" @keyword.repeat)",
@@ -738,7 +746,9 @@ mod tests {
                 "symbols query lost declaration-family capture: {needle}"
             );
         }
-        for keyword in ["fun", "pro", "log", "typ", "ali", "var", "con", "lab", "seg", "std", "use"] {
+        for keyword in [
+            "fun", "pro", "log", "typ", "ali", "var", "con", "lab", "seg", "std", "use",
+        ] {
             assert!(
                 fol_typecheck::editor_declaration_keywords().contains(&keyword),
                 "compiler declaration keyword surface drifted away from symbols expectation for '{keyword}'"
@@ -763,6 +773,7 @@ mod tests {
             .iter()
             .any(|case| case.source.contains("use shared: loc")));
         assert!(corpus.iter().any(|case| case.source.contains("when(flag)")));
+        assert!(corpus.iter().any(|case| case.source.contains("[>]worker()")));
         assert!(corpus
             .iter()
             .any(|case| case.source.contains("report \"bad-input\"")));
@@ -812,9 +823,7 @@ mod tests {
                 source
             );
             assert!(
-                !source.contains("{std}")
-                    && !source.contains("{json}")
-                    && !source.contains("{../"),
+                !source.contains("{std}") && !source.contains("{json}") && !source.contains("{../"),
                 "editor fixture '{}' should not use stale unquoted import targets:\n{}",
                 relative,
                 source
@@ -1067,8 +1076,18 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
             );
             let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(stdout.contains("namespace"), "expected namespace captures for '{}':\n{}", relative, stdout);
-            assert!(stdout.contains("function"), "expected function captures for '{}':\n{}", relative, stdout);
+            assert!(
+                stdout.contains("namespace"),
+                "expected namespace captures for '{}':\n{}",
+                relative,
+                stdout
+            );
+            assert!(
+                stdout.contains("function"),
+                "expected function captures for '{}':\n{}",
+                relative,
+                stdout
+            );
         }
 
         std::fs::remove_dir_all(root).ok();
@@ -1161,11 +1180,7 @@ mod tests {
         );
         assert!(output.status.success());
         let stdout = String::from_utf8_lossy(&output.stdout);
-        for needle in [
-            "keyword.conditional",
-            "keyword.return",
-            "keyword.exception",
-        ] {
+        for needle in ["keyword.conditional", "keyword.return", "keyword.exception"] {
             assert!(
                 stdout.contains(needle),
                 "control/effect fixture lost keyword capture: {needle}\n{stdout}"
@@ -1251,11 +1266,7 @@ mod tests {
         );
         assert!(mixed_output.status.success());
         let mixed = String::from_utf8_lossy(&mixed_output.stdout);
-        for needle in [
-            "namespace",
-            "keyword.function",
-            "keyword.return",
-        ] {
+        for needle in ["namespace", "keyword.function", "keyword.return"] {
             assert!(
                 mixed.contains(needle),
                 "mixed import fixture lost keyword/import capture: {needle}\n{mixed}"
@@ -1423,11 +1434,7 @@ mod tests {
         );
         assert!(shell_output.status.success());
         let shell = String::from_utf8_lossy(&shell_output.stdout);
-        for needle in [
-            "type.builtin",
-            "constant.builtin",
-            "punctuation.bracket",
-        ] {
+        for needle in ["type.builtin", "constant.builtin", "punctuation.bracket"] {
             assert!(
                 shell.contains(needle),
                 "shell fixture lost snapshot capture: {needle}\n{shell}"
@@ -1506,6 +1513,127 @@ mod tests {
             (
                 repo_root().join("examples/core_dfr/src/main.fol"),
                 ["keyword.repeat", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_linked_list_m1/src/main.fol"),
+                ["operator", "type", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_tree_m1/src/main.fol"),
+                ["operator", "type", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_move_stack_vs_heap_m1/src/main.fol"),
+                ["operator", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_mem_use_after_move_m1/src/main.fol"),
+                ["operator", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_mem_recursive_value_m1/src/main.fol"),
+                ["type", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_mem_heap_in_core_m1/src/main.fol"),
+                ["operator", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_borrow_m2/src/main.fol"),
+                ["operator", "type", "variable"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_borrow_giveback_m2/src/main.fol"),
+                ["operator", "type", "variable"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_borrow_param_m2/src/main.fol"),
+                ["operator", "attribute", "variable.parameter"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_mut_borrow_m2/src/main.fol"),
+                ["operator", "type", "variable"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_edf_m2/src/main.fol"),
+                ["keyword.exception", "keyword.repeat", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_mem_owner_while_borrowed_m2/src/main.fol"),
+                ["type.builtin", "variable"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_mem_second_mut_borrow_m2/src/main.fol"),
+                ["type.builtin", "variable"].as_slice(),
+            ),
+            (
+                repo_root()
+                    .join("examples/fail_mem_mut_borrow_immutable_owner_m2/src/main.fol"),
+                ["type.builtin", "variable"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_ptr_unique_m3/src/main.fol"),
+                ["type.builtin", "operator", "variable"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_ptr_shared_m3/src/main.fol"),
+                ["type.builtin", "attribute", "operator"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/mem_ptr_shared_recursive_m3/src/main.fol"),
+                ["type.builtin", "attribute", "type"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_spawn_m1/src/main.fol"),
+                ["keyword", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_spawn_move_heap_m1/src/main.fol"),
+                ["keyword", "operator", "function"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_channel_m2/src/main.fol"),
+                ["type.builtin", "attribute", "operator"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_channel_pull_m2/src/main.fol"),
+                ["type.builtin", "attribute", "operator"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_channel_capture_m2/src/main.fol"),
+                ["type.builtin", "attribute", "keyword"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_channel_loop_m2/src/main.fol"),
+                ["type.builtin", "attribute", "keyword.repeat"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_select_m3/src/main.fol"),
+                ["keyword.conditional", "variable", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_mutex_m3/src/main.fol"),
+                ["attribute", "function", "property"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_mutex_explicit_unlock_m3/src/main.fol"),
+                ["attribute", "function", "property"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_async_await_m4/src/main.fol"),
+                ["keyword", "function", "type.builtin"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/proc_await_error_m4/src/main.fol"),
+                ["keyword", "function", "operator"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_mem_ptr_raw_m3/src/main.fol"),
+                ["type.builtin", "attribute"].as_slice(),
+            ),
+            (
+                repo_root().join("examples/fail_mem_ptr_in_core_m3/src/main.fol"),
+                ["type.builtin", "operator"].as_slice(),
             ),
             (
                 repo_root().join("examples/standards_protocol_m2/src/main.fol"),

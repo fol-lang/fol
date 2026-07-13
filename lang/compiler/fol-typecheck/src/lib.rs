@@ -16,14 +16,13 @@ pub mod types;
 
 pub use builtins::BuiltinTypeIds;
 pub use config::{TypecheckCapabilityModel, TypecheckConfig};
-pub use errors::{TypecheckError, TypecheckErrorKind};
 pub use editor::{
     editor_builtin_type_names, editor_container_type_names, editor_declaration_keywords,
-    editor_implemented_intrinsics, editor_intrinsic_available_in_model,
-    editor_model_capability, editor_shell_type_names, editor_source_kind_names,
-    editor_type_family_available_in_model, EditorIntrinsicInfo, EditorModelCapability,
-    EditorTypeFamily,
+    editor_implemented_intrinsics, editor_intrinsic_available_in_model, editor_model_capability,
+    editor_shell_type_names, editor_source_kind_names, editor_type_family_available_in_model,
+    EditorIntrinsicInfo, EditorModelCapability, EditorTypeFamily,
 };
+pub use errors::{TypecheckError, TypecheckErrorKind};
 pub use fol_parser::ast::ParsedSourceUnitKind;
 pub use model::{
     RecordFieldLayout, RecoverableCallEffect, TypedConformance, TypedConformanceClaim,
@@ -185,9 +184,9 @@ mod tests {
         );
 
         assert!(
-            errors
-                .iter()
-                .any(|error| error.message().contains("when expressions require a default branch")),
+            errors.iter().any(|error| error
+                .message()
+                .contains("when expressions require a default branch")),
             "typecheck should reject missing-default when expressions before lowering: {errors:#?}"
         );
     }

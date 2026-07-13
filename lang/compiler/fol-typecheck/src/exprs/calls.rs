@@ -3,8 +3,8 @@ use crate::{
     TypecheckError, TypecheckErrorKind, TypedProgram,
 };
 use fol_intrinsics::{
-    boolean_operand_contract, comparison_operand_contract, query_operand_contract, select_intrinsic,
-    wrong_arity_message, wrong_type_family_message, BooleanOperandContract,
+    boolean_operand_contract, comparison_operand_contract, query_operand_contract,
+    select_intrinsic, wrong_arity_message, wrong_type_family_message, BooleanOperandContract,
     ComparisonOperandContract, IntrinsicSelectionErrorKind, IntrinsicSurface, QueryOperandContract,
 };
 use fol_parser::ast::{AstNode, QualifiedPath, SyntaxNodeId, SyntaxOrigin};
@@ -14,11 +14,11 @@ use std::collections::BTreeMap;
 use super::helpers::{
     apparent_type_id, describe_type, ensure_assignable, internal_error, is_error_shell_type,
     merge_recoverable_effects, node_origin, observe_context, origin_for, plain_value_expr,
-    reject_recoverable_error_shell_conversion,
+    reject_recoverable_error_shell_conversion, unsupported_node_surface,
 };
-use super::{TypeContext, TypedExpr};
-use super::type_node_with_expectation;
 use super::type_node;
+use super::type_node_with_expectation;
+use super::{TypeContext, TypedExpr};
 
 pub(crate) fn type_function_call(
     typed: &mut TypedProgram,
@@ -392,7 +392,8 @@ fn type_query_intrinsic(
         });
     }
 
-    let core_dynamic_length_query = typed.capability_model() == crate::TypecheckCapabilityModel::Core
+    let core_dynamic_length_query = typed.capability_model()
+        == crate::TypecheckCapabilityModel::Core
         && matches!(
             typed.type_table().get(operand_apparent),
             Some(CheckedType::Builtin(crate::BuiltinType::Str))
@@ -706,6 +707,23 @@ pub(crate) fn type_method_call(
     method: &str,
     args: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
+    if method == "lock" || method == "unlock" {
+        if !typed.capability_model().supports_processor() {
+            return Err(unsupported_node_surface(
+                resolved,
+                node,
+                "mutex operations require hosted std support; declare the bundled internal standard dependency",
+            ));
+        }
+        if !args.is_empty() {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!("mutex .{method}() does not accept arguments"),
+            ));
+        }
+        let _ = type_node(typed, resolved, context, object)?;
+        return Ok(TypedExpr::none());
+    }
     let receiver_raw = type_node(typed, resolved, context, object)?;
     let receiver_expr = plain_value_expr(
         typed,
@@ -718,13 +736,8 @@ pub(crate) fn type_method_call(
         "method receiver for '{method}' does not have a type"
     ))?;
     let origin = node_origin(resolved, node).or_else(|| node_origin(resolved, object));
-    let signature = routine_signature_for_method(
-        typed,
-        method,
-        object_type,
-        origin.clone(),
-        node.syntax_id(),
-    )?;
+    let signature =
+        routine_signature_for_method(typed, method, object_type, origin.clone(), node.syntax_id())?;
     let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
@@ -875,12 +888,8 @@ fn routine_signature_for_method(
         // concrete object type. If it unifies, bind the routine generics and
         // monomorphize the signature here so downstream argument checking
         // sees a fully-concrete signature.
-        let signature = routine_signature_for_symbol(
-            typed,
-            typed.resolved(),
-            symbol_id,
-            origin.clone(),
-        )?;
+        let signature =
+            routine_signature_for_symbol(typed, typed.resolved(), symbol_id, origin.clone())?;
         if signature.generic_params.is_empty() {
             continue;
         }
@@ -996,9 +1005,7 @@ fn routine_signature_for_method(
     // default body. We only look for defaults when no direct receiver
     // routine was found, so explicit conformer overrides always win.
     if matches.is_empty() {
-        if let Some(type_symbol_id) =
-            crate::decls::conformance_subject_symbol(typed, object_type)
-        {
+        if let Some(type_symbol_id) = crate::decls::conformance_subject_symbol(typed, object_type) {
             if let Some(conformance) = typed.typed_conformance(type_symbol_id).cloned() {
                 for standard_symbol_id in conformance.standard_symbol_ids {
                     let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
@@ -1153,9 +1160,7 @@ pub(crate) fn check_call_arguments(
                     _ => {
                         return Err(TypecheckError::new(
                             TypecheckErrorKind::Internal,
-                            format!(
-                                "variadic call to '{callee}' lost its sequence parameter type"
-                            ),
+                            format!("variadic call to '{callee}' lost its sequence parameter type"),
                         ))
                     }
                 };
@@ -1165,7 +1170,13 @@ pub(crate) fn check_call_arguments(
                     let actual_expr = if contains_generics {
                         type_node(typed, resolved, context, arg)
                     } else {
-                        type_node_with_expectation(typed, resolved, context, arg, Some(element_type))
+                        type_node_with_expectation(
+                            typed,
+                            resolved,
+                            context,
+                            arg,
+                            Some(element_type),
+                        )
                     }
                     .map_err(|error| {
                         origin
@@ -1273,7 +1284,10 @@ fn infer_generic_bindings_from_argument(
     let expected = apparent_type_id(typed, expected)?;
     let actual_apparent = apparent_type_id(typed, actual)?;
 
-    match (typed.type_table().get(expected), typed.type_table().get(actual_apparent)) {
+    match (
+        typed.type_table().get(expected),
+        typed.type_table().get(actual_apparent),
+    ) {
         (
             Some(CheckedType::Declared {
                 symbol,
@@ -1509,11 +1523,9 @@ fn instantiate_signature_with_explicit_type_args(
             type_args.len()
         );
         return Err(match origin {
-            Some(origin) => TypecheckError::with_origin(
-                TypecheckErrorKind::InvalidInput,
-                message,
-                origin,
-            ),
+            Some(origin) => {
+                TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+            }
             None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
         });
     }
@@ -1577,7 +1589,10 @@ fn substitute_generic_type(
     origin: Option<SyntaxOrigin>,
 ) -> Result<CheckedTypeId, TypecheckError> {
     let Some(checked) = typed.type_table().get(type_id).cloned() else {
-        return Err(internal_error("generic substitution lost a checked type", origin));
+        return Err(internal_error(
+            "generic substitution lost a checked type",
+            origin,
+        ));
     };
 
     match checked {
@@ -1762,7 +1777,12 @@ fn bind_call_arguments<'a>(
         .iter()
         .any(|arg| matches!(arg, AstNode::NamedArgument { .. }));
     if signature.params.len() != args.len() && !has_named_args && !allow_defaults {
-        return Err(call_arity_error(signature.params.len(), args.len(), callee, origin));
+        return Err(call_arity_error(
+            signature.params.len(),
+            args.len(),
+            callee,
+            origin,
+        ));
     }
     if args.len() < signature.params.len()
         && !has_named_args
@@ -1773,7 +1793,12 @@ fn bind_call_arguments<'a>(
             .skip(args.len())
             .any(Option::is_none)
     {
-        return Err(call_arity_error(signature.params.len(), args.len(), callee, origin));
+        return Err(call_arity_error(
+            signature.params.len(),
+            args.len(),
+            callee,
+            origin,
+        ));
     }
 
     let mut ordered_args = vec![None; signature.params.len()];
@@ -1798,7 +1823,8 @@ fn bind_call_arguments<'a>(
                     ));
                 }
                 seen_named = true;
-                let Some(index) = signature.param_names.iter().position(|param| param == name) else {
+                let Some(index) = signature.param_names.iter().position(|param| param == name)
+                else {
                     return Err(TypecheckError::with_origin(
                         TypecheckErrorKind::InvalidInput,
                         format!("call to '{callee}' does not have a parameter named '{name}'"),
@@ -1872,7 +1898,12 @@ fn bind_call_arguments<'a>(
                     continue;
                 }
                 if next_positional >= ordered_args.len() {
-                    return Err(call_arity_error(signature.params.len(), args.len(), callee, origin));
+                    return Err(call_arity_error(
+                        signature.params.len(),
+                        args.len(),
+                        callee,
+                        origin,
+                    ));
                 }
                 ordered_args[next_positional] = Some(arg);
                 next_positional += 1;
@@ -1901,7 +1932,9 @@ fn bind_call_arguments<'a>(
             None if variadic_index == Some(index) => {
                 bound_args.push(BoundCallArg::VariadicPack(Vec::new()));
             }
-            None if allow_defaults && matches!(signature.param_defaults.get(index), Some(Some(_))) => {
+            None if allow_defaults
+                && matches!(signature.param_defaults.get(index), Some(Some(_))) =>
+            {
                 bound_args.push(BoundCallArg::Default);
             }
             None => {
@@ -1965,17 +1998,17 @@ pub(crate) fn type_for_reference(
         )
     })?;
     let symbol_id = reference.resolved.ok_or_else(|| {
-            TypecheckError::with_origin(
-                TypecheckErrorKind::InvalidInput,
-                "resolved reference lost its target symbol",
-                origin.clone().unwrap_or(SyntaxOrigin {
-                    file: None,
-                    line: 1,
-                    column: 1,
-                    length: 1,
-                }),
-            )
-        })?;
+        TypecheckError::with_origin(
+            TypecheckErrorKind::InvalidInput,
+            "resolved reference lost its target symbol",
+            origin.clone().unwrap_or(SyntaxOrigin {
+                file: None,
+                line: 1,
+                column: 1,
+                length: 1,
+            }),
+        )
+    })?;
     let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
     if let Some(CheckedType::Routine(signature)) = typed.type_table().get(type_id) {
         if !signature.generic_params.is_empty() {

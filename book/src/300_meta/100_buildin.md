@@ -205,15 +205,14 @@ These are intentionally reserved now so the language can grow without
 accidental user-space name collisions, but they are not part of the current
 `V1` compiler.
 
-### Reserved for later `V3`
+### Reserved for `V4` interop
 
 - `.de_alloc(...)`
-- `.give_back(...)`
-- `.address_of(...)`
-- `.pointer_value(...)`
-- `.borrow_from(...)`
 
-These depend on later ownership, pointer, and low-level systems semantics.
+Explicit deallocation is not part of the V3 memory model. Unique heap values
+drop implicitly, borrowing uses `#owner` and `!borrow`, and typed pointers use
+`&value` and `*pointer`. The old dot-root memory spellings are not reserved or
+supported aliases.
 
 ## Library-preferred surfaces
 

@@ -369,7 +369,7 @@ fn traverse_node_inner(
         | AstNode::Break
         | AstNode::AsyncStage
         | AstNode::AwaitStage => {}
-        AstNode::Dfr { syntax_id, body } => {
+        AstNode::Dfr { syntax_id, body } | AstNode::Edf { syntax_id, body } => {
             traverse_block_body(
                 session,
                 program,
@@ -635,7 +635,13 @@ fn traverse_node_inner(
                 ..
             } = semantic_node(node)
             {
-                types::resolve_type_reference(session, program, source_unit_id, scope_id, type_hint)?;
+                types::resolve_type_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    type_hint,
+                )?;
             }
             if let Some(value) = value {
                 traverse_node(
@@ -680,7 +686,13 @@ fn traverse_node_inner(
                 ..
             } = semantic_node(node)
             {
-                types::resolve_type_reference(session, program, source_unit_id, scope_id, type_hint)?;
+                types::resolve_type_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    type_hint,
+                )?;
             }
             if let Some(value) = value {
                 traverse_node(
@@ -725,7 +737,13 @@ fn traverse_node_inner(
                 ..
             } = semantic_node(node)
             {
-                types::resolve_type_reference(session, program, source_unit_id, scope_id, type_hint)?;
+                types::resolve_type_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    type_hint,
+                )?;
             }
             traverse_node(
                 session,
@@ -787,41 +805,54 @@ fn traverse_node_inner(
                 routine_context,
             )?;
         }
-        AstNode::Select {
-            channel,
-            binding,
-            body,
-        } => {
-            traverse_node(
-                session,
-                program,
-                source_unit_id,
-                scope_id,
-                channel,
-                false,
-                routine_context,
-            )?;
-            let select_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
-            if let Some(binding) = binding {
-                insert_local_symbol(
-                    program,
-                    source_unit_id,
-                    select_scope,
-                    binding,
-                    SymbolKind::ValueBinding,
-                    format!("symbol#{}", fol_types::canonical_identifier_key(binding)),
-                )?;
-            }
-            for statement in body {
+        AstNode::Select { arms, default } => {
+            for arm in arms {
                 traverse_node(
                     session,
                     program,
                     source_unit_id,
-                    select_scope,
-                    statement,
+                    scope_id,
+                    &arm.channel,
                     false,
                     routine_context,
                 )?;
+                let select_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
+                insert_local_symbol(
+                    program,
+                    source_unit_id,
+                    select_scope,
+                    &arm.binding,
+                    SymbolKind::ValueBinding,
+                    format!(
+                        "symbol#{}",
+                        fol_types::canonical_identifier_key(&arm.binding)
+                    ),
+                )?;
+                for statement in &arm.body {
+                    traverse_node(
+                        session,
+                        program,
+                        source_unit_id,
+                        select_scope,
+                        statement,
+                        false,
+                        routine_context,
+                    )?;
+                }
+            }
+            if let Some(default) = default {
+                let default_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
+                for statement in default {
+                    traverse_node(
+                        session,
+                        program,
+                        source_unit_id,
+                        default_scope,
+                        statement,
+                        false,
+                        routine_context,
+                    )?;
+                }
             }
         }
         AstNode::Block {
@@ -854,7 +885,13 @@ fn traverse_node_inner(
             }
         }
         AstNode::Inquiry { target, body } => {
-            inquiry::resolve_inquiry_target(program, source_unit_id, scope_id, target, routine_context)?;
+            inquiry::resolve_inquiry_target(
+                program,
+                source_unit_id,
+                scope_id,
+                target,
+                routine_context,
+            )?;
             for statement in body {
                 traverse_node(
                     session,

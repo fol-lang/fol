@@ -28,7 +28,8 @@
 //!
 //! Explicitly out of scope for this runtime crate:
 //!
-//! - ownership / borrowing / pointers
+//! - runtime ownership bookkeeping (V3 ownership remains compiler/backend work)
+//! - borrowing and pointers until their V3 milestones land
 //! - a runtime-owned generic reification model
 //! - object-style standards/dispatch machinery
 //! - concurrency runtime
@@ -192,12 +193,12 @@
 //! then optimize behind that contract.
 
 pub mod abi;
-pub mod memo;
 pub mod aggregate;
 pub mod builtins;
 pub mod containers;
 pub mod core;
 pub mod error;
+pub mod memo;
 pub mod shell;
 pub mod std;
 pub mod value;
@@ -269,7 +270,9 @@ mod tests {
 
         assert!(STD_SOURCE.contains("pub fn echo"));
         assert!(STD_SOURCE.contains("FolProcessOutcome"));
-        assert!(STD_SOURCE.contains("pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};"));
+        assert!(
+            STD_SOURCE.contains("pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};")
+        );
     }
 
     #[test]
@@ -350,9 +353,8 @@ mod tests {
 
     #[test]
     fn public_recoverable_abi_freezes_failure_path_through_model_modules() {
-        let value = memo::FolRecover::<memo::FolInt, memo::FolStr>::err(
-            memo::FolStr::from("bad-input"),
-        );
+        let value =
+            memo::FolRecover::<memo::FolInt, memo::FolStr>::err(memo::FolStr::from("bad-input"));
 
         assert!(memo::check_recoverable(&value));
         assert!(!memo::recoverable_succeeded(&value));
@@ -360,7 +362,10 @@ mod tests {
             value.error_ref().map(|error| error.as_str()),
             Some("bad-input")
         );
-        assert_eq!(Result::<memo::FolInt, memo::FolStr>::from(value), Err(memo::FolStr::from("bad-input")));
+        assert_eq!(
+            Result::<memo::FolInt, memo::FolStr>::from(value),
+            Err(memo::FolStr::from("bad-input"))
+        );
     }
 
     #[test]
@@ -384,7 +389,10 @@ mod tests {
         );
 
         assert_eq!(memo::unwrap_optional_shell(optional), Ok(7));
-        assert_eq!(memo::unwrap_error_shell(error_shell), memo::FolStr::from("broken"));
+        assert_eq!(
+            memo::unwrap_error_shell(error_shell),
+            memo::FolStr::from("broken")
+        );
         assert!(memo::check_recoverable(&recoverable));
     }
 }

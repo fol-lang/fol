@@ -61,7 +61,11 @@ fn emitted_crate_root(output: &std::process::Output) -> std::path::PathBuf {
         .find_map(|line| {
             let plain = strip_ansi(line);
             if let Some(tail) = plain.split("crate_root=").nth(1) {
-                return tail.split(" binary=").next().map(str::trim).map(str::to_string);
+                return tail
+                    .split(" binary=")
+                    .next()
+                    .map(str::trim)
+                    .map(str::to_string);
             }
             if plain.contains("emitted-rust") {
                 return plain.split_whitespace().last().map(str::to_string);
@@ -92,7 +96,9 @@ fn built_binary_path(output: &std::process::Output) -> std::path::PathBuf {
 
 fn example_declares_bundled_std(root: &std::path::Path) -> bool {
     std::fs::read_to_string(root.join("build.fol"))
-        .map(|source| source.contains("source = \"internal\"") && source.contains("target = \"standard\""))
+        .map(|source| {
+            source.contains("source = \"internal\"") && source.contains("target = \"standard\"")
+        })
         .unwrap_or(false)
 }
 
@@ -139,7 +145,8 @@ fn write_temp_app(root_name: &str, main_source: &str) -> std::path::PathBuf {
         ),
     )
     .expect("temp app build file should write");
-    std::fs::write(root.join("src/main.fol"), main_source).expect("temp app main source should write");
+    std::fs::write(root.join("src/main.fol"), main_source)
+        .expect("temp app main source should write");
     root
 }
 
@@ -148,6 +155,8 @@ fn temp_example_root(example_path: &str) -> std::path::PathBuf {
     let temp_root = unique_temp_root(&format!("example_copy_{}", example_path.replace('/', "_")));
     let target = temp_root.join("workspace");
     copy_dir_all(&source, &target);
+    std::fs::create_dir_all(target.join(".git"))
+        .expect("copied example workspace marker should be creatable");
     target
 }
 
@@ -479,8 +488,8 @@ fn test_fail_generic_cross_file_m1_example_rejects_cleanly() {
 
     let main = root.join("src/main.fol");
     let uri = format!("file://{}", main.display());
-    let text =
-        std::fs::read_to_string(&main).expect("cross-file generic misuse example source should load");
+    let text = std::fs::read_to_string(&main)
+        .expect("cross-file generic misuse example source should load");
     let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
     let diagnostics = server
         .handle_notification(fol_editor::JsonRpcNotification {
@@ -618,8 +627,8 @@ fn test_standards_protocol_multi_m2_example_opens_cleanly_and_runs() {
 
     let main = root.join("src/main.fol");
     let uri = format!("file://{}", main.display());
-    let text =
-        std::fs::read_to_string(&main).expect("multi-standard standards example source should load");
+    let text = std::fs::read_to_string(&main)
+        .expect("multi-standard standards example source should load");
     let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
     let diagnostics = server
         .handle_notification(fol_editor::JsonRpcNotification {
@@ -693,8 +702,8 @@ fn test_fail_standard_import_ambiguity_m2_example_rejects_cleanly() {
 
     let main = root.join("src/main.fol");
     let uri = format!("file://{}", main.display());
-    let text =
-        std::fs::read_to_string(&main).expect("imported-standard ambiguity example source should load");
+    let text = std::fs::read_to_string(&main)
+        .expect("imported-standard ambiguity example source should load");
     let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
     let diagnostics = server
         .handle_notification(fol_editor::JsonRpcNotification {
@@ -768,8 +777,8 @@ fn test_fail_generic_standard_constraint_m1m2_example_rejects_cleanly() {
 
     let main = root.join("src/main.fol");
     let uri = format!("file://{}", main.display());
-    let text = std::fs::read_to_string(&main)
-        .expect("generic-standard seam example source should load");
+    let text =
+        std::fs::read_to_string(&main).expect("generic-standard seam example source should load");
     let mut server = fol_editor::EditorLspServer::new(fol_editor::EditorConfig::default());
     let diagnostics = server
         .handle_notification(fol_editor::JsonRpcNotification {
@@ -1067,10 +1076,474 @@ fn test_fail_generic_recursive_m1m2_example_rejects_cleanly() {
         !check.status.success(),
         "recursive generic type example should fail semantic checking: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
+    assert!(combined.contains("recursive value type") && combined.contains("opt @"),
+        "recursive generic type should point at owned heap indirection: stdout=\n{stdout}\nstderr=\n{stderr}");
+}
+
+#[test]
+fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
+    for example in [
+        "examples/mem_linked_list_m1",
+        "examples/mem_tree_m1",
+        "examples/mem_move_stack_vs_heap_m1",
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(
+            build.status.success(),
+            "{example} should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let run = std::process::Command::new(built_binary_path(&build))
+            .output()
+            .expect("V3 memory example binary should run");
+        assert!(run.status.success(), "{example} should run successfully");
+
+        let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+            .into_iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(emitted.contains("Box<"));
+        assert!(emitted.contains("Box::new"));
+        if example.contains("linked_list") || example.contains("tree") {
+            assert!(emitted.contains("FolOption<Box<"));
+        } else {
+            assert!(emitted.contains(".clone()"));
+        }
+    }
+}
+
+#[test]
+fn test_v3_memory_m1_negative_examples_reject_at_the_chosen_boundaries() {
+    for (example, expected) in [
+        ("examples/fail_mem_use_after_move_m1", "O1001"),
+        (
+            "examples/fail_mem_recursive_value_m1",
+            "guard the recursive edge with owned heap indirection such as 'opt @Bad'",
+        ),
+        (
+            "examples/fail_mem_heap_in_core_m1",
+            "heap allocation binding requires heap support",
+        ),
+    ] {
+        let root = temp_example_root(example);
+        let check = run_fol_in_dir(&root, &["code", "check"]);
+        let combined = format!(
+            "{}\n{}",
+            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
+            strip_ansi(&String::from_utf8_lossy(&check.stderr))
+        );
+        assert!(!check.status.success(), "{example} should reject");
+        assert!(
+            combined.contains(expected),
+            "{example} should contain '{expected}', got:\n{combined}"
+        );
+    }
+}
+
+#[test]
+fn test_v3_memory_m2_examples_build_run_and_emit_borrows() {
+    for example in [
+        "examples/mem_borrow_m2",
+        "examples/mem_borrow_giveback_m2",
+        "examples/mem_borrow_param_m2",
+        "examples/mem_mut_borrow_m2",
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(
+            build.status.success(),
+            "{example} should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let run = std::process::Command::new(built_binary_path(&build))
+            .output()
+            .expect("V3 memory borrow example binary should run");
+        assert!(run.status.success(), "{example} should run successfully");
+
+        let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+            .into_iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(emitted.contains("&"), "{example} should emit references");
+        if example.contains("giveback") {
+            assert!(emitted.contains("drop("));
+        }
+        if example.contains("mut_borrow") {
+            assert!(emitted.contains("&mut "));
+        }
+    }
+
+    let root = temp_example_root("examples/mem_edf_m2");
+    let build = run_example_compile(&root, true);
     assert!(
-        combined.contains("recursive type") && combined.contains("not yet supported"),
-        "recursive generic type should keep the honest boundary diagnostic: stdout=\n{stdout}\nstderr=\n{stderr}"
+        build.status.success(),
+        "edf example should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
     );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("edf example binary should run");
+    assert!(run.status.success());
+    assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "1\n1\n2\n");
+}
+
+#[test]
+fn test_v3_memory_m2_negative_examples_reject_at_the_chosen_boundaries() {
+    for (example, expected) in [
+        ("examples/fail_mem_owner_while_borrowed_m2", "O2001"),
+        ("examples/fail_mem_second_mut_borrow_m2", "O2002"),
+        (
+            "examples/fail_mem_mut_borrow_immutable_owner_m2",
+            "O2003",
+        ),
+    ] {
+        let root = temp_example_root(example);
+        let check = run_fol_in_dir(&root, &["code", "check"]);
+        let combined = format!(
+            "{}\n{}",
+            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
+            strip_ansi(&String::from_utf8_lossy(&check.stderr))
+        );
+        assert!(!check.status.success(), "{example} should reject");
+        assert!(
+            combined.contains(expected),
+            "{example} should contain '{expected}', got:\n{combined}"
+        );
+    }
+}
+
+#[test]
+fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
+    for example in [
+        "examples/mem_ptr_unique_m3",
+        "examples/mem_ptr_shared_m3",
+        "examples/mem_ptr_shared_recursive_m3",
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(
+            build.status.success(),
+            "{example} should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let run = std::process::Command::new(built_binary_path(&build))
+            .output()
+            .expect("V3 typed-pointer example binary should run");
+        assert!(run.status.success(), "{example} should run successfully");
+
+        let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+            .into_iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if example.contains("unique") {
+            assert!(emitted.contains("Box<"));
+            assert!(emitted.contains("Box::new"));
+            assert!(emitted.contains("*l__"), "unique pointer should dereference");
+            assert!(
+                emitted.lines().any(|line| {
+                    line.trim_start().starts_with("*l__") && line.contains("__pointer =")
+                }),
+                "unique pointer example should emit a dereference store"
+            );
+        } else {
+            assert!(emitted.contains("std::rc::Rc<"));
+            assert!(emitted.contains("std::rc::Rc::new"));
+            assert!(emitted.contains(".clone()"));
+        }
+    }
+}
+
+#[test]
+fn test_v3_memory_m3_negative_examples_reject_at_the_chosen_boundaries() {
+    for (example, expected) in [
+        (
+            "examples/fail_mem_ptr_raw_m3",
+            "raw pointers are a V4 interop surface",
+        ),
+        (
+            "examples/fail_mem_ptr_in_core_m3",
+            "pointer construction requires heap support",
+        ),
+    ] {
+        let root = temp_example_root(example);
+        let check = run_fol_in_dir(&root, &["code", "check"]);
+        let combined = format!(
+            "{}\n{}",
+            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
+            strip_ansi(&String::from_utf8_lossy(&check.stderr))
+        );
+        assert!(!check.status.success(), "{example} should reject");
+        assert!(
+            combined.contains(expected),
+            "{example} should contain '{expected}', got:\n{combined}"
+        );
+    }
+}
+
+#[test]
+fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
+    for (example, expected_output) in [
+        ("examples/proc_spawn_m1", "17\n"),
+        ("examples/proc_spawn_move_heap_m1", "29\n"),
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(
+            build.status.success(),
+            "{example} should build: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let run = std::process::Command::new(built_binary_path(&build))
+            .output()
+            .expect("V3 spawn example binary should run");
+        assert!(run.status.success(), "{example} should run successfully");
+        assert_eq!(
+            strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+            expected_output,
+            "{example} must finish its spawned work before process exit"
+        );
+
+        let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+            .into_iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(emitted.contains("rt::spawn_task(move ||"));
+        assert!(emitted.contains("rt::join_all_tasks()"));
+        if example.contains("move_heap") {
+            assert!(emitted.contains(" = *l__"));
+        }
+    }
+}
+
+#[test]
+fn test_v3_processor_m1_spawn_negative_examples_reject() {
+    for (example, expected, needs_std) in [
+        (
+            "examples/fail_proc_spawn_in_memo_m1",
+            "spawn requires hosted std support",
+            false,
+        ),
+        (
+            "examples/fail_proc_spawn_rc_cross_m1",
+            "shared Rc pointers cannot cross a spawn boundary",
+            true,
+        ),
+        (
+            "examples/fail_proc_spawn_recoverable_m1",
+            "spawning a recoverable routine without await discards its error",
+            true,
+        ),
+        (
+            "examples/fail_proc_spawn_heap_use_after_move_m1",
+            "use of moved heap-owned binding 'owned'",
+            true,
+        ),
+    ] {
+        let root = temp_example_root(example);
+        let check = if needs_std {
+            run_fol_with_store_in_dir(
+                &root,
+                &repo_root().join("lang/library"),
+                &["code", "check"],
+            )
+        } else {
+            run_fol_in_dir(&root, &["code", "check"])
+        };
+        let combined = format!(
+            "{}\n{}",
+            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
+            strip_ansi(&String::from_utf8_lossy(&check.stderr))
+        );
+        assert!(!check.status.success(), "{example} should reject");
+        assert!(
+            combined.contains(expected),
+            "{example} should contain '{expected}', got:\n{combined}"
+        );
+    }
+}
+
+#[test]
+fn test_v3_processor_m2_channel_examples_build_and_run() {
+    for (example, expected_output) in [
+        ("examples/proc_channel_m2", "42\n"),
+        ("examples/proc_channel_pull_m2", "41\n"),
+        ("examples/proc_channel_capture_m2", "42\n"),
+        ("examples/proc_channel_loop_m2", "42\n"),
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(build.status.success(), "{example} should build");
+        let run = std::process::Command::new(built_binary_path(&build))
+            .output()
+            .expect("V3 channel example binary should run");
+        assert!(run.status.success(), "{example} should run successfully");
+        assert_eq!(
+            strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+            expected_output
+        );
+    }
+}
+
+#[test]
+fn test_v3_processor_m2_channel_negative_examples_reject() {
+    for (example, expected, needs_std) in [
+        (
+            "examples/fail_proc_channel_index_m2",
+            "channel receivers are blocking pull expressions and cannot be indexed",
+            true,
+        ),
+        (
+            "examples/fail_proc_channel_in_core_m2",
+            "channel types require hosted std support",
+            false,
+        ),
+    ] {
+        let root = temp_example_root(example);
+        let check = if needs_std {
+            run_fol_with_store_in_dir(
+                &root,
+                &repo_root().join("lang/library"),
+                &["code", "check"],
+            )
+        } else {
+            run_fol_in_dir(&root, &["code", "check"])
+        };
+        let combined = format!(
+            "{}\n{}",
+            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
+            strip_ansi(&String::from_utf8_lossy(&check.stderr))
+        );
+        assert!(!check.status.success(), "{example} should reject");
+        assert!(combined.contains(expected), "{combined}");
+    }
+}
+
+#[test]
+fn test_v3_processor_m3_select_and_mutex_examples_build_and_run() {
+    for (example, expected_output) in [
+        ("examples/proc_select_m3", "42\n"),
+        ("examples/proc_mutex_m3", "1\n2\n"),
+        ("examples/proc_mutex_explicit_unlock_m3", "42\n"),
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(build.status.success(), "{example} should build");
+        let run = std::process::Command::new(built_binary_path(&build))
+            .output()
+            .expect("V3 select/mutex example binary should run");
+        assert!(run.status.success(), "{example} should run successfully");
+        assert_eq!(
+            strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+            expected_output
+        );
+    }
+}
+
+#[test]
+fn test_v3_processor_m3_dead_and_tier_forms_reject() {
+    for (example, expected, needs_std) in [
+        (
+            "examples/fail_proc_select_old_form_m3",
+            "old select(channel as binding) form is not supported",
+            true,
+        ),
+        (
+            "examples/fail_proc_mutex_double_paren_m3",
+            "Expected generic parameter name",
+            true,
+        ),
+        (
+            "examples/fail_proc_mutex_in_memo_m3",
+            "mutex parameters require hosted std support",
+            false,
+        ),
+    ] {
+        let root = temp_example_root(example);
+        let check = if needs_std {
+            run_fol_with_store_in_dir(
+                &root,
+                &repo_root().join("lang/library"),
+                &["code", "check"],
+            )
+        } else {
+            run_fol_in_dir(&root, &["code", "check"])
+        };
+        let combined = format!(
+            "{}\n{}",
+            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
+            strip_ansi(&String::from_utf8_lossy(&check.stderr))
+        );
+        assert!(!check.status.success(), "{example} should reject");
+        assert!(combined.contains(expected), "{combined}");
+    }
+}
+
+#[test]
+fn test_v3_processor_m4_eventual_examples_build_and_run() {
+    for example in [
+        "examples/proc_async_await_m4",
+        "examples/proc_await_error_m4",
+    ] {
+        let root = temp_example_root(example);
+        let build = run_example_compile(&root, true);
+        assert!(build.status.success(), "{example} should build");
+        let run = std::process::Command::new(built_binary_path(&build))
+            .output()
+            .expect("V3 eventual example binary should run");
+        assert!(run.status.success(), "{example} should run successfully");
+        assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "42\n");
+        let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+            .into_iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(emitted.contains("rt::spawn_eventual(move ||"));
+        assert!(emitted.contains(".await_value()"));
+    }
+}
+
+#[test]
+fn test_v3_processor_m4_eventual_negative_examples_reject() {
+    for (example, expected, needs_std) in [
+        (
+            "examples/fail_proc_evt_named_m4",
+            "eventual types are internal in V3 and cannot be named",
+            true,
+        ),
+        (
+            "examples/fail_proc_async_in_core_m4",
+            "async pipe stages require hosted std support",
+            false,
+        ),
+    ] {
+        let root = temp_example_root(example);
+        let check = if needs_std {
+            run_fol_with_store_in_dir(
+                &root,
+                &repo_root().join("lang/library"),
+                &["code", "check"],
+            )
+        } else {
+            run_fol_in_dir(&root, &["code", "check"])
+        };
+        let combined = format!(
+            "{}\n{}",
+            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
+            strip_ansi(&String::from_utf8_lossy(&check.stderr))
+        );
+        assert!(!check.status.success(), "{example} should reject");
+        assert!(combined.contains(expected), "{combined}");
+    }
 }
 
 #[test]
@@ -1118,7 +1591,6 @@ fn test_generic_type_exec_m1m2_example_builds_and_runs() {
     );
     assert!(stdout.contains("42") || stderr.contains("42"));
 }
-
 
 #[test]
 fn test_nested_generic_types_build_and_run() {
@@ -1302,7 +1774,8 @@ fn write_formal_model_package(
         ),
     )
     .expect("should write package build");
-    std::fs::write(root.join("src").join(source_name), source).expect("should write package source");
+    std::fs::write(root.join("src").join(source_name), source)
+        .expect("should write package source");
 }
 
 fn write_model_app_package(
@@ -2181,7 +2654,10 @@ fn test_build_fixture_mixed_models_workspace_keeps_per_artifact_models() {
         mem.fol_model,
         fol_package::build_artifact::BuildArtifactFolModel::Memo
     );
-    assert_eq!(tool.fol_model, fol_package::build_artifact::BuildArtifactFolModel::Memo);
+    assert_eq!(
+        tool.fol_model,
+        fol_package::build_artifact::BuildArtifactFolModel::Memo
+    );
 
     let run = run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "run"]);
     assert!(
@@ -2430,7 +2906,11 @@ fn test_std_artifact_accepts_mixed_core_and_mem_pkg_dependencies() {
     let bundled_std_root =
         fol_package::available_bundled_std_root().expect("bundled std root should exist");
     copy_dir_all(&bundled_std_root, &store_root.join("std"));
-    let build = run_fol_with_store_in_dir(&app_root, &store_root, &["code", "build", "--keep-build-dir"]);
+    let build = run_fol_with_store_in_dir(
+        &app_root,
+        &store_root,
+        &["code", "build", "--keep-build-dir"],
+    );
     let build_stdout = String::from_utf8_lossy(&build.stdout);
     assert!(
         build.status.success(),
@@ -2499,7 +2979,11 @@ fn test_std_consumer_of_mem_pkg_dependency_emits_std_runtime_only() {
     let bundled_std_root =
         fol_package::available_bundled_std_root().expect("bundled std root should exist");
     copy_dir_all(&bundled_std_root, &store_root.join("std"));
-    let build = run_fol_with_store_in_dir(&app_root, &store_root, &["code", "build", "--keep-build-dir"]);
+    let build = run_fol_with_store_in_dir(
+        &app_root,
+        &store_root,
+        &["code", "build", "--keep-build-dir"],
+    );
     assert!(
         build.status.success(),
         "std memo-consumer build should succeed: stdout=\n{}\nstderr=\n{}",
@@ -2542,7 +3026,11 @@ fn test_core_illegal_dependency_failure_happens_before_emission() {
         false,
     );
 
-    let build = run_fol_with_store_in_dir(&app_root, &store_root, &["code", "build", "--keep-build-dir"]);
+    let build = run_fol_with_store_in_dir(
+        &app_root,
+        &store_root,
+        &["code", "build", "--keep-build-dir"],
+    );
     assert!(
         !build.status.success(),
         "illegal core memo-consumer should fail: stdout=\n{}\nstderr=\n{}",
@@ -2560,7 +3048,12 @@ fn test_core_illegal_dependency_failure_happens_before_emission() {
 #[test]
 fn test_build_fixtures_emit_runtime_imports_for_each_model() {
     let cases = [
-        ( "core", false, "fun[] main(): int = {\n    return 7;\n};\n", "core"),
+        (
+            "core",
+            false,
+            "fun[] main(): int = {\n    return 7;\n};\n",
+            "core",
+        ),
         (
             "memo",
             false,
@@ -2672,17 +3165,20 @@ fn test_cli_build_emits_rust_for_model_examples() {
         ),
         ("examples/build_system_lib", "use fol_runtime::memo as rt;"),
         ("examples/build_system_tool", "use fol_runtime::memo as rt;"),
-        ("examples/build_source_paths", "use fol_runtime::memo as rt;"),
+        (
+            "examples/build_source_paths",
+            "use fol_runtime::memo as rt;",
+        ),
         ("examples/core_blink_shape", "use fol_runtime::core as rt;"),
         ("examples/core_dfr", "use fol_runtime::core as rt;"),
         ("examples/core_records", "use fol_runtime::core as rt;"),
-        ("examples/core_surface_showcase", "use fol_runtime::core as rt;"),
+        (
+            "examples/core_surface_showcase",
+            "use fol_runtime::core as rt;",
+        ),
         ("examples/memo_defaults", "use fol_runtime::memo as rt;"),
         ("examples/memo_containers", "use fol_runtime::memo as rt;"),
-        (
-            "examples/memo_collections",
-            "use fol_runtime::memo as rt;",
-        ),
+        ("examples/memo_collections", "use fol_runtime::memo as rt;"),
         (
             "examples/memo_surface_showcase",
             "use fol_runtime::memo as rt;",
@@ -2692,7 +3188,10 @@ fn test_cli_build_emits_rust_for_model_examples() {
         ("examples/std_explicit_pkg", "use fol_runtime::std as rt;"),
         ("examples/std_echo_min", "use fol_runtime::std as rt;"),
         ("examples/std_named_calls", "use fol_runtime::std as rt;"),
-        ("examples/std_surface_showcase", "use fol_runtime::std as rt;"),
+        (
+            "examples/std_surface_showcase",
+            "use fol_runtime::std as rt;",
+        ),
     ];
 
     for (path, expected_import) in cases {
@@ -2939,7 +3438,10 @@ fn test_bundled_std_discovery_stays_coherent_across_cli_and_editor() {
             ),
         })
         .expect("definition request should succeed");
-    assert!(definition.is_some(), "bundled std definition request should complete");
+    assert!(
+        definition.is_some(),
+        "bundled std definition request should complete"
+    );
 }
 
 #[test]
@@ -2957,7 +3459,10 @@ fn test_bundled_std_io_example_builds_and_runs_without_override() {
         .output()
         .expect("bundled std.io example should run");
     let stdout = String::from_utf8_lossy(&run.stdout);
-    assert!(run.status.success(), "bundled std.io example should execute");
+    assert!(
+        run.status.success(),
+        "bundled std.io example should execute"
+    );
     assert!(
         stdout.contains("std-io"),
         "bundled std.io example should print through the std.io wrapper: stdout=\n{}\nstderr=\n{}",
@@ -3000,7 +3505,10 @@ fn test_bundled_std_alias_example_builds_with_materialized_alias_root() {
     let run = std::process::Command::new(&binary)
         .output()
         .expect("bundled std alias example should run");
-    assert!(run.status.success(), "bundled std alias example should execute");
+    assert!(
+        run.status.success(),
+        "bundled std alias example should execute"
+    );
     assert!(String::from_utf8_lossy(&run.stdout).contains("10"));
 }
 
@@ -3090,7 +3598,9 @@ fn test_build_rejects_std_imports_under_core_model() {
     let stderr = String::from_utf8_lossy(&build.stderr);
     assert!(!build.status.success(), "core std-import app should fail");
     assert!(
-        stderr.contains("bundled std imports require 'fol_model = memo'; current artifact model is 'core'"),
+        stderr.contains(
+            "bundled std imports require 'fol_model = memo'; current artifact model is 'core'"
+        ),
         "core std-import app should keep the capability diagnostic: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         stderr
@@ -3123,7 +3633,10 @@ fn test_build_rejects_std_imports_without_declared_dependency() {
 
     let build = run_fol_in_dir(&app_root, &["code", "build"]);
     let stderr = String::from_utf8_lossy(&build.stderr);
-    assert!(!build.status.success(), "memo std-import app should fail without declared dependency");
+    assert!(
+        !build.status.success(),
+        "memo std-import app should fail without declared dependency"
+    );
     assert!(
         stderr.contains(".fol/pkg/std") || stderr.contains("resolver pkg import target"),
         "memo std-import app should fail because bundled std is dependency-backed: stdout=\n{}\nstderr=\n{}",
@@ -3137,7 +3650,8 @@ fn test_final_std_contract_negative_paths_fail_cleanly() {
     let temp_root = unique_temp_root("final_std_contract_negatives");
 
     let old_std_mode = temp_root.join("old_std_mode");
-    std::fs::create_dir_all(old_std_mode.join("src")).expect("should create std-mode app source root");
+    std::fs::create_dir_all(old_std_mode.join("src"))
+        .expect("should create std-mode app source root");
     std::fs::write(
         old_std_mode.join("build.fol"),
         concat!(
@@ -3150,8 +3664,11 @@ fn test_final_std_contract_negative_paths_fail_cleanly() {
         ),
     )
     .expect("should write std-mode build");
-    std::fs::write(old_std_mode.join("src/main.fol"), "fun[] main(): int = { return 0; };\n")
-        .expect("should write std-mode main");
+    std::fs::write(
+        old_std_mode.join("src/main.fol"),
+        "fun[] main(): int = { return 0; };\n",
+    )
+    .expect("should write std-mode main");
     let old_std_mode_output = run_fol_in_dir(&old_std_mode, &["code", "build"]);
     let old_std_mode_stderr = String::from_utf8_lossy(&old_std_mode_output.stderr);
     assert!(
@@ -3168,7 +3685,8 @@ fn test_final_std_contract_negative_paths_fail_cleanly() {
     );
 
     let bad_internal = temp_root.join("bad_internal_target");
-    std::fs::create_dir_all(bad_internal.join("src")).expect("should create bad-internal app source root");
+    std::fs::create_dir_all(bad_internal.join("src"))
+        .expect("should create bad-internal app source root");
     std::fs::write(
         bad_internal.join("build.fol"),
         concat!(
@@ -3182,8 +3700,11 @@ fn test_final_std_contract_negative_paths_fail_cleanly() {
         ),
     )
     .expect("should write bad-internal build");
-    std::fs::write(bad_internal.join("src/main.fol"), "fun[] main(): int = { return 0; };\n")
-        .expect("should write bad-internal main");
+    std::fs::write(
+        bad_internal.join("src/main.fol"),
+        "fun[] main(): int = { return 0; };\n",
+    )
+    .expect("should write bad-internal main");
     let bad_internal_output = run_fol_in_dir(&bad_internal, &["code", "build"]);
     let bad_internal_stderr = String::from_utf8_lossy(&bad_internal_output.stderr);
     assert!(
@@ -3909,7 +4430,8 @@ fn test_cli_build_and_run_mixed_model_example_workspace() {
         a.name == "tool" && a.fol_model == fol_package::build_artifact::BuildArtifactFolModel::Memo
     }));
 
-    let build = run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "build"]);
+    let build =
+        run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "build"]);
     assert!(
         build.status.success(),
         "mixed-model example should build: stdout=\n{}\nstderr=\n{}",
@@ -4080,7 +4602,10 @@ fn test_cli_run_rejects_ambiguous_non_std_models_with_resolved_models() {
 
     let run = run_fol_in_dir(&root, &["code", "run"]);
     let stderr = String::from_utf8_lossy(&run.stderr);
-    assert!(!run.status.success(), "mixed non-std route should be rejected");
+    assert!(
+        !run.status.success(),
+        "mixed non-std route should be rejected"
+    );
     assert!(stderr.contains("requires an explicit named step"));
     assert!(stderr.contains("resolved model(s): core, memo"));
 
@@ -4150,7 +4675,10 @@ fn test_cli_run_reports_missing_entry_step_separately_from_model_rejection() {
 
     let run = run_fol_in_dir(&root, &["code", "run"]);
     let stderr = String::from_utf8_lossy(&run.stderr);
-    assert!(!run.status.success(), "missing entry route should be rejected");
+    assert!(
+        !run.status.success(),
+        "missing entry route should be rejected"
+    );
     assert!(stderr.contains("workspace build execution does not define step 'run'"));
     assert!(stderr.contains("known steps:"));
     assert!(stderr.contains("docs"));
@@ -4163,10 +4691,7 @@ fn test_cli_examples_emit_runtime_imports_in_generated_package_sources() {
     let cases = [
         ("examples/core_blink_shape", "use fol_runtime::core as rt;"),
         ("examples/core_dfr", "use fol_runtime::core as rt;"),
-        (
-            "examples/memo_collections",
-            "use fol_runtime::memo as rt;",
-        ),
+        ("examples/memo_collections", "use fol_runtime::memo as rt;"),
         ("examples/memo_defaults", "use fol_runtime::memo as rt;"),
         (
             "examples/build_generated_dirs",
@@ -4288,7 +4813,10 @@ fn test_std_logtiny_git_example_builds_against_local_git_remote() {
                 &format!("target = \"git+file://{}\",", remote_root.display()),
             )
             .replace("version = \"tag:v0.1.3\",", "version = \"tag:v0.1.0\",")
-            .replace("hash = \"b242d319644a\",", &format!("hash = \"{short_hash}\",")),
+            .replace(
+                "hash = \"b242d319644a\",",
+                &format!("hash = \"{short_hash}\","),
+            ),
     )
     .expect("git example build file should rewrite");
 
@@ -4378,11 +4906,7 @@ fn test_std_logtiny_git_example_supports_branch_tag_commit_and_hash_fields() {
             Some(hash_line) => build_source.replace("hash = \"b242d319644a\",", &hash_line),
             None => build_source.replace("        hash = \"b242d319644a\",\n", ""),
         };
-        std::fs::write(
-            &build_path,
-            build_source,
-        )
-        .expect("git example build file should rewrite");
+        std::fs::write(&build_path, build_source).expect("git example build file should rewrite");
 
         let fetch = run_fol_in_dir(&example_root, &["pack", "fetch"]);
         assert!(
@@ -4454,7 +4978,8 @@ fn test_mixed_model_example_keeps_graph_models_and_std_emission() {
 #[test]
 fn test_work_info_surfaces_model_distribution_for_mixed_model_example() {
     let root = temp_example_root("examples/mixed_models_workspace");
-    let info = run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["work", "info"]);
+    let info =
+        run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["work", "info"]);
     let stdout = String::from_utf8_lossy(&info.stdout);
     assert!(
         info.status.success(),
@@ -4566,15 +5091,12 @@ fn test_book_summary_includes_the_build_direction_page() {
 
 #[test]
 fn test_v2_current_subset_inventory_stays_honest() {
-    let generics_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
-            .expect("generic milestone note should load");
-    let standards_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
-            .expect("standards milestone note should load");
-    let versions =
-        std::fs::read_to_string(repo_root().join("plan/VERSIONS.md"))
-            .expect("version note should load");
+    let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+        .expect("generic milestone note should load");
+    let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+        .expect("standards milestone note should load");
+    let versions = std::fs::read_to_string(repo_root().join("plan/VERSIONS.md"))
+        .expect("version note should load");
 
     assert!(generics_note.contains("examples/generic_routine_m1"));
     assert!(generics_note.contains("examples/generic_routine_pair_m1"));
@@ -4598,7 +5120,8 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(standards_note.contains("examples/fail_standard_missing_routine_m2"));
     assert!(standards_note.contains("examples/fail_standard_signature_m2"));
     assert!(standards_note.contains("examples/fail_standard_import_ambiguity_m2"));
-    assert!(standards_note.contains("lowering now preserves protocol-standard and conformance metadata"));
+    assert!(standards_note
+        .contains("lowering now preserves protocol-standard and conformance metadata"));
     assert!(standards_note.contains("ordinary receiver-qualified routine emission"));
     assert!(standards_note.contains("not through a second"));
     assert!(standards_note.contains("multi-standard conformance on one type"));
@@ -4612,9 +5135,8 @@ fn test_v2_current_subset_inventory_stays_honest() {
 
 #[test]
 fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
-    let contract =
-        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
-            .expect("full V2 contract note should load");
+    let contract = std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+        .expect("full V2 contract note should load");
 
     assert!(contract.contains("executable generic routines"));
     assert!(contract.contains("generic types"));
@@ -4627,9 +5149,8 @@ fn test_v2_full_contract_note_exists_and_freezes_the_target_scope() {
 
 #[test]
 fn test_v2_runtime_strategy_note_freezes_monomorphization() {
-    let strategy =
-        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
-            .expect("V2 runtime strategy note should load");
+    let strategy = std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+        .expect("V2 runtime strategy note should load");
 
     assert!(strategy.contains("monomorphization for executable generic routines"));
     assert!(strategy.contains("monomorphization for generic type instantiations"));
@@ -4642,36 +5163,36 @@ fn test_runtime_crate_docs_align_with_the_v2_monomorphization_boundary() {
     let runtime_docs =
         std::fs::read_to_string(repo_root().join("lang/execution/fol-runtime/src/lib.rs"))
             .expect("runtime crate docs should load");
-    let strategy =
-        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
-            .expect("V2 runtime strategy note should load");
+    let strategy = std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+        .expect("V2 runtime strategy note should load");
 
     assert!(runtime_docs.contains("a runtime-owned generic reification model"));
     assert!(runtime_docs.contains("object-style standards/dispatch machinery"));
-    assert!(runtime_docs.contains("Full `V2` generics, generic types, and procedural standards still execute"));
+    assert!(runtime_docs
+        .contains("Full `V2` generics, generic types, and procedural standards still execute"));
     assert!(runtime_docs.contains("does not define a second witness/dictionary system"));
     assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
 }
 
 #[test]
 fn test_v2_standards_docs_keep_execution_semantics_procedural() {
-    let standards_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
-            .expect("standards milestone note should load");
+    let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+        .expect("standards milestone note should load");
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
 
     assert!(standards_note.contains("ordinary receiver-qualified routine emission"));
-    assert!(standards_note.contains("docs must not imply that lowered protocol metadata creates a runtime witness"));
-    assert!(standards_book.contains("ordinary receiver-qualified routine calls, not through a runtime object model"));
+    assert!(standards_note
+        .contains("docs must not imply that lowered protocol metadata creates a runtime witness"));
+    assert!(standards_book
+        .contains("ordinary receiver-qualified routine calls, not through a runtime object model"));
 }
 
 #[test]
 fn test_v2_standards_execution_stays_free_of_runtime_dispatch_artifacts() {
-    let strategy =
-        std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
-            .expect("V2 runtime strategy note should load");
+    let strategy = std::fs::read_to_string(repo_root().join("docs/v2-runtime-strategy.md"))
+        .expect("V2 runtime strategy note should load");
 
     for example in [
         "examples/standards_protocol_m2",
@@ -4687,8 +5208,8 @@ fn test_v2_standards_execution_stays_free_of_runtime_dispatch_artifacts() {
         );
         let generated = find_file_by_name(&emitted_crate_root(&build), "main.rs")
             .expect("generated backend source should exist");
-        let source = std::fs::read_to_string(&generated)
-            .expect("generated backend source should load");
+        let source =
+            std::fs::read_to_string(&generated).expect("generated backend source should load");
         for forbidden in ["dyn ", "vtable", "witness", "dictionary"] {
             assert!(
                 !source.contains(forbidden),
@@ -4704,12 +5225,10 @@ fn test_v2_standards_execution_stays_free_of_runtime_dispatch_artifacts() {
 
 #[test]
 fn test_editor_docs_track_the_current_shipped_v2_subset() {
-    let editor_sync =
-        std::fs::read_to_string(repo_root().join("docs/editor-sync.md"))
-            .expect("editor sync note should load");
-    let lsp_book =
-        std::fs::read_to_string(repo_root().join("book/src/050_tooling/500_lsp.md"))
-            .expect("LSP book chapter should load");
+    let editor_sync = std::fs::read_to_string(repo_root().join("docs/editor-sync.md"))
+        .expect("editor sync note should load");
+    let lsp_book = std::fs::read_to_string(repo_root().join("book/src/050_tooling/500_lsp.md"))
+        .expect("LSP book chapter should load");
 
     assert!(editor_sync.contains("generic-type"));
     assert!(editor_sync.contains("constrained-generic"));
@@ -4735,9 +5254,8 @@ fn test_editor_docs_track_the_current_shipped_v2_subset() {
 
 #[test]
 fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
-    let contract =
-        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
-            .expect("full V2 contract note should load");
+    let contract = std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+        .expect("full V2 contract note should load");
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
@@ -4745,16 +5263,16 @@ fn test_v2_generic_type_contract_is_frozen_in_docs_and_book() {
     assert!(contract.contains("Full `V2` includes generic types."));
     assert!(contract.contains("typ Box(T: item): rec = { ... };"));
     assert!(contract.contains("generic records and generic aliases are part of the target"));
-    assert!(generics_book.contains("Full `V2` now includes generic type declarations and explicit instantiation."));
+    assert!(generics_book
+        .contains("Full `V2` now includes generic type declarations and explicit instantiation."));
     assert!(generics_book.contains("typ Box(T: item): rec = {"));
     assert!(generics_book.contains("typ Pair(T: left, U: right): map[T, U];"));
 }
 
 #[test]
 fn test_v2_constraint_surface_is_frozen_as_standards_only() {
-    let contract =
-        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
-            .expect("full V2 contract note should load");
+    let contract = std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+        .expect("full V2 contract note should load");
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
@@ -4762,7 +5280,9 @@ fn test_v2_constraint_surface_is_frozen_as_standards_only() {
     assert!(contract.contains("Full `V2` includes standards-as-constraints."));
     assert!(contract.contains("protocol standards are the only constraint surface"));
     assert!(contract.contains("dispatch or inference driven by constraints"));
-    assert!(generics_book.contains("Full `V2` includes standards-as-constraints, but not broad dispatch semantics."));
+    assert!(generics_book.contains(
+        "Full `V2` includes standards-as-constraints, but not broad dispatch semantics."
+    ));
     assert!(generics_book.contains("protocol standards are the only generic-constraint surface"));
 }
 
@@ -4780,9 +5300,8 @@ fn test_standards_book_keeps_standards_as_constraints_in_current_v2_contract() {
 
 #[test]
 fn test_v2_contract_ships_blueprint_standards() {
-    let contract =
-        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
-            .expect("full V2 contract note should load");
+    let contract = std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+        .expect("full V2 contract note should load");
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
@@ -4794,16 +5313,16 @@ fn test_v2_contract_ships_blueprint_standards() {
 
 #[test]
 fn test_v2_contract_ships_extended_standards() {
-    let contract =
-        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
-            .expect("full V2 contract note should load");
+    let contract = std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+        .expect("full V2 contract note should load");
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
 
     assert!(contract.contains("Extended standards are part of the shipped full `V2` contract"));
     assert!(contract.contains("examples/standards_extended_m2"));
-    assert!(standards_book.contains("extended standards (`std X: ext`) combining required routines and fields"));
+    assert!(standards_book
+        .contains("extended standards (`std X: ext`) combining required routines and fields"));
 }
 
 #[test]
@@ -4837,6 +5356,12 @@ fn test_tree_sitter_suite_tracks_all_shipped_v2_example_roots() {
         "examples/fail_standard_missing_routine_m2/src/main.fol",
         "examples/fail_standard_signature_m2/src/main.fol",
         "examples/fail_standard_import_ambiguity_m2/src/main.fol",
+        "examples/mem_linked_list_m1/src/main.fol",
+        "examples/mem_tree_m1/src/main.fol",
+        "examples/mem_move_stack_vs_heap_m1/src/main.fol",
+        "examples/fail_mem_use_after_move_m1/src/main.fol",
+        "examples/fail_mem_recursive_value_m1/src/main.fol",
+        "examples/fail_mem_heap_in_core_m1/src/main.fol",
     ] {
         assert!(
             tree_sitter_tests.contains(relative_path),
@@ -4848,26 +5373,25 @@ fn test_tree_sitter_suite_tracks_all_shipped_v2_example_roots() {
 
 #[test]
 fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
-    let contract =
-        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
-            .expect("full V2 contract note should load");
+    let contract = std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+        .expect("full V2 contract note should load");
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
 
-    assert!(contract.contains("Broader dispatch and inference semantics are not part of the full `V2` target."));
+    assert!(contract.contains(
+        "Broader dispatch and inference semantics are not part of the full `V2` target."
+    ));
     assert!(contract.contains("full `V2` does not include standards-driven dispatch"));
     assert!(standards_book.contains("broader dispatch and inference semantics stay"));
 }
 
 #[test]
 fn test_v2_milestone_notes_are_retained_as_transition_notes() {
-    let generics_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
-            .expect("generic milestone note should load");
-    let standards_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
-            .expect("standards milestone note should load");
+    let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+        .expect("generic milestone note should load");
+    let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+        .expect("standards milestone note should load");
 
     assert!(generics_note.contains("Historical transition note:"));
     assert!(generics_note.contains("not the full `V2`"));
@@ -4879,21 +5403,18 @@ fn test_v2_milestone_notes_are_retained_as_transition_notes() {
 
 #[test]
 fn test_v2_surface_freeze_is_now_explicit_across_plan_docs_and_book() {
-    let contract =
-        std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
-            .expect("full V2 contract note should load");
+    let contract = std::fs::read_to_string(repo_root().join("docs/v2-full-contract.md"))
+        .expect("full V2 contract note should load");
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
-    let generics_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
-            .expect("generic milestone note should load");
-    let standards_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
-            .expect("standards milestone note should load");
+    let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+        .expect("generic milestone note should load");
+    let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+        .expect("standards milestone note should load");
 
     assert!(contract.contains("Current full `V2` target:"));
     assert!(contract.contains("Still out of scope for this `V2` target:"));
@@ -4923,8 +5444,14 @@ fn test_v2_m1_example_matrix_stays_honest() {
         .expect("generic milestone note should load");
 
     for example in &actual_examples {
-        assert!(repo_root().join(example).is_dir(), "generic example should exist: {example}");
-        assert!(docs.contains(example), "generic docs should mention {example}");
+        assert!(
+            repo_root().join(example).is_dir(),
+            "generic example should exist: {example}"
+        );
+        assert!(
+            docs.contains(example),
+            "generic docs should mention {example}"
+        );
     }
 }
 
@@ -4947,8 +5474,14 @@ fn test_v2_m2_example_matrix_stays_honest() {
         .expect("standards milestone note should load");
 
     for example in &actual_examples {
-        assert!(repo_root().join(example).is_dir(), "standards example should exist: {example}");
-        assert!(docs.contains(example), "standards docs should mention {example}");
+        assert!(
+            repo_root().join(example).is_dir(),
+            "standards example should exist: {example}"
+        );
+        assert!(
+            docs.contains(example),
+            "standards docs should mention {example}"
+        );
     }
 }
 
@@ -5026,12 +5559,10 @@ fn test_v2_example_inventory_by_naming_convention_stays_visible() {
 
 #[test]
 fn test_v2_docs_and_book_track_the_current_example_matrix() {
-    let generics_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
-            .expect("generic milestone note should load");
-    let standards_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
-            .expect("standards milestone note should load");
+    let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+        .expect("generic milestone note should load");
+    let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+        .expect("standards milestone note should load");
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
@@ -5048,8 +5579,14 @@ fn test_v2_docs_and_book_track_the_current_example_matrix() {
         "examples/fail_generic_cross_file_m1",
         "examples/fail_generic_standard_constraint_m1m2",
     ] {
-        assert!(generics_note.contains(example), "generics milestone note should mention {example}");
-        assert!(generics_book.contains(example), "generics book chapter should mention {example}");
+        assert!(
+            generics_note.contains(example),
+            "generics milestone note should mention {example}"
+        );
+        assert!(
+            generics_book.contains(example),
+            "generics book chapter should mention {example}"
+        );
     }
 
     for example in [
@@ -5062,16 +5599,21 @@ fn test_v2_docs_and_book_track_the_current_example_matrix() {
         "examples/fail_standard_signature_m2",
         "examples/fail_standard_import_ambiguity_m2",
     ] {
-        assert!(standards_note.contains(example), "standards milestone note should mention {example}");
-        assert!(standards_book.contains(example), "standards book chapter should mention {example}");
+        assert!(
+            standards_note.contains(example),
+            "standards milestone note should mention {example}"
+        );
+        assert!(
+            standards_book.contains(example),
+            "standards book chapter should mention {example}"
+        );
     }
 }
 
 #[test]
 fn test_v2_generics_docs_retag_generic_type_example_honestly() {
-    let generics_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
-            .expect("generic milestone note should load");
+    let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+        .expect("generic milestone note should load");
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
@@ -5087,9 +5629,8 @@ fn test_v2_generics_docs_retag_generic_type_example_honestly() {
 
 #[test]
 fn test_bundled_std_docs_pin_the_normal_v2_example_execution_path() {
-    let bundled_std =
-        std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
-            .expect("bundled std docs should load");
+    let bundled_std = std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
+        .expect("bundled std docs should load");
 
     for example in [
         "examples/generic_type_exec_m1m2",
@@ -5112,15 +5653,13 @@ fn test_bundled_std_docs_pin_the_normal_v2_example_execution_path() {
 
 #[test]
 fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
-    let generics_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
-            .expect("generic milestone note should load");
+    let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
+        .expect("generic milestone note should load");
     let generics_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/500_generics.md"))
             .expect("generics book chapter should load");
-    let standards_note =
-        std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
-            .expect("standards milestone note should load");
+    let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
+        .expect("standards milestone note should load");
     let standards_book =
         std::fs::read_to_string(repo_root().join("book/src/500_items/400_standards.md"))
             .expect("standards book chapter should load");
@@ -5128,30 +5667,36 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     assert!(generics_note.contains("underconstrained generic calls are rejected"));
     assert!(generics_note.contains("generic routines are not first-class routine values"));
     assert!(generics_note.contains("generic error shells remain unsupported"));
-    assert!(generics_book.contains("generic error shells remain outside the current shipped Milestone 1 routine subset"));
-    assert!(generics_note.contains("recursive generic type instantiation remains rejected"));
-    assert!(generics_note.contains("implementation slice with parser, typecheck, editor, doc, and example updates"));
+    assert!(generics_book.contains(
+        "generic error shells remain outside the current shipped Milestone 1 routine subset"
+    ));
+    assert!(generics_note.contains("recursive value edges remain rejected"));
+    assert!(generics_note.contains("V3 owned heap edges such as"));
+    assert!(generics_note
+        .contains("implementation slice with parser, typecheck, editor, doc, and example updates"));
 
     assert!(standards_note.contains("required routine-signature surface"));
     assert!(standards_note.contains("generic required routine signatures remain unsupported"));
-    assert!(standards_note.contains("receiver-qualified required routine signatures remain unsupported"));
+    assert!(standards_note
+        .contains("receiver-qualified required routine signatures remain unsupported"));
     assert!(standards_note.contains("capturing required routine signatures remain unsupported"));
-    assert!(standards_book.contains("richer requirement forms such as generic, receiver-qualified, and capturing"));
+    assert!(standards_book
+        .contains("richer requirement forms such as generic, receiver-qualified, and capturing"));
     assert!(standards_note.contains("standards cannot be used as ordinary value types"));
     assert!(standards_note.contains("default standard implementations remain unsupported"));
-    assert!(standards_note.contains("implementation slice with compiler, backend, editor, doc, and example work"));
-
-
+    assert!(standards_note
+        .contains("implementation slice with compiler, backend, editor, doc, and example work"));
 }
 
 #[test]
 fn test_agents_md_keeps_current_v2_milestone_truth() {
     let agents =
-        std::fs::read_to_string(repo_root().join("AGENTS.md"))
-            .expect("AGENTS.md should load");
+        std::fs::read_to_string(repo_root().join("AGENTS.md")).expect("AGENTS.md should load");
 
     assert!(agents.contains("generic routine lowering/backend execution now exist"));
-    assert!(agents.contains("protocol standards now lower and the shipped positive protocol examples"));
+    assert!(
+        agents.contains("protocol standards now lower and the shipped positive protocol examples")
+    );
     assert!(agents.contains("execute through ordinary procedural emission"));
     assert!(!agents.contains("no generic lowering yet"));
     assert!(!agents.contains("no standards lowering/backend support yet"));
@@ -5175,7 +5720,8 @@ fn test_tooling_docs_keep_workspace_symbols_root_scoped() {
     ));
     assert!(!lsp.contains("workspace symbols for current open workspace members"));
     assert!(!editor.contains("workspace symbols for current open workspace members"));
-    assert!(lsp_impl.contains("fn collect_fol_files(root: &std::path::Path) -> Vec<std::path::PathBuf>"));
+    assert!(lsp_impl
+        .contains("fn collect_fol_files(root: &std::path::Path) -> Vec<std::path::PathBuf>"));
     assert!(lsp_impl.contains("visit(root, &mut files);"));
 }
 
@@ -5200,7 +5746,10 @@ fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
         "test/integration_tests/integration_editor_and_build.rs",
         "test/apps/test_apps.rs",
     ] {
-        assert!(gates.contains(required), "compiler gate contract should mention {required}");
+        assert!(
+            gates.contains(required),
+            "compiler gate contract should mention {required}"
+        );
     }
 
     for path in [
@@ -5212,7 +5761,10 @@ fn test_v2_quality_gate_compiler_pipeline_is_tracked_in_repo_contract() {
         "test/integration_tests/integration_editor_and_build.rs",
         "test/apps/test_apps.rs",
     ] {
-        assert!(repo_root().join(path).is_file(), "compiler gate path should exist: {path}");
+        assert!(
+            repo_root().join(path).is_file(),
+            "compiler gate path should exist: {path}"
+        );
     }
 }
 
@@ -5237,7 +5789,10 @@ fn test_v2_quality_gate_tooling_is_tracked_in_repo_contract() {
         "lang/tooling/fol-editor/src/tree_sitter.rs",
         "test/integration_tests/integration_editor_and_build.rs",
     ] {
-        assert!(gates.contains(required), "tooling gate contract should mention {required}");
+        assert!(
+            gates.contains(required),
+            "tooling gate contract should mention {required}"
+        );
     }
 
     for path in [
@@ -5245,7 +5800,10 @@ fn test_v2_quality_gate_tooling_is_tracked_in_repo_contract() {
         "lang/tooling/fol-editor/src/tree_sitter.rs",
         "test/integration_tests/integration_editor_and_build.rs",
     ] {
-        assert!(repo_root().join(path).is_file(), "tooling gate path should exist: {path}");
+        assert!(
+            repo_root().join(path).is_file(),
+            "tooling gate path should exist: {path}"
+        );
     }
 
     for example in [
@@ -5254,7 +5812,10 @@ fn test_v2_quality_gate_tooling_is_tracked_in_repo_contract() {
         "examples/generic_routine_cross_file_m1",
         "examples/standards_protocol_multi_m2",
     ] {
-        assert!(lsp_tests.contains(example), "tooling gate LSP tests should mention {example}");
+        assert!(
+            lsp_tests.contains(example),
+            "tooling gate LSP tests should mention {example}"
+        );
     }
 
     for source in [
@@ -5290,7 +5851,10 @@ fn test_v2_quality_gate_contract_is_tracked_in_repo_contract() {
         "examples",
         "test/integration_tests/integration_editor_and_build.rs",
     ] {
-        assert!(gates.contains(required), "contract gate contract should mention {required}");
+        assert!(
+            gates.contains(required),
+            "contract gate contract should mention {required}"
+        );
     }
 
     for path in [
@@ -5302,7 +5866,10 @@ fn test_v2_quality_gate_contract_is_tracked_in_repo_contract() {
         "examples",
         "test/integration_tests/integration_editor_and_build.rs",
     ] {
-        assert!(repo_root().join(path).exists(), "contract gate path should exist: {path}");
+        assert!(
+            repo_root().join(path).exists(),
+            "contract gate path should exist: {path}"
+        );
     }
 }
 
@@ -5310,8 +5877,9 @@ fn test_v2_quality_gate_contract_is_tracked_in_repo_contract() {
 fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
     let bundled_std_docs = std::fs::read_to_string(repo_root().join("docs/bundled-std.md"))
         .expect("bundled std docs should exist");
-    let bundled_std_readme = std::fs::read_to_string(repo_root().join("lang/library/std/README.md"))
-        .expect("bundled std readme should exist");
+    let bundled_std_readme =
+        std::fs::read_to_string(repo_root().join("lang/library/std/README.md"))
+            .expect("bundled std readme should exist");
 
     for path in [
         "lang/library/std/lib.fol",
@@ -5402,8 +5970,12 @@ fn test_active_repo_surface_keeps_runtime_memo_name_and_no_stale_alloc_refs() {
     for root in tracked_roots {
         let path = repo_root().join(root);
         let mut command = std::process::Command::new("rg");
-        command.current_dir(repo_root()).args(["-n", "--fixed-strings"]);
-        command.arg("-g").arg("!test/integration_tests/integration_editor_and_build.rs");
+        command
+            .current_dir(repo_root())
+            .args(["-n", "--fixed-strings"]);
+        command
+            .arg("-g")
+            .arg("!test/integration_tests/integration_editor_and_build.rs");
         for needle in stale_needles {
             command.arg("-e").arg(needle);
         }
@@ -5471,8 +6043,8 @@ fn test_standard_dependency_contract_matrix_holds() {
         ),
         false,
     );
-    let std_build = std::fs::read_to_string(std_root.join("build.fol"))
-        .expect("std build should exist");
+    let std_build =
+        std::fs::read_to_string(std_root.join("build.fol")).expect("std build should exist");
     std::fs::write(
         std_root.join("build.fol"),
         std_build.replace(
@@ -5559,8 +6131,8 @@ fn test_standard_dependency_contract_matrix_holds() {
 fn test_bundled_std_bootstrap_contract_matrix_stays_coherent() {
     use fol_editor::{
         EditorConfig, EditorDocumentUri, EditorLspServer, JsonRpcId, JsonRpcNotification,
-        JsonRpcRequest, LspDidOpenTextDocumentParams, LspSemanticTokens,
-        LspSemanticTokensParams, LspTextDocumentIdentifier, LspTextDocumentItem,
+        JsonRpcRequest, LspDidOpenTextDocumentParams, LspSemanticTokens, LspSemanticTokensParams,
+        LspTextDocumentIdentifier, LspTextDocumentItem,
     };
 
     let root = temp_example_root("examples/std_bundled_io");
@@ -5568,7 +6140,10 @@ fn test_bundled_std_bootstrap_contract_matrix_stays_coherent() {
     let build = run_fol_with_store_in_dir(
         &root,
         &store_root,
-        &["--keep-build-dir", root.to_str().expect("example root should be valid UTF-8")],
+        &[
+            "--keep-build-dir",
+            root.to_str().expect("example root should be valid UTF-8"),
+        ],
     );
     assert!(
         build.status.success(),
@@ -5614,7 +6189,9 @@ fn test_bundled_std_bootstrap_contract_matrix_stays_coherent() {
             ),
         })
         .expect("didOpen should succeed");
-    assert!(diagnostics.iter().all(|published| published.diagnostics.is_empty()));
+    assert!(diagnostics
+        .iter()
+        .all(|published| published.diagnostics.is_empty()));
 
     let semantic = server
         .handle_request(JsonRpcRequest {
@@ -5688,11 +6265,7 @@ fn test_negative_runtime_model_examples_fail_with_expected_boundary_class() {
             None,
             "bundled std imports require 'fol_model = memo'; current artifact model is 'core'",
         ),
-        (
-            "examples/fail_memo_std_missing_dep",
-            None,
-            "std",
-        ),
+        ("examples/fail_memo_std_missing_dep", None, "std"),
     ];
 
     for (path, subdir, expected_message) in cases {
@@ -5813,7 +6386,10 @@ fn test_runtime_model_regression_matrix_stays_coherent_across_layers() {
 
     let emitted_root = temp_example_root("examples/std_surface_showcase");
     let build = run_example_compile(&emitted_root, true);
-    assert!(build.status.success(), "std emitted-import matrix should build");
+    assert!(
+        build.status.success(),
+        "std emitted-import matrix should build"
+    );
     let generated = find_file_by_name(&emitted_crate_root(&build), "main.rs")
         .expect("generated std source should exist");
     let source = std::fs::read_to_string(generated).expect("generated std source should load");
@@ -5829,7 +6405,10 @@ fn test_example_directories_stay_source_only_without_checked_in_build_artifacts(
             .args(["-name", forbidden])
             .output()
             .expect("find should succeed");
-        assert!(output.status.success(), "find should succeed for {forbidden}");
+        assert!(
+            output.status.success(),
+            "find should succeed for {forbidden}"
+        );
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         assert!(
             stdout.is_empty(),
@@ -6372,8 +6951,7 @@ fn test_cli_code_build_keeps_memo_echo_boundary_diagnostic() {
 
     assert!(!output.status.success(), "memo echo boundary should fail");
     assert!(
-        stderr
-            .contains("'.echo(...)' requires hosted std support"),
+        stderr.contains("'.echo(...)' requires hosted std support"),
         "CLI should preserve the memo echo boundary wording: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&output.stdout),
         stderr
@@ -6540,6 +7118,8 @@ fn test_lsp_unknown_method_returns_method_not_found_error() {
 fn test_lsp_document_with_syntax_errors_returns_diagnostics() {
     let temp_root = unique_temp_root("lsp_syntax_errors");
     std::fs::create_dir_all(&temp_root).expect("should create temp root");
+    std::fs::create_dir_all(temp_root.join(".git"))
+        .expect("syntax-error LSP workspace marker should be creatable");
     let uri = format!("file://{}", temp_root.join("bad.fol").display());
     let bad_source = "fun[] main( = {\n    return;\n};\n";
 
@@ -6705,32 +7285,32 @@ fn create_app_with_git_dependency_from_url(
         .map(|value| format!("        hash = \"{value}\",\n"))
         .unwrap_or_default();
     std::fs::write(
-            app_root.join("build.fol"),
-            format!(
-                concat!(
-                    "pro[] build(): non = {{\n",
-                    "    var build = .build();\n",
-                    "    build.meta({{ name = \"{name}\", version = \"0.1.0\" }});\n",
-                    "    build.add_dep({{\n",
-                    "        alias = \"logtiny\",\n",
-                    "        source = \"git\",\n",
-                    "        target = \"{remote}\",\n",
-                    "{version_field}",
-                    "{hash_field}",
-                    "    }});\n",
-                    "    var graph = build.graph();\n",
-                    "    var app = graph.add_exe({{ name = \"{name}\", root = \"src/main.fol\" }});\n",
-                    "    graph.install(app);\n",
-                    "    graph.add_run(app);\n",
-                    "}};\n",
-                ),
-                name = name,
-                remote = remote_url,
-                version_field = version_field,
-                hash_field = hash_field,
+        app_root.join("build.fol"),
+        format!(
+            concat!(
+                "pro[] build(): non = {{\n",
+                "    var build = .build();\n",
+                "    build.meta({{ name = \"{name}\", version = \"0.1.0\" }});\n",
+                "    build.add_dep({{\n",
+                "        alias = \"logtiny\",\n",
+                "        source = \"git\",\n",
+                "        target = \"{remote}\",\n",
+                "{version_field}",
+                "{hash_field}",
+                "    }});\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({{ name = \"{name}\", root = \"src/main.fol\" }});\n",
+                "    graph.install(app);\n",
+                "    graph.add_run(app);\n",
+                "}};\n",
             ),
-        )
-            .expect("Should write app build");
+            name = name,
+            remote = remote_url,
+            version_field = version_field,
+            hash_field = hash_field,
+        ),
+    )
+    .expect("Should write app build");
     std::fs::write(
         app_root.join("src/main.fol"),
         "fun[] main(): int = {\n    return 0;\n};\n",

@@ -1,5 +1,6 @@
 pro main(): int = {
-    select(channel as c) {
-        sequence.push(channel[rx][c]);
-    }
+    select {
+        when first as left { .echo(left); }
+        when second as right { .echo(right); }
+    };
 };

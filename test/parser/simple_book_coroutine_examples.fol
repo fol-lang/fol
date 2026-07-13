@@ -1,11 +1,11 @@
 pro main(): int = {
     var channel: chn[str];
     var launched = [>]doItFast() | channel[tx];
-    select(channel as c) {
-        sequence.push(channel[rx][c]);
-    }
+    select {
+        when channel as value { .echo(value); }
+    };
 };
 
-fun loadMesh(path: str, ((meshes)): vec[mesh]): int = {
+fun loadMesh(path: str, meshes[mux]: vec[mesh]): int = {
     return 1;
 };

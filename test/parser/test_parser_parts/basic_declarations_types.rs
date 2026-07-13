@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn test_owned_recursive_type_edge_parses_in_type_position() {
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_typ_owned_recursive.fol").unwrap();
+    let mut lexer = Elements::init(&mut file_stream);
+    let mut parser = AstParser::new();
+    let ast = parser.parse(&mut lexer).expect("opt @Node should parse");
+
+    let AstNode::Program { declarations } = ast else {
+        panic!("expected program");
+    };
+    assert!(declarations.iter().any(|node| matches!(
+        node,
+        AstNode::TypeDecl {
+            type_def: TypeDefinition::Record { fields, .. },
+            ..
+        } if matches!(
+            fields.get("next"),
+            Some(FolType::Optional { inner }) if matches!(
+                inner.as_ref(),
+                FolType::Owned { inner } if matches!(
+                    inner.as_ref(),
+                    FolType::Named { name, .. } if name == "Node"
+                )
+            )
+        )
+    )));
+}
+
+#[test]
 fn test_canonical_duplicate_record_field_reports_parse_error() {
     let mut file_stream =
         FileStream::from_file("test/parser/simple_typ_record_duplicate_field_canonical.fol")

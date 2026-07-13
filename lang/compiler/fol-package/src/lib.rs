@@ -40,11 +40,10 @@ pub use build::{
 pub use build_api::{
     validate_build_name, BuildApi, BuildApiError, BuildApiNameError, BuildArtifactHandle,
     BuildOptionValue, DependencyHandle, DependencyRequest, ExecutableRequest,
-    GitDependencyVersionSelector,
-    InstallArtifactRequest, InstallDirRequest, InstallFileRequest, InstallHandle, RunHandle,
-    RunRequest, SharedLibraryRequest, StandardOptimizeOption, StandardOptimizeRequest,
-    StandardTargetOption, StandardTargetRequest, StaticLibraryRequest, StepHandle, StepRequest,
-    TestArtifactRequest, UserOption, UserOptionRequest,
+    GitDependencyVersionSelector, InstallArtifactRequest, InstallDirRequest, InstallFileRequest,
+    InstallHandle, RunHandle, RunRequest, SharedLibraryRequest, StandardOptimizeOption,
+    StandardOptimizeRequest, StandardTargetOption, StandardTargetRequest, StaticLibraryRequest,
+    StepHandle, StepRequest, TestArtifactRequest, UserOption, UserOptionRequest,
 };
 pub use build_artifact::{
     project_graph_artifacts, BuildArtifactDefinition, BuildArtifactLinkage, BuildArtifactModelKind,
@@ -112,13 +111,13 @@ pub use build_runtime::{
 pub use build_semantic::{
     canonical_artifact_config_shapes, canonical_build_context_config_shapes,
     canonical_build_context_method_signatures, canonical_chain_metadata,
-    canonical_graph_method_signatures,
-    canonical_handle_method_signatures, canonical_option_config_shapes,
-    canonical_option_value_kinds, BuildSemanticChainKind, BuildSemanticChainMetadata,
-    BuildSemanticMethodParameter, BuildSemanticMethodSignature, BuildSemanticOptionValueKind,
-    BuildSemanticParameterShape, BuildSemanticRecordField, BuildSemanticRecordShape,
-    BuildSemanticRecordShapeKind, BuildSemanticType, BuildSemanticTypeFamily,
-    BuildStdlibImportSurface, BuildStdlibModuleKind, BuildStdlibModulePath,
+    canonical_graph_method_signatures, canonical_handle_method_signatures,
+    canonical_option_config_shapes, canonical_option_value_kinds, BuildSemanticChainKind,
+    BuildSemanticChainMetadata, BuildSemanticMethodParameter, BuildSemanticMethodSignature,
+    BuildSemanticOptionValueKind, BuildSemanticParameterShape, BuildSemanticRecordField,
+    BuildSemanticRecordShape, BuildSemanticRecordShapeKind, BuildSemanticType,
+    BuildSemanticTypeFamily, BuildStdlibImportSurface, BuildStdlibModuleKind,
+    BuildStdlibModulePath,
 };
 pub use build_step::{
     plan_step_order, project_graph_steps, BuildDefaultStepKind, BuildRequestedStep,
@@ -161,15 +160,14 @@ mod tests {
         evaluate_build_source, forbidden_capability_message, validate_parsed_build_entry,
         AllowedBuildTimeOperation, BuildEntrySignatureExpectation, BuildEvaluationInputs,
         BuildEvaluationRequest, BuildExecutionRepresentation, BuildOptimizeMode,
-        BuildRuntimeDependencyQueryKind, BuildRuntimeDiagnostic,
-        BuildRuntimeDiagnosticKind, BuildRuntimeExpr, BuildRuntimeGeneratedFileKind,
-        BuildRuntimeHandle, BuildRuntimeHandleKind,
-        BuildRuntimeLocalId, BuildRuntimeMethodCall, BuildRuntimeReceiverKind,
-        BuildRuntimeRecordField, BuildRuntimeStmt, BuildRuntimeValue, BuildSemanticChainKind,
-        BuildSemanticType, BuildSemanticTypeFamily, BuildTargetTriple,
-        DependencyBuildEvaluationMode, ForbiddenBuildTimeOperation,
-        NativeArtifactDefinition, NativeArtifactKind, NativeArtifactSet, NativeLinkDirective,
-        NativeLinkInput, NativeLinkMode, PackageBuildMode, ParsedSourceUnitKind,
+        BuildRuntimeDependencyQueryKind, BuildRuntimeDiagnostic, BuildRuntimeDiagnosticKind,
+        BuildRuntimeExpr, BuildRuntimeGeneratedFileKind, BuildRuntimeHandle,
+        BuildRuntimeHandleKind, BuildRuntimeLocalId, BuildRuntimeMethodCall,
+        BuildRuntimeReceiverKind, BuildRuntimeRecordField, BuildRuntimeStmt, BuildRuntimeValue,
+        BuildSemanticChainKind, BuildSemanticType, BuildSemanticTypeFamily, BuildTargetTriple,
+        DependencyBuildEvaluationMode, ForbiddenBuildTimeOperation, NativeArtifactDefinition,
+        NativeArtifactKind, NativeArtifactSet, NativeLinkDirective, NativeLinkInput,
+        NativeLinkMode, PackageBuildMode, ParsedSourceUnitKind,
     };
     use std::fs;
     use std::path::PathBuf;

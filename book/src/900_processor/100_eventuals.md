@@ -1,24 +1,30 @@
 # Eventuals
 
-This chapter is future concurrency/runtime design.
+Eventuals are a `V3` processor feature and are `std`-only. They use operating-
+system threads; FOL does not use Rust `async`/`await`, futures, Tokio,
+continuations, or colored routines.
 
-Current milestone note:
+The chosen pipe surface is:
 
-- async/eventual semantics are not part of the implemented `V1` compiler
-- this material belongs to the later `V3` systems milestone
-
-Eventuals describe an object that acts as a proxy for a result that is initially unknown, usually because the computation of its value is not yet complete. 
-
-## Async/Await
-Async methods are intended to be non-blocking operations. An await expression in an async routine doesn’t block the current thread while the awaited task is running. Instead, the expression signs up the rest of the routine as a continuation and returns control to the caller of the async routine and it means “Once this is done, execute this function”. It’s basically a “when done” hook for your code, and what is happening here is an async routine, when executed, returns a coroutine which can then be awaited. This is done usually in one thread, but can be done in multiple threads too, but thread invocations are invisible to the programmer in this case.
+```fol
+var pending = calculate() | async;
+var value = pending | await;
 ```
-pro main(): int = {
-    doItFast() | async                                             // compiler knows that this routine has an await routine, thus continue when await rises
-    .echo("dosomething to echo")
-                                                                   // the main program does not exit until the await is resolved
-}
-fun doItFast(): str = {
-    result = client.get(address).send() | await                    // this tells the routine that it might take time
-    .echo(result)
-}
-```
+
+`| async` starts the call on an OS thread and produces an internal eventual.
+`| await` blocks the current OS thread until that computation finishes. The
+eventual type is not nameable in `V3`; `evt[T]` is only a possible later design
+slot.
+
+Error behavior stays identical to the synchronous call. An infallible call
+awaits to `T`. A routine declared as `T / E` remains recoverable after await and
+must be handled with the existing `check(...)` or `||` surfaces. Async and await
+do not introduce a second error channel.
+
+Program exit joins outstanding async work just as it joins bare `[>]` tasks.
+Cancellation, worker pools, and runtime scheduling controls are not part of
+`V3`.
+
+The eventual slice is implemented end to end. See
+`examples/proc_async_await_m4` and `examples/proc_await_error_m4`; attempts to
+spell `evt[T]` are covered by `examples/fail_proc_evt_named_m4`.

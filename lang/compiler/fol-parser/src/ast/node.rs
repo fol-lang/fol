@@ -6,7 +6,8 @@ use super::options::{
 use super::syntax::{ParsedDeclScope, ParsedDeclVisibility, SyntaxNodeId};
 use super::types::{
     BindingPattern, ChannelEndpoint, FolType, Generic, InquiryTarget, LoopCondition, Parameter,
-    QualifiedPath, RecordInitField, RollingBinding, TypeDefinition, WhenCase,
+    QualifiedPath, RecordInitField, RollingBinding, RoutineCapture, SelectArm, TypeDefinition,
+    WhenCase,
 };
 
 /// Core AST node types for FOL language
@@ -40,7 +41,7 @@ pub enum AstNode {
         generics: Vec<Generic>,
         name: String,
         receiver_type: Option<FolType>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -55,7 +56,7 @@ pub enum AstNode {
         generics: Vec<Generic>,
         name: String,
         receiver_type: Option<FolType>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -70,7 +71,7 @@ pub enum AstNode {
         generics: Vec<Generic>,
         name: String,
         receiver_type: Option<FolType>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -213,7 +214,7 @@ pub enum AstNode {
     AnonymousFun {
         syntax_id: Option<SyntaxNodeId>,
         options: Vec<FunOption>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -225,7 +226,7 @@ pub enum AstNode {
     AnonymousPro {
         syntax_id: Option<SyntaxNodeId>,
         options: Vec<FunOption>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -237,7 +238,7 @@ pub enum AstNode {
     AnonymousLog {
         syntax_id: Option<SyntaxNodeId>,
         options: Vec<FunOption>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -375,11 +376,10 @@ pub enum AstNode {
         body: Vec<AstNode>,
     },
 
-    /// Select statement: select(channel as binding) { body }
+    /// Multi-arm channel select statement.
     Select {
-        channel: Box<AstNode>,
-        binding: Option<String>,
-        body: Vec<AstNode>,
+        arms: Vec<SelectArm>,
+        default: Option<Vec<AstNode>>,
     },
 
     /// Return statement: return value
@@ -397,6 +397,12 @@ pub enum AstNode {
 
     /// Deferred statement: dfr { body }
     Dfr {
+        syntax_id: Option<SyntaxNodeId>,
+        body: Vec<AstNode>,
+    },
+
+    /// Error-only deferred statement: edf { body }
+    Edf {
         syntax_id: Option<SyntaxNodeId>,
         body: Vec<AstNode>,
     },
@@ -465,6 +471,7 @@ impl AstNode {
             | AstNode::MethodCall { syntax_id, .. }
             | AstNode::RecordInit { syntax_id, .. }
             | AstNode::Dfr { syntax_id, .. }
+            | AstNode::Edf { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,
             AstNode::Commented { node, .. } => node.syntax_id(),
             _ => None,
@@ -517,46 +524,46 @@ impl AstNode {
             AstNode::Comment { .. } => None,
             AstNode::Commented { node, .. } => node.syntactic_type_hint(),
 
-            AstNode::BinaryOp { op, left, right } => {
-                match op {
-                    BinaryOperator::Add
-                    | BinaryOperator::Sub
-                    | BinaryOperator::Mul
-                    | BinaryOperator::Div
-                    | BinaryOperator::Mod
-                    | BinaryOperator::Pow => {
-                        left.syntactic_type_hint()
-                            .or_else(|| right.syntactic_type_hint())
-                    }
-                    BinaryOperator::Eq
-                    | BinaryOperator::Ne
-                    | BinaryOperator::Lt
-                    | BinaryOperator::Le
-                    | BinaryOperator::Gt
-                    | BinaryOperator::Ge
-                    | BinaryOperator::In
-                    | BinaryOperator::Has
-                    | BinaryOperator::Is => Some(FolType::Bool),
-                    BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor => {
-                        Some(FolType::Bool)
-                    }
-                    _ => None,
+            AstNode::BinaryOp { op, left, right } => match op {
+                BinaryOperator::Add
+                | BinaryOperator::Sub
+                | BinaryOperator::Mul
+                | BinaryOperator::Div
+                | BinaryOperator::Mod
+                | BinaryOperator::Pow => left
+                    .syntactic_type_hint()
+                    .or_else(|| right.syntactic_type_hint()),
+                BinaryOperator::Eq
+                | BinaryOperator::Ne
+                | BinaryOperator::Lt
+                | BinaryOperator::Le
+                | BinaryOperator::Gt
+                | BinaryOperator::Ge
+                | BinaryOperator::In
+                | BinaryOperator::Has
+                | BinaryOperator::Is => Some(FolType::Bool),
+                BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor => {
+                    Some(FolType::Bool)
                 }
-            }
+                _ => None,
+            },
 
             AstNode::UnaryOp { op, operand } => match op {
                 UnaryOperator::Neg => operand.syntactic_type_hint(),
                 UnaryOperator::Not => Some(FolType::Bool),
                 UnaryOperator::Ref => operand.syntactic_type_hint().map(|t| FolType::Pointer {
+                    qualifier: crate::ast::PointerQualifier::Unique,
                     target: Box::new(t),
                 }),
                 UnaryOperator::Deref => {
-                    if let Some(FolType::Pointer { target }) = operand.syntactic_type_hint() {
+                    if let Some(FolType::Pointer { target, .. }) = operand.syntactic_type_hint() {
                         Some(*target)
                     } else {
                         None
                     }
                 }
+                UnaryOperator::BorrowFrom => operand.syntactic_type_hint(),
+                UnaryOperator::GiveBack => None,
                 UnaryOperator::Unwrap => {
                     if let Some(FolType::Optional { inner }) = operand.syntactic_type_hint() {
                         Some(*inner)
@@ -613,7 +620,7 @@ impl AstNode {
             AstNode::Inquiry { .. } => None,
             AstNode::PatternWildcard => None,
             AstNode::PatternCapture { pattern, .. } => pattern.syntactic_type_hint(),
-            AstNode::Dfr { .. } => None,
+            AstNode::Dfr { .. } | AstNode::Edf { .. } => None,
             AstNode::RecordInit { .. } => None,
             AstNode::TemplateCall { .. } => None,
 
@@ -752,9 +759,15 @@ impl AstNode {
                 }
                 children
             }
-            AstNode::Select { channel, body, .. } => {
-                let mut children = vec![channel.as_ref()];
-                children.extend(body.iter());
+            AstNode::Select { arms, default } => {
+                let mut children = Vec::new();
+                for arm in arms {
+                    children.push(&arm.channel);
+                    children.extend(arm.body.iter());
+                }
+                if let Some(default) = default {
+                    children.extend(default.iter());
+                }
                 children
             }
             AstNode::Block { statements, .. } => statements.iter().collect(),
@@ -824,7 +837,7 @@ impl AstNode {
             AstNode::Yield { value } => {
                 vec![value.as_ref()]
             }
-            AstNode::Dfr { body, .. } => body.iter().collect(),
+            AstNode::Dfr { body, .. } | AstNode::Edf { body, .. } => body.iter().collect(),
             AstNode::Range { start, end, .. } => {
                 let mut children = Vec::new();
                 if let Some(s) = start {

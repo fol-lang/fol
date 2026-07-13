@@ -24,6 +24,13 @@ impl AstParser {
 
             if matches!(token.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
                 let _ = tokens.bump();
+                if parsed_options.contains(&VarOption::Borrowing)
+                    && !parsed_options.iter().any(|option| {
+                        matches!(option, VarOption::Mutable | VarOption::Immutable)
+                    })
+                {
+                    parsed_options.push(VarOption::Immutable);
+                }
                 return Ok(self.merge_binding_options(default_options, parsed_options));
             }
 
@@ -76,12 +83,26 @@ impl AstParser {
                     Ok(KEYWORD::Symbol(SYMBOL::SquarC))
                 ) {
                     let _ = tokens.bump();
+                    if parsed_options.contains(&VarOption::Borrowing)
+                        && !parsed_options.iter().any(|option| {
+                            matches!(option, VarOption::Mutable | VarOption::Immutable)
+                        })
+                    {
+                        parsed_options.push(VarOption::Immutable);
+                    }
                     return Ok(self.merge_binding_options(default_options, parsed_options));
                 }
                 continue;
             }
             if matches!(sep.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
                 let _ = tokens.bump();
+                if parsed_options.contains(&VarOption::Borrowing)
+                    && !parsed_options.iter().any(|option| {
+                        matches!(option, VarOption::Mutable | VarOption::Immutable)
+                    })
+                {
+                    parsed_options.push(VarOption::Immutable);
+                }
                 return Ok(self.merge_binding_options(default_options, parsed_options));
             }
 
@@ -92,10 +113,7 @@ impl AstParser {
         }
 
         let error = if let Ok(token) = tokens.curr(false) {
-            ParseError::from_token(
-                &token,
-                "Binding options exceeded parser limit".to_string(),
-            )
+            ParseError::from_token(&token, "Binding options exceeded parser limit".to_string())
         } else {
             ParseError {
                 kind: ParseErrorKind::Syntax,

@@ -1,4 +1,5 @@
 use super::*;
+use fol_parser::PointerQualifier;
 
 #[test]
 fn test_type_alias_parsing_supports_special_boxed_types() {
@@ -56,7 +57,7 @@ fn test_type_alias_parsing_supports_special_boxed_types() {
                         AstNode::TypeDecl {
                             name,
                             type_def: TypeDefinition::Alias {
-                                target: FolType::Pointer { target }
+                                target: FolType::Pointer { target, .. }
                             },
                             ..
                         }
@@ -102,6 +103,50 @@ fn test_type_alias_parsing_supports_special_boxed_types() {
         }
         _ => panic!("Should return Program node"),
     }
+}
+
+#[test]
+fn test_pointer_qualifiers_and_optional_pointer_chain_parse() {
+    let mut stream =
+        FileStream::from_file("test/parser/simple_typ_pointer_qualifiers.fol").unwrap();
+    let mut lexer = Elements::init(&mut stream);
+    let mut parser = AstParser::new();
+    let AstNode::Program { declarations } = parser.parse(&mut lexer).unwrap() else {
+        panic!("expected program");
+    };
+
+    let qualifier_for = |wanted: &str| {
+        declarations.iter().find_map(|node| match node {
+            AstNode::TypeDecl {
+                name,
+                type_def:
+                    TypeDefinition::Alias {
+                        target: FolType::Pointer { qualifier, .. },
+                    },
+                ..
+            } if name == wanted => Some(*qualifier),
+            _ => None,
+        })
+    };
+    assert_eq!(qualifier_for("Unique"), Some(PointerQualifier::Unique));
+    assert_eq!(qualifier_for("Shared"), Some(PointerQualifier::Shared));
+    assert_eq!(qualifier_for("Raw"), Some(PointerQualifier::Raw));
+    assert!(declarations.iter().any(|node| matches!(
+        node,
+        AstNode::TypeDecl {
+            name,
+            type_def: TypeDefinition::Alias {
+                target: FolType::Optional { inner }
+            },
+            ..
+        } if name == "MaybeShared" && matches!(
+            inner.as_ref(),
+            FolType::Pointer {
+                qualifier: PointerQualifier::Shared,
+                ..
+            }
+        )
+    )));
 }
 
 #[test]

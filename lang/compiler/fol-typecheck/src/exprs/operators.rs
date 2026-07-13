@@ -1,16 +1,16 @@
 use crate::{CheckedType, TypecheckError, TypecheckErrorKind, TypedProgram};
-use fol_parser::ast::{AstNode, BinaryOperator, UnaryOperator};
-use fol_resolver::ResolvedProgram;
+use fol_parser::ast::{AstNode, BinaryOperator, ChannelEndpoint, UnaryOperator};
+use fol_resolver::{ReferenceKind, ResolvedProgram};
 
 use super::helpers::{
-    apparent_type_id, invalid_binary_operator_error, invalid_unary_operator_error, is_equality_type,
-    is_error_shell_type, is_ordered_type, merge_recoverable_effects, node_origin,
-    observe_context, plain_value_expr, unsupported_binary_surface, unsupported_conversion_intrinsic,
-    unwrap_shell_result_type, with_node_origin,
+    apparent_type_id, invalid_binary_operator_error, invalid_unary_operator_error,
+    is_equality_type, is_error_shell_type, is_ordered_type, merge_recoverable_effects, node_origin,
+    observe_context, plain_value_expr, unsupported_binary_surface,
+    unsupported_conversion_intrinsic, unwrap_shell_result_type, with_node_origin,
 };
-use super::{TypeContext, TypedExpr};
 use super::type_node;
 use super::type_node_with_expectation;
+use super::{TypeContext, TypedExpr};
 
 pub(crate) fn type_binary_op(
     typed: &mut TypedProgram,
@@ -31,24 +31,131 @@ pub(crate) fn type_binary_op(
                 resolved, left, right, "cast",
             ));
         }
+        BinaryOperator::Pipe
+            if matches!(
+                super::helpers::strip_comments(right),
+                AstNode::ChannelAccess {
+                    endpoint: ChannelEndpoint::Tx,
+                    ..
+                }
+            ) =>
+        {
+            if !typed.capability_model().supports_processor() {
+                return Err(unsupported_binary_surface(
+                    resolved,
+                    left,
+                    right,
+                    "channel send requires hosted std support; declare the bundled internal standard dependency",
+                ));
+            }
+            let AstNode::ChannelAccess { channel, .. } =
+                super::helpers::strip_comments(right)
+            else {
+                unreachable!("channel-send guard preserves the endpoint shape")
+            };
+            let value_raw = type_node(typed, resolved, context, left)?;
+            let value_type = plain_value_expr(
+                typed,
+                context,
+                value_raw,
+                node_origin(resolved, left),
+                "channel send value",
+            )?
+            .required_value("channel send value does not have a type")?;
+            let channel_raw = type_node(typed, resolved, context, channel)?;
+            let channel_type = plain_value_expr(
+                typed,
+                context,
+                channel_raw,
+                node_origin(resolved, channel),
+                "channel send target",
+            )?
+            .required_value("channel send target does not have a type")?;
+            let element_type = super::helpers::channel_element_type(typed, channel_type)?;
+            super::helpers::ensure_assignable(
+                typed,
+                element_type,
+                value_type,
+                "channel send value".to_string(),
+                node_origin(resolved, left),
+            )?;
+            return Ok(TypedExpr::none());
+        }
         BinaryOperator::Pipe | BinaryOperator::PipeOr
             if matches!(super::helpers::strip_comments(right), AstNode::AsyncStage) =>
         {
-            return Err(unsupported_binary_surface(
+            if !typed.capability_model().supports_processor() {
+                return Err(unsupported_binary_surface(
+                    resolved,
+                    left,
+                    right,
+                    "async pipe stages require hosted std support; declare the bundled internal standard dependency",
+                ));
+            }
+            if !matches!(
+                super::helpers::strip_comments(left),
+                AstNode::FunctionCall { .. }
+            ) {
+                return Err(unsupported_binary_surface(
+                    resolved,
+                    left,
+                    right,
+                    "| async currently requires a direct routine call on its left side",
+                ));
+            }
+            let observed = type_node(
+                typed,
                 resolved,
+                TypeContext {
+                    error_call_mode: super::ErrorCallMode::Observe,
+                    ..context
+                },
                 left,
-                right,
-                "async pipe stages are planned for a future release",
-            ));
+            )?;
+            let value_type = observed
+                .value_type
+                .ok_or_else(|| TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    "| async requires a call that yields a value",
+                ))?;
+            let error_type = observed
+                .recoverable_effect
+                .map(|effect| effect.error_type);
+            let eventual = typed.type_table_mut().intern(CheckedType::Eventual {
+                value_type,
+                error_type,
+            });
+            return Ok(TypedExpr::value(eventual));
         }
         BinaryOperator::Pipe | BinaryOperator::PipeOr
             if matches!(super::helpers::strip_comments(right), AstNode::AwaitStage) =>
         {
-            return Err(unsupported_binary_surface(
-                resolved,
-                left,
-                right,
-                "await pipe stages are planned for a future release",
+            if !typed.capability_model().supports_processor() {
+                return Err(unsupported_binary_surface(
+                    resolved,
+                    left,
+                    right,
+                    "await pipe stages require hosted std support; declare the bundled internal standard dependency",
+                ));
+            }
+            let eventual_raw = type_node(typed, resolved, context, left)?;
+            let eventual_type = eventual_raw.required_value(
+                "| await requires an eventual value on its left side",
+            )?;
+            let Some(CheckedType::Eventual {
+                value_type,
+                error_type,
+            }) = typed.type_table().get(eventual_type).cloned()
+            else {
+                return Err(unsupported_binary_surface(
+                    resolved,
+                    left,
+                    right,
+                    "| await requires the internal eventual produced by | async",
+                ));
+            };
+            return Ok(TypedExpr::value(value_type).with_optional_effect(
+                error_type.map(|error_type| crate::RecoverableCallEffect { error_type }),
             ));
         }
         BinaryOperator::PipeOr => return type_pipe_or(typed, resolved, context, left, right),
@@ -283,7 +390,55 @@ pub(crate) fn type_unary_op(
     node: &AstNode,
     op: &UnaryOperator,
     operand: &AstNode,
+    expected_type: Option<crate::CheckedTypeId>,
 ) -> Result<TypedExpr, TypecheckError> {
+    if matches!(op, UnaryOperator::GiveBack) {
+        let AstNode::Identifier {
+            syntax_id: Some(syntax_id),
+            name,
+        } = operand
+        else {
+            return Err(with_node_origin(
+                resolved,
+                node,
+                TypecheckErrorKind::InvalidInput,
+                "give-back requires a borrow binding identifier",
+            ));
+        };
+        let symbol = resolved
+            .references
+            .iter()
+            .find(|reference| {
+                reference.syntax_id == Some(*syntax_id)
+                    && reference.kind == ReferenceKind::Identifier
+            })
+            .and_then(|reference| reference.resolved)
+            .ok_or_else(|| {
+                with_node_origin(
+                    resolved,
+                    node,
+                    TypecheckErrorKind::InvalidInput,
+                    format!("give-back target '{name}' does not resolve to a borrow binding"),
+                )
+            })?;
+        let origin = node_origin(resolved, node)
+            .or_else(|| node_origin(resolved, operand))
+            .ok_or_else(|| {
+                TypecheckError::new(
+                    TypecheckErrorKind::Internal,
+                    "give-back expression lost its syntax origin",
+                )
+            })?;
+        if !typed.give_back_borrow(symbol, origin.clone()) {
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::BorrowReturned,
+                format!("'{name}' is not an active borrow binding"),
+                origin,
+            ));
+        }
+        return Ok(TypedExpr::none());
+    }
+
     if matches!(op, UnaryOperator::Unwrap) {
         let operand_expr = type_node(typed, resolved, observe_context(context), operand)?;
         if operand_expr.recoverable_effect.is_some() {
@@ -340,10 +495,42 @@ pub(crate) fn type_unary_op(
                 Err(invalid_unary_operator_error(typed, op, operand_type))
             }
         }
-        UnaryOperator::Ref | UnaryOperator::Deref => Err(TypecheckError::new(
-            TypecheckErrorKind::Unsupported,
-            "pointer operators are planned for a future release",
-        )),
+        UnaryOperator::Ref => {
+            if typed.capability_model() == crate::TypecheckCapabilityModel::Core {
+                return Err(with_node_origin(
+                    resolved,
+                    node,
+                    TypecheckErrorKind::Unsupported,
+                    "pointer construction requires heap support; choose fol_model = 'memo' or add bundled std",
+                ));
+            }
+            let shared = expected_type
+                .and_then(|expected| typed.type_table().get(expected))
+                .is_some_and(|expected| {
+                    matches!(expected, CheckedType::Pointer { shared: true, .. })
+                });
+            let pointer = typed.type_table_mut().intern(CheckedType::Pointer {
+                target: operand_type,
+                shared,
+            });
+            Ok(TypedExpr::value(pointer))
+        }
+        UnaryOperator::Deref => match typed.type_table().get(operand_type) {
+            Some(CheckedType::Pointer { target, .. }) => Ok(TypedExpr::value(*target)),
+            _ => Err(invalid_unary_operator_error(typed, op, operand_type)),
+        },
+        UnaryOperator::BorrowFrom => {
+            let inner = match typed.type_table().get(operand_type) {
+                Some(CheckedType::Owned { inner }) => *inner,
+                _ => operand_type,
+            };
+            let borrowed = typed.type_table_mut().intern(CheckedType::Borrowed {
+                inner,
+                mutable: false,
+            });
+            Ok(TypedExpr::value(borrowed))
+        }
+        UnaryOperator::GiveBack => unreachable!("give-back is handled before unary typing"),
         UnaryOperator::Unwrap => unreachable!("unwrap is handled before plain unary typing"),
     }
 }

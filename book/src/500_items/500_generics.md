@@ -56,13 +56,11 @@ Current milestone note:
   examples without claiming broader generic-aware completion than the shipped
   editor currently provides
 - generic error shells remain outside the current shipped Milestone 1 routine subset
-- recursive type definitions are rejected with an honest boundary: a type whose
-  fields refer back to itself — directly (`typ Node(T) = { next: Node[T] }`) or
-  through a container/another type (`typ Tree(T) = { kids: vec[Tree[T]] }`) — has
-  no finite shape in the current structural runtime model, so the checker rejects
-  it (`recursive type '...' is not yet supported`) instead of looping in lowering;
-  recursive/heap-linked data belongs to the later ownership/pointer surface, and
-  `examples/fail_generic_recursive_m1m2` pins the boundary
+- recursive value edges remain rejected because they have no finite inline
+  layout. V3 owned heap recursion is now supported: an edge such as
+  `opt @Node` lowers nominally to `Option<Box<Node>>`. Recursive generic
+  instantiation through an inline container remains outside the shipped generic
+  subset, pinned by `examples/fail_generic_recursive_m1m2`
 - generic types are not part of `V1`; they now belong to the shipped narrow
   full-`V2` contract instead
 - examples here should be read as:

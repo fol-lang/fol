@@ -1,0 +1,11 @@
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+fun[] main(): int = {
+    var eventual = work(41) | async;
+    var value: int = eventual | await;
+    return std::io::echo_int(value);
+};

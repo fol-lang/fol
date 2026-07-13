@@ -1,97 +1,158 @@
 # Ownership
 
-This chapter describes the planned systems-language ownership model.
+FOL's V3 memory model uses compile-time ownership. It does not add a garbage
+collector, runtime ownership tags, or user-defined destructors.
 
-Current milestone note:
+V3 ships unique heap ownership, move checking, lexical borrowing, and typed
+unique/shared pointers.
 
-- ownership is not part of the current `V1` compiler contract
-- borrowing is not part of the current `V1` compiler contract
-- these semantics belong to the later `V3` systems milestone
+## Stack and heap bindings
 
-So the syntax and examples here should be read as future design, not as current
-compiler behavior.
+Bindings live on the stack unless heap allocation is explicit:
 
-Much like [C++]() and [Rust](), in Fol every variable declared, by default is created in stack unless explicitly specified othervise. Using option `[new]` or `[@]` in a variable, it allocates memory in the heap. The size of the allocation is defined by the type. Internally this creates a pointer to heap address, and dereferences it to the type you are having. Usually those behind the scene pointers here are unique pointers. This means that when the scope ends, the memory that the pointer used is freed.
+```fol
+var stack_value: int = 64;
+var[new] heap_value: int = 64;
+@var other_heap_value: int = 64;
 ```
-var[new] intOnHeap: int[64];
-@var intOnHeap: int[64];
-```
-## Assignments
 
-[As discussed before](/docs/spec/040_variables/#assignments), declaring a new variable is like this:
-```
-var[exp] aVar: int[32] = 64
-```
-{{% notice warn %}}
+`@var` is sugar for a binding with `[new]`. Heap allocation requires the
+`memo` capability model or bundled `std`; ownership checking itself is a
+compile-time rule and is also active in `core`.
 
-However, when new variable is created and uses an old variable as value, the value is always cloned for "stack" declared values, but moved for "heap" declared values.
+There is no `[@]` binding option and no manual `.de_alloc()` or `.free()`.
+Unique heap values lower to Rust `Box<T>` and are freed implicitly when their
+owning scope ends.
 
-{{% /notice %}}
+## Assignment and ownership transfer
 
+Assignment and rebinding use the value's storage class:
+
+- stack values clone, so the source and destination remain usable
+- heap-owned values move, so the source becomes inaccessible
+
+```fol
+fun[] main(): int = {
+    var stack_a: int = 2;
+    var stack_b: int = stack_a;
+
+    @var heap_a: int = 3;
+    @var heap_b: int = heap_a;
+
+    return stack_a + stack_b;
+};
 ```
-@var aVar: int[32] = 64
+
+A later read of `heap_a` is a compile error in the `O####` OWNERSHIP diagnostic
+family. The diagnostic points at both the invalid use and the transfer site.
+The backend emits stack transfers with `.clone()` and unique heap transfers as
+ordinary Rust moves. No runtime tag decides which operation occurs.
+
+## Recursive owned data
+
+Owned heap indirection gives recursive types a finite runtime shape:
+
+```fol
+typ Node: rec = {
+    value: int,
+    next: opt @Node,
+};
+```
+
+In type position, `@Node` means an owned heap `Node`. The example above lowers
+to one nominal Rust structure whose recursive field has the shape
+`FolOption<Box<Node>>`.
+
+A recursive value edge without owned indirection is still invalid:
+
+```fol
+typ Bad: rec = {
+    next: Bad,
+};
+```
+
+Such a type has no finite value layout. The compiler recommends an owned edge
+such as `opt @Bad` instead.
+
+## Lexical borrowing
+
+A borrow is an alias that does not take ownership:
+
+```fol
+var owner: Node = { value = 7, next = nil };
+var[bor] view: Node = owner;
+var value: int = view.value;
+```
+
+`#owner` is expression sugar for borrowing from an owner:
+
+```fol
+var[bor] view: Node = #owner;
+```
+
+Borrowing is scope-granular. A borrow remains active until the end of the
+lexical scope where its binding was created. FOL deliberately does not use
+flow-sensitive or non-lexical lifetime analysis in V3.
+
+While a borrow is active:
+
+- the owner cannot be read, written, moved, or borrowed incompatibly
+- shared borrowers are read-only
+- any mutable borrower excludes every other borrower of that owner
+
+Leaving the scope returns access to the owner automatically:
+
+```fol
+var owner: Node = { value = 7, next = nil };
 {
-    var bVar = aVar                                              // this moves the content from $aVar to $bVar
-}
-.echo(aVar)                                                      // this will throw n error, since the $aVar is not anymore owner of any value
+    var[bor] view: Node = owner;
+    var value: int = view.value;
+};
+return owner.value;
 ```
 
-When the variable is moved, the owner is changed. In example above, the value `64` (saved in stack) is owned my `aVar` and then the ownership is moved to `bVar`. Now `bVar` is the new owner of the variable, making the `aVar` useless and can't be refered anymore. Since the `bVar` now controls the value, it's lifetime lasts until the end of the scope. When the scope ends, the variable is destroyed with `.de_alloc()` function. This because when the ovnership is moved, the attributes are moved too, so the `@` of `aVar` is now part of the `bVar` even if not implicitly specified. To avoid destruction, the `bVar` needs to return the ownership back to `aVar` before the scope ends with `.give_back(bVar)` or `!bVar`.
+`!view` gives a borrow back before scope exit. A returned borrow cannot be used
+again:
 
+```fol
+var[bor] view: Node = owner;
+var value: int = view.value;
+!view;
+return owner.value;
 ```
-@var aVar: int[32] = 64
-{
-    var bVar = aVar                                              // this moves the content from $aVar to $bVar
-    !bvar                                                        // return ownership
-}
-.echo(aVar)                                                      // this now will print 64
-```
-This can be done automatically by using [borrowing](/docs/spec/040_variables//#borrowing). 
 
-## Borrowing
-Borrowing does as the name says, it borrows a value from another variable, and at the end of the scope it automatically returns to the owner.
+The `!` prefix is give-back only. It is not deletion or manual memory free.
 
-```
-pro[] main: int = {
-    var[~] aVar: int = 55;
-    {
-        var[bor] newVar: int = aVar                              // represents borrowing
-        .echo(newVar)                                            // this return 55
-    }
-    .echo(aVar)                                                  // here $aVar it not accesible, as the ownership returns at the end of the scope
-    .echo(newVar)                                                // we cant access the variable because the scope has ended
-}
-```
-Borrowing uses a predefined option `[bor]`, which is not conventional like other languages that use `&` or `*`. This because you can get away just with "borrowing" without using pointers (so, symbols like `*` and `&` are strictly related to pointers)
+## Mutable borrowing
 
-However, while the value is being borrowed, we can't use the old variable while is being borrowed but we still can lend to another variable:
-```
-pro[] main: int = {
-    var[~] aVar: int = 55;
-    {
-        var[bor] newVar = aVar                                   // represents borrowing
-        .echo(newVar)                                            // this prints 55
-        .echo(aVar)                                              // this throws an error, cos we already have borrowd the value from $aVar
-        var[bor] anotherVar = aVar                               // $anotherVar again borrows from a $aVar
-    }
-}
-```
-{{% notice warn %}}
+A mutable borrow requires both an explicitly mutable owner and an explicitly
+mutable borrow binding:
 
-When borrowed, a the value is read-only (it's immutable). To make it muttable, <em>firtsly</em>, the owner needs to be muttable, <em>secondly</em> the borrower needs to declarare that it intends to change. 
-
-{{% /notice %}} 
-
-To do so, the borrower uses `var[mut, bor]`. However, when the value is declared mutable by owner, only one borrower within one scope can declare to modify it:
+```fol
+var[mut] owner: Node = { value = 7, next = nil };
+var[mut, bor] view: Node = owner;
+view.value = 9;
+!view;
+return owner.value;
 ```
-pro[] main: int = {
-    var[~] aVar: int = 55;
-    {
-        var[mut, bor] newVar = aVar                              // [mut, bor] represents a mutable borrowing
-        var[mut, bor] anotherVar = aVar                          // this throws an error, cos we already have borrowed the muttable value before
-    }
-    {
-        var[mut, bor] anotherVar = aVar                          // this is okay, s it is in another scope
-    }
-}
+
+`var[bor]` is immutable unless `mut` is also present. Attempting a mutable
+borrow from `var[imu]`, or creating another borrow while a mutable borrow is
+active, is an `O####` ownership diagnostic.
+
+## Borrow parameters
+
+Routine parameters use the same explicit option position:
+
+```fol
+fun[] inspect(item[bor]: Node): int = {
+    return item.value;
+};
 ```
+
+The backend emits a Rust reference parameter. The argument is borrowed for the
+call and returned when the call completes. Parameter spelling or casing never
+changes ownership semantics; `name[bor]: T` is the only borrow-parameter form.
+
+Borrowing is compile-time-only and legal in `core`. It does not allocate or add
+runtime reference bookkeeping.

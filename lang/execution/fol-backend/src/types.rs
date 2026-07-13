@@ -31,6 +31,44 @@ pub fn render_rust_type_in_workspace(
         LoweredType::Builtin(LoweredBuiltinType::Str) => Ok("rt_model::FolStr".to_string()),
         LoweredType::Builtin(builtin) => Ok(render_builtin_type(*builtin)?.to_string()),
         LoweredType::GenericParameter { name } => Ok(sanitize_backend_ident(name)),
+        LoweredType::Named {
+            package, symbol, ..
+        } => {
+            let workspace = workspace.ok_or_else(|| {
+                BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    "named lowered types require workspace context",
+                )
+            })?;
+            let declaration = workspace
+                .package(package)
+                .and_then(|package| package.type_decls.get(symbol))
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        "named lowered type lost its declaration",
+                    )
+                })?;
+            Ok(format!(
+                "{}::{}",
+                render_namespace_module_path(workspace, package, declaration.source_unit_id)?,
+                mangle_type_name(package, declaration.runtime_type, &declaration.name)
+            ))
+        }
+        LoweredType::Owned { inner } => Ok(format!(
+            "Box<{}>",
+            render_rust_type_in_workspace(workspace, type_table, *inner)?
+        )),
+        LoweredType::Borrowed { inner, mutable } => Ok(format!(
+            "&{}{}",
+            if *mutable { "mut " } else { "" },
+            render_rust_type_in_workspace(workspace, type_table, *inner)?
+        )),
+        LoweredType::Pointer { target, shared } => Ok(format!(
+            "{}<{}>",
+            if *shared { "std::rc::Rc" } else { "Box" },
+            render_rust_type_in_workspace(workspace, type_table, *target)?
+        )),
         LoweredType::Array {
             element_type,
             size: Some(size),
@@ -50,6 +88,28 @@ pub fn render_rust_type_in_workspace(
             "rt_model::FolSeq<{}>",
             render_rust_type_in_workspace(workspace, type_table, *element_type)?
         )),
+        LoweredType::Channel { element_type } => Ok(format!(
+            "rt::FolChannel<{}>",
+            render_rust_type_in_workspace(workspace, type_table, *element_type)?
+        )),
+        LoweredType::ChannelSender { element_type } => Ok(format!(
+            "rt::FolSender<{}>",
+            render_rust_type_in_workspace(workspace, type_table, *element_type)?
+        )),
+        LoweredType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            let value_type = render_rust_type_in_workspace(workspace, type_table, *value_type)?;
+            let payload = match error_type {
+                Some(error_type) => format!(
+                    "rt::FolRecover<{value_type}, {}>",
+                    render_rust_type_in_workspace(workspace, type_table, *error_type)?
+                ),
+                None => value_type,
+            };
+            Ok(format!("rt::FolEventual<{payload}>"))
+        }
         LoweredType::Set { member_types } => match member_types.as_slice() {
             [member_type] => Ok(format!(
                 "rt_model::FolSet<{}>",
@@ -128,9 +188,20 @@ fn type_contains(
     match ty {
         LoweredType::Array { element_type, .. }
         | LoweredType::Vector { element_type }
-        | LoweredType::Sequence { element_type } => {
-            type_contains(type_table, *element_type, matches_builtin, depth + 1)
+        | LoweredType::Sequence { element_type }
+        | LoweredType::Channel { element_type }
+        | LoweredType::ChannelSender { element_type }
+        | LoweredType::Owned {
+            inner: element_type,
         }
+        | LoweredType::Borrowed {
+            inner: element_type,
+            ..
+        }
+        | LoweredType::Pointer {
+            target: element_type,
+            ..
+        } => type_contains(type_table, *element_type, matches_builtin, depth + 1),
         LoweredType::Set { member_types } => member_types
             .iter()
             .any(|member| type_contains(type_table, *member, matches_builtin, depth + 1)),
@@ -147,6 +218,15 @@ fn type_contains(
         LoweredType::Error { inner } => inner
             .map(|inner| type_contains(type_table, inner, matches_builtin, depth + 1))
             .unwrap_or(false),
+        LoweredType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            type_contains(type_table, *value_type, matches_builtin, depth + 1)
+                || error_type.is_some_and(|error_type| {
+                    type_contains(type_table, error_type, matches_builtin, depth + 1)
+                })
+        }
         LoweredType::Record { fields } => fields
             .values()
             .any(|field| type_contains(type_table, *field, matches_builtin, depth + 1)),
@@ -155,7 +235,10 @@ fn type_contains(
                 .map(|payload| type_contains(type_table, payload, matches_builtin, depth + 1))
                 .unwrap_or(false)
         }),
-        _ => false,
+        LoweredType::Named { .. }
+        | LoweredType::Builtin(_)
+        | LoweredType::GenericParameter { .. } => false,
+        LoweredType::Routine(_) => false,
     }
 }
 
@@ -221,11 +304,7 @@ pub fn render_record_definition(
         .collect::<BackendResult<Vec<_>>>()?
         .join("\n");
 
-    let derives = aggregate_derives(
-        type_table,
-        fields.iter().map(|field| field.type_id),
-        true,
-    );
+    let derives = aggregate_derives(type_table, fields.iter().map(|field| field.type_id), true);
     Ok(format!(
         "{}\npub struct {} {{\n{}\n}}\n",
         derives,
@@ -459,14 +538,8 @@ fn render_namespace_module_path(
 fn render_entry_trait_match_arm(variant: &LoweredVariantLayout) -> String {
     let ident = crate::escape_rust_field_ident(&variant.name);
     match variant.payload_type {
-        Some(_) => format!(
-            "            Self::{}(..) => \"{}\",",
-            ident, variant.name
-        ),
-        None => format!(
-            "            Self::{} => \"{}\",",
-            ident, variant.name
-        ),
+        Some(_) => format!("            Self::{}(..) => \"{}\",", ident, variant.name),
+        None => format!("            Self::{} => \"{}\",", ident, variant.name),
     }
 }
 

@@ -1,0 +1,7 @@
+fun[] main(): int = {
+    var stack_a: int = 2;
+    var stack_b: int = stack_a;
+    @var heap_a: int = 3;
+    @var heap_b: int = heap_a;
+    return stack_a + stack_b;
+};

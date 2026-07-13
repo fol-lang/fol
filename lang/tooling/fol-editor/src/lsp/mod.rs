@@ -27,22 +27,25 @@ pub use types::{
 };
 
 use crate::{
-    dedup_lsp_diagnostics, EditorConfig, EditorDocument, EditorDocumentUri, EditorError,
-    EditorErrorKind, EditorResult, EditorSession, EditorWorkspaceMapping, EditorWorkspaceRoots,
-    LspLocation, LspPosition, LspRange, formatting_edit,
+    dedup_lsp_diagnostics, formatting_edit, EditorConfig, EditorDocument, EditorDocumentUri,
+    EditorError, EditorErrorKind, EditorResult, EditorSession, EditorWorkspaceMapping,
+    EditorWorkspaceRoots, LspLocation, LspPosition, LspRange,
 };
 
 fn serialize_result(value: &impl serde::Serialize) -> EditorResult<serde_json::Value> {
     serde_json::to_value(value).map_err(|e| {
-        EditorError::new(EditorErrorKind::Internal, format!("LSP response serialization failed: {e}"))
+        EditorError::new(
+            EditorErrorKind::Internal,
+            format!("LSP response serialization failed: {e}"),
+        )
     })
 }
+use crate::workspace::discover_workspace_roots;
 use analysis::analyze_document_semantics;
 use completion_helpers::completion_context_with_lsp;
 use std::fs;
 use std::sync::Arc;
 use transport::from_params;
-use crate::workspace::discover_workspace_roots;
 
 pub(crate) fn semantic_token_type_names() -> &'static [&'static str] {
     semantic::semantic_token_types()
@@ -120,7 +123,9 @@ impl EditorLspServer {
                             version: env!("CARGO_PKG_VERSION").to_string(),
                         },
                     })
-                    .map_err(|e| EditorError::new(EditorErrorKind::Internal, format!("LSP serialize: {e}")))?,
+                    .map_err(|e| {
+                        EditorError::new(EditorErrorKind::Internal, format!("LSP serialize: {e}"))
+                    })?,
                 ),
                 error: None,
             })),
@@ -155,9 +160,7 @@ impl EditorLspServer {
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -171,23 +174,18 @@ impl EditorLspServer {
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
             "textDocument/formatting" => {
                 let params: LspDocumentFormattingParams = from_params(request.params)?;
-                let result = self.format_document(
-                    &EditorDocumentUri::parse(&params.text_document.uri)?,
-                )?;
+                let result =
+                    self.format_document(&EditorDocumentUri::parse(&params.text_document.uri)?)?;
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -200,9 +198,7 @@ impl EditorLspServer {
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -216,9 +212,7 @@ impl EditorLspServer {
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -243,9 +237,7 @@ impl EditorLspServer {
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -256,9 +248,7 @@ impl EditorLspServer {
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -268,9 +258,7 @@ impl EditorLspServer {
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -284,9 +272,7 @@ impl EditorLspServer {
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(
-                        serialize_result(&result)?,
-                    ),
+                    result: Some(serialize_result(&result)?),
                     error: None,
                 }))
             }
@@ -354,8 +340,8 @@ impl EditorLspServer {
             }
             "textDocument/foldingRange" => {
                 let params: LspFoldingRangeParams = from_params(request.params)?;
-                let result = self
-                    .folding_ranges(&EditorDocumentUri::parse(&params.text_document.uri)?)?;
+                let result =
+                    self.folding_ranges(&EditorDocumentUri::parse(&params.text_document.uri)?)?;
                 Ok(Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
@@ -506,7 +492,7 @@ impl EditorLspServer {
     ) -> EditorResult<Option<LspHover>> {
         let document = self.open_document(uri)?.clone();
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        let hit = snapshot
+        let mut hit = snapshot
             .reference_at(position)
             .as_ref()
             .and_then(|reference| snapshot.hover_for_reference(reference))
@@ -515,6 +501,149 @@ impl EditorLspServer {
                     .method_target_symbol_at(position)
                     .and_then(|symbol_id| snapshot.hover_for_symbol(symbol_id))
             });
+        let word_at_position = document
+            .text
+            .lines()
+            .nth(position.line as usize)
+            .and_then(|line| {
+                let chars = line.chars().collect::<Vec<_>>();
+                let cursor = (position.character as usize).min(chars.len());
+                let mut start = cursor;
+                while start > 0
+                    && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_')
+                {
+                    start -= 1;
+                }
+                let mut end = cursor;
+                while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+                    end += 1;
+                }
+                (start < end).then(|| chars[start..end].iter().collect::<String>())
+            });
+        if hit.is_none() && word_at_position.as_deref() == Some("edf") {
+            hit = Some(LspHover {
+                contents: "edf: error-only defer (runs on recoverable error exit only)".to_string(),
+                range: None,
+            });
+        }
+        if hit.is_none() && word_at_position.as_deref() == Some("mux") {
+            let guarded_type = document
+                .text
+                .lines()
+                .nth(position.line as usize)
+                .and_then(|line| line.split(":").nth(1))
+                .and_then(|tail| {
+                    tail.trim()
+                        .split(|character: char| {
+                            !(character.is_alphanumeric() || character == '_')
+                        })
+                        .next()
+                })
+                .filter(|name| !name.is_empty())
+                .unwrap_or("T");
+            hit = Some(LspHover {
+                contents: format!(
+                    "[mux]: mutex-guarded shared `{guarded_type}` (auto-unlock at scope end)"
+                ),
+                range: None,
+            });
+        }
+        if hit.is_none() && word_at_position.as_deref() == Some("async") {
+            hit = Some(LspHover {
+                contents: "| async: spawns an OS thread; yields an eventual (internal type)"
+                    .to_string(),
+                range: None,
+            });
+        }
+        if hit.is_none() && word_at_position.as_deref() == Some("await") {
+            hit = Some(LspHover {
+                contents: "| await: blocks for the eventual value and preserves its recoverable error type"
+                    .to_string(),
+                range: None,
+            });
+        }
+        let spawn_marker_at_position = document
+            .text
+            .lines()
+            .nth(position.line as usize)
+            .is_some_and(|line| {
+                line.match_indices("[>]").any(|(byte_offset, marker)| {
+                    let start = line[..byte_offset].chars().count() as u32;
+                    let end = start + marker.chars().count() as u32;
+                    position.character >= start && position.character <= end
+                })
+            });
+        if hit.is_none() && spawn_marker_at_position {
+            hit = Some(LspHover {
+                contents: "[>]: spawns a task (joined at process exit)".to_string(),
+                range: None,
+            });
+        }
+        if hit.is_none()
+            && matches!(word_at_position.as_deref(), Some("tx" | "rx"))
+        {
+            let endpoint = word_at_position.as_deref().unwrap_or_default();
+            let channel_element = document
+                .text
+                .lines()
+                .nth(position.line as usize)
+                .and_then(|line| {
+                    let bracket = line[..line
+                        .char_indices()
+                        .nth(position.character as usize)
+                        .map(|(offset, _)| offset)
+                        .unwrap_or(line.len())]
+                        .rfind('[')?;
+                    let prefix = &line[..bracket];
+                    let name = prefix
+                        .trim_end()
+                        .rsplit(|character: char| {
+                            !(character.is_alphanumeric() || character == '_')
+                        })
+                        .next()?;
+                    document.text.lines().find_map(|candidate| {
+                        let marker = format!("{name}: chn[");
+                        let start = candidate.find(&marker)? + marker.len();
+                        let rest = &candidate[start..];
+                        let end = rest.find(']')?;
+                        Some(rest[..end].trim().to_string())
+                    })
+                })
+                .unwrap_or_else(|| "T".to_string());
+            hit = Some(LspHover {
+                contents: if endpoint == "tx" {
+                    format!("c[tx]: non-blocking send of `{channel_element}`")
+                } else {
+                    format!(
+                        "c[rx]: blocking receive of `{channel_element}`; iteration continues until closed"
+                    )
+                },
+                range: None,
+            });
+        }
+        let owned_type_site = document
+            .text
+            .lines()
+            .nth(position.line as usize)
+            .map(|line| {
+                let prefix = line
+                    .chars()
+                    .take(position.character as usize)
+                    .collect::<String>();
+                prefix
+                    .trim_end_matches(|character: char| {
+                        character.is_alphanumeric() || character == '_'
+                    })
+                    .ends_with('@')
+            })
+            .unwrap_or(false);
+        if owned_type_site {
+            if let Some(hover) = hit.as_mut() {
+                hover
+                    .contents
+                    .push_str(" (owned heap type; allocation requires memo+)");
+            }
+        }
         Ok(hit)
     }
 
@@ -600,16 +729,16 @@ impl EditorLspServer {
         let reference = snapshot.reference_at(position).ok_or_else(|| {
             EditorError::new(
                 EditorErrorKind::InvalidInput,
-                format!("no rename target at {}:{}", position.line, position.character),
+                format!(
+                    "no rename target at {}:{}",
+                    position.line, position.character
+                ),
             )
         })?;
         snapshot.rename_for_reference(&reference, new_name)
     }
 
-    pub fn workspace_symbols(
-        &mut self,
-        query: &str,
-    ) -> EditorResult<Vec<LspWorkspaceSymbol>> {
+    pub fn workspace_symbols(&mut self, query: &str) -> EditorResult<Vec<LspWorkspaceSymbol>> {
         let workspace_documents = self.workspace_symbol_documents()?;
         let mut symbols = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
@@ -640,7 +769,13 @@ impl EditorLspServer {
                 .cmp(&right.name)
                 .then(left.container_name.cmp(&right.container_name))
                 .then(left.location.uri.cmp(&right.location.uri))
-                .then(left.location.range.start.line.cmp(&right.location.range.start.line))
+                .then(
+                    left.location
+                        .range
+                        .start
+                        .line
+                        .cmp(&right.location.range.start.line),
+                )
                 .then(
                     left.location
                         .range
@@ -785,19 +920,13 @@ impl EditorLspServer {
         Ok(snapshot.inlay_hints(&document, range))
     }
 
-    pub fn code_lenses(
-        &mut self,
-        uri: &EditorDocumentUri,
-    ) -> EditorResult<Vec<LspCodeLens>> {
+    pub fn code_lenses(&mut self, uri: &EditorDocumentUri) -> EditorResult<Vec<LspCodeLens>> {
         let document = self.open_document(uri)?.clone();
         let snapshot = self.semantic_snapshot(uri, &document)?;
         Ok(snapshot.code_lenses(&document))
     }
 
-    pub fn semantic_tokens(
-        &mut self,
-        uri: &EditorDocumentUri,
-    ) -> EditorResult<LspSemanticTokens> {
+    pub fn semantic_tokens(&mut self, uri: &EditorDocumentUri) -> EditorResult<LspSemanticTokens> {
         let document = self.open_document(uri)?.clone();
         let snapshot = self.semantic_snapshot(uri, &document)?;
         Ok(LspSemanticTokens {
@@ -825,7 +954,10 @@ impl EditorLspServer {
         self.cached_document_mapping(document.path.as_path())
     }
 
-    fn cached_document_mapping(&mut self, path: &std::path::Path) -> EditorResult<EditorWorkspaceMapping> {
+    fn cached_document_mapping(
+        &mut self,
+        path: &std::path::Path,
+    ) -> EditorResult<EditorWorkspaceMapping> {
         let absolute = crate::workspace::canonical_document_path(path)?;
         let directory = absolute.parent().ok_or_else(|| {
             EditorError::new(
@@ -837,10 +969,7 @@ impl EditorLspServer {
         crate::map_document_workspace(&absolute, &self.session.config)
     }
 
-    fn cached_workspace_roots(
-        &mut self,
-        directory: &std::path::Path,
-    ) -> EditorWorkspaceRoots {
+    fn cached_workspace_roots(&mut self, directory: &std::path::Path) -> EditorWorkspaceRoots {
         if let Some(roots) = self.session.workspace_roots.get(directory) {
             return roots.clone();
         }
@@ -927,7 +1056,6 @@ fn collect_fol_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     files.sort();
     files
 }
-
 
 #[cfg(test)]
 mod tests;

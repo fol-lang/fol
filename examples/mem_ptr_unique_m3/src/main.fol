@@ -1,0 +1,6 @@
+fun[] main(): int = {
+    var value: int = 7;
+    var[mut] pointer: ptr[int] = &value;
+    *pointer = 9;
+    return *pointer;
+};

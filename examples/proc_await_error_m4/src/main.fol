@@ -1,0 +1,14 @@
+use std: pkg = {"std"};
+
+fun[] probe(fail: bol): int / int = {
+    when(fail) {
+        case(true) { report 7; }
+        * { return 9; }
+    }
+};
+
+fun[] main(): int = {
+    var eventual = probe(true) | async;
+    var value: int = (eventual | await) || 42;
+    return std::io::echo_int(value);
+};

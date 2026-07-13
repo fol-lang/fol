@@ -172,8 +172,29 @@ pub enum CheckedType {
         key_type: CheckedTypeId,
         value_type: CheckedTypeId,
     },
+    Channel {
+        element_type: CheckedTypeId,
+    },
+    ChannelSender {
+        element_type: CheckedTypeId,
+    },
+    Eventual {
+        value_type: CheckedTypeId,
+        error_type: Option<CheckedTypeId>,
+    },
     Optional {
         inner: CheckedTypeId,
+    },
+    Owned {
+        inner: CheckedTypeId,
+    },
+    Borrowed {
+        inner: CheckedTypeId,
+        mutable: bool,
+    },
+    Pointer {
+        target: CheckedTypeId,
+        shared: bool,
     },
     Error {
         inner: Option<CheckedTypeId>,
@@ -241,8 +262,42 @@ impl TypeTable {
                     format!("{name}[{rendered}]")
                 }
             }
+            Some(CheckedType::Channel { element_type }) => {
+                format!("chn[{}]", self.render_type(*element_type))
+            }
+            Some(CheckedType::ChannelSender { element_type }) => {
+                format!("chn[{}][tx]", self.render_type(*element_type))
+            }
+            Some(CheckedType::Eventual {
+                value_type,
+                error_type,
+            }) => match error_type {
+                Some(error_type) => format!(
+                    "<eventual {}/{}>",
+                    self.render_type(*value_type),
+                    self.render_type(*error_type)
+                ),
+                None => format!("<eventual {}>", self.render_type(*value_type)),
+            },
             Some(CheckedType::Optional { inner }) => {
                 format!("opt[{}]", self.render_type(*inner))
+            }
+            Some(CheckedType::Owned { inner }) => {
+                format!("@{}", self.render_type(*inner))
+            }
+            Some(CheckedType::Borrowed { inner, mutable }) => {
+                if *mutable {
+                    format!("bor[mut, {}]", self.render_type(*inner))
+                } else {
+                    format!("bor[{}]", self.render_type(*inner))
+                }
+            }
+            Some(CheckedType::Pointer { target, shared }) => {
+                if *shared {
+                    format!("ptr[shared, {}]", self.render_type(*target))
+                } else {
+                    format!("ptr[{}]", self.render_type(*target))
+                }
             }
             Some(CheckedType::Error { inner }) => inner
                 .map(|inner| format!("err[{}]", self.render_type(inner)))
@@ -284,10 +339,7 @@ impl TypeTable {
                     .map(|r| self.render_type(r))
                     .unwrap_or_else(|| "void".to_string());
                 match routine.error_type {
-                    Some(err) => format!(
-                        "fun({params}): {returns} / {}",
-                        self.render_type(err)
-                    ),
+                    Some(err) => format!("fun({params}): {returns} / {}", self.render_type(err)),
                     None => format!("fun({params}): {returns}"),
                 }
             }

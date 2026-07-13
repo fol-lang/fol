@@ -27,7 +27,7 @@ The book chapters that this plan implements — and heavily rewrites — are:
 
 - `book/src/800_memory/100_ownership.md`
 - `book/src/800_memory/200_pointers.md`
-- `book/src/700_sugar/250_defer.md`
+- `book/src/700_sugar/250_dfr.md`
 
 Every place this plan contradicts those chapters is enumerated in Workstream U.
 
@@ -264,14 +264,14 @@ note).
 
 Tracked slices:
 
-- [ ] Q1. Rename `defer` -> `dfr` across lexer, parser, tree-sitter, book,
+- [x] Q1. Rename `defer` -> `dfr` across lexer, parser, tree-sitter, book,
   examples, completion, and tests.
-- [ ] Q2. Remove the reserved `go` keyword.
-- [ ] Q3. Enforce the sigil charter: kill `var[~]`, resolve the `!` prefix
+- [x] Q2. Remove the reserved `go` keyword.
+- [x] Q3. Enforce the sigil charter: kill `var[~]`, resolve the `!` prefix
   collision, delete the `ALL_CAPS` borrowable hook.
-- [ ] Q4. Add the `O####` OWNERSHIP diagnostic family, chip, registry, and test
+- [x] Q4. Add the `O####` OWNERSHIP diagnostic family, chip, registry, and test
   coverage.
-- [ ] Q5. Land the `name[options]: type` parameter-option grammar seam.
+- [x] Q5. Land the `name[options]: type` parameter-option grammar seam.
 
 
 # 5. Workstream R: M1 — Ownership, Move Semantics, and Nominal Recursive Types
@@ -383,18 +383,18 @@ in `docs/v2-generics-m1.md` and `book/src/500_items/500_generics.md`).
 
 Tracked slices:
 
-- [ ] R1. Move/clone assignment semantics + use-after-move `O` diagnostic;
+- [x] R1. Move/clone assignment semantics + use-after-move `O` diagnostic;
   delete the heap-binding rejection.
-- [ ] R2. Nominal `LoweredType` variant + named lowered type declarations +
+- [x] R2. Nominal `LoweredType` variant + named lowered type declarations +
   `Box<T>` / `Option<Box<Node>>` backend emission.
-- [ ] R3. Recursive-type flagship: replace the rejection for `@`-recursion,
+- [x] R3. Recursive-type flagship: replace the rejection for `@`-recursion,
   keep + rewrite the non-`@` rejection, update the detector and its pinned
   tests (`test/typecheck` foundation pins, `test/resolver`, and the
   `examples/fail_generic_recursive_m1m2` boundary example).
-- [ ] R4. Model-tier gating: ownership legal in `core`, allocation gated to
+- [x] R4. Model-tier gating: ownership legal in `core`, allocation gated to
   `memo`+.
-- [ ] R5. LSP + tree-sitter: `@` in type position, hover/definition/diagnostics.
-- [ ] R6. Positive (linked list, tree, move-vs-clone) and `fail_*`
+- [x] R5. LSP + tree-sitter: `@` in type position, hover/definition/diagnostics.
+- [x] R6. Positive (linked list, tree, move-vs-clone) and `fail_*`
   (use-after-move, non-`@` recursion, heap-in-core) examples build/run/reject as
   specified.
 
@@ -505,18 +505,18 @@ Docs for S: see Workstream U (borrowing rewrite, `dfr`/`edf` chapter section).
 
 Tracked slices:
 
-- [ ] S1. Scope-granular borrow state on the ownership scope-stack; owner-
+- [x] S1. Scope-granular borrow state on the ownership scope-stack; owner-
   inaccessible and second-mutable-borrow `O` diagnostics; delete `[bor]`
   rejection.
-- [ ] S2. `#` borrow-from and `!` give-back prefix operators (parser, typecheck,
+- [x] S2. `#` borrow-from and `!` give-back prefix operators (parser, typecheck,
   lowering).
-- [ ] S3. `name[bor]: T` borrow parameters via the Q5 seam; delete borrowable-
+- [x] S3. `name[bor]: T` borrow parameters via the Q5 seam; delete borrowable-
   param rejection; retrigger `is_borrowable` from explicit syntax only.
-- [ ] S4. Ownership-aware `dfr` ordering and error-only `edf` (parser,
+- [x] S4. Ownership-aware `dfr` ordering and error-only `edf` (parser,
   typecheck, lowering) with double-free avoidance for moved-out values.
-- [ ] S5. LSP + tree-sitter: borrow sigils, `[bor]` param, `edf`; hover, rename,
+- [x] S5. LSP + tree-sitter: borrow sigils, `[bor]` param, `edf`; hover, rename,
   diagnostics.
-- [ ] S6. Positive and `fail_*` borrow examples build/run/reject as specified.
+- [x] S6. Positive and `fail_*` borrow examples build/run/reject as specified.
 
 
 # 7. Workstream T: M3 — Pointers
@@ -607,16 +607,16 @@ form, simplified shared deref, raw-out, `#`/`&`/`*` alignment).
 
 Tracked slices:
 
-- [ ] T1. `ptr[T]` / `ptr[shared, T]` parse + qualifier enum on
+- [x] T1. `ptr[T]` / `ptr[shared, T]` parse + qualifier enum on
   `FolType::Pointer`; delete the pointer-type rejection for unique/shared; keep a
   permanent `Raw` V4 boundary.
-- [ ] T2. `&x` / `*p` typing and simplified shared deref; delete the pointer-
+- [x] T2. `&x` / `*p` typing and simplified shared deref; delete the pointer-
   operator rejection.
-- [ ] T3. Shared recursion legal with a documented cycle-leak boundary; weak-ref
+- [x] T3. Shared recursion legal with a documented cycle-leak boundary; weak-ref
   slot left explicit.
-- [ ] T4. Model-tier gating for pointer construction.
-- [ ] T5. LSP + tree-sitter: qualifier grammar, hover, diagnostics.
-- [ ] T6. Positive (unique, shared, shared-recursive) and `fail_*` (raw, core)
+- [x] T4. Model-tier gating for pointer construction.
+- [x] T5. LSP + tree-sitter: qualifier grammar, hover, diagnostics.
+- [x] T6. Positive (unique, shared, shared-recursive) and `fail_*` (raw, core)
   examples build/run/reject as specified.
 
 
@@ -629,7 +629,7 @@ these are honesty fixes.
 
 Contradictions to fix (chapter -> exact edit):
 
-- `book/src/700_sugar/250_defer.md`
+- `book/src/700_sugar/250_dfr.md`
   - rename `defer` -> `dfr` throughout (Q1)
   - the chapter already lists "ownership-aware cleanup" and "error-only variants
     such as `errdefer`" as later work; replace `errdefer` with the shipped
@@ -669,14 +669,14 @@ Contradictions to fix (chapter -> exact edit):
 
 Tracked slices:
 
-- [ ] U1. Rewrite `250_defer.md` (`dfr`, `edf`, ownership-aware ordering).
-- [ ] U2. Rewrite `100_ownership.md` (sigils, implicit free, scope-granular
+- [x] U1. Rewrite `250_dfr.md` (`dfr`, `edf`, ownership-aware ordering).
+- [x] U2. Rewrite `100_ownership.md` (sigils, implicit free, scope-granular
   borrow rule, no NLL).
-- [ ] U3. Rewrite `200_pointers.md` (typed `ptr[T]`, qualifier, simplified
+- [x] U3. Rewrite `200_pointers.md` (typed `ptr[T]`, qualifier, simplified
   shared deref, raw -> V4, sigil intrinsics, leak boundary).
-- [ ] U4. Update the recursive-type boundary notes in `docs/v2-generics-m1.md`
+- [x] U4. Update the recursive-type boundary notes in `docs/v2-generics-m1.md`
   and `book/src/500_items/500_generics.md`.
-- [ ] U5. Remove the `ALL_CAPS`-borrowable convention from the book.
+- [x] U5. Remove the `ALL_CAPS`-borrowable convention from the book.
 
 
 # 9. Workstream V: Editor and Tree-Sitter Hardening (Cross-Cutting)
@@ -709,13 +709,13 @@ Primary files:
 
 Tracked slices:
 
-- [ ] V1. Editor / tree-sitter updates shipped alongside Q (renames, dead-form
+- [x] V1. Editor / tree-sitter updates shipped alongside Q (renames, dead-form
   removal, parameter-option seam).
-- [ ] V2. Editor / tree-sitter updates shipped alongside R (`@` in type
+- [x] V2. Editor / tree-sitter updates shipped alongside R (`@` in type
   position, move/hover/diagnostics).
-- [ ] V3. Editor / tree-sitter updates shipped alongside S (`#`/`!` sigils,
+- [x] V3. Editor / tree-sitter updates shipped alongside S (`#`/`!` sigils,
   `[bor]` param, `edf`, borrow hover/rename).
-- [ ] V4. Editor / tree-sitter updates shipped alongside T (pointer qualifier
+- [x] V4. Editor / tree-sitter updates shipped alongside T (pointer qualifier
   grammar, pointer hover/diagnostics).
 
 Rule:
@@ -775,7 +775,7 @@ The memory pillar is complete only when:
 - the linked-list and tree examples build, run, and free correctly with no leaks
   (verified in the emitted Rust), and every `fail_*` example rejects with the
   specified diagnostic
-- the V3 memory chapters (`100_ownership.md`, `200_pointers.md`, `250_defer.md`)
+- the V3 memory chapters (`100_ownership.md`, `200_pointers.md`, `250_dfr.md`)
   describe the resulting language exactly, with no leftover pre-rewrite wording
 - the project can honestly say: "V3 memory is compile-time-only ownership,
   scope-granular borrowing, and typed pointers — no GC, no NLL, no raw unsafe

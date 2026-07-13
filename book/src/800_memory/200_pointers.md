@@ -1,76 +1,79 @@
 # Pointers
 
-This chapter is future systems-language design.
+FOL V3 has typed unique and shared pointers. Pointer construction allocates, so
+it requires the `memo` capability model or bundled `std`.
 
-Current milestone note:
+## Unique pointers
 
-- pointer semantics are not part of the implemented `V1` compiler contract
-- pointer-specific intrinsics such as `.pointer_value(...)`,
-  `.address_of(...)`, and `.borrow_from(...)` are deferred
-- the material here belongs to the later `V3` systems milestone
+`ptr[T]` is a uniquely owned pointer to `T`:
 
-So the examples in this chapter should be read as planned language direction,
-not as currently supported `V1` code.
-
-The only way to access the same memory with different variable is by using pointers. In example below, we create a pointer, and when we want to dereference it to modify the content of the address that the pointer is pointing to, we use `*ptrname` or `.pointer_value(ptrname)`.
-```
-@var aContainer: arr[int, 5];                                    //allocating memory on the heap
-var contPoint: ptr[] = aContainer;
-    
-*contPoint = { zero, one, two, three, four };                    //dereferencing and then assigning values
-```
-Bare in mind, that the pointer (so, the address itself) can't be changes, unless when created is marked as `var[mut]`. To see tha address of a pointer we use `&ptrname` or `.address_of(ptrname)`
-```
-@var aContainer: arr[int, 5];                                    //allocating memory on the heap
-var contPoint: ptr[] = aContainer;
-    
-var anotherPoint: ptr[] = &contPoint;                            //assigning the same adress to another pointer
-```
-## Unique pointer
-
-Ponter of a pointer is very simimilar to RUST move pointer, it actually, deletes the first pointer and references the new one to the location of deleted one. However this works only when the pointer is unique (all pointers by default all unique). This is like borrowing, but does not invalidate the source variable:
-```
-var aContainer: arr[int, 5] = { zero, one, two, three, four };
-
-var contPoint: ptr[] = aContainer;
-var anotherPoint: ptr[] = &contPoint;
+```fol
+fun[] main(): int = {
+    var value: int = 7;
+    var[mut] pointer: ptr[int] = &value;
+    *pointer = 9;
+    return *pointer;
+};
 ```
 
-with borrowing, we use `#varname` or `.borrow_from(varname)`
-```
-var aContainer: arr[int, 5] = { zero, one, two, three, four };
-{
-    var borrowVar = #aContainer;                                    //this makes a new var form the old var, but makes the old invalid (until out of scope)
-}
+`&value` allocates the pointed-to value and produces a unique pointer. The
+backend represents it as `Box<T>`. Unique pointers move on transfer, just like
+other unique heap-owned values, and are freed when their owner leaves scope.
+
+`*pointer` dereferences once to the `T` pointee. A unique pointer binding
+declared with `var[mut]` supports write-through assignment.
+
+## Shared pointers
+
+`ptr[shared, T]` is a reference-counted shared pointer:
+
+```fol
+var value: int = 7;
+var first: ptr[shared, int] = &value;
+var second: ptr[shared, int] = first;
+return *first + *second;
 ```
 
-## Shred pointer
-Ponter can be shared too. They can get referenced by another pointer, and they don't get destroyed until the last reference's scope is finished. This is exacly like smart shared_ptr in C++. Pointer to this pointer makes a reference not a copy as unique pointers. Dereferencing is a bit complicated here, as when you dereference a pointer pointer you get a pointer, so you need to dereference it too to get the value.
-```
-@var aContainer: arr[int, 5] = { zero, one, two, three, four };
+The backend represents shared pointers as `Rc<T>`. Assigning one clones the
+reference count, so `first` and `second` refer to the same allocation. Shared
+pointers are read-only; write-through is rejected.
 
-var contPoint: ptr[] = aContainer;
-var pointerPoint: ptr[shared] = &contPoint;
-```
-Dereferencing (step-by-step):
-```
-var apointerValue = *pointerPoint
-var lastpointerValue = *apointer
-```
-Dereferencing (all-in-one):
-```
-var lastpointer = *(*pointerPoint)
-```
-## Raw pointer
-Lastly, pointers can be raw too. This is the base of ALL POINTERS AND VARIABLES. Pointers of this type need to MANUALLY GET DELETED. If a pointer gets deleted before the new pointer that points at it, we get can get memory corruptions:
-```
-var aContainer: arr[int, 5] = { zero, one, two, three, four };
+A single `*p` yields `T` for both unique and shared pointers. The reference
+counting layer is not exposed as another pointer that needs a second dereference.
 
-var contPoint: ptr[raw] = aContainer;
-var pointerPoint: ptr[raw] = &contPoint;
+## Shared recursive graphs
+
+Shared pointer indirection gives recursive graph edges a finite layout:
+
+```fol
+typ Node: rec = {
+    value: int,
+    next: opt ptr[shared, Node],
+};
 ```
-Deleting:
-```
-!(pointerPoint)
-!(contPoint)
-```
+
+This lowers to an optional `Rc<Node>` edge. Shared recursion is legal, but V3
+does not ship weak references or a cycle collector. A reference cycle therefore
+leaks. Programs should keep shared structures acyclic unless a later interop
+milestone adds an explicit weak-reference contract.
+
+`Rc` is not thread-safe and cannot cross a processor spawn boundary. The V3
+processor pillar enforces that boundary.
+
+## Raw pointers are out
+
+`ptr[raw, T]` is reserved but rejected with an explicit V4 interop diagnostic.
+V3 does not provide raw pointer construction, manual `.free()`, unsafe delete,
+or user-defined destructors. The `!x` prefix remains borrow give-back only; it
+never deletes a pointer.
+
+## Sigil alignment
+
+- `#owner` creates a lexical borrow without allocation
+- `!borrow` gives that borrow back early
+- `&value` constructs a typed allocating pointer
+- `*pointer` reads or, for mutable unique pointers, writes through the pointer
+
+Borrowing is compile-time-only and legal in `core`. Pointer type declarations
+can be analyzed in `core`, but evaluating `&value` is rejected there because it
+allocates.

@@ -1,11 +1,7 @@
 use super::body::{lower_panic_terminator, lower_report_terminator, routine_error_type};
 use super::cursor::{canonical_symbol_key, LoweredValue, RoutineCursor, WorkspaceDeclIndex};
 use super::expressions::{lower_expression, lower_expression_expected, lower_expression_observed};
-use crate::{
-    control::LoweredInstrKind,
-    ids::LoweredTypeId,
-    LoweringError, LoweringErrorKind,
-};
+use crate::{control::LoweredInstrKind, ids::LoweredTypeId, LoweringError, LoweringErrorKind};
 use fol_intrinsics::{select_intrinsic, IntrinsicEntry, IntrinsicSurface};
 use fol_parser::ast::{AstNode, ContainerType};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
@@ -31,11 +27,7 @@ fn variadic_pack_expected(
     has_elements: bool,
 ) -> Option<LoweredTypeId> {
     match expected {
-        Some(type_id)
-            if has_elements && type_table.contains_generic_parameter(type_id) =>
-        {
-            None
-        }
+        Some(type_id) if has_elements && type_table.contains_generic_parameter(type_id) => None,
         other => other,
     }
 }
@@ -59,13 +51,17 @@ pub(crate) fn bind_lowered_call_arguments<'a>(
                 let Some(index) = param_names.iter().position(|param| param == name) else {
                     return Err(LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
-                        format!("call to '{display_name}' does not have a parameter named '{name}'"),
+                        format!(
+                            "call to '{display_name}' does not have a parameter named '{name}'"
+                        ),
                     ));
                 };
                 if ordered_args[index].is_some() {
                     return Err(LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
-                        format!("call to '{display_name}' supplies parameter '{name}' more than once"),
+                        format!(
+                            "call to '{display_name}' supplies parameter '{name}' more than once"
+                        ),
                     ));
                 }
                 ordered_args[index] = Some(value.as_ref());
@@ -146,7 +142,9 @@ pub(crate) fn bind_lowered_call_arguments<'a>(
                     .unwrap_or_else(|| format!("#{index}"));
                 return Err(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
-                    format!("call to '{display_name}' is missing required argument '{missing_name}'"),
+                    format!(
+                        "call to '{display_name}' is missing required argument '{missing_name}'"
+                    ),
                 ));
             }
         }
@@ -167,7 +165,10 @@ pub(crate) fn lower_default_call_argument(
     let default_info = decl_index.routine_param_defaults(callee).ok_or_else(|| {
         LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            format!("call target {} does not retain lowered default arguments", callee.0),
+            format!(
+                "call target {} does not retain lowered default arguments",
+                callee.0
+            ),
         )
     })?;
     let default_expr = default_info
@@ -790,7 +791,12 @@ pub(crate) fn lower_function_call(
 
     // If the symbol is not a top-level routine, check if it's a function-typed local/parameter
     if callee_opt.is_none() {
-        if let Some(local_id) = cursor.routine.local_symbols.get(&resolved_symbol.id).copied() {
+        if let Some(local_id) = cursor
+            .routine
+            .local_symbols
+            .get(&resolved_symbol.id)
+            .copied()
+        {
             let local = cursor.routine.locals.get(local_id).ok_or_else(|| {
                 LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
@@ -892,14 +898,12 @@ pub(crate) fn lower_function_call(
             )
         })?
         .to_vec();
-    let param_names = decl_index
-        .routine_param_names(callee)
-        .ok_or_else(|| {
-            LoweringError::with_kind(
-                LoweringErrorKind::InvalidInput,
-                format!("call target '{display_name}' does not retain lowered parameter names"),
-            )
-        })?;
+    let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!("call target '{display_name}' does not retain lowered parameter names"),
+        )
+    })?;
     let param_defaults = decl_index
         .routine_param_defaults(callee)
         .cloned()
@@ -909,14 +913,13 @@ pub(crate) fn lower_function_call(
                 format!("call target '{display_name}' does not retain lowered default arguments"),
             )
         })?;
-    let ordered_args =
-        bind_lowered_call_arguments(
-            args,
-            param_names,
-            param_defaults.defaults.as_slice(),
-            param_defaults.variadic_index,
-            display_name,
-        )?;
+    let ordered_args = bind_lowered_call_arguments(
+        args,
+        param_names,
+        param_defaults.defaults.as_slice(),
+        param_defaults.variadic_index,
+        display_name,
+    )?;
     let lowered_args = ordered_args
         .iter()
         .enumerate()
@@ -1005,6 +1008,421 @@ pub(crate) fn lower_function_call(
     })
 }
 
+pub(crate) fn lower_spawn_call(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    task: &AstNode,
+) -> Result<(), LoweringError> {
+    if let AstNode::AnonymousFun {
+        syntax_id,
+        captures,
+        params,
+        return_type,
+        error_type,
+        body,
+        ..
+    }
+    | AstNode::AnonymousPro {
+        syntax_id,
+        captures,
+        params,
+        return_type,
+        error_type,
+        body,
+        ..
+    }
+    | AstNode::AnonymousLog {
+        syntax_id,
+        captures,
+        params,
+        return_type,
+        error_type,
+        body,
+        ..
+    } = task
+    {
+        if !params.is_empty() {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::Unsupported,
+                "a directly spawned anonymous routine cannot declare call parameters",
+            ));
+        }
+        let routine_ref = super::expressions::lower_anonymous_routine(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            *syntax_id,
+            captures,
+            params,
+            return_type.as_ref(),
+            error_type.as_ref(),
+            body,
+        )?;
+        let anonymous_routine = cursor
+            .routine
+            .instructions
+            .iter()
+            .find_map(|instruction| {
+                (instruction.result == Some(routine_ref.local_id))
+                    .then(|| match instruction.kind {
+                        LoweredInstrKind::RoutineRef { routine } => Some(routine),
+                        _ => None,
+                    })
+                    .flatten()
+            })
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "spawned anonymous routine did not retain its lowered routine reference",
+                )
+            })?;
+        let mut capture_args = Vec::with_capacity(captures.len());
+        for capture in captures {
+            let outer_local = cursor
+                .routine
+                .local_symbols
+                .iter()
+                .find_map(|(symbol_id, local_id)| {
+                    typed_package
+                        .program
+                        .resolved()
+                        .symbol(*symbol_id)
+                        .is_some_and(|symbol| symbol.name == capture.name)
+                        .then_some(*local_id)
+                })
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("spawn capture '{}' does not retain an outer local", capture.name),
+                    )
+                })?;
+            let capture_type = cursor
+                .routine
+                .locals
+                .get(outer_local)
+                .and_then(|local| local.type_id)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("spawn capture '{}' does not retain a lowered type", capture.name),
+                    )
+                })?;
+            let capture_local = cursor.allocate_local(capture_type, None);
+            cursor.push_instr(
+                Some(capture_local),
+                LoweredInstrKind::LoadLocal { local: outer_local },
+            )?;
+            capture_args.push(capture_local);
+        }
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::SpawnCall {
+                callee: anonymous_routine,
+                args: capture_args,
+            },
+        )?;
+        return Ok(());
+    }
+
+    let AstNode::FunctionCall {
+        syntax_id,
+        name,
+        args,
+        ..
+    } = task
+    else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            "spawn currently requires a direct routine call",
+        ));
+    };
+    let resolved_symbol = resolve_reference_symbol(
+        typed_package,
+        *syntax_id,
+        ReferenceKind::FunctionCall,
+        name,
+    )?;
+    let (owning_identity, owning_symbol_id) = canonical_symbol_key(
+        current_identity,
+        resolved_symbol.mounted_from.as_ref(),
+        resolved_symbol.id,
+    );
+    let callee = decl_index
+        .routine_id_for_symbol(&owning_identity, owning_symbol_id)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("spawn target '{name}' does not map to a lowered routine"),
+            )
+        })?;
+    let param_types = decl_index
+        .routine_param_types(callee)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("spawn target '{name}' does not retain parameter types"),
+            )
+        })?
+        .to_vec();
+    let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!("spawn target '{name}' does not retain parameter names"),
+        )
+    })?;
+    let param_defaults = decl_index
+        .routine_param_defaults(callee)
+        .cloned()
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("spawn target '{name}' does not retain default arguments"),
+            )
+        })?;
+    let ordered_args = bind_lowered_call_arguments(
+        args,
+        param_names,
+        &param_defaults.defaults,
+        param_defaults.variadic_index,
+        name,
+    )?;
+    let lowered_args = ordered_args
+        .iter()
+        .enumerate()
+        .map(|(index, arg)| {
+            let expected = param_types.get(index).copied();
+            match arg {
+                BoundLoweredCallArg::Explicit(arg) | BoundLoweredCallArg::VariadicUnpack(arg) => {
+                    lower_expression_expected(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        expected,
+                        arg,
+                    )
+                }
+                BoundLoweredCallArg::Default(param_index) => lower_default_call_argument(
+                    type_table,
+                    checked_type_map,
+                    decl_index,
+                    cursor,
+                    callee,
+                    *param_index,
+                    expected,
+                ),
+                BoundLoweredCallArg::VariadicPack(args) => {
+                    let packed = AstNode::ContainerLiteral {
+                        container_type: ContainerType::Sequence,
+                        elements: args.iter().map(|arg| (*arg).clone()).collect(),
+                    };
+                    lower_expression_expected(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        variadic_pack_expected(type_table, expected, !args.is_empty()),
+                        &packed,
+                    )
+                }
+            }
+            .map(|value| value.local_id)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::SpawnCall {
+            callee,
+            args: lowered_args,
+        },
+    )?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lower_async_call(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    task: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
+    let AstNode::FunctionCall {
+        syntax_id,
+        name,
+        args,
+        ..
+    } = task
+    else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            "| async currently requires a direct routine call",
+        ));
+    };
+    let resolved_symbol = resolve_reference_symbol(
+        typed_package,
+        *syntax_id,
+        ReferenceKind::FunctionCall,
+        name,
+    )?;
+    let (owning_identity, owning_symbol_id) = canonical_symbol_key(
+        current_identity,
+        resolved_symbol.mounted_from.as_ref(),
+        resolved_symbol.id,
+    );
+    let callee = decl_index
+        .routine_id_for_symbol(&owning_identity, owning_symbol_id)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("async target '{name}' does not map to a lowered routine"),
+            )
+        })?;
+    let param_types = decl_index
+        .routine_param_types(callee)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("async target '{name}' does not retain parameter types"),
+            )
+        })?
+        .to_vec();
+    let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!("async target '{name}' does not retain parameter names"),
+        )
+    })?;
+    let param_defaults = decl_index
+        .routine_param_defaults(callee)
+        .cloned()
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("async target '{name}' does not retain default arguments"),
+            )
+        })?;
+    let ordered_args = bind_lowered_call_arguments(
+        args,
+        param_names,
+        &param_defaults.defaults,
+        param_defaults.variadic_index,
+        name,
+    )?;
+    let lowered_args = ordered_args
+        .iter()
+        .enumerate()
+        .map(|(index, arg)| {
+            let expected = param_types.get(index).copied();
+            match arg {
+                BoundLoweredCallArg::Explicit(arg) | BoundLoweredCallArg::VariadicUnpack(arg) => {
+                    lower_expression_expected(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        expected,
+                        arg,
+                    )
+                }
+                BoundLoweredCallArg::Default(param_index) => lower_default_call_argument(
+                    type_table,
+                    checked_type_map,
+                    decl_index,
+                    cursor,
+                    callee,
+                    *param_index,
+                    expected,
+                ),
+                BoundLoweredCallArg::VariadicPack(args) => {
+                    let packed = AstNode::ContainerLiteral {
+                        container_type: ContainerType::Sequence,
+                        elements: args.iter().map(|arg| (*arg).clone()).collect(),
+                    };
+                    lower_expression_expected(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        variadic_pack_expected(type_table, expected, !args.is_empty()),
+                        &packed,
+                    )
+                }
+            }
+            .map(|value| value.local_id)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let typed_node = syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+    let value_type = typed_node
+        .and_then(|node| node.inferred_type)
+        .and_then(|checked| checked_type_map.get(&checked).copied())
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("async target '{name}' does not retain a result type"),
+            )
+        })?;
+    let error_type = typed_node
+        .and_then(|node| node.recoverable_effect)
+        .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
+    let eventual_type = type_table
+        .find(&crate::LoweredType::Eventual {
+            value_type,
+            error_type,
+        })
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "async eventual type was not translated into lowered IR",
+            )
+        })?;
+    let eventual_local = cursor.allocate_local(eventual_type, None);
+    cursor.push_instr(
+        Some(eventual_local),
+        LoweredInstrKind::AsyncCall {
+            callee,
+            args: lowered_args,
+            error_type,
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: eventual_local,
+        type_id: eventual_type,
+        recoverable_error_type: None,
+    })
+}
+
 pub(crate) fn lower_statement_free_call(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -1031,8 +1449,7 @@ pub(crate) fn lower_statement_free_call(
             format!("call target '{display_name}' does not map to a lowered routine definition"),
         ));
     };
-    let result_type =
-        resolve_reference_type_id(typed_package, checked_type_map, syntax_id, kind);
+    let result_type = resolve_reference_type_id(typed_package, checked_type_map, syntax_id, kind);
     let param_types = decl_index
         .routine_param_types(callee)
         .ok_or_else(|| {
@@ -1042,14 +1459,12 @@ pub(crate) fn lower_statement_free_call(
             )
         })?
         .to_vec();
-    let param_names = decl_index
-        .routine_param_names(callee)
-        .ok_or_else(|| {
-            LoweringError::with_kind(
-                LoweringErrorKind::InvalidInput,
-                format!("call target '{display_name}' does not retain lowered parameter names"),
-            )
-        })?;
+    let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!("call target '{display_name}' does not retain lowered parameter names"),
+        )
+    })?;
     let param_defaults = decl_index
         .routine_param_defaults(callee)
         .cloned()
@@ -1059,14 +1474,13 @@ pub(crate) fn lower_statement_free_call(
                 format!("call target '{display_name}' does not retain lowered default arguments"),
             )
         })?;
-    let ordered_args =
-        bind_lowered_call_arguments(
-            args,
-            param_names,
-            param_defaults.defaults.as_slice(),
-            param_defaults.variadic_index,
-            display_name,
-        )?;
+    let ordered_args = bind_lowered_call_arguments(
+        args,
+        param_names,
+        param_defaults.defaults.as_slice(),
+        param_defaults.variadic_index,
+        display_name,
+    )?;
     let lowered_args = ordered_args
         .iter()
         .enumerate()
@@ -1217,8 +1631,7 @@ pub(crate) fn resolve_method_target(
     method: &str,
     receiver_type: LoweredTypeId,
     call_syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
-) -> Result<crate::LoweredRoutineId, LoweringError>
-{
+) -> Result<crate::LoweredRoutineId, LoweringError> {
     // Fast path: typecheck already resolved the method symbol for this call
     // site (including generic receiver unification). Prefer that when present.
     if let Some(syntax_id) = call_syntax_id {

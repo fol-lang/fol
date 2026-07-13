@@ -230,7 +230,12 @@ pub fn synthesize_structural_runtime_type_declarations(
             continue;
         }
 
-        let Some(mut checked_type) = typed_package.program.type_table().get(checked_type_id).cloned() else {
+        let Some(mut checked_type) = typed_package
+            .program
+            .type_table()
+            .get(checked_type_id)
+            .cloned()
+        else {
             errors.push(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
                 format!(
@@ -244,7 +249,9 @@ pub fn synthesize_structural_runtime_type_declarations(
         // its runtime struct is its substituted structural record, reached via
         // the apparent override. Synthesize the decl from that shape.
         if matches!(&checked_type, CheckedType::Declared { args, .. } if !args.is_empty()) {
-            if let Some(apparent_id) = typed_package.program.apparent_type_override(checked_type_id)
+            if let Some(apparent_id) = typed_package
+                .program
+                .apparent_type_override(checked_type_id)
             {
                 if let Some(apparent) = typed_package.program.type_table().get(apparent_id).cloned()
                 {
@@ -467,7 +474,8 @@ fn synthesize_structural_type_decl(
         CheckedType::Record { fields } => {
             let mut lowered_fields = Vec::new();
             for (field_name, field_type) in fields {
-                let lowered_field_type = lowered_package.checked_type_map.get(&field_type).copied()?;
+                let lowered_field_type =
+                    lowered_package.checked_type_map.get(&field_type).copied()?;
                 lowered_fields.push(LoweredFieldLayout {
                     name: field_name,
                     type_id: lowered_field_type,
@@ -552,10 +560,35 @@ fn checked_type_contains_generic_parameter(
         CheckedType::Array { element_type, .. }
         | CheckedType::Vector { element_type }
         | CheckedType::Sequence { element_type }
-        | CheckedType::Optional { inner: element_type } => program
+        | CheckedType::Channel { element_type }
+        | CheckedType::ChannelSender { element_type }
+        | CheckedType::Optional {
+            inner: element_type,
+        } => program
             .type_table()
             .get(*element_type)
             .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program)),
+        CheckedType::Owned { .. } => false,
+        CheckedType::Eventual {
+            value_type,
+            error_type,
+        } => program
+            .type_table()
+            .get(*value_type)
+            .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+            || error_type.is_some_and(|error_type| {
+                program
+                    .type_table()
+                    .get(error_type)
+                    .is_some_and(|checked| {
+                        checked_type_contains_generic_parameter(checked, program)
+                    })
+            }),
+        CheckedType::Borrowed { inner, .. } => program
+            .type_table()
+            .get(*inner)
+            .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program)),
+        CheckedType::Pointer { .. } => false,
         CheckedType::Set { member_types } => member_types.iter().any(|member| {
             program
                 .type_table()
@@ -591,20 +624,20 @@ fn checked_type_contains_generic_parameter(
         }),
         CheckedType::Routine(signature) => {
             signature.params.iter().any(|param| {
-                program
-                    .type_table()
-                    .get(*param)
-                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+                program.type_table().get(*param).is_some_and(|checked| {
+                    checked_type_contains_generic_parameter(checked, program)
+                })
             }) || signature.return_type.is_some_and(|return_type| {
                 program
                     .type_table()
                     .get(return_type)
-                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+                    .is_some_and(|checked| {
+                        checked_type_contains_generic_parameter(checked, program)
+                    })
             }) || signature.error_type.is_some_and(|error_type| {
-                program
-                    .type_table()
-                    .get(error_type)
-                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
+                program.type_table().get(error_type).is_some_and(|checked| {
+                    checked_type_contains_generic_parameter(checked, program)
+                })
             })
         }
     }

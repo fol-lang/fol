@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    @var value: int = 1;
+    return 0;
+};

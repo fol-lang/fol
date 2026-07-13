@@ -1,11 +1,7 @@
 use super::calls::{resolve_reference_symbol, resolve_reference_type_id};
 use super::cursor::{canonical_symbol_key, LoweredValue, RoutineCursor, WorkspaceDeclIndex};
 use super::expressions::lower_expression_expected;
-use crate::{
-    control::LoweredInstrKind,
-    ids::LoweredTypeId,
-    LoweringError, LoweringErrorKind,
-};
+use crate::{control::LoweredInstrKind, ids::LoweredTypeId, LoweringError, LoweringErrorKind};
 use fol_parser::ast::{AstNode, Literal};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId};
 use std::collections::BTreeMap;
@@ -26,13 +22,14 @@ pub(crate) fn literal_type_id(
     checked_type_map.get(&builtin).copied()
 }
 
-
 pub(crate) fn describe_unary_operator(op: &fol_parser::ast::UnaryOperator) -> &'static str {
     match op {
         fol_parser::ast::UnaryOperator::Neg => "neg",
         fol_parser::ast::UnaryOperator::Not => "not",
         fol_parser::ast::UnaryOperator::Ref => "ref",
         fol_parser::ast::UnaryOperator::Deref => "deref",
+        fol_parser::ast::UnaryOperator::BorrowFrom => "borrow-from",
+        fol_parser::ast::UnaryOperator::GiveBack => "give-back",
         fol_parser::ast::UnaryOperator::Unwrap => "unwrap",
     }
 }
@@ -74,12 +71,7 @@ pub(crate) fn resolve_entry_variant_target(
 ) -> Result<Option<(PackageIdentity, fol_resolver::SymbolId, String)>, LoweringError> {
     let (resolved_symbol, checked_type) = match object {
         AstNode::Identifier { syntax_id, name } => (
-            resolve_reference_symbol(
-                typed_package,
-                *syntax_id,
-                ReferenceKind::Identifier,
-                name,
-            )?,
+            resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::Identifier, name)?,
             resolve_reference_type_id(
                 typed_package,
                 checked_type_map,
@@ -338,14 +330,48 @@ pub(crate) fn lower_assignment_target(
             lowered_value,
         );
     }
-
-    let resolved_symbol = match target {
-        AstNode::Identifier { syntax_id, name } => resolve_reference_symbol(
+    if let AstNode::UnaryOp {
+        op: fol_parser::ast::UnaryOperator::Deref,
+        operand,
+    } = target
+    {
+        let AstNode::Identifier { syntax_id, name } = operand.as_ref() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "dereference assignment requires a pointer binding identifier",
+            ));
+        };
+        let resolved = resolve_reference_symbol(
             typed_package,
             *syntax_id,
             ReferenceKind::Identifier,
             name,
-        )?,
+        )?;
+        let pointer = cursor
+            .routine
+            .local_symbols
+            .get(&resolved.id)
+            .copied()
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "dereference assignment pointer is not a lowered local",
+                )
+            })?;
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::StoreDeref {
+                pointer,
+                value: lowered_value.local_id,
+            },
+        )?;
+        return Ok(lowered_value);
+    }
+
+    let resolved_symbol = match target {
+        AstNode::Identifier { syntax_id, name } => {
+            resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::Identifier, name)?
+        }
         AstNode::QualifiedIdentifier { path } => resolve_reference_symbol(
             typed_package,
             path.syntax_id(),
@@ -356,7 +382,7 @@ pub(crate) fn lower_assignment_target(
             return Err(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
                 "assignment targets must lower from plain or qualified identifiers, \
-                 or a field of a mutable record binding",
+                 a field of a mutable record binding, or a unique-pointer dereference",
             ))
         }
     };

@@ -1,13 +1,13 @@
 use crate::{decls, TypecheckError, TypecheckErrorKind, TypedProgram};
-use fol_parser::ast::{AstNode, LoopCondition, WhenCase};
+use fol_parser::ast::{AstNode, ChannelEndpoint, LoopCondition, SelectArm, WhenCase};
 use fol_resolver::{ResolvedProgram, SymbolKind};
 
 use super::helpers::{
     ensure_assignable, loop_binder_scope, merge_recoverable_effects, node_origin, plain_value_expr,
     record_symbol_type, reject_recoverable_error_shell_conversion, unsupported_node_surface,
 };
-use super::{TypeContext, TypedExpr};
 use super::{type_body, type_node, type_node_with_expectation};
+use super::{TypeContext, TypedExpr};
 
 pub(crate) fn type_when(
     typed: &mut TypedProgram,
@@ -51,7 +51,7 @@ pub(crate) fn type_when(
                 return Err(unsupported_node_surface(
                     resolved,
                     expr,
-                    "channel when/on branches are planned for a future release",
+                    "channel when/on branches are not part of the shipped channel surface; use select",
                 ));
             }
             WhenCase::Case { condition, body }
@@ -74,7 +74,10 @@ pub(crate) fn type_when(
                     context.scope_id,
                     body,
                 ) {
-                    Some(scope_id) => TypeContext { scope_id, ..context },
+                    Some(scope_id) => TypeContext {
+                        scope_id,
+                        ..context
+                    },
                     None => context,
                 };
                 case_types.push(type_body(typed, resolved, body_context, body)?);
@@ -102,7 +105,10 @@ pub(crate) fn type_when(
         context.scope_id,
         default,
     ) {
-        Some(scope_id) => TypeContext { scope_id, ..context },
+        Some(scope_id) => TypeContext {
+            scope_id,
+            ..context
+        },
         None => context,
     };
     let default_expr = type_body(typed, resolved, default_context, default)?;
@@ -164,16 +170,48 @@ pub(crate) fn type_loop(
             iterable,
             condition,
         } => {
-            let iterable_raw = type_node(typed, resolved, context, iterable)?;
-            let iterable_type = plain_value_expr(
-                typed,
-                context,
-                iterable_raw,
-                node_origin(resolved, iterable),
-                "loop iterable",
-            )?
-            .required_value("loop iterable does not have a type")?;
-            let item_type = iterable_element_type(typed, iterable_type)?;
+            let item_type = if let AstNode::ChannelAccess {
+                channel,
+                endpoint: ChannelEndpoint::Rx,
+            } = super::helpers::strip_comments(iterable)
+            {
+                if !typed.capability_model().supports_processor() {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        iterable,
+                        "channel iteration requires hosted std support; declare the bundled internal standard dependency",
+                    ));
+                }
+                let channel_raw = type_node(typed, resolved, context, channel)?;
+                let channel_type = plain_value_expr(
+                    typed,
+                    context,
+                    channel_raw,
+                    node_origin(resolved, channel),
+                    "channel loop receiver",
+                )?
+                .required_value("channel loop receiver does not have a type")?;
+                let item_type = super::helpers::channel_element_type(typed, channel_type)?;
+                // Channel iteration lowers each blocking receive through an
+                // optional shell so channel closure can terminate the loop.
+                // Retain that synthetic shell type in compiler truth even
+                // though it is not written explicitly in the source.
+                typed
+                    .type_table_mut()
+                    .intern(crate::CheckedType::Optional { inner: item_type });
+                item_type
+            } else {
+                let iterable_raw = type_node(typed, resolved, context, iterable)?;
+                let iterable_type = plain_value_expr(
+                    typed,
+                    context,
+                    iterable_raw,
+                    node_origin(resolved, iterable),
+                    "loop iterable",
+                )?
+                .required_value("loop iterable does not have a type")?;
+                iterable_element_type(typed, iterable_type)?
+            };
             let binder_scope = loop_binder_scope(
                 resolved,
                 context.source_unit_id,
@@ -243,6 +281,110 @@ pub(crate) fn type_loop(
     Ok(TypedExpr::none())
 }
 
+pub(crate) fn type_select(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    arms: &[SelectArm],
+    default: Option<&[AstNode]>,
+) -> Result<TypedExpr, TypecheckError> {
+    if !typed.capability_model().supports_processor() {
+        return Err(TypecheckError::new(
+            TypecheckErrorKind::Unsupported,
+            "select requires hosted std support; declare the bundled internal standard dependency",
+        ));
+    }
+    let mut used_scopes = std::collections::BTreeSet::new();
+    for arm in arms {
+        let channel_node = match &arm.channel {
+            AstNode::ChannelAccess {
+                channel,
+                endpoint: ChannelEndpoint::Rx,
+            } => channel.as_ref(),
+            AstNode::ChannelAccess { .. } => {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    &arm.channel,
+                    "select arms wait on receivers; use a channel binding or c[rx]",
+                ));
+            }
+            channel => channel,
+        };
+        let channel_raw = type_node(typed, resolved, context, channel_node)?;
+        let channel_type = plain_value_expr(
+            typed,
+            context,
+            channel_raw,
+            node_origin(resolved, channel_node),
+            "select receiver",
+        )?
+        .required_value("select receiver does not have a type")?;
+        let item_type = super::helpers::channel_element_type(typed, channel_type)?;
+        typed
+            .type_table_mut()
+            .intern(crate::CheckedType::Optional { inner: item_type });
+
+        let arm_scope = resolved
+            .scopes
+            .iter_with_ids()
+            .find_map(|(scope_id, scope)| {
+                (scope.parent == Some(context.scope_id)
+                    && scope.source_unit == Some(context.source_unit_id)
+                    && !used_scopes.contains(&scope_id)
+                    && scope.symbols.iter().any(|symbol_id| {
+                        resolved.symbol(*symbol_id).is_some_and(|symbol| {
+                            symbol.kind == SymbolKind::ValueBinding
+                                && symbol.name == arm.binding
+                        })
+                    }))
+                .then_some(scope_id)
+            })
+            .ok_or_else(|| {
+                TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!("select arm binding '{}' lost its resolver scope", arm.binding),
+                )
+            })?;
+        used_scopes.insert(arm_scope);
+        record_symbol_type(
+            typed,
+            resolved,
+            context.source_unit_id,
+            arm_scope,
+            &arm.binding,
+            SymbolKind::ValueBinding,
+            item_type,
+        )?;
+        let arm_context = TypeContext {
+            scope_id: arm_scope,
+            ..context
+        };
+        let _ = type_body(typed, resolved, arm_context, &arm.body)?;
+    }
+    if let Some(default) = default {
+        let default_scope = resolved
+            .scopes
+            .iter_with_ids()
+            .find_map(|(scope_id, scope)| {
+                (scope.parent == Some(context.scope_id)
+                    && scope.source_unit == Some(context.source_unit_id)
+                    && !used_scopes.contains(&scope_id))
+                .then_some(scope_id)
+            })
+            .unwrap_or(context.scope_id);
+        let _ = type_body(
+            typed,
+            resolved,
+            TypeContext {
+                scope_id: default_scope,
+                ..context
+            },
+            default,
+        )?;
+    }
+    Ok(TypedExpr::none())
+}
+
 pub(crate) fn type_return(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -299,8 +441,8 @@ fn iterable_element_type(
     typed: &TypedProgram,
     iterable_type: crate::CheckedTypeId,
 ) -> Result<crate::CheckedTypeId, TypecheckError> {
-    use crate::CheckedType;
     use super::helpers::{apparent_type_id, describe_type};
+    use crate::CheckedType;
 
     let apparent = apparent_type_id(typed, iterable_type)?;
     match typed.type_table().get(apparent) {

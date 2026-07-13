@@ -173,27 +173,25 @@ impl AstParser {
         depth: &'a Cell<usize>,
         tokens: &fol_lexer::lexer::stage3::Elements,
     ) -> Result<ParseDepthGuard<'a>, ParseError> {
-        let new_depth = depth
-            .get()
-            .checked_add(1)
-            .ok_or_else(|| {
-                let error = if let Ok(token) = tokens.curr(false) {
-                    ParseError::from_token(
-                        &token,
-                        "Depth guard overflow; possible infinite recursion in parser".to_string(),
-                    )
-                } else {
-                    ParseError {
-                        kind: ParseErrorKind::Syntax,
-                        message: "Depth guard overflow; possible infinite recursion in parser".to_string(),
-                        file: None,
-                        line: 0,
-                        column: 0,
-                        length: 0,
-                    }
-                };
-                error
-            })?;
+        let new_depth = depth.get().checked_add(1).ok_or_else(|| {
+            let error = if let Ok(token) = tokens.curr(false) {
+                ParseError::from_token(
+                    &token,
+                    "Depth guard overflow; possible infinite recursion in parser".to_string(),
+                )
+            } else {
+                ParseError {
+                    kind: ParseErrorKind::Syntax,
+                    message: "Depth guard overflow; possible infinite recursion in parser"
+                        .to_string(),
+                    file: None,
+                    line: 0,
+                    column: 0,
+                    length: 0,
+                }
+            };
+            error
+        })?;
         depth.set(new_depth);
         Ok(ParseDepthGuard { depth })
     }
@@ -227,9 +225,7 @@ impl AstParser {
             return Err(if let Ok(token) = tokens.curr(false) {
                 ParseError::from_token(
                     &token,
-                    format!(
-                        "Nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})"
-                    ),
+                    format!("Nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})"),
                 )
             } else {
                 ParseError {
@@ -284,6 +280,7 @@ pub(super) fn canonical_identifier_key(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{ParseErrorKind, *};
+    use crate::ast::ChannelEndpoint;
     use fol_types::canonical_identifier_key;
 
     fn parse_string(input: &str) -> Result<crate::ParsedPackage, Vec<Diagnostic>> {
@@ -297,10 +294,8 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("test.fol"), input).unwrap();
-        let mut stream = fol_stream::FileStream::from_file(
-            dir.join("test.fol").to_str().unwrap(),
-        )
-        .unwrap();
+        let mut stream =
+            fol_stream::FileStream::from_file(dir.join("test.fol").to_str().unwrap()).unwrap();
         let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
         let mut parser = AstParser::new();
         let result = parser.parse_package(&mut lexer);
@@ -347,6 +342,65 @@ mod tests {
             "two bad decls should produce bounded errors, got {}",
             errors.len()
         );
+    }
+
+    #[test]
+    fn give_back_prefix_is_preserved_in_routine_bodies() {
+        let source = "fun[] main(): int = { var value: int = 1; var[bor] view: int = value; !view; return value; };";
+        let package = parse_string(source).expect("give-back fixture should parse");
+        let node = &package.source_units[0].items[0].node;
+        let AstNode::FunDecl { body, .. } = node else {
+            panic!("expected routine declaration");
+        };
+        assert!(
+            body.iter().any(|node| matches!(
+                node,
+                AstNode::UnaryOp {
+                    op: UnaryOperator::GiveBack,
+                    ..
+                }
+            )),
+            "parsed body: {body:#?}"
+        );
+    }
+
+    #[test]
+    fn spawn_preserves_the_complete_direct_call_task() {
+        let source = concat!(
+            "fun[] worker(value: int): int = { return value; };",
+            "fun[] main(): int = { [>]worker(7); return 0; };",
+        );
+        let package = parse_string(source).expect("spawn fixture should parse");
+        let AstNode::FunDecl { body, .. } = &package.source_units[0].items[1].node else {
+            panic!("expected main routine declaration");
+        };
+        assert!(matches!(
+            body.first(),
+            Some(AstNode::Spawn {
+                task
+            }) if matches!(task.as_ref(), AstNode::FunctionCall { name, args, .. }
+                if name == "worker" && args.len() == 1)
+        ), "parsed body: {body:#?}");
+    }
+
+    #[test]
+    fn pipe_send_preserves_the_channel_transmitter_endpoint() {
+        let source = "fun[] main(): int = { var channel: chn[int]; 7 | channel[tx]; return 0; };";
+        let package = parse_string(source).expect("channel-send fixture should parse");
+        let AstNode::FunDecl { body, .. } = &package.source_units[0].items[0].node else {
+            panic!("expected main routine declaration");
+        };
+        assert!(body.iter().any(|node| matches!(
+            node,
+            AstNode::BinaryOp {
+                op: BinaryOperator::Pipe,
+                right,
+                ..
+            } if matches!(right.as_ref(), AstNode::ChannelAccess {
+                endpoint: ChannelEndpoint::Tx,
+                ..
+            })
+        )), "parsed body: {body:#?}");
     }
 
     #[test]
@@ -474,24 +528,24 @@ mod tests {
 
 #[path = "parser_parts/access_expression_parsers.rs"]
 mod access_expression_parsers;
+#[path = "parser_parts/binary_expression_parsers.rs"]
+mod binary_expression_parsers;
 #[path = "parser_parts/binding_alternative_parsers.rs"]
 mod binding_alternative_parsers;
+#[path = "parser_parts/binding_declaration_parsers.rs"]
+mod binding_declaration_parsers;
 #[path = "parser_parts/binding_option_parsers.rs"]
 mod binding_option_parsers;
 #[path = "parser_parts/binding_value_parsers.rs"]
 mod binding_value_parsers;
+#[path = "parser_parts/call_expression_parsers.rs"]
+mod call_expression_parsers;
 #[path = "parser_parts/declaration_option_parsers.rs"]
 mod declaration_option_parsers;
 #[path = "parser_parts/declaration_parsers.rs"]
 mod declaration_parsers;
 #[path = "parser_parts/expression_atoms_and_literal_lowering.rs"]
 mod expression_atoms_and_literal_lowering;
-#[path = "parser_parts/binary_expression_parsers.rs"]
-mod binary_expression_parsers;
-#[path = "parser_parts/binding_declaration_parsers.rs"]
-mod binding_declaration_parsers;
-#[path = "parser_parts/call_expression_parsers.rs"]
-mod call_expression_parsers;
 #[path = "parser_parts/flow_body_parsers.rs"]
 mod flow_body_parsers;
 #[path = "parser_parts/grouped_binding_parsers.rs"]
@@ -500,6 +554,10 @@ mod grouped_binding_parsers;
 mod grouped_type_parsers;
 #[path = "parser_parts/inquiry_clause_parsers.rs"]
 mod inquiry_clause_parsers;
+#[path = "parser_parts/lookahead_and_assignment_helpers.rs"]
+mod lookahead_and_assignment_helpers;
+#[path = "parser_parts/match_and_anonymous_parsers.rs"]
+mod match_and_anonymous_parsers;
 #[path = "parser_parts/pipe_expression_parsers.rs"]
 mod pipe_expression_parsers;
 #[path = "parser_parts/pipe_lambda_parsers.rs"]
@@ -508,10 +566,6 @@ mod pipe_lambda_parsers;
 mod postfix_expression_parsers;
 #[path = "parser_parts/primary_expression_parsers.rs"]
 mod primary_expression_parsers;
-#[path = "parser_parts/match_and_anonymous_parsers.rs"]
-mod match_and_anonymous_parsers;
-#[path = "parser_parts/lookahead_and_assignment_helpers.rs"]
-mod lookahead_and_assignment_helpers;
 #[path = "parser_parts/program_parsing.rs"]
 mod program_parsing;
 #[path = "parser_parts/rolling_expression_parsers.rs"]
@@ -524,8 +578,6 @@ mod routine_capture_parsers;
 mod routine_declaration_parsers;
 #[path = "parser_parts/routine_header_parsers.rs"]
 mod routine_header_parsers;
-#[path = "parser_parts/type_lowering_parsers.rs"]
-mod type_lowering_parsers;
 #[path = "parser_parts/segment_declaration_parsers.rs"]
 mod segment_declaration_parsers;
 #[path = "parser_parts/source_kind_type_parsers.rs"]
@@ -540,6 +592,8 @@ mod statement_parsers;
 mod test_type_parsers;
 #[path = "parser_parts/type_definition_parsers.rs"]
 mod type_definition_parsers;
+#[path = "parser_parts/type_lowering_parsers.rs"]
+mod type_lowering_parsers;
 #[path = "parser_parts/type_references_and_blocks.rs"]
 mod type_references_and_blocks;
 #[path = "parser_parts/use_declaration_parsers.rs"]

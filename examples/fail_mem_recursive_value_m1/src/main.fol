@@ -1,0 +1,5 @@
+typ Bad: rec = {
+    next: Bad,
+};
+
+fun[] main(): int = { return 0; };

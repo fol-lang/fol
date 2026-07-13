@@ -104,7 +104,13 @@ impl LoweringSession {
             let Some(lowered) = packages.get_mut(&package.identity) else {
                 continue;
             };
-            exprs::lower_routine_bodies(package, &type_table, &decl_index, lowered, &mut next_routine_index)?;
+            exprs::lower_routine_bodies(
+                package,
+                &type_table,
+                &decl_index,
+                lowered,
+                &mut next_routine_index,
+            )?;
         }
 
         crate::mono::monomorphize_generic_receiver_routines(
@@ -205,7 +211,12 @@ fn translate_checked_type(
 
     let lowered_type_id = match checked_type {
         CheckedType::Builtin(builtin) => lowered_types.intern_builtin(lower_builtin(builtin)),
-        CheckedType::Declared { symbol, name, kind, args } => {
+        CheckedType::Declared {
+            symbol,
+            name,
+            kind,
+            args,
+        } => {
             if kind == DeclaredTypeKind::GenericParameter {
                 let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
                 cache.insert((package_identity.clone(), checked_type_id), lowered);
@@ -303,6 +314,97 @@ fn translate_checked_type(
                 element_type,
             )?;
             lowered_types.intern(LoweredType::Sequence { element_type })
+        }
+        CheckedType::Channel { element_type } => {
+            let element_type = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                element_type,
+            )?;
+            lowered_types.intern(LoweredType::Channel { element_type })
+        }
+        CheckedType::ChannelSender { element_type } => {
+            let element_type = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                element_type,
+            )?;
+            lowered_types.intern(LoweredType::ChannelSender { element_type })
+        }
+        CheckedType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            let value_type = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                value_type,
+            )?;
+            let error_type = error_type
+                .map(|error_type| {
+                    translate_checked_type(
+                        lowered_types,
+                        cache,
+                        package_identity,
+                        program,
+                        error_type,
+                    )
+                })
+                .transpose()?;
+            lowered_types.intern(LoweredType::Eventual {
+                value_type,
+                error_type,
+            })
+        }
+        CheckedType::Owned { inner } => {
+            let inner = match program.type_table().get(inner).cloned() {
+                Some(CheckedType::Declared { symbol, name, .. }) => {
+                    lowered_types.intern(LoweredType::Named {
+                        package: package_identity.clone(),
+                        symbol,
+                        name,
+                    })
+                }
+                _ => {
+                    translate_checked_type(lowered_types, cache, package_identity, program, inner)?
+                }
+            };
+            lowered_types.intern(LoweredType::Owned { inner })
+        }
+        CheckedType::Borrowed { inner, mutable } => {
+            let inner = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                inner,
+            )?;
+            lowered_types.intern(LoweredType::Borrowed { inner, mutable })
+        }
+        CheckedType::Pointer { target, shared } => {
+            let target = match program.type_table().get(target).cloned() {
+                Some(CheckedType::Declared { symbol, name, .. }) => {
+                    lowered_types.intern(LoweredType::Named {
+                        package: package_identity.clone(),
+                        symbol,
+                        name,
+                    })
+                }
+                _ => translate_checked_type(
+                    lowered_types,
+                    cache,
+                    package_identity,
+                    program,
+                    target,
+                )?,
+            };
+            lowered_types.intern(LoweredType::Pointer { target, shared })
         }
         CheckedType::Set { member_types } => {
             let member_types = member_types
@@ -452,7 +554,9 @@ mod tests {
     use super::LoweringSession;
     use crate::types::{LoweredBuiltinType, LoweredType};
     use fol_parser::ast::AstParser;
-    use fol_resolver::{resolve_package_workspace, resolve_package_workspace_with_config, ResolverConfig};
+    use fol_resolver::{
+        resolve_package_workspace, resolve_package_workspace_with_config, ResolverConfig,
+    };
     use fol_stream::FileStream;
     use fol_typecheck::Typechecker;
 
@@ -558,7 +662,8 @@ mod tests {
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("Lowering folder fixture should parse");
-        let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+        let resolved =
+            resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("Lowering folder fixture should typecheck");
@@ -622,8 +727,11 @@ mod tests {
             "fun[] main(): int = { return src::answer; };\n",
         )
         .expect("should write package entry");
-        fs::write(json_root.join("src/lib.fol"), "var[exp] answer: int = 42;\n")
-            .expect("should write exported root source");
+        fs::write(
+            json_root.join("src/lib.fol"),
+            "var[exp] answer: int = 42;\n",
+        )
+        .expect("should write exported root source");
         fs::write(
             json_root.join("src/fmt/render.fol"),
             "var[exp] label: str = \"fmt\";\n",
@@ -724,7 +832,8 @@ mod tests {
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("Lowering folder fixture should parse");
-        let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+        let resolved =
+            resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("Lowering folder fixture should typecheck");
@@ -770,7 +879,8 @@ mod tests {
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("Lowering folder fixture should parse");
-        let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+        let resolved =
+            resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("Lowering folder fixture should typecheck");

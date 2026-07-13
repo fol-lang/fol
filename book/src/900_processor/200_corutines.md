@@ -1,85 +1,106 @@
-# Coroutines
+# Tasks, Channels, and Mutexes
 
-This chapter is future concurrency/runtime design.
+The processor surface is a `V3` systems feature. Every processor construct is
+`std`-only: a package must declare the bundled internal `standard` dependency.
+Choosing `core` or `memo` alone does not provide threads or hosted services.
 
-Current milestone note:
+## Spawn
 
-- coroutine, channel, and mutex semantics are not part of the implemented `V1`
-  compiler
-- this material belongs to the later `V3` systems milestone
+`[>]call()` starts one operating-system thread and lets the current routine
+continue. FOL has no worker pool, scheduler settings, Rust async runtime, or
+Tokio dependency. Every spawned task is registered with the process and the
+program joins all outstanding tasks before its entry point exits.
 
-A coroutine is a task given form the main thread, similar to a routine, that can be in concurrent execution with other tasks of the same program though other routines.  A **worker** takes the task and runs it, concurrently. Each task in a program can be assigned to one or multiple workers. 
+```fol
+use std: pkg = {"std"};
 
-Three characteristics of coroutine distinguish them from normal routines:
-- First, a task may be implicitly started, whereas a routine must be explicitly called. 
-- Second, when a program unit invokes a task, in some cases it need not wait for the task to complete its execution before continuing its own. 
-- Third, when the execution of a task is completed, control may or may not return to the unit that started that execution.
-- Fourth and most importantly, the execution of the routine is entirely independent from main thread.
+fun[] worker(): int = {
+    return std::io::echo_int(17);
+};
 
-In fol to assign a task to a worker, we use the symbols `[>]` 
+fun[] main(): int = {
+    [>]worker();
+    return 0;
+};
+```
+
+A bare spawn must be infallible. Spawning a routine declared with `/ ErrorType`
+without awaiting it is rejected because the error would otherwise disappear.
+
+The spawn boundary follows the `V3` memory rules:
+
+- stack values clone into the task
+- `@` values move into the task, leaving the sender moved-out
+- `ptr[shared, T]` values do not cross the boundary because their `Rc` backing
+  is not thread-safe
+
+Cross-thread shared mutation belongs to `[mux]` parameters, not `Rc`.
+
+Current implementation examples:
+
+- `examples/proc_spawn_m1`
+- `examples/proc_spawn_move_heap_m1`
+- `examples/fail_proc_spawn_in_memo_m1`
+- `examples/fail_proc_spawn_rc_cross_m1`
+- `examples/fail_proc_spawn_recoverable_m1`
+- `examples/fail_proc_spawn_heap_use_after_move_m1`
 
 ## Channels
 
-FOL provides asynchronous channels for communication between threads. Channels allow a unidirectional flow of information between two end-points: the Transmitter and the Receiver. It creates a new asynchronous channel, returning the tx/tx halves. All data sent on the Tx (transmitter) will become available on the Rx (receiver) in the same order as it was sent. The data is sent in a sequence of a specifies type `seq[type]`. `tx` will not block the calling thread while `rx` will block until a message is available.
+Channels are an implemented processor surface. The contract is an unbounded
+MPSC `chn[T]` backed by `std::sync::mpsc`: `c[tx]` sends without blocking,
+`c[rx]` performs a blocking pull, and receiver iteration runs until all sender
+handles are dropped. The old sequence-index spelling `c[rx][i]` is not part of
+the contract.
 
-```
-pro main(): int = {
-    var channel: chn[str];
-    for (0 ... 4) {
-        [>]doItFast() | channel[tx]                                             // sending the output of four routines to a channel transmitter
-                                                                                // each transmitter at the end sends the close signal
-    }
-    var fromCh1 = channel[rx][0]                                                // reciveing data from one transmitter, `0`
-}
+Spawned anonymous routines can clone a transmitter explicitly with
+`[>]fun()[c[tx]] = { ... }`. Receiver endpoints are not cloned: MPSC retains a
+single consuming side.
 
-fun doItFast(i: int; found: bol): str = {
-    return "hello"
-}
-```
+Current examples:
 
-If we want to use the channel within the function, we have to clone the channel's tx and capture with an ananymus routine: Once the channels transmitter goes out of scope, it gets disconnected too.
-```
-pro main(): int = {
-    var channel: chn[str];                                                      // a channel with four buffer transmitters
-    var sequence: seq[str];
+- `examples/proc_channel_m2`
+- `examples/proc_channel_pull_m2`
+- `examples/proc_channel_capture_m2`
+- `examples/fail_proc_channel_index_m2`
+- `examples/fail_proc_channel_in_core_m2`
 
-    for (0 ... 4) {
-        [>]fun()[channel[tx]] = {                                               // capturin gthe pipe tx from four coroutines
-            for(0 ... 4){
-                "hello" | channel[tx]                                           // the result are sent fom withing the funciton eight times
-            }
-        }                                                                       // when out of scope a signal to close the `tx` is sent
-    }
+## Select
 
-    select(channel as c){
-        sequence.push(channel[rx][c])                                           // select statement will check for errors and check which routine is sending data
-    }
+The chosen multiplexing form is a multi-arm statement:
+
+```fol
+select {
+    when first[rx] as value { consume(value); }
+    when second[rx] as value { consume(value); }
 }
 ```
 
-## Locks - Mutex
+The old single-channel `select(channel as name) { ... }` form is not retained.
+The runtime polls arms in source order with `try_recv()`. Closed arms are
+skipped and a blocking select completes when all arms are closed. An optional
+`*` arm runs immediately when no receiver is ready. Simultaneously-ready arms
+therefore have source-order bias in V3; no fairness guarantee is promised.
 
-Mutex is a locking mechanism that makes sure only one task can acquire the mutexed varaible at a time and enter the critical section. This task only releases the mutex when it exits the critical section. It is a mutual exclusion object that synchronizes access to a resource. 
+## Mutex parameters
 
-In FOL mutexes can be passed only through a routine. When declaring a routine, instead of using the borrow form with `( // borrowing variable )`, we use double brackets `(( // mutex ))`. When we expect a mutex, then that variable, in turn has two method more: 
+The chosen mutex surface uses the ordinary parameter-option seam:
 
-- the `lock()` which unwraps the variable from mutex and locks it for writing and 
-- the `unlock()` which releases the lock and makes the file avaliable to other tasks
+```fol
+fun[] update(value[mux]: Counter): int = {
+    value.lock();
+    value.total = value.total + 1;
+    value.unlock();
+    return value.total;
+};
 ```
 
-fun loadMesh(path: str, ((meshes)): vec[mesh]) = {                              // declaring a *mutex and *atomic reference counter with double "(( //declaration ))"
-    var aMesh: mesh = mesh.loadMesh(path) 
-    meshes.lock()
-    meshes.push(aMesh)                                                          // there is no need to unlock(), FOL automatically drops at the end of funciton
-                                                                                // if the function is longer, then we can unlock to not keep other tasks waiting
-}
+`[mux]` lowers to `Arc<Mutex<T>>`. A routine acquires the guard with `.lock()`;
+the guard is released automatically at routine exit or explicitly with
+`.unlock()`. The historical `((name))` parameter spelling is not retained.
 
-pro main(): int = {
-    ~var meshPath: vec[str];
-    ~var meshes: vec[mesh];
-    var aFile = file.readfile(filepath) || .panic("cant open the file")
+Current examples:
 
-    each( line in aFile.line() ) { meshPath.push(line) };
-    for(m in meshPath) { [>]loadMesh(m, meshes) };
-}
-```
+- `examples/proc_select_m3`
+- `examples/proc_mutex_m3`
+- `examples/proc_mutex_explicit_unlock_m3`

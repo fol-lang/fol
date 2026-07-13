@@ -14,6 +14,7 @@ fun demo(flag: bol, items: seq[int]): int = {
     var callback = fun[](item: int)[value]: int = => item + value;
     var first: int = items[0];
     var explicit: int = pick::[int](42);
+    [>]worker();
     when(flag) {
         case(true) { return .echo(value); }
         * { return 0; }

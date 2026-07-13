@@ -88,17 +88,13 @@ fn declared_capability_model_for_package(root: &std::path::Path) -> fol_backend:
         &source,
     )
     .ok()
-    .flatten()
-    else {
+    .flatten() else {
         return fol_backend::BackendFolModel::Memo;
     };
 
-    if evaluated
-        .evaluated
-        .artifacts
-        .iter()
-        .all(|artifact| artifact.fol_model == fol_package::build_artifact::BuildArtifactFolModel::Core)
-    {
+    if evaluated.evaluated.artifacts.iter().all(|artifact| {
+        artifact.fol_model == fol_package::build_artifact::BuildArtifactFolModel::Core
+    }) {
         fol_backend::BackendFolModel::Core
     } else {
         fol_backend::BackendFolModel::Memo
@@ -430,7 +426,12 @@ pub fn run_workspace_with_args_and_config(
         format!(
             "ran {} ({}, bundled_std={})",
             binary.display(),
-            summarize_capability_modes(workspace.members.iter().map(|member| declared_capability_model_for_package(&member.root))),
+            summarize_capability_modes(
+                workspace
+                    .members
+                    .iter()
+                    .map(|member| declared_capability_model_for_package(&member.root))
+            ),
             if workspace
                 .members
                 .iter()
@@ -512,7 +513,11 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
             "ran {} ({}, bundled_std={})",
             binary.display(),
             summarize_capability_modes([selection.capability_model]),
-            if selection.has_bundled_std { "1/1" } else { "0/1" }
+            if selection.has_bundled_std {
+                "1/1"
+            } else {
+                "0/1"
+            }
         ),
     );
     result.artifacts.push(FrontendArtifactSummary::new(
@@ -585,7 +590,11 @@ pub(crate) fn test_selected_artifacts_with_config(
         format!(
             "tested {} workspace artifact(s) ({}, {})",
             binaries.len(),
-            summarize_capability_modes(selections.iter().map(|selection| selection.capability_model)),
+            summarize_capability_modes(
+                selections
+                    .iter()
+                    .map(|selection| selection.capability_model)
+            ),
             summarize_bundled_std_presence(selections)
         ),
     );
@@ -920,11 +929,9 @@ fn resolve_dependency_query_root(
             fol_package::PackageDependencySourceKind::Git => {
                 package_store_root.join(&dependency.alias)
             }
-            fol_package::PackageDependencySourceKind::Internal => {
-                std_root
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(|| package_store_root.join(&dependency.alias))
-            }
+            fol_package::PackageDependencySourceKind::Internal => std_root
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| package_store_root.join(&dependency.alias)),
         });
     }
 
