@@ -167,6 +167,90 @@ fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_site
 }
 
 #[test]
+fn mutex_wrapping_preserves_move_only_argument_transfer() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut caller = LoweredRoutine::new(LoweredRoutineId(30), "main", LoweredBlockId(0));
+    let pointer_arg = caller.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let int_arg = caller.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("count".to_string()),
+    });
+    let result = caller.locals.push(LoweredLocal {
+        id: LoweredLocalId(2),
+        type_id: Some(int_id),
+        name: Some("result".to_string()),
+    });
+
+    let mut callee = LoweredRoutine::new(LoweredRoutineId(31), "guard", LoweredBlockId(0));
+    callee.source_unit_id = Some(SourceUnitId(0));
+    let pointer_param = callee.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let int_param = callee.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("count".to_string()),
+    });
+    callee.params.extend([pointer_param, int_param]);
+    callee.mutex_params.extend([pointer_param, int_param]);
+
+    let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
+    package.source_units.push(LoweredSourceUnit {
+        source_unit_id: SourceUnitId(0),
+        path: "app/main.fol".to_string(),
+        package: "app".to_string(),
+        namespace: "app".to_string(),
+    });
+    package.routine_decls.insert(LoweredRoutineId(31), callee);
+    let workspace = LoweredWorkspace::new(
+        package_identity.clone(),
+        BTreeMap::from([(package_identity.clone(), package)]),
+        Vec::new(),
+        table.clone(),
+        LoweredSourceMap::new(),
+        LoweredRecoverableAbi::v1(bool_id),
+    );
+    let call = LoweredInstr {
+        id: LoweredInstrId(30),
+        result: Some(result),
+        kind: LoweredInstrKind::Call {
+            callee: LoweredRoutineId(31),
+            args: vec![pointer_arg, int_arg],
+            error_type: None,
+        },
+    };
+
+    let rendered = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &caller,
+        &call,
+    )
+    .expect("mutex call");
+
+    assert!(rendered.contains("rt::FolMutex::from_value(l__pkg__entry__app__r30__l0__pointer)"));
+    assert!(!rendered.contains("l__pkg__entry__app__r30__l0__pointer.clone()"));
+    assert!(
+        rendered.contains("rt::FolMutex::from_value(l__pkg__entry__app__r30__l1__count.clone())")
+    );
+}
+
+#[test]
 fn core_instruction_rendering_emits_record_field_accesses_as_native_member_reads() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();

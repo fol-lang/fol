@@ -60,7 +60,9 @@ fn render_call_arguments(
                 if caller.mutex_params.contains(local_id) {
                     Ok(format!("{name}.clone()"))
                 } else {
-                    Ok(format!("rt::FolMutex::from_value({name}.clone())"))
+                    let value =
+                        render_transfer_expr(type_table, package_identity, caller, *local_id)?;
+                    Ok(format!("rt::FolMutex::from_value({value})"))
                 }
             } else {
                 render_transfer_expr(type_table, package_identity, caller, *local_id)
