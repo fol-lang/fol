@@ -2740,7 +2740,7 @@ mod tests {
         let items = snapshot.fallback_local_scope_items(
             &document,
             LspPosition {
-                line: 5,
+                line: 6,
                 character: 12,
             },
         );
