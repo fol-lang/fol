@@ -176,7 +176,10 @@ fn collect_templates(
                 let calls_template = routine.instructions.iter().any(|instr| {
                     matches!(
                         &instr.kind,
-                        LoweredInstrKind::Call { callee, .. } if templates.contains_key(callee)
+                        LoweredInstrKind::Call { callee, .. }
+                            | LoweredInstrKind::SpawnCall { callee, .. }
+                            | LoweredInstrKind::AsyncCall { callee, .. }
+                            if templates.contains_key(callee)
                     )
                 });
                 if calls_template {
@@ -234,7 +237,11 @@ fn collect_template_call_sites(
     let mut call_sites = Vec::new();
     for (instr_id, instr) in routine.instructions.iter_with_ids() {
         match &instr.kind {
-            LoweredInstrKind::Call { callee, args, .. } if templates.contains_key(callee) => {
+            LoweredInstrKind::Call { callee, args, .. }
+            | LoweredInstrKind::SpawnCall { callee, args }
+            | LoweredInstrKind::AsyncCall { callee, args, .. }
+                if templates.contains_key(callee) =>
+            {
                 let arg_types = args
                     .iter()
                     .map(|arg| {
@@ -567,6 +574,7 @@ fn instantiate_template(
     for instr in routine.instructions.iter_mut() {
         match &mut instr.kind {
             LoweredInstrKind::Call { error_type, .. }
+            | LoweredInstrKind::AsyncCall { error_type, .. }
             | LoweredInstrKind::CallIndirect { error_type, .. } => {
                 *error_type = error_type
                     .map(|type_id| substitute_type(type_table, bindings, &mut memo, type_id))
@@ -1047,8 +1055,11 @@ fn patch_call_target(
     else {
         return;
     };
-    if let LoweredInstrKind::Call { callee, .. } = &mut instr.kind {
-        *callee = concrete_id;
+    match &mut instr.kind {
+        LoweredInstrKind::Call { callee, .. }
+        | LoweredInstrKind::SpawnCall { callee, .. }
+        | LoweredInstrKind::AsyncCall { callee, .. } => *callee = concrete_id,
+        _ => {}
     }
 }
 
