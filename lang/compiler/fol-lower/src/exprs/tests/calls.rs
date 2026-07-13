@@ -257,7 +257,7 @@ fn maybe_moved_bindings_still_drop_reinitialized_branch_values() {
 }
 
 #[test]
-fn aggregates_with_unique_ownership_drop_at_lexical_exit() {
+fn aggregates_and_moved_sources_drop_at_lexical_exit() {
     let lowered = lower_fixture_workspace(
         "typ Holder: rec = { pointer: ptr[int] };\n\
          fun[] main(): int = {\n\
@@ -288,7 +288,7 @@ fn aggregates_with_unique_ownership_drop_at_lexical_exit() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(dropped_names, vec!["holder"]);
+    assert_eq!(dropped_names, vec!["holder", "pointer"]);
 }
 
 #[test]
