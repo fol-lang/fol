@@ -677,7 +677,10 @@ fn lower_expression_observed_inner(
             source_unit_id,
             scope_id,
             container_type.clone(),
-            expected_type,
+            expected_type.and_then(|type_id| match type_table.get(type_id) {
+                Some(crate::LoweredType::Owned { inner }) => Some(*inner),
+                _ => Some(type_id),
+            }),
             elements,
         ),
         AstNode::Assignment { target, value } => {
@@ -1042,31 +1045,52 @@ fn lower_expression_observed_inner(
             })
         }
         AstNode::IndexAccess { container, index } => {
-            let lowered_container = lower_expression(
+            // Index reads borrow their receiver in the backend. Preserve a
+            // direct local here instead of manufacturing a transfer-oriented
+            // LoadLocal, especially for maps that contain unique pointers.
+            let lowered_container = direct_local_identifier_value(
                 typed_package,
-                type_table,
-                checked_type_map,
-                current_identity,
-                decl_index,
                 cursor,
-                source_unit_id,
-                scope_id,
                 container,
+            )
+            .map_or_else(
+                || {
+                    lower_expression(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        container,
+                    )
+                },
+                Ok,
             )?;
             let expected_index_type =
                 super::containers::index_key_type(type_table, lowered_container.type_id);
-            let lowered_index = lower_expression_observed(
-                typed_package,
-                type_table,
-                checked_type_map,
-                current_identity,
-                decl_index,
-                cursor,
-                source_unit_id,
-                scope_id,
-                expected_index_type,
-                index,
-            )?;
+            // Map lookup also borrows its key. A direct unique-pointer key
+            // therefore stays usable after the lookup.
+            let lowered_index = direct_local_identifier_value(typed_package, cursor, index)
+                .map_or_else(
+                    || {
+                        lower_expression_observed(
+                            typed_package,
+                            type_table,
+                            checked_type_map,
+                            current_identity,
+                            decl_index,
+                            cursor,
+                            source_unit_id,
+                            scope_id,
+                            expected_index_type,
+                            index,
+                        )
+                    },
+                    Ok,
+                )?;
             let Some(result_type) = index_access_type(type_table, lowered_container.type_id, index)
             else {
                 return Err(LoweringError::with_kind(
@@ -1320,16 +1344,26 @@ fn lower_expression_observed_inner(
             end,
             ..
         } => {
-            let lowered_container = lower_expression(
+            let lowered_container = direct_local_identifier_value(
                 typed_package,
-                type_table,
-                checked_type_map,
-                current_identity,
-                decl_index,
                 cursor,
-                source_unit_id,
-                scope_id,
                 container,
+            )
+            .map_or_else(
+                || {
+                    lower_expression(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        container,
+                    )
+                },
+                Ok,
             )?;
             let lowered_start = if let Some(start) = start {
                 lower_expression(
@@ -1502,6 +1536,10 @@ pub(crate) fn direct_local_identifier_value(
     cursor: &RoutineCursor<'_>,
     node: &AstNode,
 ) -> Option<LoweredValue> {
+    let mut node = node;
+    while let AstNode::Commented { node: inner, .. } = node {
+        node = inner.as_ref();
+    }
     let AstNode::Identifier {
         syntax_id: Some(syntax_id),
         ..

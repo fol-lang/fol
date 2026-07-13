@@ -1,6 +1,9 @@
 use super::body::{lower_panic_terminator, lower_report_terminator, routine_error_type};
 use super::cursor::{canonical_symbol_key, LoweredValue, RoutineCursor, WorkspaceDeclIndex};
-use super::expressions::{lower_expression, lower_expression_expected, lower_expression_observed};
+use super::expressions::{
+    direct_local_identifier_value, lower_expression, lower_expression_expected,
+    lower_expression_observed,
+};
 use crate::{control::LoweredInstrKind, ids::LoweredTypeId, LoweringError, LoweringErrorKind};
 use fol_intrinsics::{select_intrinsic, IntrinsicEntry, IntrinsicSurface};
 use fol_parser::ast::{AstNode, ContainerType};
@@ -255,6 +258,49 @@ pub(crate) fn lower_dot_intrinsic_call(
                 format!("dot intrinsic '.{name}(...)' does not retain a lowered result type"),
             )
         })?;
+    let lowering_mode = fol_intrinsics::lowering_mode_for_intrinsic(intrinsic_id);
+    if matches!(
+        lowering_mode,
+        Some(fol_intrinsics::IntrinsicLoweringMode::DedicatedIr)
+    ) && name == "len"
+    {
+        let [operand] = args else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("dot intrinsic '.{name}(...)' expected exactly 1 operand"),
+            ));
+        };
+        // Length is an observation. Reuse a direct local instead of routing it
+        // through LoadLocal, which is transfer-oriented for move-only values.
+        let operand = direct_local_identifier_value(typed_package, cursor, operand).map_or_else(
+            || {
+                lower_expression(
+                    typed_package,
+                    type_table,
+                    checked_type_map,
+                    current_identity,
+                    decl_index,
+                    cursor,
+                    source_unit_id,
+                    scope_id,
+                    operand,
+                )
+            },
+            Ok,
+        )?;
+        let result_local = cursor.allocate_local(result_type, None);
+        cursor.push_instr(
+            Some(result_local),
+            LoweredInstrKind::LengthOf {
+                operand: operand.local_id,
+            },
+        )?;
+        return Ok(LoweredValue {
+            local_id: result_local,
+            type_id: result_type,
+            recoverable_error_type: None,
+        });
+    }
     let lowered_args = args
         .iter()
         .map(|arg| {
@@ -272,27 +318,7 @@ pub(crate) fn lower_dot_intrinsic_call(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let kind = match fol_intrinsics::lowering_mode_for_intrinsic(intrinsic_id) {
-        Some(fol_intrinsics::IntrinsicLoweringMode::DedicatedIr) if name == "len" => {
-            let [operand] = lowered_args.as_slice() else {
-                return Err(LoweringError::with_kind(
-                    LoweringErrorKind::InvalidInput,
-                    format!("dot intrinsic '.{name}(...)' expected exactly 1 lowered operand"),
-                ));
-            };
-            let result_local = cursor.allocate_local(result_type, None);
-            cursor.push_instr(
-                Some(result_local),
-                LoweredInstrKind::LengthOf {
-                    operand: operand.local_id,
-                },
-            )?;
-            return Ok(LoweredValue {
-                local_id: result_local,
-                type_id: result_type,
-                recoverable_error_type: None,
-            });
-        }
+    let kind = match lowering_mode {
         Some(fol_intrinsics::IntrinsicLoweringMode::RuntimeHook) if name == "echo" => {
             let [operand] = lowered_args.as_slice() else {
                 return Err(LoweringError::with_kind(

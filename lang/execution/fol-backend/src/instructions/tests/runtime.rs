@@ -40,6 +40,40 @@ fn runtime_shaped_instruction_rendering_emits_length_via_runtime_prelude() {
 }
 
 #[test]
+fn length_observation_dereferences_owned_container_storage() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let vec_id = table.intern(LoweredType::Vector {
+        element_type: int_id,
+    });
+    let owned_vec_id = table.intern(LoweredType::Owned { inner: vec_id });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(21), "main", LoweredBlockId(0));
+    let source = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(owned_vec_id),
+        name: Some("items".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("count".to_string()),
+    });
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(60),
+        result: Some(result),
+        kind: LoweredInstrKind::LengthOf { operand: source },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("owned container length");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r21__l1__count = rt::len(&*l__pkg__entry__app__r21__l0__items);"
+    );
+}
+
+#[test]
 fn borrowed_value_reads_clone_through_the_reference() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();

@@ -396,6 +396,26 @@ fn type_query_intrinsic(
         });
     }
 
+    if super::bindings::ownership_moves_on_transfer(typed, operand_type)
+        && matches!(strip_comments(&args[0]), AstNode::FieldAccess { .. })
+    {
+        return Err(node_origin(resolved, &args[0]).map_or_else(
+            || {
+                TypecheckError::new(
+                    TypecheckErrorKind::Ownership,
+                    "'.len(...)' through a move-only field projection is not supported in V3; length observation must not partially move its receiver",
+                )
+            },
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::Ownership,
+                    "'.len(...)' through a move-only field projection is not supported in V3; length observation must not partially move its receiver",
+                    origin,
+                )
+            },
+        ));
+    }
+
     let core_dynamic_length_query = typed.capability_model()
         == crate::TypecheckCapabilityModel::Core
         && matches!(

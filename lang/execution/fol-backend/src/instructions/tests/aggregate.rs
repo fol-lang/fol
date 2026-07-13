@@ -428,6 +428,95 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
 }
 
 #[test]
+fn slice_rendering_rejects_move_only_results_before_clone_emission() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let unique_pointer = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let scalar_vec = table.intern(LoweredType::Vector {
+        element_type: int_id,
+    });
+    let move_only_vec = table.intern(LoweredType::Vector {
+        element_type: unique_pointer,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(20), "main", LoweredBlockId(0));
+    let values = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(scalar_vec),
+        name: Some("values".to_string()),
+    });
+    let start = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("start".to_string()),
+    });
+    let end = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(2),
+        type_id: Some(int_id),
+        name: Some("end".to_string()),
+    });
+    let scalar_result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(3),
+        type_id: Some(scalar_vec),
+        name: Some("slice".to_string()),
+    });
+    let owners = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(4),
+        type_id: Some(move_only_vec),
+        name: Some("owners".to_string()),
+    });
+    let move_only_result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(5),
+        type_id: Some(move_only_vec),
+        name: Some("owner_slice".to_string()),
+    });
+
+    let rendered = render_core_instruction(
+        &package_identity,
+        &table,
+        &routine,
+        &LoweredInstr {
+            id: LoweredInstrId(50),
+            result: Some(scalar_result),
+            kind: LoweredInstrKind::SliceAccess {
+                container: values,
+                start,
+                end,
+            },
+        },
+    )
+    .expect("copy-safe slice renders");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r20__l3__slice = rt::slice_vec(&l__pkg__entry__app__r20__l0__values, l__pkg__entry__app__r20__l1__start.clone(), l__pkg__entry__app__r20__l2__end.clone()).unwrap();"
+    );
+
+    let error = render_core_instruction(
+        &package_identity,
+        &table,
+        &routine,
+        &LoweredInstr {
+            id: LoweredInstrId(51),
+            result: Some(move_only_result),
+            kind: LoweredInstrKind::SliceAccess {
+                container: owners,
+                start,
+                end,
+            },
+        },
+    )
+    .expect_err("move-only slices must stop before clone-based runtime emission");
+    assert_eq!(error.kind(), BackendErrorKind::InvalidInput);
+    assert_eq!(
+        error.message(),
+        "move-only slice results are not supported in V3; slice emission would clone unique ownership"
+    );
+}
+
+#[test]
 fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();

@@ -50,6 +50,16 @@ pub(crate) fn type_field_access(
     let object_type = object_expr.required_value(format!(
         "field access '.{field}' does not have a typed receiver"
     ))?;
+    if matches!(strip_comments(object), AstNode::FieldAccess { .. })
+        && super::bindings::ownership_moves_on_transfer(typed, object_type)
+    {
+        return Err(with_node_origin(
+            resolved,
+            object,
+            TypecheckErrorKind::Ownership,
+            "nested field access through a move-only intermediate is not supported in V3; partial moves are not supported",
+        ));
+    }
     let resolved_type = apparent_type_id(typed, object_type)?;
     match typed.type_table().get(resolved_type) {
         Some(CheckedType::Record { fields }) => fields
@@ -164,6 +174,8 @@ pub(crate) fn type_index_access(
     )?;
     let index_type =
         index_expr.required_value("index access does not have a typed index expression")?;
+    reject_move_only_index_projection(typed, resolved, container, container_type, "receiver")?;
+    reject_move_only_index_projection(typed, resolved, index, index_type, "key")?;
     let merged_effect = merge_recoverable_effects(
         typed,
         node_origin(resolved, container).or_else(|| node_origin(resolved, index)),
@@ -226,6 +238,28 @@ pub(crate) fn type_index_access(
             ),
         )),
     }
+}
+
+fn reject_move_only_index_projection(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    node: &AstNode,
+    type_id: crate::CheckedTypeId,
+    role: &str,
+) -> Result<(), TypecheckError> {
+    if !super::bindings::ownership_moves_on_transfer(typed, type_id)
+        || !matches!(strip_comments(node), AstNode::FieldAccess { .. })
+    {
+        return Ok(());
+    }
+    Err(with_node_origin(
+        resolved,
+        node,
+        TypecheckErrorKind::Ownership,
+        format!(
+            "index {role} observation through a move-only field projection is not supported in V3; lookup must not partially move its source"
+        ),
+    ))
 }
 
 fn reject_move_only_index_result(
@@ -293,18 +327,15 @@ pub(crate) fn type_slice_access(
         bound_effects,
     )?;
     match typed.type_table().get(resolved_type) {
-        Some(CheckedType::Array { element_type, .. }) => {
-            let element_type = *element_type;
-            Ok(
-                TypedExpr::value(typed.type_table_mut().intern(CheckedType::Array {
-                    element_type,
-                    size: None,
-                }))
-                .with_optional_effect(merged_effect),
-            )
-        }
+        Some(CheckedType::Array { .. }) => Err(with_node_origin(
+            resolved,
+            container,
+            TypecheckErrorKind::Unsupported,
+            "fixed-size array slices are not supported; use vec[...] or seq[...] when a runtime-sized slice result is required",
+        )),
         Some(CheckedType::Vector { element_type }) => {
             let element_type = *element_type;
+            reject_move_only_slice_element(typed, resolved, container, element_type)?;
             Ok(TypedExpr::value(
                 typed
                     .type_table_mut()
@@ -314,6 +345,7 @@ pub(crate) fn type_slice_access(
         }
         Some(CheckedType::Sequence { element_type }) => {
             let element_type = *element_type;
+            reject_move_only_slice_element(typed, resolved, container, element_type)?;
             Ok(TypedExpr::value(
                 typed
                     .type_table_mut()
@@ -324,9 +356,26 @@ pub(crate) fn type_slice_access(
         _ => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
             format!(
-                "slice access requires an array, vector, or sequence receiver, got '{}'",
+                "slice access requires a vector or sequence receiver, got '{}'",
                 describe_type(typed, container_type)
             ),
         )),
     }
+}
+
+fn reject_move_only_slice_element(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    container: &AstNode,
+    element_type: crate::CheckedTypeId,
+) -> Result<(), TypecheckError> {
+    if !super::bindings::ownership_moves_on_transfer(typed, element_type) {
+        return Ok(());
+    }
+    Err(with_node_origin(
+        resolved,
+        container,
+        TypecheckErrorKind::Ownership,
+        "slices of move-only elements are not supported in V3; slice creation would clone unique ownership",
+    ))
 }

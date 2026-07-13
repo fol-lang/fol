@@ -2,8 +2,8 @@ use crate::{BackendError, BackendErrorKind, BackendResult};
 use fol_intrinsics::intrinsic_by_id;
 use fol_lower::{
     control::{LoweredBinaryOp, LoweredLinearKind, LoweredUnaryOp},
-    LoweredInstr, LoweredInstrKind, LoweredRoutine, LoweredType, LoweredTypeTable,
-    LoweredWorkspace,
+    LoweredInstr, LoweredInstrKind, LoweredRoutine, LoweredType, LoweredTypeId,
+    LoweredTypeTable, LoweredWorkspace,
 };
 use fol_resolver::PackageIdentity;
 
@@ -22,6 +22,26 @@ pub fn render_core_instruction(
     instruction: &LoweredInstr,
 ) -> BackendResult<String> {
     render_core_instruction_in_workspace(None, package_identity, type_table, routine, instruction)
+}
+
+fn observed_storage_reference(
+    type_table: &LoweredTypeTable,
+    mut type_id: LoweredTypeId,
+    name: &str,
+) -> (LoweredTypeId, String) {
+    let mut dereferences = 0usize;
+    while let Some(LoweredType::Owned { inner } | LoweredType::Borrowed { inner, .. }) =
+        type_table.get(type_id)
+    {
+        type_id = *inner;
+        dereferences += 1;
+    }
+    let reference = if dereferences == 0 {
+        format!("&{name}")
+    } else {
+        format!("&{}{name}", "*".repeat(dereferences))
+    };
+    (type_id, reference)
 }
 
 fn render_call_arguments(
@@ -291,8 +311,20 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::LengthOf { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            let operand = render_local_name(package_identity, routine, *operand)?;
-            Ok(format!("{result} = rt::len(&{operand});"))
+            let operand_id = *operand;
+            let operand = render_local_name(package_identity, routine, operand_id)?;
+            let operand_type = routine
+                .locals
+                .get(operand_id)
+                .and_then(|local| local.type_id)
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        "length operand local does not retain a lowered type",
+                    )
+                })?;
+            let (_, observed) = observed_storage_reference(type_table, operand_type, &operand);
+            Ok(format!("{result} = rt::len({observed});"))
         }
         LoweredInstrKind::RuntimeHook { intrinsic, args } => {
             let entry = intrinsic_by_id(*intrinsic).ok_or_else(|| {
@@ -525,18 +557,20 @@ pub fn render_core_instruction_in_workspace(
                     ),
                 ));
             };
-            let expression = match type_table.get(type_id) {
+            let (runtime_type, container_ref) =
+                observed_storage_reference(type_table, type_id, &container_name);
+            let expression = match type_table.get(runtime_type) {
                 Some(LoweredType::Array { .. }) => format!(
-                    "rt::index_array(&{container_name}, {index_name}.clone()).unwrap().clone()"
+                    "rt::index_array({container_ref}, {index_name}.clone()).unwrap().clone()"
                 ),
                 Some(LoweredType::Vector { .. }) => format!(
-                    "rt::index_vec(&{container_name}, {index_name}.clone()).unwrap().clone()"
+                    "rt::index_vec({container_ref}, {index_name}.clone()).unwrap().clone()"
                 ),
                 Some(LoweredType::Sequence { .. }) => format!(
-                    "rt::index_seq(&{container_name}, {index_name}.clone()).unwrap().clone()"
+                    "rt::index_seq({container_ref}, {index_name}.clone()).unwrap().clone()"
                 ),
                 Some(LoweredType::Map { .. }) => format!(
-                    "rt::lookup_map(&{container_name}, &{index_name}).unwrap().clone()"
+                    "rt::lookup_map({container_ref}, &{index_name}).unwrap().clone()"
                 ),
                 other => {
                     return Err(BackendError::new(
@@ -553,6 +587,22 @@ pub fn render_core_instruction_in_workspace(
             end,
         } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
+            let result_type = instruction
+                .result
+                .and_then(|result| routine.locals.get(result))
+                .and_then(|local| local.type_id)
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        "slice result local does not retain a lowered type",
+                    )
+                })?;
+            if type_table.moves_on_transfer(result_type) {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    "move-only slice results are not supported in V3; slice emission would clone unique ownership",
+                ));
+            }
             let container_name = render_local_name(package_identity, routine, *container)?;
             let start_name = render_local_name(package_identity, routine, *start)?;
             let end_name = render_local_name(package_identity, routine, *end)?;
@@ -571,12 +621,14 @@ pub fn render_core_instruction_in_workspace(
                     ),
                 ));
             };
-            let expression = match type_table.get(type_id) {
+            let (runtime_type, container_ref) =
+                observed_storage_reference(type_table, type_id, &container_name);
+            let expression = match type_table.get(runtime_type) {
                 Some(LoweredType::Vector { .. }) => format!(
-                    "rt::slice_vec(&{container_name}, {start_name}.clone(), {end_name}.clone()).unwrap()"
+                    "rt::slice_vec({container_ref}, {start_name}.clone(), {end_name}.clone()).unwrap()"
                 ),
                 Some(LoweredType::Sequence { .. }) => format!(
-                    "rt::slice_seq(&{container_name}, {start_name}.clone(), {end_name}.clone()).unwrap()"
+                    "rt::slice_seq({container_ref}, {start_name}.clone(), {end_name}.clone()).unwrap()"
                 ),
                 other => {
                     return Err(BackendError::new(

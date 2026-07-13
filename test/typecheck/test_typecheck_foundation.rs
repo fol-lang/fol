@@ -1647,6 +1647,316 @@ fn move_only_index_projections_require_a_partial_move_model() {
 }
 
 #[test]
+fn move_only_index_operands_allow_locals_but_reject_field_projections() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] lookup(values: map[ptr[int], int], query: ptr[int]): int = {\n\
+             return values[query] + *query + .len(values);\n\
+         };\n",
+    )]);
+    let lookup = find_named_routine_syntax_id(&typed, "lookup");
+    assert!(
+        typed.typed_node(lookup).is_some(),
+        "direct move-only lookup operands are borrowed observations"
+    );
+
+    for (surface, source, role) in [
+        (
+            "receiver",
+            "typ Holder: rec = { values: map[ptr[int], int] };\n\
+             fun[] lookup(holder: Holder, query: ptr[int]): int = {\n\
+                 return holder.values[query];\n\
+             };\n",
+            "receiver",
+        ),
+        (
+            "key",
+            "typ Holder: rec = { query: ptr[int] };\n\
+             fun[] lookup(values: map[ptr[int], int], holder: Holder): int = {\n\
+                 return values[holder.query];\n\
+             };\n",
+            "key",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains(&format!("index {role} observation"))
+                    && error.message().contains("must not partially move")
+            }),
+            "move-only index {surface} projections need place-aware observation IR: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn move_only_slice_elements_are_rejected_before_clone_based_lowering() {
+    for (surface, parameter_type, return_type) in [
+        ("vector", "vec[ptr[int]]", "vec[ptr[int]]"),
+        ("sequence", "seq[ptr[int]]", "seq[ptr[int]]"),
+    ] {
+        let source = format!(
+            "fun[] tail(values: {parameter_type}): {return_type} = {{\n\
+                 return values[1:];\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("slices of move-only elements are not supported in V3")
+                    && error.message().contains("clone unique ownership")
+            }),
+            "{surface} slices must reject move-only elements before lowering: {errors:#?}"
+        );
+    }
+
+    for parameter_type in ["arr[int, 2]", "arr[ptr[int], 2]"] {
+        let source = format!(
+            "fun[] tail(values: {parameter_type}): int = {{\n\
+                 return .len(values[1:]);\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("fixed-size array slices are not supported")
+            }),
+            "fixed-size arrays need an explicit runtime-sized slice result contract: {errors:#?}"
+        );
+    }
+
+    for (surface, parameter_type) in [("vector", "vec[int]"), ("sequence", "seq[int]")] {
+        let source = format!(
+            "fun[] tail_len(values: {parameter_type}): int = {{\n\
+                 return .len(values[1:]);\n\
+             }};\n"
+        );
+        let typed = typecheck_fixture_folder(&[("main.fol", source.as_str())]);
+        let tail_len = find_named_routine_syntax_id(&typed, "tail_len");
+        assert!(
+            typed.typed_node(tail_len).is_some(),
+            "{surface} slices of copy-safe elements should remain supported"
+        );
+    }
+}
+
+#[test]
+fn move_only_collection_iteration_requires_a_consuming_iterator_model() {
+    for (surface, parameter_type) in [
+        ("array", "arr[ptr[int], 1]"),
+        ("vector", "vec[ptr[int]]"),
+        ("sequence", "seq[ptr[int]]"),
+    ] {
+        let source = format!(
+            "fun[] first(values: {parameter_type}): int = {{\n\
+                 for (value in values) {{\n\
+                     return *value;\n\
+                 }};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("iteration over a move-only collection is not supported in V3")
+                    && error.message().contains("clone move-only elements")
+            }),
+            "{surface} iteration must not clone move-only elements: {errors:#?}"
+        );
+    }
+
+    for (surface, parameter_type) in [
+        ("array", "arr[int, 1]"),
+        ("vector", "vec[int]"),
+        ("sequence", "seq[int]"),
+    ] {
+        let source = format!(
+            "fun[] first(values: {parameter_type}): int = {{\n\
+                 for (value in values) {{\n\
+                     return value;\n\
+                 }};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let typed = typecheck_fixture_folder(&[("main.fol", source.as_str())]);
+        let first = find_named_routine_syntax_id(&typed, "first");
+        assert!(
+            typed.typed_node(first).is_some(),
+            "{surface} iteration over copy-safe elements should remain supported"
+        );
+    }
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] first(channel: chn[ptr[int]]): int = {\n\
+                 for (value in channel[rx]) {\n\
+                     return *value;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    let first = find_named_routine_syntax_id(&typed, "first");
+    assert!(
+        typed.typed_node(first).is_some(),
+        "channel receiver iteration consumes move-only payloads and must remain supported"
+    );
+}
+
+#[test]
+fn nested_field_access_rejects_move_only_intermediates() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Inner: rec = { pointer: ptr[int], value: int };\n\
+         typ Outer: rec = { inner: Inner };\n\
+         fun[] read(outer: Outer): int = {\n\
+             return outer.inner.value;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("nested field access through a move-only intermediate")
+                && error.message().contains("partial moves are not supported")
+        }),
+        "nested scalar reads must not move a move-only intermediate: {errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Inner: rec = { pointer: ptr[int], value: int };\n\
+         fun[] read(inner: Inner): int = {\n\
+             return inner.value;\n\
+         };\n",
+    )]);
+    let read = find_named_routine_syntax_id(&typed, "read");
+    assert!(
+        typed.typed_node(read).is_some(),
+        "direct copy-safe fields on a move-only record should remain observable"
+    );
+}
+
+#[test]
+fn when_cases_require_matching_equality_safe_types() {
+    for (surface, source, expected_type) in [
+        (
+            "unique pointers",
+            "fun[] main(): int = {\n\
+                 var left_value: int = 1;\n\
+                 var right_value: int = 2;\n\
+                 var left: ptr[int] = &left_value;\n\
+                 var right: ptr[int] = &right_value;\n\
+                 when(left) {\n\
+                     case(right) { return 1; }\n\
+                     * { return 0; }\n\
+                 }\n\
+             };\n",
+            "ptr[int]",
+        ),
+        (
+            "records",
+            "typ Item: rec = { value: int };\n\
+             fun[] main(): int = {\n\
+                 var left: Item = { value = 1 };\n\
+                 var right: Item = { value = 2 };\n\
+                 when(left) {\n\
+                     case(right) { return 1; }\n\
+                     * { return 0; }\n\
+                 }\n\
+             };\n",
+            "Item",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::InvalidInput
+                    && error
+                        .message()
+                        .contains("binary operator 'Eq' is not valid")
+                    && error.message().contains(expected_type)
+            }),
+            "when equality must reject {surface}: {errors:#?}"
+        );
+    }
+
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             when(1) {\n\
+                 case(true) { return 1; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("when condition expects 'int' but got 'bol'")
+        }),
+        "when cases must match the selector type: {errors:#?}"
+    );
+}
+
+#[test]
+fn len_observes_move_only_locals_but_rejects_field_projections() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Holder: rec = { values: vec[ptr[int]] };\n\
+         fun[] length(holder: Holder): int = {\n\
+             return .len(holder.values);\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("'.len(...)' through a move-only field projection")
+                && error
+                    .message()
+                    .contains("must not partially move its receiver")
+        }),
+        "len through a move-only field projection must be rejected: {errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] length(values: vec[ptr[int]]): int = {\n\
+             return .len(values) + .len(values);\n\
+         };\n",
+    )]);
+    let length = find_named_routine_syntax_id(&typed, "length");
+    assert!(
+        typed.typed_node(length).is_some(),
+        "len should observe a direct move-only local without consuming it"
+    );
+}
+
+#[test]
 fn pointer_deref_rejects_move_only_pointees_before_lowering() {
     for (surface, source) in [
         (

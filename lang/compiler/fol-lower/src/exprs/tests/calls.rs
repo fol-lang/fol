@@ -1141,6 +1141,40 @@ fn index_access_lowering_emits_explicit_container_access_instructions() {
 }
 
 #[test]
+fn map_index_observes_move_only_receiver_and_key_without_transfer_loads() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] lookup(values: map[ptr[int], int], query: ptr[int]): int = {\n",
+        "    return values[query];\n",
+        "};\n",
+    ));
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "lookup")
+        .expect("lookup routine should exist");
+    let (container, index) = routine
+        .instructions
+        .iter()
+        .find_map(|instr| match &instr.kind {
+            LoweredInstrKind::IndexAccess { container, index } => Some((*container, *index)),
+            _ => None,
+        })
+        .expect("map lookup should lower into IndexAccess");
+
+    assert_eq!(container, routine.params[0]);
+    assert_eq!(index, routine.params[1]);
+    assert!(
+        !routine.instructions.iter().any(|instr| matches!(
+            &instr.kind,
+            LoweredInstrKind::LoadLocal { local }
+                if *local == routine.params[0] || *local == routine.params[1]
+        )),
+        "borrowed lookup operands must not be materialized through transfer loads",
+    );
+}
+
+#[test]
 fn slice_access_lowering_emits_explicit_slice_instructions() {
     let fixture = super::safe_temp_dir().join(format!(
         "fol_lower_slice_exprs_{}.fol",

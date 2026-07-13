@@ -1095,6 +1095,27 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             Some("move-only binding 'owned' declared outside a repeating loop cannot be transferred"),
         ),
         (
+            "examples/mem_move_stack_vs_heap_m1",
+            "fun[] lookup(values: map[ptr[int], int], query: ptr[int]): int = {\n\
+                 return values[query] + *query + .len(values);\n\
+             };\n",
+            None,
+        ),
+        (
+            "examples/mem_move_stack_vs_heap_m1",
+            "fun[] tail(values: vec[ptr[int]]): vec[ptr[int]] = {\n\
+                 return values[1:];\n\
+             };\n",
+            Some("slices of move-only elements are not supported in V3"),
+        ),
+        (
+            "examples/mem_move_stack_vs_heap_m1",
+            "fun[] tail(values: arr[int, 2]): int = {\n\
+                 return .len(values[1:]);\n\
+             };\n",
+            Some("fixed-size array slices are not supported"),
+        ),
+        (
             "examples/std_bundled_fmt",
             "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::math::answer();\n};\n",
             None,

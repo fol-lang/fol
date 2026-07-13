@@ -756,7 +756,8 @@ pub(crate) fn slice_access_type(
         Some(crate::LoweredType::Vector { .. }) | Some(crate::LoweredType::Sequence { .. }) => {
             Some(container_type)
         }
-        Some(crate::LoweredType::Array { .. }) => Some(container_type),
+        Some(crate::LoweredType::Owned { inner })
+        | Some(crate::LoweredType::Borrowed { inner, .. }) => slice_access_type(type_table, *inner),
         _ => None,
     }
 }
@@ -775,6 +776,10 @@ pub(crate) fn index_access_type(
             let index_value = literal_index_value(index)?;
             member_types.get(index_value).copied()
         }
+        Some(crate::LoweredType::Owned { inner })
+        | Some(crate::LoweredType::Borrowed { inner, .. }) => {
+            index_access_type(type_table, *inner, index)
+        }
         _ => None,
     }
 }
@@ -787,6 +792,8 @@ pub(crate) fn index_key_type(
 ) -> Option<LoweredTypeId> {
     match type_table.get(container_type) {
         Some(crate::LoweredType::Map { key_type, .. }) => Some(*key_type),
+        Some(crate::LoweredType::Owned { inner })
+        | Some(crate::LoweredType::Borrowed { inner, .. }) => index_key_type(type_table, *inner),
         _ => None,
     }
 }

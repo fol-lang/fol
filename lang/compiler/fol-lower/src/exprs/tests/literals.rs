@@ -481,7 +481,7 @@ fn boolean_intrinsic_lowering_emits_intrinsic_calls_with_canonical_ids() {
 #[test]
 fn length_intrinsic_lowering_emits_dedicated_length_instructions() {
     let lowered = lower_fixture_workspace(concat!(
-        "fun[] main(items: seq[int]): int = {\n",
+        "fun[] main(items: seq[ptr[int]]): int = {\n",
         "    return .len(items);\n",
         "};\n",
     ));
@@ -500,20 +500,20 @@ fn length_intrinsic_lowering_emits_dedicated_length_instructions() {
             _ => None,
         })
         .expect("length intrinsic lowering should use the dedicated LengthOf instruction");
-    let loaded_param = routine
-        .instructions
-        .iter()
-        .find_map(|instr| match (&instr.result, &instr.kind) {
-            (Some(result), LoweredInstrKind::LoadLocal { local }) if *result == lowered_len => {
-                Some(*local)
-            }
-            _ => None,
-        });
+    let transfer_load = routine.instructions.iter().any(|instr| {
+        matches!(
+            &instr.kind,
+            LoweredInstrKind::LoadLocal { local } if *local == routine.params[0]
+        )
+    });
 
     assert_eq!(
-        loaded_param,
-        Some(routine.params[0]),
-        "the LengthOf operand should come from loading the container parameter",
+        lowered_len, routine.params[0],
+        "LengthOf should observe the original move-only container local",
+    );
+    assert!(
+        !transfer_load,
+        "length observation must not route a move-only container through LoadLocal",
     );
 }
 

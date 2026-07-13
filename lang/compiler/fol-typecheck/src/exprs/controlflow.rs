@@ -1,11 +1,13 @@
 use crate::{decls, TypecheckError, TypecheckErrorKind, TypedProgram};
-use fol_parser::ast::{AstNode, ChannelEndpoint, LoopCondition, SelectArm, WhenCase};
+use fol_parser::ast::{
+    AstNode, BinaryOperator, ChannelEndpoint, LoopCondition, SelectArm, WhenCase,
+};
 use fol_resolver::{ResolvedProgram, SymbolKind};
 
 use super::helpers::{
-    ensure_assignable, loop_body_scope, merge_recoverable_effects, node_origin, plain_value_expr,
-    record_symbol_type, reject_recoverable_error_shell_conversion, unsupported_node_surface,
-    with_node_origin,
+    apparent_type_id, ensure_assignable, invalid_binary_operator_error, is_equality_type,
+    loop_body_scope, merge_recoverable_effects, node_origin, plain_value_expr, record_symbol_type,
+    reject_recoverable_error_shell_conversion, unsupported_node_surface, with_node_origin,
 };
 use super::{type_body, type_body_transferring_value, type_node, type_node_with_expectation};
 use super::{TypeContext, TypedExpr};
@@ -26,6 +28,8 @@ pub(crate) fn type_when(
         node_origin(resolved, expr),
         "when selector",
     )?;
+    let selector_type = selector_expr.required_value("when selector does not have a type")?;
+    let selector_apparent = apparent_type_id(typed, selector_type)?;
     let mut case_types = Vec::new();
     let entry_flow = typed.ownership_flow_state();
     let mut branch_flows = Vec::new();
@@ -63,13 +67,35 @@ pub(crate) fn type_when(
                 body,
             } => {
                 let condition_raw = type_node(typed, resolved, context, condition)?;
-                let _ = plain_value_expr(
+                let condition_expr = plain_value_expr(
                     typed,
                     context,
                     condition_raw,
                     node_origin(resolved, condition),
                     "when condition",
                 )?;
+                let condition_type =
+                    condition_expr.required_value("when condition does not have a type")?;
+                ensure_assignable(
+                    typed,
+                    selector_type,
+                    condition_type,
+                    "when condition".to_string(),
+                    node_origin(resolved, condition),
+                )?;
+                let condition_apparent = apparent_type_id(typed, condition_type)?;
+                if selector_apparent != condition_apparent
+                    || !is_equality_type(typed, selector_apparent)
+                {
+                    let error = invalid_binary_operator_error(
+                        typed,
+                        &BinaryOperator::Eq,
+                        selector_type,
+                        condition_type,
+                    );
+                    return Err(node_origin(resolved, condition)
+                        .map_or(error.clone(), |origin| error.with_fallback_origin(origin)));
+                }
                 // Case bodies live in their own resolver Block scope.
                 let body_context = match super::helpers::inline_body_block_scope(
                     resolved,
@@ -256,7 +282,16 @@ pub(crate) fn type_loop(
                     "loop iterable",
                 )?
                 .required_value("loop iterable does not have a type")?;
-                iterable_element_type(typed, iterable_type)?
+                let element_type = iterable_element_type(typed, iterable_type)?;
+                if super::bindings::ownership_moves_on_transfer(typed, iterable_type) {
+                    return Err(with_node_origin(
+                        resolved,
+                        iterable,
+                        TypecheckErrorKind::Ownership,
+                        "iteration over a move-only collection is not supported in V3; index-based iteration would clone move-only elements",
+                    ));
+                }
+                element_type
             };
             let binder_scope = body_scope;
             if let Some(type_hint) = type_hint {

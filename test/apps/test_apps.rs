@@ -410,6 +410,53 @@ fn app_harness_run_helper_executes_built_binary() {
 }
 
 #[test]
+fn v3_container_observations_compile_and_reuse_move_only_locals() {
+    let temp_root = unique_temp_root("v3_container_observations");
+    fs::create_dir_all(&temp_root).expect("observation fixture root");
+    fs::write(
+        temp_root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"v3_container_observations\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"main.fol\", fol_model = \"memo\" });\n",
+            "    graph.install(app);\n",
+            "};\n",
+        ),
+    )
+    .expect("observation fixture build");
+    fs::write(
+        temp_root.join("main.fol"),
+        concat!(
+            "fun[] main(): int = {\n",
+            "    var stored_value: int = 7;\n",
+            "    var query_value: int = 7;\n",
+            "    var stored: ptr[int] = &stored_value;\n",
+            "    var query: ptr[int] = &query_value;\n",
+            "    var values: map[ptr[int], int] = {{stored, 3}};\n",
+            "    var found: int = values[query];\n",
+            "    @var heap_values: vec[int] = {4, 5};\n",
+            "    var heap_len: int = .len(heap_values);\n",
+            "    var heap_head: int = heap_values[0];\n",
+            "    var heap_tail_len: int = .len(heap_values[1:]);\n",
+            "    when(found + *query + .len(values) + heap_len + heap_head + heap_tail_len + .len(heap_values)) {\n",
+            "        case(20) { return 0; }\n",
+            "        * { panic \"ownership observation failed\"; }\n",
+            "    }\n",
+            "};\n",
+        ),
+    )
+    .expect("observation fixture source");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&temp_root);
+    assert_artifact_paths_exist(&compile_output);
+    let run_output = compile_and_run_app(&temp_root);
+    assert_exit_code(&run_output, 0);
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
 fn app_harness_root_helpers_support_std_and_pkg_layouts() {
     let temp_root = unique_temp_root("root_helpers");
     let app_root = temp_root.join("app");

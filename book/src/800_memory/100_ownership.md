@@ -55,6 +55,22 @@ including selecting a copy-safe field from that element afterward. Index access
 materializes the whole element, so these containers need an explicit removal
 operation rather than a clone-based read.
 
+Container queries are observations, not transfers. `.len(local)` and indexed
+lookup through direct locals preserve the receiver and map key, including when
+their types contain unique pointers. A move-only receiver or key reached
+through a field projection is not yet observable because V3 has no place-aware
+projection IR; such a lookup is rejected instead of partially moving its
+source. The same boundary rejects nested field access through a move-only
+intermediate.
+
+Forward slices currently create a new `vec[...]` or `seq[...]` by cloning the
+selected elements. Their element type must therefore be clone-safe. Fixed-size
+array slices need a distinct runtime-sized result contract and remain
+unsupported. Ordinary collection iteration is also index-based and clone-based,
+so a collection containing move-only elements cannot use it yet. Channel
+receiver iteration is different: it consumes each payload and may carry
+move-only values.
+
 Top-level storage is limited to clone-safe, non-borrowed values that are safe in
 the backend's shared static cells. Move-only values, borrowed values, full
 channels, and values containing `ptr[shared, T]` must be declared inside a
@@ -66,6 +82,11 @@ value. Branches are checked from the same incoming ownership state, so the same
 owner may be transferred by mutually exclusive alternatives. After the `when`,
 every owner that could have been transferred by a continuing branch is treated
 as moved.
+
+Value-matching `when` arms use the same equality contract as `==`: selector and
+case values must have the same equality-safe scalar type. Pointer, record, and
+other move-only selectors are rejected rather than being moved by an implicit
+comparison.
 
 Loop bodies are lexical scopes that execute once per iteration. A move-only
 binding declared outside a repeating loop cannot be transferred from the loop
