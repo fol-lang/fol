@@ -7,3 +7,4 @@ mod lifecycle;
 mod nav_features;
 mod navigation;
 mod semantic_tokens;
+mod v3_fail_example_inventory;

@@ -5,6 +5,10 @@ use super::super::{
     LspTextDocumentIdentifier, LspWorkspaceSymbolParams,
 };
 use super::helpers::{copied_example_package_root, open_document, sample_package_root};
+use super::v3_fail_example_inventory::{
+    V3_MEM_M1_FAILURES, V3_MEM_M2_FAILURES, V3_MEM_M3_FAILURES, V3_PROC_M1_FAILURES,
+    V3_PROC_M2_FAILURES, V3_PROC_M3_FAILURES, V3_PROC_M4_FAILURES,
+};
 use crate::EditorConfig;
 use std::fs;
 
@@ -198,28 +202,7 @@ fn lsp_server_surfaces_v3_processor_m1_spawn_state_and_failures() {
         .contains("joined at process exit"));
     fs::remove_dir_all(root).ok();
 
-    for (example, expected) in [
-        (
-            "examples/fail_proc_spawn_in_core_m1",
-            "spawn requires hosted std support",
-        ),
-        (
-            "examples/fail_proc_spawn_in_memo_m1",
-            "spawn requires hosted std support",
-        ),
-        (
-            "examples/fail_proc_spawn_rc_cross_m1",
-            "shared Rc pointers cannot cross a spawn boundary",
-        ),
-        (
-            "examples/fail_proc_spawn_recoverable_m1",
-            "spawning a recoverable routine without await discards its error",
-        ),
-        (
-            "examples/fail_proc_spawn_heap_use_after_move_m1",
-            "use of moved heap-owned binding 'owned'",
-        ),
-    ] {
+    for &(example, expected) in V3_PROC_M1_FAILURES {
         let (root, uri) = copied_example_package_root(example);
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
         let mut server = EditorLspServer::new(EditorConfig::default());
@@ -275,28 +258,7 @@ fn lsp_server_surfaces_v3_processor_m2_channel_state_and_failures() {
     }
     fs::remove_dir_all(root).ok();
 
-    for (example, expected) in [
-        (
-            "examples/fail_proc_channel_index_m2",
-            "channel receivers are blocking pull expressions and cannot be indexed",
-        ),
-        (
-            "examples/fail_proc_channel_in_core_m2",
-            "channel types require hosted std support",
-        ),
-        (
-            "examples/fail_proc_channel_in_memo_m2",
-            "channel types require hosted std support",
-        ),
-        (
-            "examples/fail_proc_channel_capture_rx_m2",
-            "captured endpoint 'channel[tx]' is sender-only",
-        ),
-        (
-            "examples/fail_proc_channel_spawn_consumer_m2",
-            "routine 'consume' receives from a channel and cannot be spawned directly",
-        ),
-    ] {
+    for &(example, expected) in V3_PROC_M2_FAILURES {
         let (root, uri) = copied_example_package_root(example);
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
         let mut server = EditorLspServer::new(EditorConfig::default());
@@ -346,32 +308,7 @@ fn lsp_server_surfaces_v3_processor_m3_select_and_mutex_state() {
         .contains("mutex-guarded shared `Counter`"));
     fs::remove_dir_all(root).ok();
 
-    for (example, expected) in [
-        (
-            "examples/fail_proc_select_old_form_m3",
-            "old select(channel as binding) form is not supported",
-        ),
-        (
-            "examples/fail_proc_select_in_core_m3",
-            "select requires hosted std support",
-        ),
-        (
-            "examples/fail_proc_select_in_memo_m3",
-            "select requires hosted std support",
-        ),
-        (
-            "examples/fail_proc_mutex_double_paren_m3",
-            "Expected generic parameter name",
-        ),
-        (
-            "examples/fail_proc_mutex_in_core_m3",
-            "mutex parameters require hosted std support",
-        ),
-        (
-            "examples/fail_proc_mutex_in_memo_m3",
-            "mutex parameters require hosted std support",
-        ),
-    ] {
+    for &(example, expected) in V3_PROC_M3_FAILURES {
         let (root, uri) = copied_example_package_root(example);
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
         let mut server = EditorLspServer::new(EditorConfig::default());
@@ -452,28 +389,7 @@ fn lsp_server_surfaces_v3_processor_m4_eventual_state_and_failures() {
     assert!(contents.contains("recoverable error `int`"));
     fs::remove_dir_all(root).ok();
 
-    for (example, expected) in [
-        (
-            "examples/fail_proc_evt_named_m4",
-            "eventual types are internal in V3 and cannot be named",
-        ),
-        (
-            "examples/fail_proc_async_in_core_m4",
-            "async pipe stages require hosted std support",
-        ),
-        (
-            "examples/fail_proc_async_in_memo_m4",
-            "async pipe stages require hosted std support",
-        ),
-        (
-            "examples/fail_proc_await_in_core_m4",
-            "await pipe stages require hosted std support",
-        ),
-        (
-            "examples/fail_proc_await_in_memo_m4",
-            "await pipe stages require hosted std support",
-        ),
-    ] {
+    for &(example, expected) in V3_PROC_M4_FAILURES {
         let (root, uri) = copied_example_package_root(example);
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
         let mut server = EditorLspServer::new(EditorConfig::default());
@@ -759,17 +675,7 @@ fn lsp_server_surfaces_v3_memory_m1_navigation_and_state() {
 
 #[test]
 fn lsp_server_surfaces_v3_memory_m1_failures() {
-    for (example, expected) in [
-        ("examples/fail_mem_use_after_move_m1", "O1001"),
-        (
-            "examples/fail_mem_recursive_value_m1",
-            "guard the recursive edge with owned heap indirection",
-        ),
-        (
-            "examples/fail_mem_heap_in_core_m1",
-            "heap allocation binding requires heap support",
-        ),
-    ] {
+    for &(example, expected) in V3_MEM_M1_FAILURES {
         let (root, uri) = copied_example_package_root(example);
         fs::create_dir_all(root.join(".git")).unwrap();
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
@@ -911,11 +817,7 @@ fn lsp_borrow_hover_tracks_source_position_and_lexical_release() {
 
 #[test]
 fn lsp_server_surfaces_v3_memory_m2_failures() {
-    for (example, expected) in [
-        ("examples/fail_mem_owner_while_borrowed_m2", "O2001"),
-        ("examples/fail_mem_second_mut_borrow_m2", "O2002"),
-        ("examples/fail_mem_mut_borrow_immutable_owner_m2", "O2003"),
-    ] {
+    for &(example, expected) in V3_MEM_M2_FAILURES {
         let (root, uri) = copied_example_package_root(example);
         fs::create_dir_all(root.join(".git")).unwrap();
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
@@ -996,13 +898,7 @@ fn lsp_server_surfaces_v3_memory_m3_pointer_state_and_failures() {
         .contains("dereference unique pointer to `int`"));
     fs::remove_dir_all(root).ok();
 
-    for (example, expected) in [
-        ("examples/fail_mem_ptr_raw_m3", "V4 interop surface"),
-        (
-            "examples/fail_mem_ptr_in_core_m3",
-            "pointer construction requires heap support",
-        ),
-    ] {
+    for &(example, expected) in V3_MEM_M3_FAILURES {
         let (root, uri) = copied_example_package_root(example);
         fs::create_dir_all(root.join(".git")).unwrap();
         let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
