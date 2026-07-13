@@ -69,9 +69,13 @@ pub enum LoweredInstrKind {
     CheckRecoverable {
         operand: LoweredLocalId,
     },
+    /// Consume a checked recoverable carrier and extract its success value.
+    /// The carrier is single-use even when both payload types are clone-safe.
     UnwrapRecoverable {
         operand: LoweredLocalId,
     },
+    /// Consume a checked recoverable carrier and extract its error value.
+    /// The carrier is single-use even when both payload types are clone-safe.
     ExtractRecoverableError {
         operand: LoweredLocalId,
     },

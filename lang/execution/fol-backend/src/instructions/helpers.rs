@@ -343,24 +343,16 @@ pub fn render_type_default_expr_in_workspace(
 }
 
 pub fn render_local_list(
+    type_table: &LoweredTypeTable,
     package_identity: &PackageIdentity,
     routine: &LoweredRoutine,
     locals: &[fol_lower::LoweredLocalId],
 ) -> BackendResult<String> {
     locals
         .iter()
-        .map(|local| render_clone_expr(package_identity, routine, *local))
+        .map(|local| render_transfer_expr(type_table, package_identity, routine, *local))
         .collect::<BackendResult<Vec<_>>>()
         .map(|items| items.join(", "))
-}
-
-pub fn render_clone_expr(
-    package_identity: &PackageIdentity,
-    routine: &LoweredRoutine,
-    local_id: fol_lower::LoweredLocalId,
-) -> BackendResult<String> {
-    let name = render_local_name(package_identity, routine, local_id)?;
-    Ok(format!("{name}.clone()"))
 }
 
 pub fn render_transfer_expr(

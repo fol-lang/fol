@@ -187,6 +187,83 @@ fn aggregate_and_container_rendering_emits_set_and_map_runtime_constructors() {
 }
 
 #[test]
+fn aggregate_constructors_move_unique_elements_and_values() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let array_id = table.intern(LoweredType::Array {
+        element_type: pointer_id,
+        size: Some(2),
+    });
+    let map_id = table.intern(LoweredType::Map {
+        key_type: int_id,
+        value_type: pointer_id,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(181), "main", LoweredBlockId(0));
+    let first = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("first".to_string()),
+    });
+    let second = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: Some("second".to_string()),
+    });
+    let key = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(2),
+        type_id: Some(int_id),
+        name: Some("key".to_string()),
+    });
+    let array = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(3),
+        type_id: Some(array_id),
+        name: Some("array".to_string()),
+    });
+    let map = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(4),
+        type_id: Some(map_id),
+        name: Some("map".to_string()),
+    });
+    let array_instr = LoweredInstr {
+        id: LoweredInstrId(441),
+        result: Some(array),
+        kind: LoweredInstrKind::ConstructLinear {
+            kind: LoweredLinearKind::Array,
+            type_id: array_id,
+            elements: vec![first, second],
+        },
+    };
+    let map_instr = LoweredInstr {
+        id: LoweredInstrId(442),
+        result: Some(map),
+        kind: LoweredInstrKind::ConstructMap {
+            type_id: map_id,
+            entries: vec![(key, first)],
+        },
+    };
+
+    let array_rendered =
+        render_core_instruction(&package_identity, &table, &routine, &array_instr)
+            .expect("unique array");
+    let map_rendered = render_core_instruction(&package_identity, &table, &routine, &map_instr)
+        .expect("unique map value");
+
+    assert_eq!(
+        array_rendered,
+        "l__pkg__entry__app__r181__l3__array = [l__pkg__entry__app__r181__l0__first, l__pkg__entry__app__r181__l1__second];"
+    );
+    assert_eq!(
+        map_rendered,
+        "l__pkg__entry__app__r181__l4__map = rt_model::FolMap::from_pairs(vec![(l__pkg__entry__app__r181__l2__key.clone(), l__pkg__entry__app__r181__l0__first)]);"
+    );
+}
+
+#[test]
 fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();

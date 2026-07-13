@@ -8,11 +8,11 @@ use fol_lower::{
 use fol_resolver::PackageIdentity;
 
 use super::helpers::{
-    render_clone_expr, render_global_load, render_local_list, render_local_name,
-    render_mutex_guard_name, render_namespace_module_path, render_native_intrinsic_expression,
-    render_operand, render_routine_path, render_transfer_expr,
-    render_type_default_expr_in_workspace, render_type_path, rendered_result_local,
-    resolve_global_decl, resolve_routine_decl, resolve_type_decl,
+    render_global_load, render_local_list, render_local_name, render_mutex_guard_name,
+    render_namespace_module_path, render_native_intrinsic_expression, render_operand,
+    render_routine_path, render_transfer_expr, render_type_default_expr_in_workspace,
+    render_type_path, rendered_result_local, resolve_global_decl, resolve_routine_decl,
+    resolve_type_decl,
 };
 
 pub fn render_core_instruction(
@@ -289,8 +289,9 @@ pub fn render_core_instruction_in_workspace(
             })?;
             match (entry.name, args.as_slice()) {
                 ("echo", [value]) => {
-                    let value = render_local_name(package_identity, routine, *value)?;
-                    let rendered = format!("rt::echo({value}.clone())");
+                    let value =
+                        render_transfer_expr(type_table, package_identity, routine, *value)?;
+                    let rendered = format!("rt::echo({value})");
                     match instruction.result {
                         Some(_) => {
                             let result =
@@ -315,14 +316,14 @@ pub fn render_core_instruction_in_workspace(
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand = render_local_name(package_identity, routine, *operand)?;
             Ok(format!(
-                "{result} = {operand}.clone().into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
+                "{result} = {operand}.into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
             ))
         }
         LoweredInstrKind::ExtractRecoverableError { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand = render_local_name(package_identity, routine, *operand)?;
             Ok(format!(
-                "{result} = {operand}.clone().into_error().expect(\"extract of recoverable error failed: result contains a value\");"
+                "{result} = {operand}.into_error().expect(\"extract of recoverable error failed: result contains a value\");"
             ))
         }
         LoweredInstrKind::ConstructOptional { value, .. } => {
@@ -386,8 +387,9 @@ pub fn render_core_instruction_in_workspace(
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let expression = match value {
                 Some(value) => {
-                    let value = render_local_name(package_identity, routine, *value)?;
-                    format!("rt::FolError::new({value}.clone())")
+                    let value =
+                        render_transfer_expr(type_table, package_identity, routine, *value)?;
+                    format!("rt::FolError::new({value})")
                 }
                 // Leave the payload type to inference from the assignment
                 // target, exactly like FolOption::nil().
@@ -413,12 +415,17 @@ pub fn render_core_instruction_in_workspace(
                     ),
                 ));
             };
+            let operand = if type_table.moves_on_transfer(type_id) {
+                operand_name
+            } else {
+                format!("{operand_name}.clone()")
+            };
             let expression = match type_table.get(type_id) {
                 Some(LoweredType::Optional { .. }) => {
-                    format!("rt::unwrap_optional_shell({operand_name}.clone()).unwrap()")
+                    format!("rt::unwrap_optional_shell({operand}).unwrap()")
                 }
                 Some(LoweredType::Error { .. }) => {
-                    format!("rt::unwrap_error_shell({operand_name}.clone())")
+                    format!("rt::unwrap_error_shell({operand})")
                 }
                 other => {
                     return Err(BackendError::new(
@@ -433,7 +440,7 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::ConstructLinear { kind, elements, .. } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            let elements = render_local_list(package_identity, routine, elements)?;
+            let elements = render_local_list(type_table, package_identity, routine, elements)?;
             let expression = match kind {
                 LoweredLinearKind::Array => format!("[{elements}]"),
                 LoweredLinearKind::Vector => {
@@ -447,7 +454,7 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::ConstructSet { members, .. } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            let members = render_local_list(package_identity, routine, members)?;
+            let members = render_local_list(type_table, package_identity, routine, members)?;
             Ok(format!(
                 "{result} = rt_model::FolSet::from_items(vec![{members}]);"
             ))
@@ -459,8 +466,8 @@ pub fn render_core_instruction_in_workspace(
                 .map(|(key, value)| {
                     Ok(format!(
                         "({}, {})",
-                        render_clone_expr(package_identity, routine, *key)?,
-                        render_clone_expr(package_identity, routine, *value)?
+                        render_transfer_expr(type_table, package_identity, routine, *key)?,
+                        render_transfer_expr(type_table, package_identity, routine, *value)?
                     ))
                 })
                 .collect::<BackendResult<Vec<_>>>()?
