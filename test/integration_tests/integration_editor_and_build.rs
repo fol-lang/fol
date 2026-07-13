@@ -4738,7 +4738,7 @@ fn test_cli_examples_emit_runtime_imports_in_generated_package_sources() {
             String::from_utf8_lossy(&build.stderr)
         );
 
-        let generated = find_file_by_name(&emitted_crate_root(&build), "src.rs")
+        let generated = find_file_by_name(&emitted_crate_root(&build), "root.rs")
             .expect("generated package source should exist");
         let source =
             std::fs::read_to_string(&generated).expect("generated package source should load");
