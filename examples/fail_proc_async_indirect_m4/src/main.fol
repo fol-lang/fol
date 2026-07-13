@@ -1,0 +1,11 @@
+use std: pkg = {"std"};
+
+fun[] worker(): int = {
+    return 7;
+};
+
+fun[] main(): int = {
+    var action = worker;
+    var pending = action() | async;
+    return 0;
+};

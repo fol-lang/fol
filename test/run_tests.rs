@@ -1,5 +1,8 @@
 // Main test runner for FOL compiler components
 
+#[path = "v3_example_inventory.rs"]
+mod v3_example_inventory;
+
 mod stream {
     include!("stream/test_stream.rs");
 }

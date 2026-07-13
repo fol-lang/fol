@@ -1,4 +1,11 @@
 use super::*;
+use crate::v3_example_inventory::{
+    assert_checked_in_example_directories, V3_MEM_M1_FAILURES, V3_MEM_M1_POSITIVES,
+    V3_MEM_M2_FAILURES, V3_MEM_M2_POSITIVES, V3_MEM_M3_FAILURES, V3_MEM_M3_POSITIVES,
+    V3_PROC_M1_FAILURES, V3_PROC_M1_POSITIVES, V3_PROC_M2_FAILURES,
+    V3_PROC_M2_POSITIVES, V3_PROC_M3_FAILURES, V3_PROC_M3_POSITIVES,
+    V3_PROC_M4_FAILURES, V3_PROC_M4_POSITIVES,
+};
 use fol_editor::{LspDefinitionParams, LspHover, LspHoverParams, LspLocation};
 
 fn strip_ansi(value: &str) -> String {
@@ -1082,11 +1089,7 @@ fn test_fail_generic_recursive_m1m2_example_rejects_cleanly() {
 
 #[test]
 fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
-    for example in [
-        "examples/mem_linked_list_m1",
-        "examples/mem_tree_m1",
-        "examples/mem_move_stack_vs_heap_m1",
-    ] {
+    for &(example, _) in V3_MEM_M1_POSITIVES {
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(
@@ -1110,40 +1113,54 @@ fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
             .filter_map(|path| std::fs::read_to_string(path).ok())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(emitted.contains("Box<"));
-        assert!(emitted.contains("Box::new"));
         if example.contains("linked_list") {
+            assert!(emitted.contains("Box<"));
+            assert!(emitted.contains("Box::new"));
             assert!(emitted.contains("FolOption<Box<"));
-            assert!(emitted.contains(".next.clone()"));
+            assert!(emitted.contains(".next;"));
+            assert!(!emitted.contains(".next.clone()"));
             assert!(emitted.contains("unwrap_optional_shell"));
-            assert!(emitted.contains("drop(") && emitted.contains("__head);"));
+            assert!(!emitted.contains("std::mem::forget"));
         } else if example.contains("tree") {
+            assert!(emitted.contains("Box<"));
+            assert!(emitted.contains("Box::new"));
             assert!(emitted.contains("FolOption<Box<"));
-            assert!(emitted.contains(".left.clone()"));
-            assert!(emitted.contains(".right.clone()"));
-            assert!(emitted.matches("unwrap_optional_shell").count() >= 2);
-            assert!(emitted.contains("drop(") && emitted.contains("__root);"));
-        } else {
+            assert!(emitted.contains("pub left:"));
+            assert!(emitted.contains("pub right:"));
+            assert!(emitted.contains(".left;"));
+            assert!(!emitted.contains(".left.clone()"));
+            assert!(!emitted.contains(".right.clone()"));
+            assert!(emitted.contains("unwrap_optional_shell"));
+            assert!(!emitted.contains("std::mem::forget"));
+        } else if example.contains("move_stack_vs_heap") {
+            assert!(emitted.contains("Box<"));
+            assert!(emitted.contains("Box::new"));
             assert!(emitted.contains(".clone()"));
+        } else if example.contains("owner_reinitialize") {
+            assert!(emitted.contains("Box<"));
+            assert!(emitted.contains("Box::new"));
+            assert!(emitted.contains("std::mem::take"));
+        } else if example.contains("set_observation") {
+            assert!(emitted.contains("FolSet::from_items"));
+            assert!(emitted.contains("rt::index_set"));
         }
     }
 }
 
 #[test]
+fn test_v3_example_directories_match_the_canonical_inventories() {
+    assert_checked_in_example_directories(&repo_root());
+}
+
+#[test]
 fn test_v3_memory_m1_negative_examples_reject_at_the_chosen_boundaries() {
-    for (example, expected) in [
-        ("examples/fail_mem_use_after_move_m1", "O1001"),
-        (
-            "examples/fail_mem_recursive_value_m1",
-            "guard the recursive edge with owned heap indirection such as 'opt @Bad'",
-        ),
-        (
-            "examples/fail_mem_heap_in_core_m1",
-            "heap allocation binding requires heap support",
-        ),
-    ] {
+    for &(example, expected, needs_std) in V3_MEM_M1_FAILURES {
         let root = temp_example_root(example);
-        let check = run_fol_in_dir(&root, &["code", "check"]);
+        let check = if needs_std {
+            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
+        } else {
+            run_fol_in_dir(&root, &["code", "check"])
+        };
         let combined = format!(
             "{}\n{}",
             strip_ansi(&String::from_utf8_lossy(&check.stdout)),
@@ -1159,12 +1176,7 @@ fn test_v3_memory_m1_negative_examples_reject_at_the_chosen_boundaries() {
 
 #[test]
 fn test_v3_memory_m2_examples_build_run_and_emit_borrows() {
-    for example in [
-        "examples/mem_borrow_m2",
-        "examples/mem_borrow_giveback_m2",
-        "examples/mem_borrow_param_m2",
-        "examples/mem_mut_borrow_m2",
-    ] {
+    for &(example, expected_output) in V3_MEM_M2_POSITIVES {
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(
@@ -1177,48 +1189,39 @@ fn test_v3_memory_m2_examples_build_run_and_emit_borrows() {
             .output()
             .expect("V3 memory borrow example binary should run");
         assert!(run.status.success(), "{example} should run successfully");
+        if let Some(expected_output) = expected_output {
+            assert_eq!(
+                strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+                expected_output
+            );
+        }
 
         let emitted = collect_rust_source_files(&emitted_crate_root(&build))
             .into_iter()
             .filter_map(|path| std::fs::read_to_string(path).ok())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(emitted.contains("&"), "{example} should emit references");
-        if example.contains("giveback") {
-            assert!(emitted.contains("drop("));
-        }
-        if example.contains("mut_borrow") {
-            assert!(emitted.contains("&mut "));
+        if !example.contains("mem_edf") {
+            assert!(emitted.contains("&"), "{example} should emit references");
+            if example.contains("giveback") {
+                assert!(emitted.contains("drop("));
+            }
+            if example.contains("mut_borrow") {
+                assert!(emitted.contains("&mut "));
+            }
         }
     }
-
-    let root = temp_example_root("examples/mem_edf_m2");
-    let build = run_example_compile(&root, true);
-    assert!(
-        build.status.success(),
-        "edf example should build: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr)
-    );
-    let run = std::process::Command::new(built_binary_path(&build))
-        .output()
-        .expect("edf example binary should run");
-    assert!(run.status.success());
-    assert_eq!(
-        strip_ansi(&String::from_utf8_lossy(&run.stdout)),
-        "1\n1\n2\n"
-    );
 }
 
 #[test]
 fn test_v3_memory_m2_negative_examples_reject_at_the_chosen_boundaries() {
-    for (example, expected) in [
-        ("examples/fail_mem_owner_while_borrowed_m2", "O2001"),
-        ("examples/fail_mem_second_mut_borrow_m2", "O2002"),
-        ("examples/fail_mem_mut_borrow_immutable_owner_m2", "O2003"),
-    ] {
+    for &(example, expected, needs_std) in V3_MEM_M2_FAILURES {
         let root = temp_example_root(example);
-        let check = run_fol_in_dir(&root, &["code", "check"]);
+        let check = if needs_std {
+            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
+        } else {
+            run_fol_in_dir(&root, &["code", "check"])
+        };
         let combined = format!(
             "{}\n{}",
             strip_ansi(&String::from_utf8_lossy(&check.stdout)),
@@ -1234,11 +1237,7 @@ fn test_v3_memory_m2_negative_examples_reject_at_the_chosen_boundaries() {
 
 #[test]
 fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
-    for example in [
-        "examples/mem_ptr_unique_m3",
-        "examples/mem_ptr_shared_m3",
-        "examples/mem_ptr_shared_recursive_m3",
-    ] {
+    for &(example, _) in V3_MEM_M3_POSITIVES {
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(
@@ -1280,18 +1279,13 @@ fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
 
 #[test]
 fn test_v3_memory_m3_negative_examples_reject_at_the_chosen_boundaries() {
-    for (example, expected) in [
-        (
-            "examples/fail_mem_ptr_raw_m3",
-            "raw pointers are a V4 interop surface",
-        ),
-        (
-            "examples/fail_mem_ptr_in_core_m3",
-            "pointer construction requires heap support",
-        ),
-    ] {
+    for &(example, expected, needs_std) in V3_MEM_M3_FAILURES {
         let root = temp_example_root(example);
-        let check = run_fol_in_dir(&root, &["code", "check"]);
+        let check = if needs_std {
+            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
+        } else {
+            run_fol_in_dir(&root, &["code", "check"])
+        };
         let combined = format!(
             "{}\n{}",
             strip_ansi(&String::from_utf8_lossy(&check.stdout)),
@@ -1307,10 +1301,8 @@ fn test_v3_memory_m3_negative_examples_reject_at_the_chosen_boundaries() {
 
 #[test]
 fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
-    for (example, expected_output) in [
-        ("examples/proc_spawn_m1", "17\n"),
-        ("examples/proc_spawn_move_heap_m1", "29\n"),
-    ] {
+    for &(example, expected_output) in V3_PROC_M1_POSITIVES {
+        let expected_output = expected_output.expect("processor examples should declare stdout");
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(
@@ -1347,33 +1339,7 @@ fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
 
 #[test]
 fn test_v3_processor_m1_spawn_negative_examples_reject() {
-    for (example, expected, needs_std) in [
-        (
-            "examples/fail_proc_spawn_in_core_m1",
-            "spawn requires hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_spawn_in_memo_m1",
-            "spawn requires hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_spawn_rc_cross_m1",
-            "shared Rc pointers cannot cross a spawn boundary",
-            true,
-        ),
-        (
-            "examples/fail_proc_spawn_recoverable_m1",
-            "spawning a recoverable routine without await discards its error",
-            true,
-        ),
-        (
-            "examples/fail_proc_spawn_heap_use_after_move_m1",
-            "use of moved heap-owned binding 'owned'",
-            true,
-        ),
-    ] {
+    for &(example, expected, needs_std) in V3_PROC_M1_FAILURES {
         let root = temp_example_root(example);
         let check = if needs_std {
             run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
@@ -1395,12 +1361,8 @@ fn test_v3_processor_m1_spawn_negative_examples_reject() {
 
 #[test]
 fn test_v3_processor_m2_channel_examples_build_and_run() {
-    for (example, expected_output) in [
-        ("examples/proc_channel_m2", "42\n"),
-        ("examples/proc_channel_pull_m2", "41\n"),
-        ("examples/proc_channel_capture_m2", "42\n"),
-        ("examples/proc_channel_loop_m2", "42\n"),
-    ] {
+    for &(example, expected_output) in V3_PROC_M2_POSITIVES {
+        let expected_output = expected_output.expect("processor examples should declare stdout");
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(build.status.success(), "{example} should build");
@@ -1420,9 +1382,7 @@ fn test_v3_processor_m2_channel_examples_build_and_run() {
         assert!(emitted.contains("rt::FolChannel<"));
         assert!(emitted.contains("rt::join_all_tasks()"));
         assert!(emitted.contains("rt::task_join_guard()"));
-        if example == "examples/proc_channel_m2"
-            || example == "examples/proc_channel_capture_m2"
-        {
+        if example == "examples/proc_channel_m2" || example == "examples/proc_channel_capture_m2" {
             assert!(
                 emitted.contains("rt::FolSender<"),
                 "{example} should type spawned channel capabilities as senders"
@@ -1466,33 +1426,7 @@ fn test_v3_channel_receiver_moves_into_a_synchronous_consumer() {
 
 #[test]
 fn test_v3_processor_m2_channel_negative_examples_reject() {
-    for (example, expected, needs_std) in [
-        (
-            "examples/fail_proc_channel_index_m2",
-            "channel receivers are blocking pull expressions and cannot be indexed",
-            true,
-        ),
-        (
-            "examples/fail_proc_channel_in_core_m2",
-            "channel types require hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_channel_in_memo_m2",
-            "channel types require hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_channel_capture_rx_m2",
-            "captured endpoint 'channel[tx]' is sender-only",
-            true,
-        ),
-        (
-            "examples/fail_proc_channel_spawn_consumer_m2",
-            "routine 'consume' receives from a channel and cannot be spawned directly",
-            true,
-        ),
-    ] {
+    for &(example, expected, needs_std) in V3_PROC_M2_FAILURES {
         let root = temp_example_root(example);
         let check = if needs_std {
             run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
@@ -1511,11 +1445,8 @@ fn test_v3_processor_m2_channel_negative_examples_reject() {
 
 #[test]
 fn test_v3_processor_m3_select_and_mutex_examples_build_and_run() {
-    for (example, expected_output) in [
-        ("examples/proc_select_m3", "42\n"),
-        ("examples/proc_mutex_m3", "1\n2\n"),
-        ("examples/proc_mutex_explicit_unlock_m3", "42\n"),
-    ] {
+    for &(example, expected_output) in V3_PROC_M3_POSITIVES {
+        let expected_output = expected_output.expect("processor examples should declare stdout");
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(build.status.success(), "{example} should build");
@@ -1547,38 +1478,7 @@ fn test_v3_processor_m3_select_and_mutex_examples_build_and_run() {
 
 #[test]
 fn test_v3_processor_m3_dead_and_tier_forms_reject() {
-    for (example, expected, needs_std) in [
-        (
-            "examples/fail_proc_select_old_form_m3",
-            "old select(channel as binding) form is not supported",
-            true,
-        ),
-        (
-            "examples/fail_proc_mutex_double_paren_m3",
-            "Expected generic parameter name",
-            true,
-        ),
-        (
-            "examples/fail_proc_mutex_in_memo_m3",
-            "mutex parameters require hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_select_in_core_m3",
-            "select requires hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_select_in_memo_m3",
-            "select requires hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_mutex_in_core_m3",
-            "mutex parameters require hosted std support",
-            false,
-        ),
-    ] {
+    for &(example, expected, needs_std) in V3_PROC_M3_FAILURES {
         let root = temp_example_root(example);
         let check = if needs_std {
             run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
@@ -1597,10 +1497,8 @@ fn test_v3_processor_m3_dead_and_tier_forms_reject() {
 
 #[test]
 fn test_v3_processor_m4_eventual_examples_build_and_run() {
-    for example in [
-        "examples/proc_async_await_m4",
-        "examples/proc_await_error_m4",
-    ] {
+    for &(example, expected_output) in V3_PROC_M4_POSITIVES {
+        let expected_output = expected_output.expect("processor examples should declare stdout");
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(build.status.success(), "{example} should build");
@@ -1608,7 +1506,10 @@ fn test_v3_processor_m4_eventual_examples_build_and_run() {
             .output()
             .expect("V3 eventual example binary should run");
         assert!(run.status.success(), "{example} should run successfully");
-        assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "42\n");
+        assert_eq!(
+            strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+            expected_output
+        );
         let emitted = collect_rust_source_files(&emitted_crate_root(&build))
             .into_iter()
             .filter_map(|path| std::fs::read_to_string(path).ok())
@@ -1623,33 +1524,7 @@ fn test_v3_processor_m4_eventual_examples_build_and_run() {
 
 #[test]
 fn test_v3_processor_m4_eventual_negative_examples_reject() {
-    for (example, expected, needs_std) in [
-        (
-            "examples/fail_proc_evt_named_m4",
-            "eventual types are internal in V3 and cannot be named",
-            true,
-        ),
-        (
-            "examples/fail_proc_async_in_core_m4",
-            "async pipe stages require hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_async_in_memo_m4",
-            "async pipe stages require hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_await_in_core_m4",
-            "await pipe stages require hosted std support",
-            false,
-        ),
-        (
-            "examples/fail_proc_await_in_memo_m4",
-            "await pipe stages require hosted std support",
-            false,
-        ),
-    ] {
+    for &(example, expected, needs_std) in V3_PROC_M4_FAILURES {
         let root = temp_example_root(example);
         let check = if needs_std {
             run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
@@ -2007,7 +1882,11 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
     assert!(symbols_json["summary"]
         .as_str()
         .expect("symbols summary should be a string")
-        .contains("query_snapshots="));
+        .contains("symbol_count="));
+    assert!(symbols_json["summary"]
+        .as_str()
+        .expect("symbols summary should be a string")
+        .contains("symbol=symbol."));
     assert!(symbols_json["summary"]
         .as_str()
         .expect("symbols summary should be a string")

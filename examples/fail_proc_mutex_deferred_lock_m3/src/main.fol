@@ -1,0 +1,17 @@
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+fun[] inspect(counter[mux]: Counter): int = {
+    dfr {
+        counter.lock();
+    };
+    return 0;
+};
+
+fun[] main(): int = {
+    var counter: Counter = { value = 1 };
+    return inspect(counter);
+};

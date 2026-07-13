@@ -1,0 +1,10 @@
+fun[] consume(pointer: ptr[int]): int = {
+    return *pointer;
+};
+
+fun[] main(): int = {
+    var value: int = 7;
+    var pointer: ptr[int] = &value;
+    pointer;
+    return consume(pointer);
+};
