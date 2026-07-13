@@ -273,15 +273,29 @@ fn apply_build_step_args(config: &mut FrontendConfig, step: &cli::BuildStepArgs)
 
 fn command_output_mode(cli: &FrontendCli) -> Option<OutputMode> {
     match cli.command.as_ref() {
-        Some(FrontendCommand::Work(command)) => Some(command.output.output),
-        Some(FrontendCommand::Pack(command)) => Some(command.output.output),
-        // `code explain` carries an optional explicit override; `None` there means
-        // the root-level `--output`/`--json` flags apply instead.
-        Some(FrontendCommand::Code(command)) => match &command.command {
-            CodeSubcommand::Explain(explain) => explain.output,
-            _ => Some(command.output.output),
-        },
-        Some(FrontendCommand::Tool(command)) => Some(command.output.output),
+        Some(FrontendCommand::Work(command)) => command.output.output,
+        Some(FrontendCommand::Pack(command)) => {
+            let local = match &command.command {
+                PackSubcommand::Fetch(fetch) => fetch.output.output,
+                PackSubcommand::Update(update) => update.output.output,
+            };
+            local.or(command.output.output)
+        }
+        Some(FrontendCommand::Code(command)) => {
+            let local = match &command.command {
+                CodeSubcommand::Build(build) => build.output.output,
+                CodeSubcommand::Run(run) => run.output.output,
+                CodeSubcommand::Test(test) => test.output.output,
+                CodeSubcommand::Check(check) => check.output.output,
+                CodeSubcommand::Emit(emit) => match &emit.command {
+                    cli::EmitSubcommand::Rust(rust) => rust.output.output,
+                    cli::EmitSubcommand::Lowered(lowered) => lowered.output.output,
+                },
+                CodeSubcommand::Explain(explain) => explain.output,
+            };
+            local.or(command.output.output)
+        }
+        Some(FrontendCommand::Tool(command)) => command.output.output,
         Some(FrontendCommand::Complete(_)) | None => None,
     }
 }
@@ -526,6 +540,67 @@ mod tests {
         let config = frontend_config_from_cli(&cli, None);
 
         assert_eq!(config.build_step_override.as_deref(), Some("docs"));
+    }
+
+    #[test]
+    fn frontend_config_resolves_output_overrides_from_most_specific_scope() {
+        let cases = [
+            (
+                vec!["fol", "--output", "json", "code", "check"],
+                OutputMode::Json,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "code", "--output", "plain", "check",
+                ],
+                OutputMode::Plain,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "code", "--output", "plain", "check", "--output",
+                    "human",
+                ],
+                OutputMode::Human,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "pack", "--output", "plain", "fetch", "--output",
+                    "human",
+                ],
+                OutputMode::Human,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "code", "--output", "plain", "emit", "rust",
+                    "--output", "human",
+                ],
+                OutputMode::Human,
+            ),
+            (
+                vec!["fol", "--output", "json", "work", "--output", "plain", "info"],
+                OutputMode::Plain,
+            ),
+            (
+                vec!["fol", "--output", "json", "tool", "parse", "demo.fol"],
+                OutputMode::Json,
+            ),
+            (
+                vec!["fol", "--output", "json", "code", "explain", "R1003", "--output", "plain"],
+                OutputMode::Plain,
+            ),
+            (
+                vec![
+                    "fol", "--json", "code", "--output", "plain", "check", "--output", "human",
+                ],
+                OutputMode::Json,
+            ),
+        ];
+
+        for (args, expected) in cases {
+            let cli = FrontendCli::try_parse_from(args).expect("output fixture should parse");
+            let config = frontend_config_from_cli(&cli, None);
+            assert_eq!(config.output.mode, expected);
+        }
     }
 
     #[test]
