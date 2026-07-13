@@ -569,6 +569,7 @@ mod tests {
         for needle in [
             "(use_decl \"use\" @keyword.import)",
             "(var_decl \"var\" @keyword)",
+            "(var_decl \"@var\" @keyword)",
             "(con_decl \"con\" @keyword)",
             "(lab_decl \"lab\" @keyword)",
             "(fun_decl \"fun\" @keyword.function)",
@@ -911,6 +912,36 @@ mod tests {
     }
 
     #[test]
+    fn generated_bundle_highlights_owned_allocation_declaration_heads() {
+        let root = build_bundle_root("owned_allocation_declaration_heads");
+        let output = run_tree_sitter_query(
+            &root,
+            &root.join("queries/fol/highlights.scm"),
+            &repo_root().join("examples/mem_linked_list_m1/src/main.fol"),
+        );
+
+        assert!(
+            output.status.success(),
+            "tree-sitter highlight query failed for owned declarations:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let owned_declarations = stdout
+            .lines()
+            .filter(|line| line.contains("capture:"))
+            .filter(|line| line.contains("keyword"))
+            .filter(|line| line.contains("text: `@var`"))
+            .count();
+        assert_eq!(
+            owned_declarations, 2,
+            "both owned allocation declarations should capture '@var' as a keyword:\n{stdout}"
+        );
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn generated_bundle_locals_query_captures_real_example_bindings_and_methods() {
         let root = build_bundle_root("locals_real_examples");
         let output = run_tree_sitter_query(
@@ -930,6 +961,78 @@ mod tests {
         assert!(stdout.contains("local.definition.method"));
         assert!(stdout.contains("local.definition.function"));
         assert!(stdout.contains("local.definition"));
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn locals_query_scopes_routines_anonymous_routines_and_select_arms() {
+        let query = fol_tree_sitter_locals_query();
+        for node in [
+            "plain_fun_decl",
+            "plain_pro_decl",
+            "plain_log_decl",
+            "method_decl",
+            "anonymous_fun_expr",
+            "anonymous_pro_expr",
+            "anonymous_log_expr",
+            "select_arm",
+        ] {
+            let expected = format!("({node}) @local.scope");
+            assert!(
+                query.contains(&expected),
+                "locals query should isolate '{node}' bindings with '{expected}'"
+            );
+        }
+    }
+
+    #[test]
+    fn generated_bundle_locals_query_scopes_v3_parameters_and_select_binders() {
+        let root = build_bundle_root("v3_parameter_and_select_scopes");
+        let cases = [
+            (
+                "examples/proc_mutex_m3/src/main.fol",
+                [
+                    "capture: local.scope, start: (6, 6), end: (10, 1)",
+                    "capture: local.scope, start: (12, 6), end: (16, 1)",
+                ]
+                .as_slice(),
+            ),
+            (
+                "examples/proc_channel_capture_m2/src/main.fol",
+                ["capture: local.scope, start: (4, 7), end: (6, 5)"].as_slice(),
+            ),
+            (
+                "examples/proc_select_m3/src/main.fol",
+                [
+                    "capture: local.scope, start: (13, 8), end: (15, 9)",
+                    "capture: local.scope, start: (16, 8), end: (18, 9)",
+                    "capture: local.scope, start: (21, 8), end: (23, 9)",
+                ]
+                .as_slice(),
+            ),
+        ];
+
+        for (relative, expected_scopes) in cases {
+            let output = run_tree_sitter_query(
+                &root,
+                &root.join("queries/fol/locals.scm"),
+                &repo_root().join(relative),
+            );
+            assert!(
+                output.status.success(),
+                "tree-sitter locals query failed for '{relative}':\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for expected_scope in expected_scopes {
+                assert!(
+                    stdout.contains(expected_scope),
+                    "fixture '{relative}' lost exact local scope '{expected_scope}':\n{stdout}"
+                );
+            }
+        }
 
         std::fs::remove_dir_all(root).ok();
     }

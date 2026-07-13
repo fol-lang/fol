@@ -1,5 +1,6 @@
 (use_decl "use" @keyword.import)
 (var_decl "var" @keyword)
+(var_decl "@var" @keyword)
 (con_decl "con" @keyword)
 (lab_decl "lab" @keyword)
 (fun_decl "fun" @keyword.function)

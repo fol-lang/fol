@@ -1,4 +1,12 @@
 (source_file) @local.scope
+(plain_fun_decl) @local.scope
+(plain_pro_decl) @local.scope
+(plain_log_decl) @local.scope
+(method_decl) @local.scope
+(anonymous_fun_expr) @local.scope
+(anonymous_pro_expr) @local.scope
+(anonymous_log_expr) @local.scope
+(select_arm) @local.scope
 (block) @local.scope
 (for_stmt) @local.scope
 (each_stmt) @local.scope
