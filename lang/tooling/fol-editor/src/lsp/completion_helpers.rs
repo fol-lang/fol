@@ -12,6 +12,11 @@ pub(crate) enum CompletionContext {
     Plain,
     PipeStage,
     TypePosition,
+    ParameterOption,
+    PointerTypePosition,
+    ChannelElementTypePosition,
+    BracketAccess { receiver: String },
+    HeapBinding,
     QualifiedPath { qualifier: String },
     DotTrigger,
 }
@@ -29,6 +34,10 @@ pub(crate) fn completion_context(
         .map(|(_, tail)| tail)
         .unwrap_or(prefix);
     let trimmed = line_prefix.trim_end();
+
+    if trimmed.ends_with('@') {
+        return CompletionContext::HeapBinding;
+    }
 
     if trimmed.rsplit_once('|').is_some_and(|(left, stage)| {
         !left.ends_with('|')
@@ -56,6 +65,17 @@ pub(crate) fn completion_context(
         }
     }
 
+    if let Some((receiver, receiver_start)) = trailing_bracket_receiver(prefix) {
+        if is_routine_parameter_bracket(prefix, receiver_start) {
+            return CompletionContext::ParameterOption;
+        }
+        match receiver.as_str() {
+            "ptr" => return CompletionContext::PointerTypePosition,
+            "chn" => return CompletionContext::ChannelElementTypePosition,
+            _ => return CompletionContext::BracketAccess { receiver },
+        }
+    }
+
     if line_prefix
         .rsplit_once(':')
         .map(|(_, tail)| tail.trim())
@@ -68,6 +88,55 @@ pub(crate) fn completion_context(
     }
 
     CompletionContext::Plain
+}
+
+fn trailing_bracket_receiver(prefix: &str) -> Option<(String, usize)> {
+    let open = prefix.rfind('[')?;
+    let tail = &prefix[open + 1..];
+    if tail.contains(']')
+        || !tail
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == ',' || ch.is_whitespace())
+    {
+        return None;
+    }
+
+    let before_open = &prefix[..open];
+    let receiver_end = before_open.trim_end().len();
+    let receiver_start = before_open[..receiver_end]
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !(ch.is_ascii_alphanumeric() || *ch == '_'))
+        .map_or(0, |(index, ch)| index + ch.len_utf8());
+    let receiver = before_open[receiver_start..receiver_end].to_string();
+    (!receiver.is_empty()).then_some((receiver, receiver_start))
+}
+
+fn is_routine_parameter_bracket(prefix: &str, receiver_start: usize) -> bool {
+    let before_receiver = &prefix[..receiver_start];
+    let Some(parameter_open) = last_unclosed_round_bracket(before_receiver) else {
+        return false;
+    };
+    let header_prefix = &before_receiver[..parameter_open];
+    let header_start = header_prefix
+        .rfind([';', '{', '}'])
+        .map_or(0, |index| index + 1);
+    header_prefix[header_start..]
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .any(|token| matches!(token, "fun" | "pro" | "log"))
+}
+
+fn last_unclosed_round_bracket(text: &str) -> Option<usize> {
+    let mut closed = 0usize;
+    for (index, ch) in text.char_indices().rev() {
+        match ch {
+            ')' => closed += 1,
+            '(' if closed == 0 => return Some(index),
+            '(' => closed -= 1,
+            _ => {}
+        }
+    }
+    None
 }
 
 pub(crate) fn completion_context_with_lsp(
@@ -434,6 +503,78 @@ mod tests {
                 },
             ),
             CompletionContext::Plain
+        );
+    }
+
+    #[test]
+    fn completion_context_detects_v3_bracket_and_heap_surfaces() {
+        let cases = [
+            (
+                "fun[] inspect(item[",
+                CompletionContext::ParameterOption,
+            ),
+            (
+                "fun[] inspect(default: int = make(), item[",
+                CompletionContext::ParameterOption,
+            ),
+            (
+                "fun[] main(): int = { var value: ptr[",
+                CompletionContext::PointerTypePosition,
+            ),
+            (
+                "fun[] main(): int = { var channel: chn[",
+                CompletionContext::ChannelElementTypePosition,
+            ),
+            (
+                "fun[] main(): int = { return channel[",
+                CompletionContext::BracketAccess {
+                    receiver: "channel".to_string(),
+                },
+            ),
+            (
+                "fun[] main(): int = { @",
+                CompletionContext::HeapBinding,
+            ),
+        ];
+
+        for (index, (text, expected)) in cases.into_iter().enumerate() {
+            let uri = EditorDocumentUri::from_file_path(PathBuf::from(format!(
+                "/tmp/v3_completion_context_{index}.fol"
+            )))
+            .unwrap();
+            let document = EditorDocument::new(uri, 1, text.to_string()).unwrap();
+            assert_eq!(
+                completion_context(
+                    &document,
+                    LspPosition {
+                        line: 0,
+                        character: text.chars().count() as u32,
+                    },
+                ),
+                expected,
+                "context drifted for {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_context_does_not_treat_indexing_as_parameter_options() {
+        let text = "fun[] main(): int = { return values[";
+        let uri = EditorDocumentUri::from_file_path(PathBuf::from("/tmp/index_context.fol"))
+            .unwrap();
+        let document = EditorDocument::new(uri, 1, text.to_string()).unwrap();
+
+        assert_eq!(
+            completion_context(
+                &document,
+                LspPosition {
+                    line: 0,
+                    character: text.chars().count() as u32,
+                },
+            ),
+            CompletionContext::BracketAccess {
+                receiver: "values".to_string(),
+            }
         );
     }
 

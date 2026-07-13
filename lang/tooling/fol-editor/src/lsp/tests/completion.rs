@@ -1247,3 +1247,241 @@ fn lsp_server_keeps_bundled_std_and_dependency_members_separate_after_qualificat
 
     fs::remove_dir_all(root).ok();
 }
+
+fn completion_labels_at_marker(
+    root: &std::path::Path,
+    uri: &str,
+    marked_source: &str,
+) -> Vec<String> {
+    const MARKER: &str = "<|>";
+    let marker = marked_source
+        .find(MARKER)
+        .expect("completion fixture should contain a cursor marker");
+    assert_eq!(
+        marked_source[marker + MARKER.len()..].find(MARKER),
+        None,
+        "completion fixture should contain exactly one cursor marker"
+    );
+    let before_cursor = &marked_source[..marker];
+    let position = LspPosition {
+        line: before_cursor.matches('\n').count() as u32,
+        character: before_cursor
+            .rsplit_once('\n')
+            .map_or(before_cursor, |(_, line)| line)
+            .chars()
+            .count() as u32,
+    };
+    let source = marked_source.replacen(MARKER, "", 1);
+    fs::write(root.join("src/main.fol"), &source).unwrap();
+
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.to_string(), &source);
+    let completion = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(700),
+            method: "textDocument/completion".to_string(),
+            params: Some(
+                serde_json::to_value(LspCompletionParams {
+                    text_document: LspTextDocumentIdentifier {
+                        uri: uri.to_string(),
+                    },
+                    position,
+                    context: None,
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    serde_json::from_value::<LspCompletionList>(completion.result.unwrap())
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|item| item.label)
+        .collect()
+}
+
+#[test]
+fn lsp_server_completes_v3_parameter_and_type_contexts() {
+    let cases = [
+        (
+            "parameter",
+            "fun[] inspect(item[<|>",
+            &["bor", "mux"][..],
+            &["var", "tx", "rx"][..],
+        ),
+        (
+            "pointer",
+            concat!(
+                "typ[] Local: rec = { value: int };\n",
+                "fun[] main(): int = {\n",
+                "    var pointer: ptr[<|>\n",
+            ),
+            &["shared", "int", "str", "Local"][..],
+            &["tx", "rx", "return"][..],
+        ),
+        (
+            "channel_element",
+            concat!(
+                "typ[] Local: rec = { value: int };\n",
+                "fun[] main(): int = {\n",
+                "    var channel: chn[<|>\n",
+            ),
+            &["int", "str", "Local"][..],
+            &["shared", "tx", "rx", "return"][..],
+        ),
+    ];
+
+    for (label, source, expected, excluded) in cases {
+        let (root, uri) = hosted_sample_package_root(&format!("completion_v3_{label}"));
+        let labels = completion_labels_at_marker(&root, &uri, source);
+        for expected in expected {
+            assert!(
+                labels.iter().any(|label| label == expected),
+                "{label} completion should contain {expected:?}: {labels:?}"
+            );
+        }
+        for excluded in excluded {
+            assert!(
+                !labels.iter().any(|label| label == excluded),
+                "{label} completion should exclude {excluded:?}: {labels:?}"
+            );
+        }
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_gates_v3_nested_type_completion_by_model() {
+    for (surface, source, expectations) in [
+        (
+            "pointer",
+            "fun[] main(): int = {\n    var value: ptr[<|>\n",
+            [("core", false), ("memo", true), ("hosted", true)],
+        ),
+        (
+            "channel",
+            "fun[] main(): int = {\n    var value: chn[<|>\n",
+            [("core", false), ("memo", false), ("hosted", true)],
+        ),
+    ] {
+        for (model, expected) in expectations {
+            let hosted = model == "hosted";
+            let (root, uri) = if hosted {
+                hosted_sample_package_root(&format!("completion_v3_{surface}_{model}"))
+            } else {
+                sample_package_root(&format!("completion_v3_{surface}_{model}"))
+            };
+            if model == "core" {
+                fs::write(
+                    root.join("build.fol"),
+                    concat!(
+                        "pro[] build(): non = {\n",
+                        "    var build = .build();\n",
+                        "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+                        "    var graph = build.graph();\n",
+                        "    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                        "    return;\n",
+                        "};\n",
+                    ),
+                )
+                .unwrap();
+            }
+            let labels = completion_labels_at_marker(&root, &uri, source);
+            assert_eq!(
+                labels.iter().any(|label| label == "int"),
+                expected,
+                "{surface} target completion availability drifted for {model}: {labels:?}"
+            );
+            assert_eq!(
+                labels.iter().any(|label| label == "shared"),
+                surface == "pointer" && expected,
+                "pointer qualifier completion availability drifted for {model}: {labels:?}"
+            );
+            if !expected {
+                assert!(
+                    labels.is_empty(),
+                    "illegal {surface} context should not leak completions in {model}: {labels:?}"
+                );
+            }
+            fs::remove_dir_all(root).ok();
+        }
+    }
+}
+
+#[test]
+fn lsp_server_completes_only_channel_endpoints_in_channel_access() {
+    let (root, uri) = hosted_sample_package_root("completion_v3_channel_endpoint");
+    let labels = completion_labels_at_marker(
+        &root,
+        &uri,
+        concat!(
+            "fun[] main(): int = {\n",
+            "    var channel: chn[int];\n",
+            "    return channel[<|>\n",
+        ),
+    );
+    assert_eq!(labels, vec!["tx".to_string(), "rx".to_string()]);
+    fs::remove_dir_all(root).ok();
+
+    let (root, uri) = hosted_sample_package_root("completion_v3_array_index");
+    let labels = completion_labels_at_marker(
+        &root,
+        &uri,
+        concat!(
+            "fun[] helper(): int = { return 1; };\n",
+            "fun[] main(): int = {\n",
+            "    var values: arr[int, 1] = {1};\n",
+            "    return values[<|>\n",
+        ),
+    );
+    assert!(labels.iter().any(|label| label == "helper"));
+    assert!(!labels.iter().any(|label| matches!(label.as_str(), "tx" | "rx")));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_gates_heap_binding_completion_by_model() {
+    for (label, model, hosted, expected) in [
+        ("core", "core", false, false),
+        ("memo", "memo", false, true),
+        ("hosted", "memo", true, true),
+    ] {
+        let (root, uri) = if hosted {
+            hosted_sample_package_root(&format!("completion_v3_heap_{label}"))
+        } else {
+            sample_package_root(&format!("completion_v3_heap_{label}"))
+        };
+        if model == "core" {
+            fs::write(
+                root.join("build.fol"),
+                concat!(
+                    "pro[] build(): non = {\n",
+                    "    var build = .build();\n",
+                    "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+                    "    var graph = build.graph();\n",
+                    "    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+                    "    return;\n",
+                    "};\n",
+                ),
+            )
+            .unwrap();
+        }
+        let labels = completion_labels_at_marker(
+            &root,
+            &uri,
+            "fun[] main(): int = {\n    @<|>\n",
+        );
+        assert_eq!(
+            labels.iter().any(|label| label == "var"),
+            expected,
+            "@var completion availability drifted for {label}: {labels:?}"
+        );
+        assert!(
+            labels.iter().all(|item| item == "var"),
+            "the @ binding context should not leak unrelated completions: {labels:?}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+}

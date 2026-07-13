@@ -1,4 +1,4 @@
-use super::helpers::{open_document, sample_package_root};
+use super::helpers::{copied_example_package_root, open_document, sample_package_root};
 use super::super::{
     EditorLspServer, JsonRpcId, JsonRpcRequest, LspSemanticTokens,
     LspSemanticTokensParams, LspTextDocumentIdentifier,
@@ -22,6 +22,29 @@ fn decode_semantic_tokens(data: &[u32]) -> Vec<(u32, u32, u32, u32, u32)> {
         decoded.push((line, start, chunk[2], chunk[3], chunk[4]));
     }
     decoded
+}
+
+fn request_semantic_tokens(
+    server: &mut EditorLspServer,
+    uri: String,
+    id: i64,
+) -> Vec<(u32, u32, u32, u32, u32)> {
+    let response = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(id),
+            method: "textDocument/semanticTokens/full".to_string(),
+            params: Some(
+                serde_json::to_value(LspSemanticTokensParams {
+                    text_document: LspTextDocumentIdentifier { uri },
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let tokens: LspSemanticTokens = serde_json::from_value(response.result.unwrap()).unwrap();
+    decode_semantic_tokens(&tokens.data)
 }
 
 #[test]
@@ -55,13 +78,75 @@ fn lsp_server_returns_semantic_tokens_for_source_files() {
 
     // Routine declarations anchor at their NAME (helper at 4:6); type
     // declarations still anchor at the `typ` keyword until TypeDecl carries
-    // a name syntax id. Locals and parameters tokenize at their resolved
-    // reference sites.
+    // a name syntax id. Explicit parameters and locals retain their precise
+    // declaration spans, and their resolved uses are tokenized too.
     assert!(decoded.iter().any(|token| *token == (0, 0, 3, 1, 0)));
     assert!(decoded.iter().any(|token| *token == (4, 6, 6, 2, 0)));
+    assert!(decoded.iter().any(|token| *token == (4, 13, 5, 3, 0)));
     assert!(decoded.iter().any(|token| *token == (5, 15, 5, 1, 0)));
     assert!(decoded.iter().any(|token| *token == (5, 23, 5, 3, 0)));
     assert!(decoded.iter().any(|token| *token == (6, 11, 5, 4, 0)));
+}
+
+#[test]
+fn lsp_server_tokens_explicit_v3_parameter_declarations_in_real_examples() {
+    let cases = [
+        (
+            "examples/mem_borrow_param_m2",
+            vec![
+                (4, 14, 4, 3, 0), // item[bor] declaration
+                (5, 11, 4, 3, 0), // item use
+            ],
+        ),
+        (
+            "examples/proc_mutex_m3",
+            vec![
+                (6, 13, 7, 3, 0),  // worker counter[mux] declaration
+                (12, 17, 7, 3, 0), // coordinate counter[mux] declaration
+            ],
+        ),
+    ];
+
+    for (index, (example, expected)) in cases.into_iter().enumerate() {
+        let (root, uri) = copied_example_package_root(example);
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+        let decoded = request_semantic_tokens(&mut server, uri, 955 + index as i64);
+
+        for token in expected {
+            assert!(
+                decoded.contains(&token),
+                "semantic tokens for real V3 example '{example}' should include {token:?}, got: {decoded:?}"
+            );
+        }
+
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
+fn lsp_server_does_not_tokenize_synthesized_self_at_receiver_routine_name() {
+    let (root, uri) = copied_example_package_root("examples/core_records");
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.clone(), &text);
+    let decoded = request_semantic_tokens(&mut server, uri, 957);
+
+    assert!(
+        decoded.contains(&(5, 13, 4, 2, 0)),
+        "receiver routine name should remain a function token: {decoded:?}"
+    );
+    assert!(
+        decoded.contains(&(5, 18, 2, 3, 0)),
+        "explicit receiver-routine parameter declaration should be a parameter token: {decoded:?}"
+    );
+    assert!(
+        !decoded.contains(&(5, 13, 4, 3, 0)),
+        "synthesized self must not repaint the receiver routine name as a parameter: {decoded:?}"
+    );
+
+    fs::remove_dir_all(root).ok();
 }
 
 #[test]

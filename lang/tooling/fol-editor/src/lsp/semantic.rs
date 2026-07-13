@@ -6,9 +6,9 @@ use fol_intrinsics::IntrinsicSurface;
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind, SyntaxNodeId};
 use fol_typecheck::{
     editor_builtin_type_names, editor_container_type_names, editor_implemented_intrinsics,
-    editor_intrinsic_available_in_model, editor_shell_type_names,
+    editor_intrinsic_available_in_model, editor_model_capability,
     editor_processor_keyword_available_in_model, editor_processor_keyword_infos,
-    editor_structured_type_infos, editor_type_family_available_in_model,
+    editor_shell_type_names, editor_structured_type_infos, editor_type_family_available_in_model,
     EditorProcessorKeywordContext, EditorTypeFamily, TypecheckCapabilityModel,
 };
 use std::path::Path;
@@ -203,10 +203,14 @@ impl SemanticSnapshot {
             if file != &path_text {
                 continue;
             }
-            // Parameters borrow the routine header origin, so a symbol-site
-            // token would repaint the routine name; their uses still get
-            // tokens through resolved references below.
-            if matches!(symbol.kind, fol_resolver::SymbolKind::Parameter) {
+            // Explicit parameters carry their own source-name origin and must
+            // be tokenized at the declaration site. Only a receiver routine's
+            // synthesized `self` still borrows the routine header origin; it
+            // has no source token and would otherwise repaint the routine
+            // name as a parameter.
+            if matches!(symbol.kind, fol_resolver::SymbolKind::Parameter)
+                && symbol.name == "self"
+            {
                 continue;
             }
             let Some(token_type) = semantic_token_type_for_symbol_kind(symbol.kind) else {
@@ -411,6 +415,32 @@ impl SemanticSnapshot {
                 items.extend(self.visible_named_type_completion_items());
                 return dedupe_completion_items(items);
             }
+            CompletionContext::ParameterOption => {
+                return self.parameter_option_completion_items();
+            }
+            CompletionContext::PointerTypePosition => {
+                if !editor_model_capability(self.active_model()).heap {
+                    return Vec::new();
+                }
+                let mut items = self.type_surface_completion_items();
+                items.extend(self.visible_named_type_completion_items());
+                items.push(completion_keyword_item("shared"));
+                return dedupe_completion_items(items);
+            }
+            CompletionContext::ChannelElementTypePosition => {
+                if !self.active_model().supports_processor() {
+                    return Vec::new();
+                }
+                let mut items = self.type_surface_completion_items();
+                items.extend(self.visible_named_type_completion_items());
+                return dedupe_completion_items(items);
+            }
+            CompletionContext::BracketAccess { receiver } => {
+                if let Some(items) = self.channel_endpoint_completion_items(&receiver, position) {
+                    return items;
+                }
+            }
+            CompletionContext::HeapBinding => return self.heap_binding_completion_items(),
             CompletionContext::QualifiedPath { qualifier } => {
                 let items = self.qualified_completion_items(&qualifier);
                 if items.is_empty() {
@@ -514,6 +544,10 @@ impl SemanticSnapshot {
         context: CompletionContext,
     ) -> Vec<EditorCompletionItem> {
         let pipe_stage = context == CompletionContext::PipeStage;
+        let bracket_receiver = match &context {
+            CompletionContext::BracketAccess { receiver } => Some(receiver.clone()),
+            _ => None,
+        };
         match context {
             CompletionContext::DotTrigger => self.dot_intrinsic_fallback_completion_items(),
             CompletionContext::QualifiedPath { qualifier } => {
@@ -525,7 +559,37 @@ impl SemanticSnapshot {
                 items.extend(self.fallback_imported_named_type_items(document));
                 dedupe_completion_items(items)
             }
-            CompletionContext::Plain | CompletionContext::PipeStage => {
+            CompletionContext::ParameterOption => self.parameter_option_completion_items(),
+            CompletionContext::PointerTypePosition => {
+                if !editor_model_capability(self.active_model()).heap {
+                    return Vec::new();
+                }
+                let mut items = self.type_surface_completion_items();
+                items.extend(self.fallback_local_named_type_items(document));
+                items.extend(self.fallback_imported_named_type_items(document));
+                items.push(completion_keyword_item("shared"));
+                dedupe_completion_items(items)
+            }
+            CompletionContext::ChannelElementTypePosition => {
+                if !self.active_model().supports_processor() {
+                    return Vec::new();
+                }
+                let mut items = self.type_surface_completion_items();
+                items.extend(self.fallback_local_named_type_items(document));
+                items.extend(self.fallback_imported_named_type_items(document));
+                dedupe_completion_items(items)
+            }
+            CompletionContext::HeapBinding => self.heap_binding_completion_items(),
+            CompletionContext::Plain
+            | CompletionContext::PipeStage
+            | CompletionContext::BracketAccess { .. } => {
+                if let Some(receiver) = bracket_receiver.as_deref() {
+                    if let Some(items) =
+                        self.fallback_channel_endpoint_completion_items(document, receiver)
+                    {
+                        return items;
+                    }
+                }
                 if position_to_offset(&document.text, position).is_none() {
                     if let Some(line) = document.text.lines().nth(position.line as usize) {
                         if line.contains("::") {
@@ -554,6 +618,86 @@ impl SemanticSnapshot {
 
     fn active_model(&self) -> TypecheckCapabilityModel {
         self.active_fol_model.unwrap_or_default()
+    }
+
+    fn parameter_option_completion_items(&self) -> Vec<EditorCompletionItem> {
+        let mut items = vec![completion_keyword_item("bor")];
+        if self.active_model().supports_processor() {
+            items.push(completion_keyword_item("mux"));
+        }
+        items
+    }
+
+    fn heap_binding_completion_items(&self) -> Vec<EditorCompletionItem> {
+        editor_model_capability(self.active_model())
+            .heap
+            .then(|| completion_keyword_item("var"))
+            .into_iter()
+            .collect()
+    }
+
+    fn channel_endpoint_completion_items(
+        &self,
+        receiver: &str,
+        position: LspPosition,
+    ) -> Option<Vec<EditorCompletionItem>> {
+        if !self.active_model().supports_processor() {
+            return None;
+        }
+        let (package, _) = self.current_resolved_package()?;
+        let (program, mut scope_id) = self.scope_at_position(position)?;
+        let receiver_key = fol_types::canonical_identifier_key(receiver);
+        let symbol_id = loop {
+            if let Some(symbol) = program
+                .symbols_named_in_scope(scope_id, &receiver_key)
+                .into_iter()
+                .find(|symbol| {
+                    matches!(
+                        symbol.kind,
+                        fol_resolver::SymbolKind::ValueBinding
+                            | fol_resolver::SymbolKind::Parameter
+                            | fol_resolver::SymbolKind::Capture
+                    )
+                })
+            {
+                break symbol.id;
+            }
+            scope_id = program.scope(scope_id)?.parent?;
+        };
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
+        let endpoints: &[&str] = match typed_package.program.type_table().get(type_id)? {
+            fol_typecheck::CheckedType::Channel { .. } => &["tx", "rx"],
+            fol_typecheck::CheckedType::ChannelSender { .. } => &["tx"],
+            _ => return None,
+        };
+        Some(
+            endpoints
+                .iter()
+                .map(|endpoint| completion_keyword_item(endpoint))
+                .collect(),
+        )
+    }
+
+    fn fallback_channel_endpoint_completion_items(
+        &self,
+        document: &EditorDocument,
+        receiver: &str,
+    ) -> Option<Vec<EditorCompletionItem>> {
+        if !self.active_model().supports_processor()
+            || !text_declares_direct_channel(&document.text, receiver)
+        {
+            return None;
+        }
+        Some(
+            ["tx", "rx"]
+                .into_iter()
+                .map(completion_keyword_item)
+                .collect(),
+        )
     }
 
     fn type_surface_completion_items(&self) -> Vec<EditorCompletionItem> {
@@ -2361,6 +2505,31 @@ fn completion_keyword_item(keyword: &str) -> EditorCompletionItem {
         detail: Some("keyword".to_string()),
         insert_text: None,
     }
+}
+
+fn text_declares_direct_channel(text: &str, receiver: &str) -> bool {
+    let is_identifier_char = |ch: char| ch.is_alphanumeric() || ch == '_';
+    text.lines().any(|line| {
+        let line = line.split_once("//").map_or(line, |(code, _)| code);
+        line.match_indices(receiver).any(|(start, _)| {
+            if line[..start]
+                .chars()
+                .next_back()
+                .is_some_and(is_identifier_char)
+            {
+                return false;
+            }
+            let tail = &line[start + receiver.len()..];
+            if tail.chars().next().is_some_and(is_identifier_char) {
+                return false;
+            }
+            tail.trim_start()
+                .strip_prefix(':')
+                .map(str::trim_start)
+                .and_then(|type_text| type_text.strip_prefix("chn"))
+                .is_some_and(|after_channel| after_channel.trim_start().starts_with('['))
+        })
+    })
 }
 
 #[derive(Debug, Clone)]
