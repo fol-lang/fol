@@ -71,10 +71,37 @@ fn ensure_direct_target_runs_on_host(frontend_config: &FrontendConfig) -> Fronte
     ))
 }
 
+fn ensure_direct_model_is_hosted(
+    fol_model: fol_backend::BackendFolModel,
+    input: &str,
+) -> FrontendResult<()> {
+    if fol_model == fol_backend::BackendFolModel::Std {
+        return Ok(());
+    }
+
+    Err(FrontendError::new(
+        FrontendErrorKind::InvalidInput,
+        format!(
+            "run cannot host-execute direct input '{input}' with capability model '{}'; declare the bundled internal 'standard' dependency",
+            fol_model.as_str()
+        ),
+    )
+    .with_note(
+        "direct host execution requires fol_model = memo plus build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" })",
+    ))
+}
+
 pub fn run_direct_compile(
     config: &DirectCompileConfig,
     frontend_config: &FrontendConfig,
 ) -> FrontendResult<FrontendCommandResult> {
+    let fol_model = crate::compile::runtime_model_for_direct_input(
+        Path::new(&config.input),
+        frontend_config,
+    )?;
+    if matches!(config.mode, DirectCompileMode::Run { .. }) {
+        ensure_direct_model_is_hosted(fol_model, &config.input)?;
+    }
     let mut diagnostics = DiagnosticReport::new();
     let lowered = match compile_file(
         &config.input,
@@ -82,6 +109,7 @@ pub fn run_direct_compile(
             std_root: config.std_root.clone(),
             package_store_root: config.package_store_root.clone(),
         },
+        fol_model,
         &mut diagnostics,
     ) {
         Ok(lowered) => lowered,
@@ -156,6 +184,7 @@ pub fn run_direct_compile(
                     } else {
                         BackendMode::BuildArtifact
                     },
+                    fol_model,
                     keep_build_dir: *keep_build_dir,
                     ..BackendConfig::default()
                 },
@@ -266,6 +295,7 @@ pub fn run_direct_compile(
                     machine_target: frontend_config.backend_machine_target(),
                     build_profile: backend_profile_for_direct_compile(frontend_config),
                     mode: backend_mode,
+                    fol_model,
                     keep_build_dir: *keep_build_dir,
                     ..BackendConfig::default()
                 },
@@ -382,7 +412,40 @@ pub fn run_direct_compile_with_io(
         let _ = writeln!(stdout, "Compiling: {}", config.input);
     }
 
-    match compile_file(&config.input, &resolver_config, &mut diagnostics) {
+    let fol_model = match crate::compile::runtime_model_for_direct_input(
+        Path::new(&config.input),
+        frontend_config,
+    ) {
+        Ok(model) => model,
+        Err(error) => {
+            diagnostics.add_from(&error);
+            let rendered = match frontend_config.output.mode {
+                OutputMode::Human => crate::pretty::render_report_pretty(&diagnostics),
+                OutputMode::Plain => diagnostics.output(OutputFormat::Human),
+                OutputMode::Json => diagnostics.output(OutputFormat::Json),
+            };
+            if !rendered.trim().is_empty() {
+                let _ = writeln!(stdout, "{rendered}");
+            }
+            return 1;
+        }
+    };
+    if matches!(config.mode, DirectCompileMode::Run { .. }) {
+        if let Err(error) = ensure_direct_model_is_hosted(fol_model, &config.input) {
+            diagnostics.add_from(&error);
+            let rendered = match frontend_config.output.mode {
+                OutputMode::Human => crate::pretty::render_report_pretty(&diagnostics),
+                OutputMode::Plain => diagnostics.output(OutputFormat::Human),
+                OutputMode::Json => diagnostics.output(OutputFormat::Json),
+            };
+            if !rendered.trim().is_empty() {
+                let _ = writeln!(stdout, "{rendered}");
+            }
+            return 1;
+        }
+    }
+
+    match compile_file(&config.input, &resolver_config, fol_model, &mut diagnostics) {
         Ok(lowered) => {
             if matches!(
                 config.mode,
@@ -409,10 +472,7 @@ pub fn run_direct_compile_with_io(
                         }
                     } else {
                         diagnostics.add_error(
-                            format!(
-                                "{} does not contain a runnable entrypoint",
-                                config.input
-                            ),
+                            format!("{} does not contain a runnable entrypoint", config.input),
                             None,
                         );
                     }
@@ -451,10 +511,11 @@ pub fn run_direct_compile_with_io(
                                             }
                                             _ => BackendMode::BuildArtifact,
                                         },
+                                        fol_model,
                                         keep_build_dir: match &config.mode {
-                                            DirectCompileMode::Auto {
-                                                keep_build_dir, ..
-                                            } => *keep_build_dir,
+                                            DirectCompileMode::Auto { keep_build_dir, .. } => {
+                                                *keep_build_dir
+                                            }
                                             DirectCompileMode::Build { keep_build_dir }
                                             | DirectCompileMode::Run { keep_build_dir, .. }
                                             | DirectCompileMode::EmitRust { keep_build_dir } => {
@@ -497,9 +558,12 @@ pub fn run_direct_compile_with_io(
                                         DirectCompileMode::Auto {
                                             emit_rust: true, ..
                                         } => BackendMode::EmitSource,
-                                        DirectCompileMode::EmitRust { .. } => BackendMode::EmitSource,
+                                        DirectCompileMode::EmitRust { .. } => {
+                                            BackendMode::EmitSource
+                                        }
                                         _ => BackendMode::BuildArtifact,
                                     },
+                                    fol_model,
                                     keep_build_dir: match &config.mode {
                                         DirectCompileMode::Auto { keep_build_dir, .. } => {
                                             *keep_build_dir
@@ -517,8 +581,11 @@ pub fn run_direct_compile_with_io(
                             ) {
                                 Ok(artifact) => {
                                     if frontend_config.output.mode != OutputMode::Json {
-                                        let _ =
-                                            writeln!(stdout, "{}", summarize_emitted_artifact(&artifact));
+                                        let _ = writeln!(
+                                            stdout,
+                                            "{}",
+                                            summarize_emitted_artifact(&artifact)
+                                        );
                                         let _ = writeln!(stdout, "✓ Compilation successful!");
                                     }
                                 }
@@ -553,6 +620,7 @@ pub fn run_direct_compile_with_io(
 fn compile_file(
     file_path: &str,
     resolver_config: &ResolverConfig,
+    fol_model: fol_backend::BackendFolModel,
     diagnostics: &mut DiagnosticReport,
 ) -> Result<LoweredWorkspace, ()> {
     let path = Path::new(file_path);
@@ -608,7 +676,11 @@ fn compile_file(
                 prepared,
                 resolver_config.clone(),
             ) {
-                Ok(resolved) => match Typechecker::new().check_resolved_workspace(resolved) {
+                Ok(resolved) => match Typechecker::with_config(fol_typecheck::TypecheckConfig {
+                    capability_model: crate::compile::typecheck_capability_model(fol_model),
+                })
+                .check_resolved_workspace(resolved)
+                {
                     Ok(typed) => match Lowerer::new().lower_typed_workspace(typed) {
                         Ok(lowered) => Ok(lowered),
                         Err(errors) => {
@@ -644,7 +716,9 @@ fn compile_file(
 
 #[cfg(test)]
 mod tests {
-    use super::{run_direct_compile, DirectCompileConfig, DirectCompileMode};
+    use super::{
+        run_direct_compile, run_direct_compile_with_io, DirectCompileConfig, DirectCompileMode,
+    };
     use crate::FrontendConfig;
     use std::fs;
 
@@ -658,7 +732,8 @@ mod tests {
 
     #[test]
     fn run_direct_compile_rejects_non_host_machine_targets() {
-        let root = std::env::temp_dir().join(format!("fol_direct_cross_run_{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("fol_direct_cross_run_{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let input = root.join("main.fol");
         fs::write(&input, "fun[] main(): int = {\n    return 0\n};\n").unwrap();
@@ -686,6 +761,196 @@ mod tests {
             "{}",
             error
         );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn direct_check_uses_exact_artifact_model_in_mixed_package() {
+        let root = std::env::temp_dir().join(format!(
+            "fol_direct_mixed_artifact_model_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var graph = .graph();\n",
+                "    graph.add_static_lib({ name = \"corelib\", root = \"src/core.fol\", fol_model = \"core\" });\n",
+                "    graph.add_static_lib({ name = \"heaplib\", root = \"src/heap.fol\", fol_model = \"memo\" });\n",
+                "};\n",
+            ),
+        )
+        .unwrap();
+        let core = root.join("src/core.fol");
+        let heap = root.join("src/heap.fol");
+        fs::write(
+            &core,
+            "fun[] illegal_core(): str = { return \"heap\"; };\n",
+        )
+        .unwrap();
+        fs::write(&heap, "fun[] legal_heap(): str = { return \"heap\"; };\n").unwrap();
+
+        let frontend_config = FrontendConfig::default();
+        let core_error = run_direct_compile(
+            &DirectCompileConfig {
+                input: core.display().to_string(),
+                std_root: None,
+                package_store_root: None,
+                mode: DirectCompileMode::Check,
+            },
+            &frontend_config,
+        )
+        .expect_err("the exact core artifact root must retain core legality");
+        assert!(core_error.diagnostics().iter().any(|diagnostic| diagnostic
+            .message
+            .contains("str requires heap support")));
+
+        run_direct_compile(
+            &DirectCompileConfig {
+                input: heap.display().to_string(),
+                std_root: None,
+                package_store_root: None,
+                mode: DirectCompileMode::Check,
+            },
+            &frontend_config,
+        )
+        .expect("the exact memo artifact root should retain memo legality");
+
+        let folder_error = run_direct_compile(
+            &DirectCompileConfig {
+                input: root.display().to_string(),
+                std_root: None,
+                package_store_root: None,
+                mode: DirectCompileMode::Check,
+            },
+            &frontend_config,
+        )
+        .expect_err("a mixed package folder has no single direct capability model");
+        assert!(folder_error.message().contains("ambiguous"));
+        assert!(folder_error.message().contains("core, memo"));
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn direct_check_infers_the_model_from_an_artifact_source_scope() {
+        let root = std::env::temp_dir().join(format!(
+            "fol_direct_artifact_scope_model_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(root.join("core")).unwrap();
+        fs::create_dir_all(root.join("memo")).unwrap();
+        fs::write(
+            root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var graph = .graph();\n",
+                "    graph.add_static_lib({ name = \"corelib\", root = \"core/main.fol\", fol_model = \"core\" });\n",
+                "    graph.add_static_lib({ name = \"heaplib\", root = \"memo/main.fol\", fol_model = \"memo\" });\n",
+                "};\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("core/main.fol"),
+            "fun[] core_root(): int = { return 0; };\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("memo/main.fol"),
+            "fun[] memo_root(): int = { return 0; };\n",
+        )
+        .unwrap();
+        let core_helper = root.join("core/helper.fol");
+        let memo_helper = root.join("memo/helper.fol");
+        fs::write(
+            &core_helper,
+            "fun[] illegal_core_helper(): str = { return \"heap\"; };\n",
+        )
+        .unwrap();
+        fs::write(
+            &memo_helper,
+            "fun[] legal_memo_helper(): str = { return \"heap\"; };\n",
+        )
+        .unwrap();
+
+        let core_error = run_direct_compile(
+            &DirectCompileConfig {
+                input: core_helper.display().to_string(),
+                std_root: None,
+                package_store_root: None,
+                mode: DirectCompileMode::Check,
+            },
+            &FrontendConfig::default(),
+        )
+        .expect_err("a helper inside the core artifact scope must retain core legality");
+        assert!(core_error.diagnostics().iter().any(|diagnostic| diagnostic
+            .message
+            .contains("str requires heap support")));
+
+        run_direct_compile(
+            &DirectCompileConfig {
+                input: memo_helper.display().to_string(),
+                std_root: None,
+                package_store_root: None,
+                mode: DirectCompileMode::Check,
+            },
+            &FrontendConfig::default(),
+        )
+        .expect("a helper inside the memo artifact scope must retain memo legality");
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn direct_run_requires_the_hosted_std_tier() {
+        let root = std::env::temp_dir().join(format!(
+            "fol_direct_hosted_run_model_{}",
+            std::process::id()
+        ));
+
+        for model in ["core", "memo"] {
+            let package = root.join(model);
+            fs::create_dir_all(package.join("src")).unwrap();
+            fs::write(
+                package.join("build.fol"),
+                format!(
+                    "pro[] build(): non = {{\n    var graph = .graph();\n    graph.add_exe({{ name = \"app\", root = \"src/main.fol\", fol_model = \"{model}\" }});\n}};\n"
+                ),
+            )
+            .unwrap();
+            let input = package.join("src/main.fol");
+            fs::write(&input, "fun[] main(): int = { return 0; };\n").unwrap();
+            let config = DirectCompileConfig {
+                input: input.display().to_string(),
+                std_root: None,
+                package_store_root: None,
+                mode: DirectCompileMode::Run {
+                    keep_build_dir: false,
+                    args: Vec::new(),
+                },
+            };
+
+            let error = run_direct_compile(&config, &FrontendConfig::default())
+                .expect_err("direct core/memo run must not bypass hosted-tier routing");
+            assert!(error.message().contains(&format!("capability model '{model}'")));
+            assert!(error
+                .message()
+                .contains("bundled internal 'standard' dependency"));
+
+            let mut output = Vec::new();
+            let exit = run_direct_compile_with_io(
+                &config,
+                &FrontendConfig::default(),
+                &mut output,
+            );
+            let output = String::from_utf8(output).unwrap();
+            assert_eq!(exit, 1);
+            assert!(output.contains(&format!("capability model '{model}'")));
+            assert!(output.contains("bundled internal 'standard' dependency"));
+        }
 
         fs::remove_dir_all(root).ok();
     }

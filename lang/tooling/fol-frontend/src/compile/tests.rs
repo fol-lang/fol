@@ -1,9 +1,10 @@
 use super::{
-    backend_config, build_workspace, build_workspace_for_profile_with_config,
-    build_workspace_with_config, check_workspace, declared_capability_model_for_package,
-    effective_runtime_model_for_package, emit_lowered, emit_rust, profile_build_root,
-    run_workspace, run_workspace_with_args_and_config, test_package, test_workspace,
-    test_workspace_with_config, typecheck_capability_model,
+    backend_config, build_evaluation_inputs, build_workspace, build_workspace_for_profile_with_config,
+    build_workspace_with_config, check_workspace, compile_member_workspace_targeted,
+    declared_capability_model_for_package, emit_lowered, emit_rust, profile_build_root,
+    run_workspace, run_workspace_with_args_and_config,
+    runtime_model_for_direct_input, test_package, test_workspace, test_workspace_with_config,
+    typecheck_capability_model,
 };
 use crate::{
     FrontendArtifactKind, FrontendConfig, FrontendProfile, FrontendWorkspace, PackageRoot,
@@ -16,6 +17,20 @@ fn semantic_bin_build() -> &'static str {
     concat!(
         "pro[] build(): non = {\n",
         "    var graph = .graph();\n",
+        "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+        "    graph.install(app);\n",
+        "    graph.add_run(app);\n",
+        "    graph.add_test({ name = \"app_test\", root = \"src/main.fol\" });\n",
+        "};\n",
+    )
+}
+
+fn semantic_hosted_bin_build() -> &'static str {
+    concat!(
+        "pro[] build(): non = {\n",
+        "    var build = .build();\n",
+        "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+        "    var graph = build.graph();\n",
         "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
         "    graph.install(app);\n",
         "    graph.add_run(app);\n",
@@ -163,6 +178,45 @@ fn backend_config_threads_frontend_machine_target_selection() {
 }
 
 #[test]
+fn build_evaluation_inputs_reject_malformed_overrides() {
+    let root = PathBuf::from("/tmp/fol_frontend_build_input_validation");
+    for (config, expected) in [
+        (
+            FrontendConfig {
+                build_target_override: Some("not-a-target".to_string()),
+                ..FrontendConfig::default()
+            },
+            "invalid build target",
+        ),
+        (
+            FrontendConfig {
+                build_optimize_override: Some("turbo".to_string()),
+                ..FrontendConfig::default()
+            },
+            "invalid build optimize mode",
+        ),
+        (
+            FrontendConfig {
+                build_option_overrides: vec!["missing_equals".to_string()],
+                ..FrontendConfig::default()
+            },
+            "expected name=value",
+        ),
+        (
+            FrontendConfig {
+                build_option_overrides: vec!["=value".to_string()],
+                ..FrontendConfig::default()
+            },
+            "option name must not be empty",
+        ),
+    ] {
+        let error = build_evaluation_inputs(&root, &config)
+            .expect_err("malformed frontend build inputs must not silently become defaults");
+        assert!(error.message().contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn frontend_maps_backend_fol_models_into_typecheck_models() {
     assert_eq!(
         typecheck_capability_model(BackendFolModel::Core),
@@ -179,9 +233,11 @@ fn frontend_maps_backend_fol_models_into_typecheck_models() {
 }
 
 #[test]
-fn declared_capability_model_defaults_to_memo_and_ignores_bundled_std_dependency() {
-    let root =
-        std::env::temp_dir().join(format!("fol_frontend_capability_default_{}", std::process::id()));
+fn evaluated_runtime_contract_keeps_std_separate_from_the_public_model() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_capability_default_{}",
+        std::process::id()
+    ));
     let app = root.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
     fs::write(
@@ -197,11 +253,19 @@ fn declared_capability_model_defaults_to_memo_and_ignores_bundled_std_dependency
         ),
     )
     .unwrap();
-    fs::write(app.join("src/main.fol"), "fun[] main(): int = { return 0; };\n").unwrap();
+    fs::write(
+        app.join("src/main.fol"),
+        "fun[] main(): int = { return 0; };\n",
+    )
+    .unwrap();
 
-    assert_eq!(declared_capability_model_for_package(&app), BackendFolModel::Memo);
     assert_eq!(
-        effective_runtime_model_for_package(&app, BackendFolModel::Memo),
+        declared_capability_model_for_package(&app),
+        BackendFolModel::Memo
+    );
+    assert_eq!(
+        runtime_model_for_direct_input(&app.join("src/main.fol"), &FrontendConfig::default())
+            .unwrap(),
         BackendFolModel::Std
     );
 
@@ -257,7 +321,7 @@ fn run_workspace_executes_a_single_runnable_member() {
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
     fs::write(app.join("build.fol"), "name: app\nversion: 0.1.0\n").unwrap();
-    fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
+    fs::write(app.join("build.fol"), semantic_hosted_bin_build()).unwrap();
     fs::write(
         src.join("main.fol"),
         "fun[] main(): int = {\n    return 0\n};\n",
@@ -291,13 +355,12 @@ fn run_workspace_executes_a_single_runnable_member() {
 
 #[test]
 fn run_workspace_passes_through_binary_arguments() {
-    let root =
-        std::env::temp_dir().join(format!("fol_frontend_run_args_{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("fol_frontend_run_args_{}", std::process::id()));
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
     fs::write(app.join("build.fol"), "name: app\nversion: 0.1.0\n").unwrap();
-    fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
+    fs::write(app.join("build.fol"), semantic_hosted_bin_build()).unwrap();
     fs::write(
         src.join("main.fol"),
         "fun[] main(): int = {\n    return 0\n};\n",
@@ -329,9 +392,95 @@ fn run_workspace_passes_through_binary_arguments() {
 }
 
 #[test]
+fn public_run_and_test_require_the_hosted_std_tier() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_public_hosted_guard_{}",
+        std::process::id()
+    ));
+    let app = root.join("app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
+    fs::write(
+        app.join("src/main.fol"),
+        "fun[] main(): int = { return 0; };\n",
+    )
+    .unwrap();
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(app)],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+
+    let run_error = run_workspace(&workspace)
+        .expect_err("the public run API must not host-execute a memo package without std");
+    assert!(run_error.message().contains("run cannot host-execute package"));
+    assert!(run_error
+        .message()
+        .contains("bundled internal 'standard' dependency"));
+
+    let test_error = test_workspace(&workspace)
+        .expect_err("the public test API must not host-execute a memo package without std");
+    assert!(test_error
+        .message()
+        .contains("test cannot host-execute package"));
+    assert!(test_error
+        .message()
+        .contains("bundled internal 'standard' dependency"));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn direct_model_uses_the_evaluated_std_dependency_set() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_conditional_std_contract_{}",
+        std::process::id()
+    ));
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    var graph = build.graph();\n",
+            "    var optimize = graph.standard_optimize();\n",
+            "    when(optimize == \"release-fast\") {\n",
+            "        { build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" }); }\n",
+            "    };\n",
+            "    graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    let input = root.join("src/main.fol");
+    fs::write(&input, "fun[] main(): int = { return 0; };\n").unwrap();
+
+    assert_eq!(
+        runtime_model_for_direct_input(&input, &FrontendConfig::default()).unwrap(),
+        BackendFolModel::Memo,
+        "an unexecuted dependency declaration must not upgrade the runtime tier"
+    );
+    let release = FrontendConfig {
+        build_optimize_override: Some("release-fast".to_string()),
+        ..FrontendConfig::default()
+    };
+    assert_eq!(
+        runtime_model_for_direct_input(&input, &release).unwrap(),
+        BackendFolModel::Std,
+        "the dependency executed by this build configuration must upgrade memo to hosted std"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn run_workspace_rejects_non_host_machine_targets_before_execution() {
-    let root =
-        std::env::temp_dir().join(format!("fol_frontend_run_cross_{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("fol_frontend_run_cross_{}", std::process::id()));
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -414,7 +563,7 @@ fn test_workspace_runs_single_workspace_members() {
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
     fs::write(app.join("build.fol"), "name: app\nversion: 0.1.0\n").unwrap();
-    fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
+    fs::write(app.join("build.fol"), semantic_hosted_bin_build()).unwrap();
     fs::write(
         src.join("main.fol"),
         "fun[] main(): int = {\n    return 0\n};\n",
@@ -437,7 +586,7 @@ fn test_workspace_runs_single_workspace_members() {
     assert_eq!(result.command, "test");
     assert_eq!(
         result.summary,
-        "tested 1 workspace package(s) (capability_mode=memo, bundled_std=0/1)"
+        "tested 1 workspace package(s) (capability_mode=memo, bundled_std=1/1)"
     );
     assert_eq!(result.artifacts.len(), 1);
 
@@ -454,7 +603,7 @@ fn test_package_selects_a_single_named_workspace_member() {
         let src = package.join("src");
         fs::create_dir_all(&src).unwrap();
         fs::write(package.join("build.fol"), "name: pkg\nversion: 0.1.0\n").unwrap();
-        fs::write(package.join("build.fol"), semantic_bin_build()).unwrap();
+        fs::write(package.join("build.fol"), semantic_hosted_bin_build()).unwrap();
         fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -478,7 +627,7 @@ fn test_package_selects_a_single_named_workspace_member() {
     assert_eq!(result.command, "test");
     assert_eq!(
         result.summary,
-        "tested 1 workspace package(s) (capability_mode=memo, bundled_std=0/1)"
+        "tested 1 workspace package(s) (capability_mode=memo, bundled_std=1/1)"
     );
     assert_eq!(result.artifacts.len(), 1);
 
@@ -487,8 +636,7 @@ fn test_package_selects_a_single_named_workspace_member() {
 
 #[test]
 fn test_workspace_rejects_non_host_machine_targets_before_execution() {
-    let root =
-        std::env::temp_dir().join(format!("fol_frontend_test_cross_{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("fol_frontend_test_cross_{}", std::process::id()));
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -526,8 +674,7 @@ fn test_workspace_rejects_non_host_machine_targets_before_execution() {
 
 #[test]
 fn emit_rust_materializes_generated_crates_for_workspace_members() {
-    let root =
-        std::env::temp_dir().join(format!("fol_frontend_emit_rust_{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("fol_frontend_emit_rust_{}", std::process::id()));
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -609,6 +756,350 @@ fn emit_lowered_materializes_rendered_workspace_snapshots() {
         FrontendArtifactKind::LoweredSnapshot
     );
     assert!(result.artifacts[1].path.as_ref().unwrap().is_file());
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn emit_commands_enforce_the_declared_processor_model() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_emit_processor_model_{}",
+        std::process::id()
+    ));
+    let app = root.join("app");
+    let src = app.join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
+    fs::write(
+        src.join("main.fol"),
+        concat!(
+            "fun[] worker(): int = { return 1; };\n",
+            "fun[] main(): int = {\n",
+            "    [>]worker();\n",
+            "    return 0;\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(app)],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+
+    for error in [
+        emit_rust(&workspace).expect_err("emit rust must preserve memo legality"),
+        emit_lowered(&workspace).expect_err("emit lowered must preserve memo legality"),
+    ] {
+        assert!(
+            error.diagnostics().iter().any(|diagnostic| diagnostic
+                .message
+                .contains("spawn requires hosted std support")),
+            "{:#?}",
+            error.diagnostics()
+        );
+    }
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn package_wide_commands_reject_mixed_artifact_models() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_mixed_package_model_{}",
+        std::process::id()
+    ));
+    let app = root.join("app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    fs::write(
+        app.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
+            "    graph.add_static_lib({ name = \"corelib\", root = \"src/core.fol\", fol_model = \"core\" });\n",
+            "    graph.add_exe({ name = \"heap\", root = \"src/heap.fol\", fol_model = \"memo\" });\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app.join("src/core.fol"),
+        "fun[] illegal_core(): str = { return \"heap\"; };\n",
+    )
+    .unwrap();
+    fs::write(
+        app.join("src/heap.fol"),
+        "fun[] main(): int = { return 0; };\n",
+    )
+    .unwrap();
+
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(app)],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+
+    for error in [
+        check_workspace(&workspace).expect_err("check must not collapse core into memo"),
+        emit_rust(&workspace).expect_err("emit rust must not collapse core into memo"),
+        emit_lowered(&workspace).expect_err("emit lowered must not collapse core into memo"),
+        build_workspace(&workspace).expect_err("public build must not collapse core into memo"),
+    ] {
+        assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
+        assert!(error.message().contains("mixed-artifact package"));
+        assert!(error.message().contains("core, memo"));
+    }
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn targeted_mixed_artifacts_compile_only_their_source_directory() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_targeted_mixed_model_{}",
+        std::process::id()
+    ));
+    let app = root.join("app");
+    fs::create_dir_all(app.join("core")).unwrap();
+    fs::create_dir_all(app.join("memo")).unwrap();
+    fs::write(
+        app.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
+            "    graph.add_exe({ name = \"core\", root = \"core/main.fol\", fol_model = \"core\" });\n",
+            "    graph.add_exe({ name = \"memo\", root = \"memo/main.fol\", fol_model = \"memo\" });\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app.join("core/main.fol"),
+        concat!(
+            "fun[] illegal_core(): str = { return \"heap\"; };\n",
+            "fun[] main(): int = { return 1; };\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app.join("memo/main.fol"),
+        concat!(
+            "fun[] heap_label(): str = { return \"heap\"; };\n",
+            "fun[] main(): int = { return 2; };\n",
+        ),
+    )
+    .unwrap();
+
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(app.clone())],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+
+    let memo_lowered = compile_member_workspace_targeted(
+        &workspace,
+        &FrontendConfig::default(),
+        &app,
+        Some("memo/main.fol"),
+        BackendFolModel::Memo,
+        &super::declared_artifact_capabilities_for_package(&app),
+    )
+    .expect("memo artifact must not absorb the unrelated illegal core source");
+    assert_eq!(
+        memo_lowered.entry_identity().canonical_root,
+        app.canonicalize().unwrap().display().to_string(),
+        "artifact source restriction must preserve the declaring package identity"
+    );
+
+    let core_error = compile_member_workspace_targeted(
+        &workspace,
+        &FrontendConfig::default(),
+        &app,
+        Some("core/main.fol"),
+        BackendFolModel::Core,
+        &super::declared_artifact_capabilities_for_package(&app),
+    )
+    .expect_err("the selected core artifact must retain core legality");
+    assert!(core_error
+        .diagnostics()
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("str requires heap support")));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn targeted_mixed_artifacts_reject_overlapping_source_directories() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_overlapping_mixed_model_{}",
+        std::process::id()
+    ));
+    let app = root.join("app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    fs::write(
+        app.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
+            "    graph.add_exe({ name = \"core\", root = \"src/core.fol\", fol_model = \"core\" });\n",
+            "    graph.add_exe({ name = \"memo\", root = \"src/memo.fol\", fol_model = \"memo\" });\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app.join("src/core.fol"),
+        "fun[] main(): int = { return 1; };\n",
+    )
+    .unwrap();
+    fs::write(
+        app.join("src/memo.fol"),
+        "fun[] main(): int = { return 2; };\n",
+    )
+    .unwrap();
+
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(app.clone())],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+
+    let error = compile_member_workspace_targeted(
+        &workspace,
+        &FrontendConfig::default(),
+        &app,
+        Some("src/memo.fol"),
+        BackendFolModel::Memo,
+        &super::declared_artifact_capabilities_for_package(&app),
+    )
+    .expect_err("different models cannot share one recursively parsed source directory");
+    assert!(error.message().contains("overlaps core artifact root"));
+    assert!(error
+        .notes()
+        .iter()
+        .any(|note| note.contains("disjoint source directories")));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn targeted_entry_filter_uses_the_exact_canonical_root() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_exact_artifact_entry_{}",
+        std::process::id()
+    ));
+    let app = root.join("app");
+    fs::create_dir_all(app.join("src/src")).unwrap();
+    fs::write(
+        app.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
+            "    graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app.join("src/main.fol"),
+        "fun[] main(): int = { return 1; };\n",
+    )
+    .unwrap();
+    fs::write(
+        app.join("src/src/main.fol"),
+        "fun[] main(): int = { return 2; };\n",
+    )
+    .unwrap();
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(app.clone())],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+    let capabilities = super::declared_artifact_capabilities_for_package(&app);
+
+    for root_spelling in ["src/main.fol", "./src/main.fol"] {
+        let lowered = compile_member_workspace_targeted(
+            &workspace,
+            &FrontendConfig::default(),
+            &app,
+            Some(root_spelling),
+            BackendFolModel::Memo,
+            &capabilities,
+        )
+        .expect("canonical root spelling must select exactly one entry");
+        assert_eq!(
+            lowered.entry_candidates().len(),
+            1,
+            "nested duplicate basenames must not match '{root_spelling}'"
+        );
+    }
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn artifact_roots_cannot_escape_their_package() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_artifact_root_escape_{}",
+        std::process::id()
+    ));
+    let app = root.join("app");
+    fs::create_dir_all(&app).unwrap();
+    fs::write(
+        app.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
+            "    graph.add_exe({ name = \"escape\", root = \"../outside.fol\", fol_model = \"memo\" });\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("outside.fol"),
+        "fun[] main(): int = { return 0; };\n",
+    )
+    .unwrap();
+
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(app)],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+
+    let error = check_workspace(&workspace).expect_err("artifact roots must stay contained");
+    assert!(error.message().contains("escapes package"));
 
     fs::remove_dir_all(root).ok();
 }
