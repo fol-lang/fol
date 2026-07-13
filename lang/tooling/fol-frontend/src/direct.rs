@@ -625,7 +625,11 @@ fn compile_file(
 ) -> Result<LoweredWorkspace, ()> {
     let path = Path::new(file_path);
     if !path.exists() {
-        diagnostics.add_error(format!("File not found: {}", file_path), None);
+        diagnostics.add_coded_error(
+            FrontendErrorKind::CommandFailed.diagnostic_code(),
+            format!("File not found: {}", file_path),
+            None,
+        );
         return Err(());
     }
 
