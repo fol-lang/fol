@@ -397,6 +397,31 @@ mod tests {
         root
     }
 
+    fn assert_quoted_import_targets(label: &str, source: &str) {
+        let result = execute_fol_tree_sitter_query(
+            source,
+            "(use_decl target: (_) @import_target)",
+        )
+        .unwrap_or_else(|error| panic!("failed to inspect import targets in '{label}': {error}"));
+        assert!(
+            !result.parse.has_error(),
+            "'{label}' should parse before its import targets are audited:\nerrors={:?}\nmissing={:?}\n{source}",
+            result.parse.errors,
+            result.parse.missing,
+        );
+        for capture in result
+            .captures
+            .iter()
+            .filter(|capture| capture.name == "import_target")
+        {
+            let target = capture.text.trim();
+            assert!(
+                target.len() >= 2 && target.starts_with('"') && target.ends_with('"'),
+                "'{label}' should keep quoted import targets, got '{target}':\n{source}"
+            );
+        }
+    }
+
     fn run_tree_sitter_query(
         bundle_root: &Path,
         query_path: &Path,
@@ -1272,22 +1297,10 @@ mod tests {
     fn corpus_and_editor_fixtures_keep_quoted_import_targets_only() {
         let corpus = fol_tree_sitter_corpus();
         for case in corpus {
-            if case.source.contains("use ") {
-                assert!(
-                    case.source.contains("{\""),
-                    "tree-sitter corpus '{}' should keep quoted import targets:\n{}",
-                    case.name,
-                    case.source
-                );
-                assert!(
-                    !case.source.contains("{std}")
-                        && !case.source.contains("{json}")
-                        && !case.source.contains("{../"),
-                    "tree-sitter corpus '{}' should not keep stale unquoted import targets:\n{}",
-                    case.name,
-                    case.source
-                );
-            }
+            let source = case
+                .program_source()
+                .unwrap_or_else(|| panic!("corpus '{}' should retain a program", case.name));
+            assert_quoted_import_targets(&format!("tree-sitter corpus '{}'", case.name), source);
         }
 
         for relative in [
@@ -1296,18 +1309,7 @@ mod tests {
         ] {
             let source = std::fs::read_to_string(repo_root().join(relative))
                 .expect("editor fixture should read");
-            assert!(
-                source.contains("{\""),
-                "editor fixture '{}' should use quoted import targets:\n{}",
-                relative,
-                source
-            );
-            assert!(
-                !source.contains("{std}") && !source.contains("{json}") && !source.contains("{../"),
-                "editor fixture '{}' should not use stale unquoted import targets:\n{}",
-                relative,
-                source
-            );
+            assert_quoted_import_targets(&format!("editor fixture '{relative}'"), &source);
         }
     }
 
