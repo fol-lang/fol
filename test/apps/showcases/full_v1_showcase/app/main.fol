@@ -8,9 +8,9 @@ fun[] compare_intrinsics(base: int): int = {
 };
 
 fun[] branch_status(flag: bol): int = {
-    when(okay_status(flag)) {
-        case(Status.OK) { return 11; }
-        case(Status.WARN) { return 13; }
+    when(status_code(flag)) {
+        case(1) { return 11; }
+        case(2) { return 13; }
         * { return 17; }
     }
 };
