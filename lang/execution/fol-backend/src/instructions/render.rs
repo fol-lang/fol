@@ -2,8 +2,8 @@ use crate::{BackendError, BackendErrorKind, BackendResult};
 use fol_intrinsics::intrinsic_by_id;
 use fol_lower::{
     control::{LoweredBinaryOp, LoweredLinearKind, LoweredUnaryOp},
-    LoweredInstr, LoweredInstrKind, LoweredRoutine, LoweredType, LoweredTypeId,
-    LoweredTypeTable, LoweredWorkspace,
+    LoweredInstr, LoweredInstrKind, LoweredRoutine, LoweredType, LoweredTypeId, LoweredTypeTable,
+    LoweredWorkspace,
 };
 use fol_resolver::PackageIdentity;
 
@@ -92,7 +92,22 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::LoadLocal { local } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            let source = render_transfer_expr(type_table, package_identity, routine, *local)?;
+            let source_name = render_local_name(package_identity, routine, *local)?;
+            let source_moves = routine
+                .locals
+                .get(*local)
+                .and_then(|local| local.type_id)
+                .is_some_and(|type_id| type_table.moves_on_transfer(type_id));
+            // Generated control flow is a Rust dispatch loop. Leaving a named
+            // move-only slot uninitialized after a semantic move prevents
+            // rustc from proving later FOL reinitialization across blocks.
+            // Replace it with its backend-only default sentinel; typecheck is
+            // still the authority that forbids reading a moved slot.
+            let source = if source_moves {
+                format!("std::mem::take(&mut {source_name})")
+            } else {
+                render_transfer_expr(type_table, package_identity, routine, *local)?
+            };
             Ok(format!("{result} = {source};"))
         }
         LoweredInstrKind::StoreLocal { local, value } => {
@@ -270,6 +285,18 @@ pub fn render_core_instruction_in_workspace(
                 .and_then(|local| local.type_id)
                 .is_some_and(|type_id| type_table.moves_on_transfer(type_id));
             let base_id = *base;
+            let borrowed_base = routine
+                .locals
+                .get(base_id)
+                .and_then(|local| local.type_id)
+                .and_then(|type_id| type_table.get(type_id))
+                .is_some_and(|ty| matches!(ty, LoweredType::Borrowed { .. }));
+            if result_moves && borrowed_base {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    "move-only fields cannot be transferred out of a borrowed base",
+                ));
+            }
             let base = render_local_name(package_identity, routine, base_id)?;
             let field = crate::escape_rust_field_ident(field);
             if routine.mutex_params.contains(&base_id) {
@@ -569,13 +596,16 @@ pub fn render_core_instruction_in_workspace(
                 Some(LoweredType::Sequence { .. }) => format!(
                     "rt::index_seq({container_ref}, {index_name}.clone()).unwrap().clone()"
                 ),
+                Some(LoweredType::Set { .. }) => format!(
+                    "rt::index_set({container_ref}, {index_name}.clone()).unwrap().clone()"
+                ),
                 Some(LoweredType::Map { .. }) => format!(
                     "rt::lookup_map({container_ref}, &{index_name}).unwrap().clone()"
                 ),
                 other => {
                     return Err(BackendError::new(
                         BackendErrorKind::InvalidInput,
-                        format!("index emission expected array/vector/sequence/map local but found {other:?}"),
+                        format!("index emission expected array/vector/sequence/set/map local but found {other:?}"),
                     ))
                 }
             };

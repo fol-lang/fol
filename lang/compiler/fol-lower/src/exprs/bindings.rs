@@ -14,20 +14,21 @@ pub(crate) fn lower_local_binding(
     cursor: &mut RoutineCursor<'_>,
     source_unit_id: SourceUnitId,
     scope_id: ScopeId,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
     name: &str,
     kind: SymbolKind,
     value: Option<&AstNode>,
 ) -> Result<Option<LoweredValue>, LoweringError> {
-    let Some(symbol_id) = crate::decls::find_symbol_in_scope_or_descendants(
+    let Some(symbol_id) = crate::decls::find_symbol_for_declaration(
         &typed_package.program,
         source_unit_id,
-        scope_id,
         kind,
         name,
+        syntax_id,
     ) else {
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            format!("binding '{name}' does not retain an exact lowering symbol in scope"),
+            format!("binding '{name}' does not retain its exact syntax-anchored lowering symbol"),
         ));
     };
     let type_id = typed_package

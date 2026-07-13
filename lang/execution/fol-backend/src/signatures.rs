@@ -1,8 +1,8 @@
 use crate::{
-    instructions::{render_mutex_guard_name, validate_global_storage_type}, mangle_global_name,
-    mangle_local_name, mangle_routine_name, render_core_instruction_in_workspace,
-    render_rust_type_in_workspace, render_terminator, BackendError, BackendErrorKind,
-    BackendResult,
+    instructions::{render_mutex_guard_name, validate_global_storage_type},
+    mangle_global_name, mangle_local_name, mangle_routine_name,
+    render_core_instruction_in_workspace, render_rust_type_in_workspace, render_terminator,
+    BackendError, BackendErrorKind, BackendResult,
 };
 use fol_lower::{
     LoweredBlockId, LoweredGlobal, LoweredRoutine, LoweredRoutineType, LoweredType, LoweredTypeId,
@@ -205,8 +205,12 @@ pub fn render_routine_signature(
                 ),
             )
         })?;
+        let receiver_mutability = type_table
+            .moves_on_transfer(receiver_type)
+            .then_some("mut ")
+            .unwrap_or("");
         params.push(format!(
-            "{}: {}",
+            "{receiver_mutability}{}: {}",
             mangle_local_name(
                 package_identity,
                 routine.id,
@@ -426,8 +430,12 @@ fn render_param_list(
             } else {
                 render_rust_type_in_workspace(Some(workspace), type_table, type_id)?
             };
+            let mutability = (!routine.mutex_params.contains(local_id)
+                && type_table.moves_on_transfer(type_id))
+            .then_some("mut ")
+            .unwrap_or("");
             Ok(format!(
-                "{}: {}",
+                "{mutability}{}: {}",
                 mangle_local_name(
                     package_identity,
                     routine.id,
@@ -665,13 +673,8 @@ mod tests {
                 type_id,
                 ..immutable.clone()
             };
-            let error = render_global_declaration(
-                &workspace,
-                &package_identity,
-                &rejected,
-                &table,
-            )
-            .expect_err("unsupported global storage must stop before static emission");
+            let error = render_global_declaration(&workspace, &package_identity, &rejected, &table)
+                .expect_err("unsupported global storage must stop before static emission");
             assert_eq!(error.kind(), BackendErrorKind::InvalidInput);
             assert!(error.message().contains(expected));
         }
@@ -726,6 +729,35 @@ mod tests {
         assert!(plain_rendered.ends_with(" -> rt::FolInt"));
         assert!(method_rendered.contains("l__pkg__entry__app__r1__l0__self_kw: rt::FolInt"));
         assert!(method_rendered.contains("l__pkg__entry__app__r1__l1__flag: rt::FolBool"));
+    }
+
+    #[test]
+    fn routine_signatures_make_move_only_parameters_replaceable() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let pointer_id = table.intern(LoweredType::Pointer {
+            target: int_id,
+            shared: false,
+        });
+        let signature_id = table.intern(LoweredType::Routine(LoweredRoutineType {
+            params: vec![pointer_id],
+            return_type: Some(int_id),
+            error_type: None,
+        }));
+        let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+        let workspace = sample_lowered_workspace();
+        let mut routine = LoweredRoutine::new(LoweredRoutineId(9), "read", LoweredBlockId(0));
+        routine.signature = Some(signature_id);
+        let pointer = routine.locals.push(LoweredLocal {
+            id: LoweredLocalId(0),
+            type_id: Some(pointer_id),
+            name: Some("pointer".to_string()),
+        });
+        routine.params.push(pointer);
+
+        let rendered = render_routine_signature(&workspace, &package_identity, &routine, &table)
+            .expect("move-only signature");
+        assert!(rendered.contains("mut l__pkg__entry__app__r9__l0__pointer: Box<rt::FolInt>"));
     }
 
     #[test]

@@ -13,7 +13,7 @@ pub use crate::aggregate::{
 };
 pub use crate::builtins::{len, pow, pow_float, FolLength};
 pub use crate::containers::{
-    index_array, index_seq, index_vec, lookup_map, render_array, render_map, render_seq,
+    index_array, index_seq, index_set, index_vec, lookup_map, render_array, render_map, render_seq,
     render_set, render_vec, slice_seq, slice_vec, FolArray,
 };
 pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};
@@ -152,8 +152,7 @@ impl<T> Default for FolChannel<T> {
 
 impl<T> FolChannel<T> {
     pub fn acquire_sender(&self) -> Option<FolSender<T>> {
-        self
-            .sender
+        self.sender
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .as_ref()
@@ -371,9 +370,7 @@ mod tests {
 
     fn task_registry_test_guard() -> std::sync::MutexGuard<'static, ()> {
         static TEST_TASKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        TEST_TASKS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        TEST_TASKS.lock().unwrap_or_else(|error| error.into_inner())
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]

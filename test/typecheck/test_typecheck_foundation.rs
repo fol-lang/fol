@@ -1565,7 +1565,8 @@ fn move_only_field_transfers_consume_the_whole_base() {
                  var seed: int = 7;\n\
                  var envelope: Envelope = { holder = { pointer = &seed } };\n\
                  var extracted: Holder = envelope.holder;\n\
-                 return *extracted.pointer;\n\
+                 var extracted_pointer: ptr[int] = extracted.pointer;\n\
+                 return *extracted_pointer;\n\
              };\n",
         ),
     ] {
@@ -1858,6 +1859,97 @@ fn nested_field_access_rejects_move_only_intermediates() {
 }
 
 #[test]
+fn discarded_move_only_expressions_are_transfers() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] main(): int = {\n\
+             var value: int = 7;\n\
+             var pointer: ptr[int] = &value;\n\
+             pointer;\n\
+             return consume(pointer);\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "discarded move-only values must move exactly as lowering evaluates them: {errors:#?}"
+    );
+
+    let generic_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun duplicate(T)(value: T): T = {\n\
+             value;\n\
+             return value;\n\
+         };\n",
+    )]);
+    assert!(
+        generic_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'value'")
+        }),
+        "discarded generic values must be conservative for move-only instantiations: {generic_errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: int = 7;\n\
+             value;\n\
+             return value;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn dereference_rejects_move_only_field_projections() {
+    for (surface, parameter) in [
+        ("owned record", "holder: Holder"),
+        ("borrowed record", "holder[bor]: Holder"),
+    ] {
+        let source = format!(
+            "typ Holder: rec = {{ link: ptr[int] }};\n\
+             fun[] inspect({parameter}): int = {{\n\
+                 return *holder.link;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("dereferencing through a move-only field projection")
+                    && error
+                        .message()
+                        .contains("pointer observation must not partially move its source")
+            }),
+            "{surface} must not lose a unique field through dereference lowering: {errors:#?}"
+        );
+    }
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Holder: rec = { link: ptr[shared, int] };\n\
+         fun[] inspect(holder[bor]: Holder): int = {\n\
+             return *holder.link;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "inspect"))
+        .is_some());
+}
+
+#[test]
 fn when_cases_require_matching_equality_safe_types() {
     for (surface, source, expected_type) in [
         (
@@ -1919,6 +2011,70 @@ fn when_cases_require_matching_equality_safe_types() {
         }),
         "when cases must match the selector type: {errors:#?}"
     );
+}
+
+#[test]
+fn case_less_when_requires_a_boolean_gate() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: int = 1;\n\
+             var pointer: ptr[int] = &value;\n\
+             when(pointer) {\n\
+                 * { return 1; }\n\
+             }\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("case-less when condition expects 'bol' but got 'ptr[int]'")
+        }),
+        "case-less when must not consume an arbitrary move-only selector: {errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var hit: int = 0;\n\
+             when(true) {\n\
+                 * { hit = 1; }\n\
+             }\n\
+             return hit;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn sibling_case_less_when_bodies_use_exact_binding_scopes() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var[mut] total: int = 0;\n\
+             when(true) {\n\
+                 * {\n\
+                     var x: int = 1;\n\
+                     total = total + x;\n\
+                 }\n\
+             }\n\
+             when(true) {\n\
+                 * {\n\
+                     var x: int = 2;\n\
+                     total = total + x;\n\
+                 }\n\
+             }\n\
+             return total - 3;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
 }
 
 #[test]
@@ -2516,6 +2672,158 @@ fn mutex_fields_require_an_active_lexical_guard() {
 }
 
 #[test]
+fn deferred_blocks_reject_mutex_field_access() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "typ Counter: rec = {{ value: int }};\n\
+             fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+                 counter.lock();\n\
+                 {deferred} {{ var seen: int = counter.value; }};\n\
+                 when(fail) {{\n\
+                     case(true) {{ report 1; }}\n\
+                     * {{ return 0; }}\n\
+                 }}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("mutex field access through 'counter' is not allowed inside dfr/edf")
+                    && error
+                        .message()
+                        .contains("delayed mutex guard effects are not modeled")
+            }),
+            "{deferred} must reject delayed mutex field access before lowering: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn deferred_blocks_reject_mutex_guard_operations() {
+    for deferred in ["dfr", "edf"] {
+        for method in ["lock", "unlock"] {
+            let source = format!(
+                "typ Counter: rec = {{ value: int }};\n\
+                 fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+                     {deferred} {{ counter.{method}(); }};\n\
+                     when(fail) {{\n\
+                         case(true) {{ report 1; }}\n\
+                         * {{ return 0; }}\n\
+                     }}\n\
+                 }};\n"
+            );
+            let errors = typecheck_fixture_folder_errors_with_config(
+                &[("main.fol", source.as_str())],
+                TypecheckConfig {
+                    capability_model: TypecheckCapabilityModel::Std,
+                },
+            );
+
+            assert!(
+                errors.iter().any(|error| {
+                    error.kind() == TypecheckErrorKind::Unsupported
+                        && error.message().contains(&format!(
+                            "mutex .{method}() is not allowed inside dfr/edf"
+                        ))
+                        && error
+                            .message()
+                            .contains("delayed mutex guard effects are not modeled")
+                }),
+                "{deferred} must reject delayed mutex .{method}() before lowering: {errors:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn deferred_blocks_reject_forwarded_mutex_handles() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "typ Counter: rec = {{ value: int }};\n\
+             fun[] leaf(counter[mux]: Counter): int = {{\n\
+                 counter.lock();\n\
+                 var value: int = counter.value;\n\
+                 counter.unlock();\n\
+                 return value;\n\
+             }};\n\
+             fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+                 counter.lock();\n\
+                 {deferred} {{ var delayed: int = leaf(counter); }};\n\
+                 when(fail) {{\n\
+                     case(true) {{ report 1; }}\n\
+                     * {{ return 0; }}\n\
+                 }}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("mutex handles cannot be forwarded to [mux] parameter")
+                    && error.message().contains("inside dfr/edf")
+            }),
+            "{deferred} must reject delayed mutex forwarding before lowering: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn deferred_blocks_reject_delayed_owner_reinitialization() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "fun[] consume(pointer: ptr[int]): int = {{ return *pointer; }};\n\
+             fun[] inspect(fail: bol): int / int = {{\n\
+                 var first: int = 1;\n\
+                 var second: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first;\n\
+                 consume(pointer);\n\
+                 {deferred} {{ pointer = &second; }};\n\
+                 when(fail) {{\n\
+                     case(true) {{ report 1; }}\n\
+                     * {{ return *pointer; }}\n\
+                 }}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains(
+                        "moved binding 'pointer' cannot be reinitialized inside dfr/edf",
+                    )
+                    && error
+                        .message()
+                        .contains("delayed ownership effects are not modeled")
+            }),
+            "{deferred} must not make a delayed owner reinitialization visible immediately: {errors:#?}"
+        );
+    }
+}
+
+#[test]
 fn mutex_lock_rejects_double_acquisition() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
@@ -3041,6 +3349,71 @@ fn concrete_generic_calls_can_cross_spawn_and_async_boundaries() {
         },
     );
 
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn processor_boundaries_reject_indirect_routine_value_calls() {
+    for (value_surface, program_prefix, program_suffix) in [
+        (
+            "stored named routine",
+            "fun[] worker(): int = { return 7; };\n\
+             fun[] main(): int = {\n\
+                 var action = worker;\n",
+            "return 0;\n};\n",
+        ),
+        (
+            "stored anonymous routine",
+            "fun[] main(): int = {\n\
+                 var action = fun[](): int = { return 7; };\n",
+            "return 0;\n};\n",
+        ),
+        (
+            "routine parameter",
+            "fun[] launch(action: {fun (): int}): int = {\n",
+            "return 0;\n};\n\
+             fun[] worker(): int = { return 7; };\n\
+             fun[] main(): int = { return launch(worker); };\n",
+        ),
+    ] {
+        for (processor_surface, statement) in [
+            ("spawn", "[>]action();"),
+            ("async", "var pending = action() | async;"),
+        ] {
+            let source = format!("{program_prefix}    {statement}\n    {program_suffix}");
+            let errors = typecheck_fixture_folder_errors_with_config(
+                &[("main.fol", &source)],
+                TypecheckConfig {
+                    capability_model: TypecheckCapabilityModel::Std,
+                },
+            );
+
+            assert!(
+                errors.iter().any(|error| {
+                    error.kind() == TypecheckErrorKind::Unsupported
+                        && error.message().contains(
+                            "requires a direct call to a named routine declaration in V3",
+                        )
+                }),
+                "{processor_surface} should reject a {value_surface} call before lowering, got {errors:?} from {source:?}"
+            );
+        }
+    }
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 [>]fun() = { return; };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
     assert!(typed
         .typed_node(find_named_routine_syntax_id(&typed, "main"))
         .is_some());
@@ -4886,6 +5259,90 @@ fn immutable_bindings_reject_whole_binding_reassignment() {
             .iter()
             .any(|error| error.message().contains("cannot reassign immutable binding 'locked'")),
         "con bindings should refuse reassignment: {errors:#?}"
+    );
+}
+
+#[test]
+fn moved_mutable_bindings_can_be_reinitialized() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] main(): int = {\n\
+             var first: int = 1;\n\
+             var second: int = 2;\n\
+             var[mut] pointer: ptr[int] = &first;\n\
+             var old: int = consume(pointer);\n\
+             pointer = &second;\n\
+             pointer = pointer;\n\
+             return old + *pointer;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+
+    let immutable_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] main(): int = {\n\
+             var first: int = 1;\n\
+             var second: int = 2;\n\
+             con pointer: ptr[int] = &first;\n\
+             consume(pointer);\n\
+             pointer = &second;\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        immutable_errors
+            .iter()
+            .any(|error| error.message().contains("cannot reassign immutable binding 'pointer'")),
+        "reinitialization must preserve ordinary mutability checks: {immutable_errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] choose(flag: bol): int = {\n\
+             var first: int = 1;\n\
+             var second: int = 2;\n\
+             var[mut] pointer: ptr[int] = &first;\n\
+             consume(pointer);\n\
+             when(flag) {\n\
+                 case(true) { pointer = &first; }\n\
+                 * { pointer = &second; }\n\
+             }\n\
+             return *pointer;\n\
+         };\n",
+    )]);
+    assert!(
+        typed
+            .typed_node(find_named_routine_syntax_id(&typed, "choose"))
+            .is_some(),
+        "a binding reinitialized on every continuing branch must become usable"
+    );
+
+    let partial_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] choose(flag: bol): int = {\n\
+             var value: int = 1;\n\
+             var[mut] pointer: ptr[int] = &value;\n\
+             consume(pointer);\n\
+             when(flag) {\n\
+                 * { pointer = &value; }\n\
+             }\n\
+             return *pointer;\n\
+         };\n",
+    )]);
+    assert!(
+        partial_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "a case-less gate can skip reinitialization and must keep the binding maybe-moved: {partial_errors:#?}"
     );
 }
 

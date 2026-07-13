@@ -30,6 +30,51 @@ pub(crate) fn type_when(
     )?;
     let selector_type = selector_expr.required_value("when selector does not have a type")?;
     let selector_apparent = apparent_type_id(typed, selector_type)?;
+    if cases.is_empty() {
+        ensure_assignable(
+            typed,
+            typed.builtin_types().bool_,
+            selector_type,
+            "case-less when condition".to_string(),
+            node_origin(resolved, expr),
+        )?;
+        let Some(default) = default else {
+            return Err(unsupported_node_surface(
+                resolved,
+                expr,
+                "when statements require a default branch",
+            ));
+        };
+        let default_context = match super::helpers::inline_body_block_scope(
+            resolved,
+            context.source_unit_id,
+            context.scope_id,
+            default,
+        ) {
+            Some(scope_id) => TypeContext {
+                scope_id,
+                ..context
+            },
+            None => context,
+        };
+        let entry_flow = typed.ownership_flow_state();
+        let default_expr = type_body_transferring_value(typed, resolved, default_context, default)?;
+        let mut branch_flows = vec![entry_flow.clone()];
+        if !default_expr.is_never(typed) {
+            branch_flows.push(typed.ownership_flow_state());
+        }
+        typed.merge_ownership_flows(&entry_flow, &branch_flows);
+        let merged = merge_recoverable_effects(
+            typed,
+            node_origin(resolved, expr),
+            "case-less when statement",
+            [
+                selector_expr.recoverable_effect,
+                default_expr.recoverable_effect,
+            ],
+        )?;
+        return Ok(TypedExpr::none().with_optional_effect(merged));
+    }
     let mut case_types = Vec::new();
     let entry_flow = typed.ownership_flow_state();
     let mut branch_flows = Vec::new();
@@ -110,12 +155,7 @@ pub(crate) fn type_when(
                     None => context,
                 };
                 let body_entry_flow = typed.ownership_flow_state();
-                let body_type = type_body_transferring_value(
-                    typed,
-                    resolved,
-                    body_context,
-                    body,
-                )?;
+                let body_type = type_body_transferring_value(typed, resolved, body_context, body)?;
                 if !body_type.is_never(typed) {
                     branch_flows.push(typed.ownership_flow_state());
                 }
@@ -151,12 +191,7 @@ pub(crate) fn type_when(
         },
         None => context,
     };
-    let default_expr = type_body_transferring_value(
-        typed,
-        resolved,
-        default_context,
-        default,
-    )?;
+    let default_expr = type_body_transferring_value(typed, resolved, default_context, default)?;
     if !default_expr.is_never(typed) {
         branch_flows.push(typed.ownership_flow_state());
     }
@@ -222,12 +257,7 @@ pub(crate) fn type_loop(
                 "loop condition".to_string(),
                 None,
             )?;
-            let _ = type_body(
-                typed,
-                resolved,
-                loop_context,
-                body,
-            )?;
+            let _ = type_body(typed, resolved, loop_context, body)?;
         }
         LoopCondition::Iteration {
             var,
@@ -262,8 +292,7 @@ pub(crate) fn type_loop(
                     "channel loop receiver",
                 )?
                 .required_value("channel loop receiver does not have a type")?;
-                let item_type =
-                    super::helpers::channel_receiver_element_type(typed, channel_type)?;
+                let item_type = super::helpers::channel_receiver_element_type(typed, channel_type)?;
                 // Channel iteration lowers each blocking receive through an
                 // optional shell so channel closure can terminate the loop.
                 // Retain that synthetic shell type in compiler truth even
@@ -331,6 +360,7 @@ pub(crate) fn type_loop(
                 error_call_mode: context.error_call_mode,
                 allow_mutex_handle: false,
                 repeating_loop_scope: Some(binder_scope),
+                inside_deferred_block: context.inside_deferred_block,
             };
             if let Some(condition) = condition.as_deref() {
                 let guard_raw = type_node(typed, resolved, loop_context, condition)?;
@@ -389,11 +419,7 @@ pub(crate) fn type_select(
             }
             channel => channel,
         };
-        super::helpers::require_direct_channel_binding(
-            resolved,
-            context.scope_id,
-            channel_node,
-        )?;
+        super::helpers::require_direct_channel_binding(resolved, context.scope_id, channel_node)?;
         super::reject_sender_capture_receive(typed, resolved, channel_node)?;
         let channel_raw = type_node(typed, resolved, context, channel_node)?;
         let channel_type = plain_value_expr(
@@ -527,13 +553,7 @@ pub(crate) fn type_return(
         "return".to_string(),
         node_origin(resolved, value),
     )?;
-    super::bindings::track_value_transfer(
-        typed,
-        resolved,
-        return_context,
-        Some(value),
-        actual,
-    )?;
+    super::bindings::track_value_transfer(typed, resolved, return_context, Some(value), actual)?;
     Ok(TypedExpr::value(typed.builtin_types().never))
 }
 

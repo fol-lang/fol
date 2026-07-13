@@ -1,7 +1,5 @@
 use crate::types::GenericConstraint;
-use crate::{
-    BuiltinTypeIds, CheckedTypeId, RoutineType, TypeTable, TypecheckCapabilityModel,
-};
+use crate::{BuiltinTypeIds, CheckedTypeId, RoutineType, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
@@ -175,6 +173,18 @@ pub(crate) enum EventualMoveKind {
     Await,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnershipEventKind {
+    Move,
+    Reinitialize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OwnershipEvent {
+    kind: OwnershipEventKind,
+    origin: SyntaxOrigin,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
     capability_model: TypecheckCapabilityModel,
@@ -202,6 +212,7 @@ pub struct TypedProgram {
     active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
     moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
     eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
+    ownership_history: BTreeMap<SymbolId, Vec<OwnershipEvent>>,
     active_borrows: BTreeMap<SymbolId, Vec<ActiveBorrow>>,
     borrow_bindings: BTreeMap<SymbolId, ActiveBorrow>,
     borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
@@ -315,7 +326,12 @@ impl TypedProgram {
         baseline: &OwnershipFlowState,
         branches: &[OwnershipFlowState],
     ) {
-        self.restore_ownership_flow(baseline);
+        if branches.is_empty() {
+            self.restore_ownership_flow(baseline);
+            return;
+        }
+        self.moved_bindings.clear();
+        self.eventual_moves.clear();
         for branch in branches {
             for (symbol, origin) in &branch.moved_bindings {
                 self.moved_bindings
@@ -332,7 +348,20 @@ impl TypedProgram {
         if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
             return;
         }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
         self.moved_bindings.entry(symbol).or_insert(origin);
+    }
+
+    pub(crate) fn mark_binding_reinitialized(
+        &mut self,
+        symbol: SymbolId,
+        origin: Option<SyntaxOrigin>,
+    ) {
+        if let Some(origin) = origin {
+            self.record_ownership_event(symbol, OwnershipEventKind::Reinitialize, origin);
+        }
+        self.moved_bindings.remove(&symbol);
+        self.eventual_moves.remove(&symbol);
     }
 
     pub(crate) fn mark_eventual_transferred(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
@@ -343,6 +372,7 @@ impl TypedProgram {
             self.eventual_moves
                 .insert(symbol, EventualMoveKind::Transfer);
         }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
         self.moved_bindings.entry(symbol).or_insert(origin);
     }
 
@@ -353,7 +383,21 @@ impl TypedProgram {
         if !self.moved_bindings.contains_key(&symbol) {
             self.eventual_moves.insert(symbol, EventualMoveKind::Await);
         }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
         self.moved_bindings.entry(symbol).or_insert(origin);
+    }
+
+    fn record_ownership_event(
+        &mut self,
+        symbol: SymbolId,
+        kind: OwnershipEventKind,
+        origin: SyntaxOrigin,
+    ) {
+        let event = OwnershipEvent { kind, origin };
+        let history = self.ownership_history.entry(symbol).or_default();
+        if !history.contains(&event) {
+            history.push(event);
+        }
     }
 
     fn record_deferred_transfer_conflict(
@@ -389,9 +433,7 @@ impl TypedProgram {
         }
     }
 
-    pub(crate) fn take_deferred_transfer_conflict(
-        &mut self,
-    ) -> Option<DeferredTransferConflict> {
+    pub(crate) fn take_deferred_transfer_conflict(&mut self) -> Option<DeferredTransferConflict> {
         self.deferred_transfer_conflict.take()
     }
 
@@ -408,6 +450,28 @@ impl TypedProgram {
 
     pub fn moved_binding_origin(&self, symbol: SymbolId) -> Option<&SyntaxOrigin> {
         self.moved_bindings.get(&symbol)
+    }
+
+    pub fn moved_binding_origin_at(
+        &self,
+        symbol: SymbolId,
+        file: &str,
+        line: usize,
+        column: usize,
+    ) -> Option<&SyntaxOrigin> {
+        let event = self
+            .ownership_history
+            .get(&symbol)?
+            .iter()
+            .filter(|event| {
+                event.origin.file.as_deref() == Some(file)
+                    && (event.origin.line, event.origin.column) <= (line, column)
+            })
+            .max_by_key(|event| (event.origin.line, event.origin.column))?;
+        match event.kind {
+            OwnershipEventKind::Move => Some(&event.origin),
+            OwnershipEventKind::Reinitialize => None,
+        }
     }
 
     pub fn active_borrow_for_owner(&self, owner: SymbolId) -> Option<&ActiveBorrow> {
@@ -428,10 +492,7 @@ impl TypedProgram {
         self.owner_borrow_history.get(&owner)
     }
 
-    pub fn borrows_for_owner(
-        &self,
-        owner: SymbolId,
-    ) -> impl Iterator<Item = &ActiveBorrow> {
+    pub fn borrows_for_owner(&self, owner: SymbolId) -> impl Iterator<Item = &ActiveBorrow> {
         self.borrow_history
             .values()
             .filter(move |borrow| borrow.owner == owner)
@@ -627,6 +688,7 @@ impl TypedProgram {
             record_layouts: BTreeMap::new(),
             moved_bindings: BTreeMap::new(),
             eventual_moves: BTreeMap::new(),
+            ownership_history: BTreeMap::new(),
             active_borrows: BTreeMap::new(),
             borrow_bindings: BTreeMap::new(),
             borrow_history: BTreeMap::new(),

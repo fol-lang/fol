@@ -1,8 +1,8 @@
 //! Runtime container helper functions used by executable FOL V1 programs.
 
 use crate::{
-    memo::{FolMap, FolSeq, FolSet, FolVec},
     error::{RuntimeError, RuntimeErrorKind},
+    memo::{FolMap, FolSeq, FolSet, FolVec},
     value::FolInt,
 };
 use std::fmt::Display;
@@ -16,10 +16,18 @@ pub type FolArray<T, const N: usize> = [T; N];
 fn normalize_slice_bound(bound: FolInt, len: usize) -> usize {
     if bound < 0 {
         let adjusted = len as FolInt + bound;
-        if adjusted < 0 { 0 } else { adjusted as usize }
+        if adjusted < 0 {
+            0
+        } else {
+            adjusted as usize
+        }
     } else {
         let b = bound as usize;
-        if b > len { len } else { b }
+        if b > len {
+            len
+        } else {
+            b
+        }
     }
 }
 
@@ -58,6 +66,19 @@ pub fn index_vec<T>(values: &FolVec<T>, index: FolInt) -> Result<&T, RuntimeErro
 pub fn index_seq<T>(values: &FolSeq<T>, index: FolInt) -> Result<&T, RuntimeError> {
     let index = normalize_index(index, values.len())?;
     Ok(&values.as_slice()[index])
+}
+
+pub fn index_set<T: Ord>(values: &FolSet<T>, index: FolInt) -> Result<&T, RuntimeError> {
+    let index = normalize_index(index, values.len())?;
+    values.as_set().iter().nth(index).ok_or_else(|| {
+        RuntimeError::new(
+            RuntimeErrorKind::InvalidInput,
+            format!(
+                "index out of bounds: the len is {} but the index is {index}",
+                values.len()
+            ),
+        )
+    })
 }
 
 pub fn slice_vec<T: Clone>(
@@ -144,11 +165,11 @@ pub fn module_name() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        index_array, index_seq, index_vec, lookup_map, render_array, render_map, render_seq,
-        render_set, render_vec, slice_seq, slice_vec, FolArray,
+        index_array, index_seq, index_set, index_vec, lookup_map, render_array, render_map,
+        render_seq, render_set, render_vec, slice_seq, slice_vec, FolArray,
     };
-    use crate::memo::{FolMap, FolSeq, FolSet, FolVec};
     use crate::error::RuntimeErrorKind;
+    use crate::memo::{FolMap, FolSeq, FolSet, FolVec};
 
     #[test]
     fn fol_array_keeps_native_fixed_size_behavior() {
@@ -202,15 +223,17 @@ mod tests {
     }
 
     #[test]
-    fn runtime_index_helpers_cover_linear_and_map_families() {
+    fn runtime_index_helpers_cover_container_families() {
         let array: FolArray<i64, 3> = [10, 20, 30];
         let vector = FolVec::from_items(vec![10, 20, 30]);
         let sequence = FolSeq::from_items(vec![10, 20, 30]);
+        let set = FolSet::from_items(vec![30, 10, 20]);
         let map = FolMap::from_pairs(vec![("ada", 1), ("lin", 2)]);
 
         assert_eq!(index_array(&array, 1), Ok(&20));
         assert_eq!(index_vec(&vector, 2), Ok(&30));
         assert_eq!(index_seq(&sequence, 0), Ok(&10));
+        assert_eq!(index_set(&set, 1), Ok(&20));
         assert_eq!(lookup_map(&map, &"lin"), Ok(&2));
 
         let failure = index_vec(&vector, -1).expect_err("negative index should fail");
@@ -299,14 +322,23 @@ mod tests {
         let sequence = FolSeq::from_items(vec![10, 20, 30, 40, 50]);
 
         assert_eq!(slice_vec(&vector, 1, 4).unwrap().as_slice(), &[20, 30, 40]);
-        assert_eq!(slice_seq(&sequence, 1, 4).unwrap().as_slice(), &[20, 30, 40]);
+        assert_eq!(
+            slice_seq(&sequence, 1, 4).unwrap().as_slice(),
+            &[20, 30, 40]
+        );
 
-        assert_eq!(slice_vec(&vector, 0, 5).unwrap().as_slice(), &[10, 20, 30, 40, 50]);
+        assert_eq!(
+            slice_vec(&vector, 0, 5).unwrap().as_slice(),
+            &[10, 20, 30, 40, 50]
+        );
         assert_eq!(slice_vec(&vector, 0, 2).unwrap().as_slice(), &[10, 20]);
         assert_eq!(slice_vec(&vector, 3, 5).unwrap().as_slice(), &[40, 50]);
 
         // clamping: end beyond length clamps to length
-        assert_eq!(slice_vec(&vector, 0, 100).unwrap().as_slice(), &[10, 20, 30, 40, 50]);
+        assert_eq!(
+            slice_vec(&vector, 0, 100).unwrap().as_slice(),
+            &[10, 20, 30, 40, 50]
+        );
 
         // empty slice: start == end
         assert_eq!(slice_vec(&vector, 2, 2).unwrap().as_slice(), &[] as &[i64]);

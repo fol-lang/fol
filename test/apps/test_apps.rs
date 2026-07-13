@@ -429,6 +429,7 @@ fn v3_container_observations_compile_and_reuse_move_only_locals() {
     fs::write(
         temp_root.join("main.fol"),
         concat!(
+            "fun[] read(pointer: ptr[int]): int = { return *pointer; };\n",
             "fun[] main(): int = {\n",
             "    var stored_value: int = 7;\n",
             "    var query_value: int = 7;\n",
@@ -440,14 +441,94 @@ fn v3_container_observations_compile_and_reuse_move_only_locals() {
             "    var heap_len: int = .len(heap_values);\n",
             "    var heap_head: int = heap_values[0];\n",
             "    var heap_tail_len: int = .len(heap_values[1:]);\n",
-            "    when(found + *query + .len(values) + heap_len + heap_head + heap_tail_len + .len(heap_values)) {\n",
-            "        case(20) { return 0; }\n",
+            "    var flags: set[int] = {9};\n",
+            "    var first_flag: int = flags[0];\n",
+            "    var flag_sum: int = 0;\n",
+            "    for (flag in flags) {\n",
+            "        flag_sum = flag_sum + flag;\n",
+            "    }\n",
+            "    var gated: int = 0;\n",
+            "    when(false) {\n",
+            "        * { gated = 100; }\n",
+            "    }\n",
+            "    when(true) {\n",
+            "        * { gated = 2; }\n",
+            "    }\n",
+            "    var first_replace: int = 1;\n",
+            "    var second_replace: int = 2;\n",
+            "    var[mut] replace: ptr[int] = &first_replace;\n",
+            "    var old_replace: int = read(replace);\n",
+            "    when(true) {\n",
+            "        case(true) { replace = &second_replace; }\n",
+            "        * { replace = &first_replace; }\n",
+            "    }\n",
+            "    replace = replace;\n",
+            "    when(found + *query + .len(values) + heap_len + heap_head + heap_tail_len + .len(heap_values) + first_flag + flag_sum + .len(flags) + gated + old_replace + *replace) {\n",
+            "        case(44) { return 0; }\n",
             "        * { panic \"ownership observation failed\"; }\n",
             "    }\n",
             "};\n",
         ),
     )
     .expect("observation fixture source");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&temp_root);
+    assert_artifact_paths_exist(&compile_output);
+    let run_output = compile_and_run_app(&temp_root);
+    assert_exit_code(&run_output, 0);
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn v3_moved_records_reinitialize_from_record_literals() {
+    let temp_root = unique_temp_root("v3_record_reinitialization");
+    fs::create_dir_all(&temp_root).expect("record reinitialization fixture root");
+    fs::write(
+        temp_root.join("main.fol"),
+        concat!(
+            "typ Holder: rec = { link: ptr[int], count: int };\n",
+            "fun[] consume(holder: Holder): int = { return holder.count; };\n",
+            "fun[] main(): int = {\n",
+            "    var first: int = 1;\n",
+            "    var second: int = 2;\n",
+            "    var[mut] holder: Holder = { link = &first, count = 10 };\n",
+            "    var old_count: int = consume(holder);\n",
+            "    holder = { link = &second, count = 20 };\n",
+            "    var new_count: int = holder.count;\n",
+            "    var new_link: ptr[int] = holder.link;\n",
+            "    when(old_count + new_count + *new_link) {\n",
+            "        case(32) { return 0; }\n",
+            "        * { panic \"record reinitialization failed\"; }\n",
+            "    }\n",
+            "};\n",
+        ),
+    )
+    .expect("record reinitialization fixture source");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&temp_root);
+    assert_artifact_paths_exist(&compile_output);
+    let run_output = compile_and_run_app(&temp_root);
+    assert_exit_code(&run_output, 0);
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn void_anonymous_invokes_execute_as_statements() {
+    let temp_root = unique_temp_root("void_anonymous_invoke");
+    fs::create_dir_all(&temp_root).expect("void invoke fixture root");
+    fs::write(
+        temp_root.join("main.fol"),
+        concat!(
+            "fun[] factory(): {fun (ignored: int): non} = {\n",
+            "    return pro[] (ignored: int) = { return; };\n",
+            "};\n",
+            "fun[] main(): int = {\n",
+            "    (factory())(0);\n",
+            "    return 0;\n",
+            "};\n",
+        ),
+    )
+    .expect("void invoke fixture source");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&temp_root);
     assert_artifact_paths_exist(&compile_output);
@@ -598,6 +679,17 @@ fn control_iteration_fixture_compiles_and_runs() {
 #[test]
 fn control_sibling_iterations_use_their_exact_loop_scopes() {
     let fixture = fixture_root("control_sibling_iterations");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
+    assert_artifact_paths_exist(&compile_output);
+
+    let run_output = compile_and_run_app(&fixture);
+    assert_exit_code(&run_output, 0);
+}
+
+#[test]
+fn control_sibling_when_bodies_use_their_exact_scopes() {
+    let fixture = fixture_root("control_sibling_when_scopes");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
     assert_artifact_paths_exist(&compile_output);

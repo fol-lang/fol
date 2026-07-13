@@ -1,5 +1,31 @@
 use fol_resolver::{SourceUnitId, SymbolId, SymbolKind};
 
+/// Resolve a local declaration through its exact parsed syntax origin.
+/// Local names can repeat in sibling lexical scopes, so lowering must never
+/// choose one by descendant distance or iteration order.
+pub(crate) fn find_symbol_for_declaration(
+    typed_program: &fol_typecheck::TypedProgram,
+    source_unit_id: SourceUnitId,
+    kind: SymbolKind,
+    name: &str,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
+) -> Option<SymbolId> {
+    let target_origin = syntax_id
+        .and_then(|syntax_id| typed_program.resolved().syntax_index().origin(syntax_id))?;
+    typed_program
+        .resolved()
+        .symbols
+        .iter_with_ids()
+        .find(|(_, symbol)| {
+            symbol.source_unit == source_unit_id
+                && symbol.kind == kind
+                && symbol.name == name
+                && symbol.mounted_from.is_none()
+                && symbol.origin.as_ref() == Some(target_origin)
+        })
+        .map(|(symbol_id, _)| symbol_id)
+}
+
 /// Resolve the exact routine symbol for a parsed top-level item. Same-named
 /// routines (method sugar on different receivers) are distinguished by their
 /// name-anchored declaration origin; name matching is only a fallback for

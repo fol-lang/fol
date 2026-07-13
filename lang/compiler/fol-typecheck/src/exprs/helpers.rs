@@ -557,15 +557,13 @@ pub(crate) fn inline_body_block_scope(
         collect_syntax_ids(node, &mut syntax_ids);
     }
 
-    let descends_from_parent = |mut scope_id: ScopeId| -> bool {
+    let direct_child_below_parent = |mut scope_id: ScopeId| -> Option<ScopeId> {
         loop {
-            if scope_id == parent_scope_id {
-                return true;
+            let parent = resolved.scope(scope_id)?.parent?;
+            if parent == parent_scope_id {
+                return Some(scope_id);
             }
-            match resolved.scope(scope_id).and_then(|scope| scope.parent) {
-                Some(parent) => scope_id = parent,
-                None => return false,
-            }
+            scope_id = parent;
         }
     };
 
@@ -586,35 +584,52 @@ pub(crate) fn inline_body_block_scope(
         if symbol.source_unit != source_unit_id {
             continue;
         }
-        let Some(scope) = resolved.scope(symbol.scope) else {
+        let Some(body_scope_id) = direct_child_below_parent(symbol.scope) else {
             continue;
         };
-        if scope.kind == fol_resolver::ScopeKind::Block
-            && symbol.scope != parent_scope_id
-            && descends_from_parent(symbol.scope)
+        if resolved
+            .scope(body_scope_id)
+            .is_some_and(|scope| scope.kind == fol_resolver::ScopeKind::Block)
         {
-            candidate_scopes.insert(symbol.scope);
+            candidate_scopes.insert(body_scope_id);
         }
     }
 
     // A body's own bindings pin its scope even when nothing references them.
+    // Bind through the declaration's exact syntax origin: sibling bodies may
+    // legally declare the same name, so descendant name searches are
+    // inherently ambiguous here.
     for node in body {
-        let (name, kind) = match node {
-            AstNode::VarDecl { name, .. } => (name.as_str(), SymbolKind::ValueBinding),
-            AstNode::LabDecl { name, .. } => (name.as_str(), SymbolKind::LabelBinding),
+        let (name, kind, syntax_id) = match node {
+            AstNode::VarDecl {
+                name, syntax_id, ..
+            } => (name.as_str(), SymbolKind::ValueBinding, *syntax_id),
+            AstNode::LabDecl {
+                name, syntax_id, ..
+            } => (name.as_str(), SymbolKind::LabelBinding, *syntax_id),
             _ => continue,
         };
+        let Some(declaration_origin) =
+            syntax_id.and_then(|syntax_id| resolved.syntax_index().origin(syntax_id))
+        else {
+            continue;
+        };
         for symbol in resolved.symbols.iter() {
-            if symbol.source_unit == source_unit_id
-                && symbol.kind == kind
-                && symbol.name == name
-                && symbol.scope != parent_scope_id
-                && resolved
-                    .scope(symbol.scope)
-                    .is_some_and(|scope| scope.kind == fol_resolver::ScopeKind::Block)
-                && descends_from_parent(symbol.scope)
+            if symbol.source_unit != source_unit_id
+                || symbol.kind != kind
+                || symbol.name != name
+                || symbol.origin.as_ref() != Some(declaration_origin)
             {
-                candidate_scopes.insert(symbol.scope);
+                continue;
+            }
+            let Some(body_scope_id) = direct_child_below_parent(symbol.scope) else {
+                continue;
+            };
+            if resolved
+                .scope(body_scope_id)
+                .is_some_and(|scope| scope.kind == fol_resolver::ScopeKind::Block)
+            {
+                candidate_scopes.insert(body_scope_id);
             }
         }
     }

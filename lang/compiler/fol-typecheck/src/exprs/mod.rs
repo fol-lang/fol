@@ -15,7 +15,7 @@ use fol_intrinsics::{select_intrinsic, IntrinsicSurface};
 use fol_parser::ast::{
     AstNode, CallSurface, ChannelEndpoint, FolType, ParsedSourceUnitKind, UnaryOperator,
 };
-use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId};
+use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::BTreeMap;
 
 use helpers::{
@@ -44,6 +44,9 @@ pub(crate) struct TypeContext {
     /// bindings declared outside this scope would execute more than once and
     /// therefore cannot consume a move-only value.
     pub(crate) repeating_loop_scope: Option<ScopeId>,
+    /// True while typing a dfr/edf body. Mutex guard transitions are lexical
+    /// today and cannot be replayed safely when deferred execution runs.
+    pub(crate) inside_deferred_block: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -122,6 +125,7 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
             error_call_mode: ErrorCallMode::Propagate,
             allow_mutex_handle: false,
             repeating_loop_scope: None,
+            inside_deferred_block: false,
         };
         for item in &source_unit.items {
             if let Err(error) = type_node(typed, &resolved, context, &item.node) {
@@ -244,6 +248,39 @@ pub(crate) fn reject_direct_spawn_channel_receiver(
     ))
 }
 
+pub(crate) fn require_named_processor_call_target(
+    resolved: &ResolvedProgram,
+    task: &AstNode,
+    surface: &str,
+) -> Result<(), TypecheckError> {
+    let AstNode::FunctionCall {
+        syntax_id: Some(syntax_id),
+        ..
+    } = helpers::strip_comments(task)
+    else {
+        return Ok(());
+    };
+    let target_kind = resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::FunctionCall
+        })
+        .and_then(|reference| reference.resolved)
+        .and_then(|symbol| resolved.symbol(symbol))
+        .map(|symbol| symbol.kind);
+    if target_kind.is_none() || target_kind == Some(SymbolKind::Routine) {
+        return Ok(());
+    }
+    Err(unsupported_node_surface(
+        resolved,
+        task,
+        format!(
+            "{surface} requires a direct call to a named routine declaration in V3; indirect routine values, stored anonymous routines, and routine parameters are not supported"
+        ),
+    ))
+}
+
 pub(crate) fn apply_spawn_argument_boundary(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -272,28 +309,19 @@ pub(crate) fn apply_spawn_argument_boundary(
                 true,
                 true,
             )?;
-            for (index, (parameter_type, bound_arg)) in signature
-                .params
-                .iter()
-                .zip(bound_args.iter())
-                .enumerate()
+            for (index, (parameter_type, bound_arg)) in
+                signature.params.iter().zip(bound_args.iter()).enumerate()
             {
                 let boundary_value = match bound_arg {
                     calls::BoundCallArg::Explicit(arg)
                     | calls::BoundCallArg::VariadicUnpack(arg) => Some(*arg),
                     calls::BoundCallArg::VariadicPack(args) => args.first().copied(),
-                    calls::BoundCallArg::Default => signature
-                        .param_defaults
-                        .get(index)
-                        .and_then(Option::as_ref),
+                    calls::BoundCallArg::Default => {
+                        signature.param_defaults.get(index).and_then(Option::as_ref)
+                    }
                 }
                 .unwrap_or(task);
-                validate_processor_boundary_type(
-                    typed,
-                    resolved,
-                    *parameter_type,
-                    boundary_value,
-                )?;
+                validate_processor_boundary_type(typed, resolved, *parameter_type, boundary_value)?;
             }
         }
     }
@@ -337,8 +365,7 @@ pub(crate) fn apply_spawn_argument_boundary(
             }
         );
         if direct_borrow
-            || resolved_type
-                .is_some_and(|type_id| helpers::type_contains_borrowed(typed, type_id))
+            || resolved_type.is_some_and(|type_id| helpers::type_contains_borrowed(typed, type_id))
         {
             return Err(node_origin(resolved, arg).map_or_else(
                 || {
@@ -502,23 +529,26 @@ fn type_node_with_expectation_inner(
             value,
             options,
             ..
-        } => bindings::type_binding_initializer(
-            typed,
-            resolved,
-            context,
-            name,
-            value.as_deref(),
-            binding_kind_for(node),
-            options
-                .iter()
-                .any(|option| matches!(option, fol_parser::ast::VarOption::New)),
-            options
-                .iter()
-                .any(|option| matches!(option, fol_parser::ast::VarOption::Borrowing)),
-            options
-                .iter()
-                .any(|option| matches!(option, fol_parser::ast::VarOption::Mutable)),
-        ),
+        } => {
+            let _ = bindings::type_binding_initializer(
+                typed,
+                resolved,
+                context,
+                name,
+                value.as_deref(),
+                binding_kind_for(node),
+                options
+                    .iter()
+                    .any(|option| matches!(option, fol_parser::ast::VarOption::New)),
+                options
+                    .iter()
+                    .any(|option| matches!(option, fol_parser::ast::VarOption::Borrowing)),
+                options
+                    .iter()
+                    .any(|option| matches!(option, fol_parser::ast::VarOption::Mutable)),
+            )?;
+            Ok(TypedExpr::none())
+        }
         AstNode::Literal(literal) => Ok(TypedExpr::value(literals::type_literal(
             typed,
             resolved,
@@ -571,6 +601,7 @@ fn type_node_with_expectation_inner(
                     "spawn requires hosted std support; declare the bundled internal standard dependency",
                 ));
             }
+            require_named_processor_call_target(resolved, task, "spawn")?;
             reject_direct_spawn_channel_receiver(typed, resolved, task)?;
             let observed = type_node_with_expectation(
                 typed,
@@ -672,6 +703,7 @@ fn type_node_with_expectation_inner(
                 error_call_mode: ErrorCallMode::Propagate,
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
+                inside_deferred_block: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -895,7 +927,9 @@ fn type_node_with_expectation_inner(
                 let param_type =
                     decls::lower_type(typed, resolved, routine_scope, &param.param_type)?;
                 if matches!(
-                    typed.type_table().get(helpers::apparent_type_id(typed, param_type)?),
+                    typed
+                        .type_table()
+                        .get(helpers::apparent_type_id(typed, param_type)?),
                     Some(CheckedType::Channel { .. })
                 ) {
                     return Err(unsupported_node_surface(
@@ -931,6 +965,7 @@ fn type_node_with_expectation_inner(
                 error_call_mode: ErrorCallMode::Propagate,
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
+                inside_deferred_block: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -1016,9 +1051,7 @@ fn type_node_with_expectation_inner(
             syntax_id,
             condition,
             body,
-        } => {
-            controlflow::type_loop(typed, resolved, context, *syntax_id, condition, body)
-        }
+        } => controlflow::type_loop(typed, resolved, context, *syntax_id, condition, body),
         AstNode::Assignment { target, value } => {
             ensure_assignable_target(
                 typed,
@@ -1027,8 +1060,68 @@ fn type_node_with_expectation_inner(
                 context.scope_id,
                 target,
             )?;
-            let expected = type_node(typed, resolved, context, target)?
-                .required_value("assignment target does not have a type")?;
+            let whole_target = whole_binding_assignment_symbol(resolved, target);
+            if context.inside_deferred_block {
+                if let Some(symbol) =
+                    whole_target.filter(|symbol| typed.moved_binding_origin(*symbol).is_some())
+                {
+                    let name = resolved
+                        .symbol(symbol)
+                        .map(|symbol| symbol.name.as_str())
+                        .unwrap_or("<unknown>");
+                    let message = format!(
+                        "moved binding '{name}' cannot be reinitialized inside dfr/edf because delayed ownership effects are not modeled; reinitialize it before registering the deferred block"
+                    );
+                    return Err(node_origin(resolved, target).map_or_else(
+                        || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                        |origin| {
+                            TypecheckError::with_origin(
+                                TypecheckErrorKind::Ownership,
+                                message.clone(),
+                                origin,
+                            )
+                        },
+                    ));
+                }
+            }
+            let expected = if let Some(symbol) =
+                whole_target.filter(|symbol| typed.moved_binding_origin(*symbol).is_some())
+            {
+                if let Some(borrow) = typed.active_borrow_for_owner(symbol).cloned() {
+                    let name = resolved
+                        .symbol(symbol)
+                        .map(|symbol| symbol.name.as_str())
+                        .unwrap_or("<unknown>");
+                    let message = format!(
+                        "cannot reinitialize moved binding '{name}' while it remains borrowed"
+                    );
+                    let error = node_origin(resolved, target).map_or_else(
+                        || TypecheckError::new(TypecheckErrorKind::OwnerBorrowed, message.clone()),
+                        |origin| {
+                            TypecheckError::with_origin(
+                                TypecheckErrorKind::OwnerBorrowed,
+                                message.clone(),
+                                origin,
+                            )
+                        },
+                    );
+                    return Err(
+                        error.with_related_origin(borrow.origin, "active borrow created here")
+                    );
+                }
+                typed
+                    .typed_symbol(symbol)
+                    .and_then(|symbol| symbol.declared_type)
+                    .ok_or_else(|| {
+                        internal_error(
+                            "moved assignment target lost its checked type",
+                            node_origin(resolved, target),
+                        )
+                    })?
+            } else {
+                type_node(typed, resolved, context, target)?
+                    .required_value("assignment target does not have a type")?
+            };
             let actual =
                 type_node_with_expectation(typed, resolved, context, value, Some(expected))?
                     .required_value("assignment value does not have a type")?;
@@ -1039,14 +1132,15 @@ fn type_node_with_expectation_inner(
                 "assignment",
             )?;
             ensure_assignable(typed, expected, actual, "assignment".to_string(), None)?;
-            bindings::track_value_transfer(
-                typed,
-                resolved,
-                context,
-                Some(value),
-                actual,
-            )?;
-            Ok(TypedExpr::value(expected))
+            bindings::track_value_transfer(typed, resolved, context, Some(value), actual)?;
+            if let Some(symbol) = whole_target {
+                typed.mark_binding_reinitialized(symbol, node_origin(resolved, target));
+            }
+            // Assignment is a statement. Treating it as the assigned value is
+            // especially unsound for move-only values: lowering stores the
+            // value into the target, so a second expression use would move the
+            // same temporary twice.
+            Ok(TypedExpr::none())
         }
         AstNode::FunctionCall {
             surface: CallSurface::DotIntrinsic,
@@ -1216,6 +1310,7 @@ fn type_node_with_expectation_inner(
                 resolved,
                 TypeContext {
                     scope_id: deferred_scope,
+                    inside_deferred_block: true,
                     ..context
                 },
                 body,
@@ -1305,6 +1400,27 @@ fn type_node_with_expectation_inner(
 /// Check whether an AST body contains at least one `return` statement (non-recursive into nested routines).
 fn body_contains_return(nodes: &[AstNode]) -> bool {
     nodes.iter().any(|node| node_contains_return(node))
+}
+
+fn whole_binding_assignment_symbol(
+    resolved: &ResolvedProgram,
+    target: &AstNode,
+) -> Option<SymbolId> {
+    let (syntax_id, kind) = match helpers::strip_comments(target) {
+        AstNode::Identifier {
+            syntax_id: Some(syntax_id),
+            ..
+        } => (*syntax_id, ReferenceKind::Identifier),
+        AstNode::QualifiedIdentifier { path } => {
+            (path.syntax_id()?, ReferenceKind::QualifiedIdentifier)
+        }
+        _ => return None,
+    };
+    resolved
+        .references
+        .iter()
+        .find(|reference| reference.syntax_id == Some(syntax_id) && reference.kind == kind)
+        .and_then(|reference| reference.resolved)
 }
 
 fn body_contains_panic(nodes: &[AstNode]) -> bool {
@@ -1449,7 +1565,7 @@ pub(crate) fn type_body(
     context: TypeContext,
     nodes: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
-    type_body_inner(typed, resolved, context, nodes, false)
+    type_body_inner(typed, resolved, context, nodes)
 }
 
 pub(crate) fn type_body_transferring_value(
@@ -1458,7 +1574,7 @@ pub(crate) fn type_body_transferring_value(
     context: TypeContext,
     nodes: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
-    type_body_inner(typed, resolved, context, nodes, true)
+    type_body_inner(typed, resolved, context, nodes)
 }
 
 fn type_body_inner(
@@ -1466,34 +1582,22 @@ fn type_body_inner(
     resolved: &ResolvedProgram,
     context: TypeContext,
     nodes: &[AstNode],
-    transfer_final_value: bool,
 ) -> Result<TypedExpr, TypecheckError> {
     let result = (|| {
         let mut final_expr = TypedExpr::none();
-        let mut final_node = None;
         for node in nodes {
             let node_result = type_node(typed, resolved, context, node);
             if let Some(error) = take_deferred_transfer_error(typed, resolved) {
                 return Err(error);
             }
             let node_expr = node_result?;
-            if node_expr.value_type.is_some() {
+            if let Some(actual) = node_expr.value_type {
                 final_expr = node_expr;
-                final_node = Some(node);
                 if node_expr.is_never(typed) {
                     return Ok(final_expr);
                 }
-            }
-        }
-        if transfer_final_value {
-            if let (Some(node), Some(actual)) = (final_node, final_expr.value_type) {
-                let transfer_result = bindings::track_value_transfer(
-                    typed,
-                    resolved,
-                    context,
-                    Some(node),
-                    actual,
-                );
+                let transfer_result =
+                    bindings::track_value_transfer(typed, resolved, context, Some(node), actual);
                 if let Some(error) = take_deferred_transfer_error(typed, resolved) {
                     return Err(error);
                 }
@@ -1536,12 +1640,7 @@ fn register_deferred_outer_binding_uses(
     body: &[AstNode],
 ) -> Result<(), TypecheckError> {
     for node in body {
-        register_deferred_outer_binding_uses_in_node(
-            typed,
-            resolved,
-            registration_scope,
-            node,
-        )?;
+        register_deferred_outer_binding_uses_in_node(typed, resolved, registration_scope, node)?;
     }
     Ok(())
 }
@@ -1600,12 +1699,7 @@ fn register_deferred_outer_binding_uses_in_node(
     }
 
     for child in node.children() {
-        register_deferred_outer_binding_uses_in_node(
-            typed,
-            resolved,
-            registration_scope,
-            child,
-        )?;
+        register_deferred_outer_binding_uses_in_node(typed, resolved, registration_scope, child)?;
     }
     Ok(())
 }

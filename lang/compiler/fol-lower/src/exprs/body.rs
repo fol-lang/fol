@@ -6,8 +6,11 @@ use super::calls::{
 use super::cursor::{DeferScopeKind, LoweredValue, RoutineCursor, WorkspaceDeclIndex};
 use super::expressions::{
     direct_local_identifier_value, lower_channel_send, lower_expression, lower_expression_expected,
+    lower_invoke,
 };
-use super::flow::{lower_loop_statement, lower_when_statement, when_always_terminates};
+use super::flow::{
+    lower_loop_statement, lower_when_statement, when_always_terminates, when_has_statement_branch,
+};
 use crate::{ids::LoweredTypeId, LoweredPackage, LoweredRoutine, LoweringError, LoweringErrorKind};
 use fol_intrinsics::{select_intrinsic, IntrinsicSurface};
 use fol_parser::ast::{AstNode, BinaryOperator, ChannelEndpoint};
@@ -482,7 +485,68 @@ pub(crate) fn lower_body_node(
             scope_id,
             node,
         ),
-        AstNode::VarDecl { name, value, .. } => lower_local_binding(
+        AstNode::VarDecl {
+            syntax_id,
+            name,
+            value,
+            ..
+        } => {
+            let _ = lower_local_binding(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                *syntax_id,
+                name,
+                SymbolKind::ValueBinding,
+                value.as_deref(),
+            )?;
+            Ok(None)
+        }
+        AstNode::LabDecl {
+            syntax_id,
+            name,
+            value,
+            ..
+        } => {
+            let _ = lower_local_binding(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                *syntax_id,
+                name,
+                SymbolKind::LabelBinding,
+                value.as_deref(),
+            )?;
+            Ok(None)
+        }
+        AstNode::Assignment { .. } => {
+            // Assignments are statement-only. `lower_expression` performs the
+            // store, but its internal value temporary must not escape as the
+            // value of an enclosing block or `when` arm.
+            let _ = lower_expression(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                node,
+            )?;
+            Ok(None)
+        }
+        AstNode::Invoke { callee, args } => lower_invoke(
             typed_package,
             type_table,
             checked_type_map,
@@ -491,22 +555,8 @@ pub(crate) fn lower_body_node(
             cursor,
             source_unit_id,
             scope_id,
-            name,
-            SymbolKind::ValueBinding,
-            value.as_deref(),
-        ),
-        AstNode::LabDecl { name, value, .. } => lower_local_binding(
-            typed_package,
-            type_table,
-            checked_type_map,
-            current_identity,
-            decl_index,
-            cursor,
-            source_unit_id,
-            scope_id,
-            name,
-            SymbolKind::LabelBinding,
-            value.as_deref(),
+            callee,
+            args,
         ),
         AstNode::UnaryOp {
             op: fol_parser::ast::UnaryOperator::GiveBack,
@@ -762,7 +812,11 @@ pub(crate) fn lower_body_node(
             expr,
             cases,
             default,
-        } if default.is_none() || when_always_terminates(cases, default.as_deref()) => {
+        } if cases.is_empty()
+            || default.is_none()
+            || when_has_statement_branch(typed_package, cases, default.as_deref())
+            || when_always_terminates(cases, default.as_deref()) =>
+        {
             lower_when_statement(
                 typed_package,
                 type_table,

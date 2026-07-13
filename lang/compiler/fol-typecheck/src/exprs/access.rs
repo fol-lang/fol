@@ -20,6 +20,16 @@ pub(crate) fn type_field_access(
 ) -> Result<TypedExpr, TypecheckError> {
     let direct_mutex = direct_mutex_identifier(typed, resolved, object);
     if let Some((mutex, name)) = direct_mutex.as_ref() {
+        if context.inside_deferred_block {
+            return Err(with_node_origin(
+                resolved,
+                object,
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "mutex field access through '{name}' is not allowed inside dfr/edf in V3; delayed mutex guard effects are not modeled"
+                ),
+            ));
+        }
         if typed.active_mutex_guard(*mutex).is_none() {
             return Err(with_node_origin(
                 resolved,
@@ -220,13 +230,7 @@ pub(crate) fn type_index_access(
             )?;
             let result_type = type_set_index_access(typed, member_types, index)?;
             if let Some(result_type) = result_type {
-                reject_move_only_index_result(
-                    typed,
-                    resolved,
-                    container,
-                    index,
-                    result_type,
-                )?;
+                reject_move_only_index_result(typed, resolved, container, index, result_type)?;
             }
             Ok(TypedExpr::maybe_value(result_type).with_optional_effect(merged_effect))
         }

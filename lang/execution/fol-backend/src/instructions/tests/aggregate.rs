@@ -3,11 +3,10 @@ use super::super::render_core_instruction_in_workspace;
 use crate::testing::package_identity;
 use crate::BackendErrorKind;
 use fol_lower::{
-    control::LoweredLinearKind,
-    LoweredBlockId, LoweredBuiltinType, LoweredFieldLayout, LoweredInstr, LoweredInstrId,
-    LoweredInstrKind, LoweredLocal, LoweredLocalId, LoweredPackage, LoweredRecoverableAbi,
-    LoweredRoutine, LoweredRoutineId, LoweredSourceMap, LoweredType, LoweredTypeDecl,
-    LoweredTypeDeclKind, LoweredTypeTable, LoweredVariantLayout, LoweredWorkspace,
+    control::LoweredLinearKind, LoweredBlockId, LoweredBuiltinType, LoweredFieldLayout,
+    LoweredInstr, LoweredInstrId, LoweredInstrKind, LoweredLocal, LoweredLocalId, LoweredPackage,
+    LoweredRecoverableAbi, LoweredRoutine, LoweredRoutineId, LoweredSourceMap, LoweredType,
+    LoweredTypeDecl, LoweredTypeDeclKind, LoweredTypeTable, LoweredVariantLayout, LoweredWorkspace,
 };
 use fol_resolver::{PackageSourceKind, SourceUnitId, SymbolId};
 use std::collections::BTreeMap;
@@ -47,8 +46,8 @@ fn aggregate_and_container_rendering_emits_native_array_literals() {
         },
     };
 
-    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
-        .expect("array");
+    let rendered =
+        render_core_instruction(&package_identity, &table, &routine, &instruction).expect("array");
 
     assert_eq!(
         rendered,
@@ -107,10 +106,10 @@ fn aggregate_and_container_rendering_emits_vector_and_sequence_runtime_construct
         },
     };
 
-    let vec_rendered = render_core_instruction(&package_identity, &table, &routine, &vec_instr)
-        .expect("vector");
-    let seq_rendered = render_core_instruction(&package_identity, &table, &routine, &seq_instr)
-        .expect("sequence");
+    let vec_rendered =
+        render_core_instruction(&package_identity, &table, &routine, &vec_instr).expect("vector");
+    let seq_rendered =
+        render_core_instruction(&package_identity, &table, &routine, &seq_instr).expect("sequence");
 
     assert_eq!(
         vec_rendered,
@@ -248,9 +247,8 @@ fn aggregate_constructors_move_unique_elements_and_values() {
         },
     };
 
-    let array_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &array_instr)
-            .expect("unique array");
+    let array_rendered = render_core_instruction(&package_identity, &table, &routine, &array_instr)
+        .expect("unique array");
     let map_rendered = render_core_instruction(&package_identity, &table, &routine, &map_instr)
         .expect("unique map value");
 
@@ -386,9 +384,7 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
         },
     ]
     .iter()
-    .map(|instruction| {
-        render_core_instruction(&package_identity, &table, &routine, instruction)
-    })
+    .map(|instruction| render_core_instruction(&package_identity, &table, &routine, instruction))
     .collect::<Result<Vec<_>, _>>()
     .expect("index renders");
 
@@ -529,8 +525,7 @@ fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
         variants: BTreeMap::from([("Ok".to_string(), Some(int_id))]),
     });
 
-    let mut package =
-        LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
+    let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
     package.source_units.push(fol_lower::LoweredSourceUnit {
         source_unit_id: SourceUnitId(0),
         path: "app/main.fol".to_string(),
@@ -698,6 +693,11 @@ fn aggregate_and_container_snapshot_stays_stable() {
         type_id: Some(int_id),
         name: Some("out".to_string()),
     });
+    let set_out = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(8),
+        type_id: Some(int_id),
+        name: Some("set_out".to_string()),
+    });
 
     let rendered = [
         LoweredInstr {
@@ -751,11 +751,17 @@ fn aggregate_and_container_snapshot_stays_stable() {
                 index: a,
             },
         },
+        LoweredInstr {
+            id: LoweredInstrId(55),
+            result: Some(set_out),
+            kind: LoweredInstrKind::IndexAccess {
+                container: set,
+                index: a,
+            },
+        },
     ]
     .iter()
-    .map(|instruction| {
-        render_core_instruction(&package_identity, &table, &routine, instruction)
-    })
+    .map(|instruction| render_core_instruction(&package_identity, &table, &routine, instruction))
     .collect::<Result<Vec<_>, _>>()
     .expect("container snapshot renders")
     .join("\n");
@@ -768,7 +774,8 @@ fn aggregate_and_container_snapshot_stays_stable() {
             "l__pkg__entry__app__r20__l4__seq = rt_model::FolSeq::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
             "l__pkg__entry__app__r20__l5__set = rt_model::FolSet::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
             "l__pkg__entry__app__r20__l6__map = rt_model::FolMap::from_pairs(vec![(l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone())]);\n",
-            "l__pkg__entry__app__r20__l7__out = rt::index_vec(&l__pkg__entry__app__r20__l3__vec, l__pkg__entry__app__r20__l0__a.clone()).unwrap().clone();"
+            "l__pkg__entry__app__r20__l7__out = rt::index_vec(&l__pkg__entry__app__r20__l3__vec, l__pkg__entry__app__r20__l0__a.clone()).unwrap().clone();\n",
+            "l__pkg__entry__app__r20__l8__set_out = rt::index_set(&l__pkg__entry__app__r20__l5__set, l__pkg__entry__app__r20__l0__a.clone()).unwrap().clone();"
         )
     );
 }

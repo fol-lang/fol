@@ -120,6 +120,7 @@ pub(crate) fn type_binary_op(
                     "| async currently requires a direct routine call on its left side",
                 ));
             }
+            super::require_named_processor_call_target(resolved, left, "| async")?;
             super::reject_direct_spawn_channel_receiver(typed, resolved, left)?;
             let observed = type_node(
                 typed,
@@ -139,20 +140,15 @@ pub(crate) fn type_binary_op(
             })?;
             let error_type = observed.recoverable_effect.map(|effect| effect.error_type);
             if super::helpers::type_contains_shared_pointer(typed, value_type)
-                || error_type.is_some_and(|error| {
-                    super::helpers::type_contains_shared_pointer(typed, error)
-                })
+                || error_type
+                    .is_some_and(|error| super::helpers::type_contains_shared_pointer(typed, error))
             {
                 let message =
                     "an async result containing shared Rc pointers cannot cross the task boundary";
                 return Err(node_origin(resolved, left).map_or_else(
                     || TypecheckError::new(TypecheckErrorKind::Ownership, message),
                     |origin| {
-                        TypecheckError::with_origin(
-                            TypecheckErrorKind::Ownership,
-                            message,
-                            origin,
-                        )
+                        TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin)
                     },
                 ));
             }
@@ -672,6 +668,19 @@ pub(crate) fn type_unary_op(
         UnaryOperator::Deref => match typed.type_table().get(operand_type) {
             Some(CheckedType::Pointer { target, .. }) => {
                 let target = *target;
+                if super::bindings::ownership_moves_on_transfer(typed, operand_type)
+                    && matches!(
+                        super::helpers::strip_comments(operand),
+                        AstNode::FieldAccess { .. }
+                    )
+                {
+                    return Err(with_node_origin(
+                        resolved,
+                        operand,
+                        TypecheckErrorKind::Ownership,
+                        "dereferencing through a move-only field projection is not supported in V3; pointer observation must not partially move its source",
+                    ));
+                }
                 if super::bindings::ownership_moves_on_transfer(typed, target) {
                     return Err(with_node_origin(
                         resolved,

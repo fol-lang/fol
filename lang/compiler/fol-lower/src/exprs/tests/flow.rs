@@ -472,6 +472,78 @@ fn when_statement_lowering_emits_branch_blocks_and_falls_through_afterward() {
 }
 
 #[test]
+fn when_statement_lowering_accepts_void_call_arms() {
+    let lowered = lower_fixture_workspace(concat!(
+        "pro[] touch(): non = { return; };\n",
+        "fun[] main(flag: bol): int = {\n",
+        "    when(flag) {\n",
+        "        case(true) { touch(); }\n",
+        "        * { touch(); }\n",
+        "    }\n",
+        "    return 0;\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+    assert_eq!(
+        routine
+            .instructions
+            .iter()
+            .filter(|instruction| matches!(instruction.kind, LoweredInstrKind::Call { .. }))
+            .count(),
+        2,
+        "both void call arms should lower as statement control flow"
+    );
+    assert!(routine
+        .blocks
+        .iter()
+        .any(|block| matches!(block.terminator, Some(LoweredTerminator::Return { .. }))));
+}
+
+#[test]
+fn sibling_case_less_when_bodies_lower_same_named_locals_by_syntax() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] main(): int = {\n",
+        "    var[mut] total: int = 0;\n",
+        "    when(true) {\n",
+        "        * {\n",
+        "            var x: int = 1;\n",
+        "            total = total + x;\n",
+        "        }\n",
+        "    }\n",
+        "    when(true) {\n",
+        "        * {\n",
+        "            var x: int = 2;\n",
+        "            total = total + x;\n",
+        "        }\n",
+        "    }\n",
+        "    return total - 3;\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should lower");
+    assert_eq!(
+        routine
+            .locals
+            .iter()
+            .filter(|local| local.name.as_deref() == Some("x"))
+            .count(),
+        2,
+        "each sibling gate must retain its own syntax-anchored local"
+    );
+}
+
+#[test]
 fn when_expression_lowering_stores_branch_values_into_one_join_local() {
     let fixture = super::safe_temp_dir().join(format!(
         "fol_lower_when_expr_{}.fol",

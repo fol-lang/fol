@@ -35,6 +35,106 @@ pub(crate) fn when_always_terminates(
         && body_always_terminates(default)
 }
 
+/// Whether a bare `when` contains a continuing arm whose final node is a
+/// statement. Such a `when` must use statement lowering even when it has an
+/// exhaustive default; expression lowering requires every continuing arm to
+/// produce a value.
+pub(crate) fn when_has_statement_branch(
+    typed_package: &fol_typecheck::TypedPackage,
+    cases: &[fol_parser::ast::WhenCase],
+    default: Option<&[AstNode]>,
+) -> bool {
+    cases
+        .iter()
+        .any(|case| body_ends_with_statement(typed_package, when_case_body(case)))
+        || default.is_some_and(|body| body_ends_with_statement(typed_package, body))
+}
+
+fn body_ends_with_statement(
+    typed_package: &fol_typecheck::TypedPackage,
+    nodes: &[AstNode],
+) -> bool {
+    nodes
+        .iter()
+        .rev()
+        .find(|node| !matches!(node, AstNode::Comment { .. }))
+        .is_some_and(|node| node_is_nonterminating_statement(typed_package, node))
+}
+
+fn node_is_nonterminating_statement(
+    typed_package: &fol_typecheck::TypedPackage,
+    node: &AstNode,
+) -> bool {
+    match node {
+        AstNode::Commented { node, .. } => node_is_nonterminating_statement(typed_package, node),
+        AstNode::VarDecl { .. }
+        | AstNode::DestructureDecl { .. }
+        | AstNode::FunDecl { .. }
+        | AstNode::ProDecl { .. }
+        | AstNode::LogDecl { .. }
+        | AstNode::TypeDecl { .. }
+        | AstNode::UseDecl { .. }
+        | AstNode::AliasDecl { .. }
+        | AstNode::DefDecl { .. }
+        | AstNode::SegDecl { .. }
+        | AstNode::StdDecl { .. }
+        | AstNode::Assignment { .. }
+        | AstNode::LabDecl { .. }
+        | AstNode::Loop { .. }
+        | AstNode::Select { .. }
+        | AstNode::Dfr { .. }
+        | AstNode::Edf { .. }
+        | AstNode::Block { .. }
+        | AstNode::Inquiry { .. }
+        | AstNode::Program { .. } => true,
+        AstNode::When { cases, default, .. } => {
+            cases.is_empty()
+                || default.is_none()
+                || when_has_statement_branch(typed_package, cases, default.as_deref())
+        }
+        AstNode::FunctionCall {
+            surface: fol_parser::ast::CallSurface::DotIntrinsic,
+            ..
+        }
+        | AstNode::Spawn { .. }
+        | AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::GiveBack,
+            ..
+        } => true,
+        AstNode::BinaryOp {
+            op: fol_parser::ast::BinaryOperator::Pipe,
+            right,
+            ..
+        } if matches!(
+            right.as_ref(),
+            AstNode::ChannelAccess {
+                endpoint: ChannelEndpoint::Tx,
+                ..
+            }
+        ) =>
+        {
+            true
+        }
+        AstNode::FunctionCall {
+            syntax_id: Some(syntax_id),
+            name,
+            ..
+        } if name != "panic" && name != "report" => {
+            typed_package.program.typed_node(*syntax_id).is_none()
+        }
+        AstNode::QualifiedFunctionCall { path, .. } => path
+            .syntax_id()
+            .is_some_and(|syntax_id| typed_package.program.typed_node(syntax_id).is_none()),
+        AstNode::MethodCall {
+            syntax_id: Some(syntax_id),
+            ..
+        } => typed_package.program.typed_node(*syntax_id).is_none(),
+        // Return, break, panic/report, and the expression forms either
+        // terminate their arm or are handled as value producers.
+        _ => false,
+    }
+}
+
 fn body_always_terminates(nodes: &[AstNode]) -> bool {
     nodes
         .iter()
@@ -80,6 +180,38 @@ pub(crate) fn lower_when_statement(
         scope_id,
         expr,
     )?;
+
+    if cases.is_empty() {
+        let body_block = cursor.create_block();
+        let after_block = cursor.create_block();
+        cursor.terminate_current_block(crate::LoweredTerminator::Branch {
+            condition: subject.local_id,
+            then_block: body_block,
+            else_block: after_block,
+        })?;
+        cursor.switch_block(body_block)?;
+        if let Some(default) = default {
+            let _ = lower_body_sequence(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                default,
+                DeferScopeKind::Ordinary,
+            )?;
+        }
+        if !cursor.current_block_terminated()? {
+            cursor.terminate_current_block(crate::LoweredTerminator::Jump {
+                target: after_block,
+            })?;
+        }
+        cursor.switch_block(after_block)?;
+        return Ok(());
+    }
 
     let mut after_block = None;
     let mut has_fallthrough = false;
@@ -173,12 +305,7 @@ pub(crate) fn lower_loop_statement(
 ) -> Result<(), LoweringError> {
     use super::expressions::lower_expression;
     let body_scope_id = syntax_id
-        .and_then(|syntax_id| {
-            typed_package
-                .program
-                .resolved()
-                .scope_for_syntax(syntax_id)
-        })
+        .and_then(|syntax_id| typed_package.program.resolved().scope_for_syntax(syntax_id))
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
@@ -528,12 +655,8 @@ fn lower_channel_iteration(
     condition: Option<&AstNode>,
     body: &[AstNode],
 ) -> Result<(), LoweringError> {
-    let (channel_local, channel_type) = super::expressions::channel_binding_local(
-        typed_package,
-        type_table,
-        cursor,
-        channel,
-    )?;
+    let (channel_local, channel_type) =
+        super::expressions::channel_binding_local(typed_package, type_table, cursor, channel)?;
     let Some(crate::LoweredType::Channel { element_type }) = type_table.get(channel_type) else {
         unreachable!("channel_binding_local verifies the lowered type")
     };
@@ -548,17 +671,14 @@ fn lower_channel_iteration(
                 "channel iteration optional type was not translated into lowered IR",
             )
         })?;
-    let bool_type = super::helpers::literal_type_id(
-        typed_package,
-        checked_type_map,
-        &Literal::Boolean(true),
-    )
-    .ok_or_else(|| {
-        LoweringError::with_kind(
-            LoweringErrorKind::InvalidInput,
-            "bool type not found for channel iteration",
-        )
-    })?;
+    let bool_type =
+        super::helpers::literal_type_id(typed_package, checked_type_map, &Literal::Boolean(true))
+            .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "bool type not found for channel iteration",
+            )
+        })?;
 
     let binder_symbol_id = crate::decls::find_symbol_in_scope_or_descendants(
         &typed_package.program,
@@ -699,17 +819,14 @@ pub(crate) fn lower_select_statement(
     arms: &[SelectArm],
     default: Option<&[AstNode]>,
 ) -> Result<(), LoweringError> {
-    let bool_type = super::helpers::literal_type_id(
-        typed_package,
-        checked_type_map,
-        &Literal::Boolean(true),
-    )
-    .ok_or_else(|| {
-        LoweringError::with_kind(
-            LoweringErrorKind::InvalidInput,
-            "bool type not found for select",
-        )
-    })?;
+    let bool_type =
+        super::helpers::literal_type_id(typed_package, checked_type_map, &Literal::Boolean(true))
+            .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "bool type not found for select",
+            )
+        })?;
     let header_block = cursor.create_block();
     let exit_block = cursor.create_block();
     cursor.terminate_current_block(crate::LoweredTerminator::Jump {
@@ -733,7 +850,8 @@ pub(crate) fn lower_select_statement(
             cursor,
             channel_node,
         )?;
-        let Some(crate::LoweredType::Channel { element_type }) = type_table.get(channel_type) else {
+        let Some(crate::LoweredType::Channel { element_type }) = type_table.get(channel_type)
+        else {
             unreachable!("channel_binding_local verifies the lowered type")
         };
         let element_type = *element_type;
@@ -790,7 +908,10 @@ pub(crate) fn lower_select_statement(
             )
         })?;
         let binder_local = cursor.allocate_local(element_type, Some(arm.binding.clone()));
-        cursor.routine.local_symbols.insert(binder_symbol, binder_local);
+        cursor
+            .routine
+            .local_symbols
+            .insert(binder_symbol, binder_local);
 
         let optional_local = cursor.allocate_local(optional_type, None);
         cursor.push_instr(
@@ -842,9 +963,8 @@ pub(crate) fn lower_select_statement(
             DeferScopeKind::Ordinary,
         )?;
         if !cursor.current_block_terminated()? {
-            cursor.terminate_current_block(crate::LoweredTerminator::Jump {
-                target: exit_block,
-            })?;
+            cursor
+                .terminate_current_block(crate::LoweredTerminator::Jump { target: exit_block })?;
         }
         cursor.switch_block(next_arm_block)?;
     }
@@ -875,18 +995,14 @@ pub(crate) fn lower_select_statement(
             DeferScopeKind::Ordinary,
         )?;
         if !cursor.current_block_terminated()? {
-            cursor.terminate_current_block(crate::LoweredTerminator::Jump {
-                target: exit_block,
-            })?;
+            cursor
+                .terminate_current_block(crate::LoweredTerminator::Jump { target: exit_block })?;
         }
     } else {
         let mut all_closed = None;
         for channel in channels {
             let closed = cursor.allocate_local(bool_type, None);
-            cursor.push_instr(
-                Some(closed),
-                LoweredInstrKind::ChannelIsClosed { channel },
-            )?;
+            cursor.push_instr(Some(closed), LoweredInstrKind::ChannelIsClosed { channel })?;
             all_closed = Some(if let Some(previous) = all_closed {
                 let combined = cursor.allocate_local(bool_type, None);
                 cursor.push_instr(

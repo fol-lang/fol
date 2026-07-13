@@ -70,6 +70,40 @@ fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes()
 }
 
 #[test]
+fn core_loads_take_move_only_slots_for_later_reinitialization() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "main", LoweredBlockId(0));
+    let source = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: None,
+    });
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(result),
+        kind: LoweredInstrKind::LoadLocal { local: source },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("move-only load");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__tmp = std::mem::take(&mut l__pkg__entry__app__r0__l0__pointer);"
+    );
+}
+
+#[test]
 fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_sites() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
@@ -202,6 +236,46 @@ fn core_instruction_rendering_moves_unique_record_fields() {
         rendered,
         "l__pkg__entry__app__r41__l1__pointer = l__pkg__entry__app__r41__l0__holder.pointer;"
     );
+}
+
+#[test]
+fn core_instruction_rendering_rejects_unique_fields_from_borrowed_bases() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let borrowed_id = table.intern(LoweredType::Borrowed {
+        inner: int_id,
+        mutable: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(42), "main", LoweredBlockId(0));
+    let base = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(borrowed_id),
+        name: Some("holder".to_string()),
+    });
+    let pointer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let access = LoweredInstr {
+        id: LoweredInstrId(42),
+        result: Some(pointer),
+        kind: LoweredInstrKind::FieldAccess {
+            base,
+            field: "pointer".to_string(),
+        },
+    };
+
+    let error = render_core_instruction(&package_identity, &table, &routine, &access)
+        .expect_err("borrowed bases must not surrender unique fields");
+    assert!(error
+        .message()
+        .contains("move-only fields cannot be transferred out of a borrowed base"));
 }
 
 #[test]

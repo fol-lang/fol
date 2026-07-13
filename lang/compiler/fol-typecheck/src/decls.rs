@@ -105,6 +105,7 @@ fn lower_record_field_layout(
                 error_call_mode: crate::exprs::ErrorCallMode::Propagate,
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
+                inside_deferred_block: false,
             };
             let typed_default = crate::exprs::type_node_with_expectation(
                 typed,
@@ -1957,8 +1958,7 @@ pub(crate) fn checked_type_contains_generic_param(
             error_type,
         }) => {
             checked_type_contains_generic_param(typed, *value_type)
-                || error_type
-                    .is_some_and(|error| checked_type_contains_generic_param(typed, error))
+                || error_type.is_some_and(|error| checked_type_contains_generic_param(typed, error))
         }
         Some(CheckedType::Error { inner }) => {
             inner.is_some_and(|inner| checked_type_contains_generic_param(typed, inner))
@@ -2330,7 +2330,10 @@ fn lower_type_inner(
                 .iter()
                 .map(|p| lower_type(typed, resolved, scope_id, p))
                 .collect::<Result<Vec<_>, _>>()?;
-            let lowered_return = lower_type(typed, resolved, scope_id, return_type)?;
+            let lowered_return = match return_type.as_ref() {
+                FolType::None => None,
+                return_type => Some(lower_type(typed, resolved, scope_id, return_type)?),
+            };
             Ok(typed
                 .type_table_mut()
                 .intern(CheckedType::Routine(crate::types::RoutineType {
@@ -2341,7 +2344,7 @@ fn lower_type_inner(
                     variadic_index: None,
                     mutex_params: Default::default(),
                     params: lowered_params,
-                    return_type: Some(lowered_return),
+                    return_type: lowered_return,
                     error_type: None,
                 })))
         }

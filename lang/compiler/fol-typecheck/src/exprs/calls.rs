@@ -490,13 +490,7 @@ fn type_echo_intrinsic(
     )?;
     let operand_type = operand_expr.required_value("intrinsic operand does not have a type")?;
 
-    super::bindings::track_value_transfer(
-        typed,
-        resolved,
-        context,
-        Some(&args[0]),
-        operand_type,
-    )?;
+    super::bindings::track_value_transfer(typed, resolved, context, Some(&args[0]), operand_type)?;
     typed.record_node_type(syntax_id, context.source_unit_id, operand_type)?;
     Ok(TypedExpr::value(operand_type).with_optional_effect(operand_expr.recoverable_effect))
 }
@@ -567,13 +561,7 @@ pub(crate) fn type_report_call(
     ensure_assignable(typed, expected, actual, "report".to_string(), origin)?;
     // Reporting exits the routine through its error path, transferring the
     // reported value just like a return transfers its result.
-    super::bindings::track_value_transfer(
-        typed,
-        resolved,
-        report_context,
-        Some(&args[0]),
-        actual,
-    )?;
+    super::bindings::track_value_transfer(typed, resolved, report_context, Some(&args[0]), actual)?;
     Ok(TypedExpr::value(typed.builtin_types().never))
 }
 
@@ -775,6 +763,15 @@ pub(crate) fn type_method_call(
         })
         .flatten();
     if let Some((name, mutex_symbol)) = mutex_receiver {
+        if context.inside_deferred_block {
+            return Err(unsupported_node_surface(
+                resolved,
+                node,
+                format!(
+                    "mutex .{method}() is not allowed inside dfr/edf in V3; delayed mutex guard effects are not modeled"
+                ),
+            ));
+        }
         if !typed.capability_model().supports_processor() {
             return Err(unsupported_node_surface(
                 resolved,
@@ -849,13 +846,7 @@ pub(crate) fn type_method_call(
     // Method syntax is value-receiver sugar: the receiver is the first value
     // passed to the routine. Record that transfer before checking the explicit
     // arguments so the same move-only binding cannot be used twice in one call.
-    super::bindings::track_value_transfer(
-        typed,
-        resolved,
-        context,
-        Some(object),
-        object_type,
-    )?;
+    super::bindings::track_value_transfer(typed, resolved, context, Some(object), object_type)?;
     let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
@@ -1228,19 +1219,26 @@ pub(crate) fn check_call_arguments(
 
     let mut generic_bindings = BTreeMap::new();
     let mut arg_effects = Vec::new();
-    for (param_index, (expected, arg)) in signature
-        .params
-        .iter()
-        .zip(ordered_args.iter())
-        .enumerate()
+    for (param_index, (expected, arg)) in
+        signature.params.iter().zip(ordered_args.iter()).enumerate()
     {
         match arg {
             BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
                 let contains_generics =
                     crate::decls::checked_type_contains_generic_param(typed, *expected);
+                let forwards_mutex_handle = signature.mutex_params.contains(&param_index)
+                    && argument_is_direct_mutex_handle(typed, resolved, arg);
+                if context.inside_deferred_block && forwards_mutex_handle {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        arg,
+                        format!(
+                            "mutex handles cannot be forwarded to [mux] parameter {param_index} of '{callee}' inside dfr/edf in V3; delayed mutex guard effects are not modeled"
+                        ),
+                    ));
+                }
                 let argument_context = TypeContext {
-                    allow_mutex_handle: signature.mutex_params.contains(&param_index)
-                        && argument_is_direct_mutex_handle(typed, resolved, arg),
+                    allow_mutex_handle: forwards_mutex_handle,
                     ..context
                 };
                 let actual_expr = if contains_generics {
@@ -1617,8 +1615,7 @@ fn argument_is_direct_mutex_handle(
         .references
         .iter()
         .find(|reference| {
-            reference.syntax_id == Some(*syntax_id)
-                && reference.kind == ReferenceKind::Identifier
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
         })
         .and_then(|reference| reference.resolved)
         .and_then(|symbol| typed.typed_symbol(symbol))

@@ -1,7 +1,7 @@
 use super::body::lower_body_sequence;
 use super::calls::{
     lower_dot_intrinsic_call, lower_function_call, lower_keyword_intrinsic_expression,
-    lower_pipe_or_expression, reference_type_id, resolve_method_target,
+    lower_pipe_or_expression, reference_type_id, resolve_method_target, resolve_reference_symbol,
 };
 use super::containers::{
     apply_expected_shell_wrap, field_access_type, index_access_type, lower_container_literal,
@@ -684,7 +684,37 @@ fn lower_expression_observed_inner(
             elements,
         ),
         AstNode::Assignment { target, value } => {
-            let lowered_value = lower_expression(
+            let target_symbol = match target.as_ref() {
+                AstNode::Identifier { syntax_id, name } => Some(resolve_reference_symbol(
+                    typed_package,
+                    *syntax_id,
+                    ReferenceKind::Identifier,
+                    name,
+                )?),
+                AstNode::QualifiedIdentifier { path } => Some(resolve_reference_symbol(
+                    typed_package,
+                    path.syntax_id(),
+                    ReferenceKind::QualifiedIdentifier,
+                    &path.joined(),
+                )?),
+                _ => None,
+            };
+            let target_type = target_symbol.and_then(|symbol| {
+                cursor
+                    .routine
+                    .local_symbols
+                    .get(&symbol.id)
+                    .and_then(|local| cursor.routine.locals.get(*local))
+                    .and_then(|local| local.type_id)
+                    .or_else(|| {
+                        typed_package
+                            .program
+                            .typed_symbol(symbol.id)
+                            .and_then(|typed| typed.declared_type)
+                            .and_then(|checked| checked_type_map.get(&checked).copied())
+                    })
+            });
+            let lowered_value = lower_expression_expected(
                 typed_package,
                 type_table,
                 checked_type_map,
@@ -693,6 +723,7 @@ fn lower_expression_observed_inner(
                 cursor,
                 source_unit_id,
                 scope_id,
+                target_type,
                 value,
             )?;
             lower_assignment_target(
@@ -1904,6 +1935,39 @@ fn lower_invoke_expression(
     callee: &AstNode,
     args: &[AstNode],
 ) -> Result<LoweredValue, LoweringError> {
+    lower_invoke(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        callee,
+        args,
+    )?
+    .ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            "invoke expression with void callee cannot be used as a value",
+        )
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lower_invoke(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    callee: &AstNode,
+    args: &[AstNode],
+) -> Result<Option<LoweredValue>, LoweringError> {
     let callee_value = lower_expression(
         typed_package,
         type_table,
@@ -1962,11 +2026,11 @@ fn lower_invoke_expression(
                     error_type: signature.error_type,
                 },
             )?;
-            Ok(LoweredValue {
+            Ok(Some(LoweredValue {
                 local_id: result_local,
                 type_id: result_type,
                 recoverable_error_type: signature.error_type,
-            })
+            }))
         }
         None => {
             cursor.push_instr(
@@ -1977,10 +2041,7 @@ fn lower_invoke_expression(
                     error_type: signature.error_type,
                 },
             )?;
-            Err(LoweringError::with_kind(
-                LoweringErrorKind::Unsupported,
-                "invoke expression with void callee cannot be used as a value",
-            ))
+            Ok(None)
         }
     }
 }
