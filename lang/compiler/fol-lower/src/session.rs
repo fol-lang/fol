@@ -215,28 +215,29 @@ fn translate_checked_type(
             symbol,
             name,
             kind,
-            args,
+            ..
         } => {
             if kind == DeclaredTypeKind::GenericParameter {
                 let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
                 cache.insert((package_identity.clone(), checked_type_id), lowered);
                 return Ok(lowered);
             }
-            // A generic instantiation (`Box[int]`, args non-empty) lowers
-            // through its substituted structural shape (the apparent override),
-            // not the generic template that still mentions `T`.
-            if !args.is_empty() {
-                if let Some(apparent) = program.apparent_type_override(checked_type_id) {
-                    let lowered = translate_checked_type(
-                        lowered_types,
-                        cache,
-                        package_identity,
-                        program,
-                        apparent,
-                    )?;
-                    cache.insert((package_identity.clone(), checked_type_id), lowered);
-                    return Ok(lowered);
-                }
+            // Apparent overrides are authoritative structural shapes. They
+            // cover generic instantiations and declared types imported through
+            // another package without mounting the declaration itself. The
+            // latter intentionally carries only a nominal shell in the target
+            // type table; its foreign SymbolId is not valid in the importing
+            // program and may collide with an unrelated local symbol.
+            if let Some(apparent) = program.apparent_type_override(checked_type_id) {
+                let lowered = translate_checked_type(
+                    lowered_types,
+                    cache,
+                    package_identity,
+                    program,
+                    apparent,
+                )?;
+                cache.insert((package_identity.clone(), checked_type_id), lowered);
+                return Ok(lowered);
             }
             let typed_symbol = program.typed_symbol(symbol);
             let runtime_type = typed_symbol
