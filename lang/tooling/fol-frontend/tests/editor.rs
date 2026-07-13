@@ -608,7 +608,7 @@ fn editor_rename_command_surfaces_safe_boundary_failures() {
     let parsed: serde_json::Value =
         serde_json::from_str(&json).expect("rendered error should be json");
     assert_eq!(parsed["diagnostics"][0]["code"], "F1004");
-    assert!(json.contains("multi-package symbols"));
+    assert!(json.contains("same-file symbols only"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -916,7 +916,7 @@ fn editor_rename_json_error_stays_snapshot_stable() {
     assert_eq!(diagnostic["code"], "F1004");
     assert_eq!(
         diagnostic["message"],
-        "rename currently refuses multi-package symbols"
+        "rename currently supports same-file symbols only"
     );
 
     fs::remove_dir_all(root).ok();
