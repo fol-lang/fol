@@ -114,6 +114,40 @@ fn shared_pointer_recursion_typechecks_nominally() {
 }
 
 #[test]
+fn shared_pointer_write_error_keeps_the_target_origin() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        concat!(
+            "fun[] main(): int = {\n",
+            "    var value: int = 7;\n",
+            "    var pointer: ptr[shared, int] = &value;\n",
+            "    *pointer = 9;\n",
+            "    return *pointer;\n",
+            "};\n",
+        ),
+    )]);
+    let error = errors
+        .iter()
+        .find(|error| {
+            error
+                .message()
+                .contains("cannot write through ptr[shared, T]; shared pointers are read-only")
+        })
+        .expect("shared-pointer write should produce its canonical error");
+
+    assert_eq!(error.kind(), TypecheckErrorKind::InvalidInput);
+    let origin = error
+        .origin()
+        .expect("shared-pointer write error should retain its target origin");
+    assert!(origin
+        .file
+        .as_deref()
+        .is_some_and(|file| file.ends_with("/main.fol")));
+    assert_eq!((origin.line, origin.column, origin.length), (4, 6, 7));
+    assert_eq!(error.to_diagnostic().code.as_str(), "T1001");
+}
+
+#[test]
 fn dfr_blocks_reject_break() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",

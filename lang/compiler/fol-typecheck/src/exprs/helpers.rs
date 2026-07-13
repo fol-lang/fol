@@ -974,7 +974,9 @@ pub(crate) fn ensure_assignable_target(
             .and_then(|type_id| typed.type_table().get(type_id));
             match pointer_type {
                 Some(CheckedType::Pointer { shared: false, .. }) => Ok(()),
-                Some(CheckedType::Pointer { shared: true, .. }) => Err(TypecheckError::new(
+                Some(CheckedType::Pointer { shared: true, .. }) => Err(with_node_origin(
+                    resolved,
+                    target,
                     TypecheckErrorKind::InvalidInput,
                     "cannot write through ptr[shared, T]; shared pointers are read-only",
                 )),
@@ -993,7 +995,7 @@ pub(crate) fn ensure_assignable_target(
 }
 
 /// Reject whole-binding reassignment of immutable value/label bindings
-/// (`con`/`let`/`lab`). Targets that do not resolve to a value/label binding
+/// (`con`/`var[imu]`/`lab`). Targets that do not resolve to a value/label binding
 /// in the scope chain keep the previous permissive behavior.
 fn ensure_binding_reassignable(
     typed: &TypedProgram,
