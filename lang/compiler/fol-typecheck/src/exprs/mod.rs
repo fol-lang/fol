@@ -37,6 +37,10 @@ pub(crate) struct TypeContext {
     pub(crate) routine_return_type: Option<CheckedTypeId>,
     pub(crate) routine_error_type: Option<CheckedTypeId>,
     pub(crate) error_call_mode: ErrorCallMode,
+    /// Syntax id of the direct call whose arguments will cross a spawn/async
+    /// task boundary. Keeping the exact id prevents nested calls inside task
+    /// arguments from being mistaken for asynchronous calls themselves.
+    pub(crate) processor_task_call: Option<fol_parser::ast::SyntaxNodeId>,
     /// True only while an argument is being passed from one `[mux]`
     /// parameter to another. Every other whole-value use stays forbidden.
     pub(crate) allow_mutex_handle: bool,
@@ -123,6 +127,7 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
             routine_return_type: None,
             routine_error_type: None,
             error_call_mode: ErrorCallMode::Propagate,
+            processor_task_call: None,
             allow_mutex_handle: false,
             repeating_loop_scope: None,
             inside_deferred_block: false,
@@ -608,6 +613,7 @@ fn type_node_with_expectation_inner(
                 resolved,
                 TypeContext {
                     error_call_mode: ErrorCallMode::Observe,
+                    processor_task_call: helpers::strip_comments(task).syntax_id(),
                     ..context
                 },
                 task,
@@ -701,6 +707,7 @@ fn type_node_with_expectation_inner(
                 routine_return_type: expected_return_type,
                 routine_error_type: expected_error_type,
                 error_call_mode: ErrorCallMode::Propagate,
+                processor_task_call: None,
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
                 inside_deferred_block: false,
@@ -963,6 +970,7 @@ fn type_node_with_expectation_inner(
                 routine_return_type: expected_return_type,
                 routine_error_type: expected_error_type,
                 error_call_mode: ErrorCallMode::Propagate,
+                processor_task_call: None,
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
                 inside_deferred_block: false,
@@ -1350,6 +1358,7 @@ fn type_node_with_expectation_inner(
                 args,
                 "<invoke>",
                 node_origin(resolved, node),
+                false,
                 false,
                 false,
             )?;

@@ -2961,6 +2961,89 @@ fn mutex_whole_values_are_rejected_but_mux_forwarding_is_allowed() {
 }
 
 #[test]
+fn synchronous_mux_forwarding_rejects_active_and_aliased_handles() {
+    let active_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] leaf(counter[mux]: Counter): int = { return 1; };\n\
+             fun[] bad(counter[mux]: Counter): int = {\n\
+                 counter.lock();\n\
+                 var result: int = leaf(counter);\n\
+                 counter.unlock();\n\
+                 return result;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(
+        active_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("cannot synchronously forward mutex handle 'counter'")
+                && error.message().contains("while its lock is active")
+        }),
+        "a synchronous callee could lock the same guarded mutex and deadlock: {active_errors:#?}"
+    );
+
+    let alias_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] pair(left[mux]: Counter, right[mux]: Counter): int = { return 1; };\n\
+             fun[] bad(counter[mux]: Counter): int = {\n\
+                 return pair(counter, counter);\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(
+        alias_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("cannot forward mutex handle 'counter' to both [mux] parameter")
+                && error.message().contains("can self-deadlock")
+        }),
+        "two mux parameters must not alias the same mutex handle: {alias_errors:#?}"
+    );
+}
+
+#[test]
+fn guarded_mutex_handles_can_cross_spawn_and_async_task_boundaries() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] worker(counter[mux]: Counter): int = {\n\
+                 counter.lock();\n\
+                 var value: int = counter.value;\n\
+                 counter.unlock();\n\
+                 return value;\n\
+             };\n\
+             fun[] launch(counter[mux]: Counter): int = {\n\
+                 counter.lock();\n\
+                 [>]worker(counter);\n\
+                 var pending = worker(counter) | async;\n\
+                 counter.unlock();\n\
+                 return pending | await;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "launch"))
+        .is_some());
+}
+
+#[test]
 fn mutex_handle_cannot_escape_inside_mux_argument() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
@@ -3255,6 +3338,110 @@ fn channel_send_consumes_move_only_payloads() {
                 .message()
                 .contains("use of moved heap-owned binding 'owned'")
     }));
+}
+
+#[test]
+fn select_merges_ownership_from_mutually_exclusive_arms() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+             fun[] produce(channel: chn[int]): int = { 1 | channel[tx]; return 1; };\n\
+             fun[] main(): int = {\n\
+                 var first: chn[int];\n\
+                 var second: chn[int];\n\
+                 [>]produce(first);\n\
+                 [>]produce(second);\n\
+                 var first_value: int = 1;\n\
+                 var second_value: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first_value;\n\
+                 select {\n\
+                     when first as received { consume(pointer); }\n\
+                     when second as received { pointer = &second_value; }\n\
+                     * { pointer = &second_value; }\n\
+                 };\n\
+                 return *pointer;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "a later select-arm reinitialization must not erase an earlier arm's move: {errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+             fun[] produce(channel: chn[int]): int = { 1 | channel[tx]; return 1; };\n\
+             fun[] main(): int = {\n\
+                 var first: chn[int];\n\
+                 var second: chn[int];\n\
+                 [>]produce(first);\n\
+                 [>]produce(second);\n\
+                 var value: int = 1;\n\
+                 var pointer: ptr[int] = &value;\n\
+                 select {\n\
+                     when first as first_received { consume(pointer); }\n\
+                     when second as second_received { consume(pointer); }\n\
+                     * { consume(pointer); }\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(
+        typed
+            .typed_node(find_named_routine_syntax_id(&typed, "main"))
+            .is_some(),
+        "each mutually exclusive select arm must start from the same ownership state"
+    );
+}
+
+#[test]
+fn select_without_default_preserves_the_all_closed_ownership_path() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+             fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 var first: int = 1;\n\
+                 var second: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first;\n\
+                 consume(pointer);\n\
+                 select {\n\
+                     when channel as received { pointer = &second; }\n\
+                 };\n\
+                 return *pointer;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "an all-closed select may skip every arm and must preserve its entry flow: {errors:#?}"
+    );
 }
 
 #[test]
@@ -5378,6 +5565,55 @@ fn moved_mutable_bindings_can_be_reinitialized() {
         }),
         "a case-less gate can skip reinitialization and must keep the binding maybe-moved: {partial_errors:#?}"
     );
+}
+
+#[test]
+fn loop_reinitialization_does_not_erase_the_zero_iteration_move() {
+    for (surface, setup, loop_body) in [
+        (
+            "condition loop",
+            "",
+            "loop(false) { pointer = &second; };",
+        ),
+        (
+            "iterable loop",
+            "var values: arr[int, 1] = { 1 };",
+            "loop(value in values when false) { pointer = &second; };",
+        ),
+        (
+            "channel loop",
+            "var channel: chn[int];",
+            "for (value in channel[rx]) { pointer = &second; };",
+        ),
+    ] {
+        let source = format!(
+            "fun[] consume(pointer: ptr[int]): int = {{ return *pointer; }};\n\
+             fun[] main(): int = {{\n\
+                 var first: int = 1;\n\
+                 var second: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first;\n\
+                 consume(pointer);\n\
+                 {setup}\n\
+                 {loop_body}\n\
+                 return *pointer;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("use of moved heap-owned binding 'pointer'")
+            }),
+            "{surface} may skip its body and must preserve the entry ownership flow: {errors:#?}"
+        );
+    }
 }
 
 #[test]

@@ -103,6 +103,7 @@ fn lower_record_field_layout(
                 routine_return_type: None,
                 routine_error_type: None,
                 error_call_mode: crate::exprs::ErrorCallMode::Propagate,
+                processor_task_call: None,
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
                 inside_deferred_block: false,

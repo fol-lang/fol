@@ -145,6 +145,41 @@ fn pipe_or_typing_rejects_incompatible_fallback_values() {
 }
 
 #[test]
+fn pipe_or_fallback_reinitialization_does_not_erase_the_success_path_move() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] load(fail: bol): int / int = {\n\
+             when(fail) {\n\
+                 case(true) { report 1; }\n\
+                 * { return 5; }\n\
+             }\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var first: int = 1;\n\
+             var second: int = 2;\n\
+             var[mut] pointer: ptr[int] = &first;\n\
+             consume(pointer);\n\
+             var value: int = load(false) || when(true) {\n\
+                 case(true) { pointer = &second; 7; }\n\
+                 * { pointer = &second; 8; }\n\
+             };\n\
+             return *pointer + value;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "the successful call path skips the fallback reinitialization: {errors:#?}"
+    );
+}
+
+#[test]
 fn err_shell_values_remain_storable_passable_and_returnable() {
     let _typed = typecheck_fixture_folder(&[(
         "main.fol",

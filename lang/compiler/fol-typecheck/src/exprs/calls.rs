@@ -66,6 +66,7 @@ pub(crate) fn type_function_call(
         origin_for(resolved, syntax_id),
         true,
         true,
+        context.processor_task_call == Some(syntax_id),
     )?;
     let call_effect = merge_recoverable_effects(
         typed,
@@ -703,6 +704,7 @@ pub(crate) fn type_qualified_function_call(
         origin_for(resolved, syntax_id),
         true,
         true,
+        false,
     )?;
     let call_effect = merge_recoverable_effects(
         typed,
@@ -857,6 +859,7 @@ pub(crate) fn type_method_call(
         origin.clone(),
         true,
         true,
+        false,
     )?;
     let merged = merge_recoverable_effects(
         typed,
@@ -1199,6 +1202,7 @@ pub(crate) fn check_call_arguments(
     origin: Option<SyntaxOrigin>,
     allow_named: bool,
     allow_defaults: bool,
+    processor_task_target: bool,
 ) -> Result<(RoutineType, Option<RecoverableCallEffect>), TypecheckError> {
     let ordered_args = bind_call_arguments(
         signature,
@@ -1207,6 +1211,15 @@ pub(crate) fn check_call_arguments(
         origin.clone(),
         allow_named,
         allow_defaults,
+    )?;
+    validate_mutex_argument_forwarding(
+        typed,
+        resolved,
+        signature,
+        &ordered_args,
+        callee,
+        origin.clone(),
+        processor_task_target,
     )?;
     validate_call_site_borrows(
         typed,
@@ -1556,6 +1569,68 @@ fn validate_call_site_borrows(
     Ok(())
 }
 
+fn validate_mutex_argument_forwarding(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    signature: &RoutineType,
+    args: &[BoundCallArg<'_>],
+    callee: &str,
+    call_origin: Option<SyntaxOrigin>,
+    processor_task_target: bool,
+) -> Result<(), TypecheckError> {
+    let mut forwarded = BTreeMap::new();
+
+    for param_index in &signature.mutex_params {
+        let Some(arg) = args.get(*param_index).and_then(explicit_bound_arg) else {
+            continue;
+        };
+        let Some(symbol) = direct_mutex_handle_symbol(typed, resolved, arg) else {
+            continue;
+        };
+        let name = resolved
+            .symbol(symbol)
+            .map(|symbol| symbol.name.as_str())
+            .unwrap_or("<unknown>");
+        let argument_origin = node_origin(resolved, arg)
+            .or_else(|| call_origin.clone())
+            .unwrap_or(SyntaxOrigin {
+                file: None,
+                line: 1,
+                column: 1,
+                length: 1,
+            });
+
+        if let Some((first_param, first_origin)) = forwarded.insert(
+            symbol,
+            (*param_index, argument_origin.clone()),
+        ) {
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "call to '{callee}' cannot forward mutex handle '{name}' to both [mux] parameter {first_param} and [mux] parameter {param_index}; aliased mutex parameters can self-deadlock"
+                ),
+                argument_origin,
+            )
+            .with_related_origin(first_origin, "same mutex handle first forwarded here"));
+        }
+
+        if !processor_task_target {
+            if let Some(active) = typed.active_mutex_guard(symbol) {
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "call to '{callee}' cannot synchronously forward mutex handle '{name}' while its lock is active; unlock it before the call"
+                    ),
+                    argument_origin,
+                )
+                .with_related_origin(active.origin.clone(), "mutex lock acquired here"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn explicit_bound_arg<'a>(arg: &'a BoundCallArg<'a>) -> Option<&'a AstNode> {
     match arg {
         BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => Some(arg),
@@ -1604,12 +1679,20 @@ fn argument_is_direct_mutex_handle(
     resolved: &ResolvedProgram,
     arg: &AstNode,
 ) -> bool {
+    direct_mutex_handle_symbol(typed, resolved, arg).is_some()
+}
+
+fn direct_mutex_handle_symbol(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+) -> Option<SymbolId> {
     let AstNode::Identifier {
         syntax_id: Some(syntax_id),
         ..
     } = strip_comments(arg)
     else {
-        return false;
+        return None;
     };
     resolved
         .references
@@ -1618,8 +1701,11 @@ fn argument_is_direct_mutex_handle(
             reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
         })
         .and_then(|reference| reference.resolved)
-        .and_then(|symbol| typed.typed_symbol(symbol))
-        .is_some_and(|symbol| symbol.is_mutex)
+        .filter(|symbol| {
+            typed
+                .typed_symbol(*symbol)
+                .is_some_and(|symbol| symbol.is_mutex)
+        })
 }
 
 fn bound_arg_references_symbol(

@@ -127,6 +127,7 @@ pub(crate) fn type_binary_op(
                 resolved,
                 TypeContext {
                     error_call_mode: super::ErrorCallMode::Observe,
+                    processor_task_call: super::helpers::strip_comments(left).syntax_id(),
                     ..context
                 },
                 left,
@@ -383,6 +384,11 @@ pub(crate) fn type_pipe_or(
         ));
     }
 
+    // The fallback executes only when the observed call reports an error.
+    // Preserve the post-call success flow as its own continuation so a
+    // fallback-only reinitialization cannot erase a move that remains visible
+    // when the call succeeds.
+    let success_flow = typed.ownership_flow_state();
     let fallback = type_node_with_expectation(typed, resolved, context, right, Some(success_type))?;
     let fallback = plain_value_expr(
         typed,
@@ -392,10 +398,10 @@ pub(crate) fn type_pipe_or(
         "recoverable-error fallback",
     )?;
 
-    match fallback.value_type {
-        Some(actual) if actual == typed.builtin_types().never => {
-            Ok(TypedExpr::value(success_type).with_optional_effect(fallback.recoverable_effect))
-        }
+    let result = match fallback.value_type {
+        Some(actual) if actual == typed.builtin_types().never => Ok(
+            TypedExpr::value(success_type).with_optional_effect(fallback.recoverable_effect),
+        ),
         Some(actual) => {
             super::helpers::ensure_assignable(
                 typed,
@@ -421,7 +427,14 @@ pub(crate) fn type_pipe_or(
                 )
             },
         )),
+    }?;
+
+    let mut continuation_flows = vec![success_flow.clone()];
+    if !fallback.is_never(typed) {
+        continuation_flows.push(typed.ownership_flow_state());
     }
+    typed.merge_ownership_flows(&success_flow, &continuation_flows);
+    Ok(result)
 }
 
 fn mark_awaited_eventual_binding(

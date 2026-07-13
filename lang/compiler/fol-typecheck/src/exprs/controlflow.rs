@@ -257,7 +257,13 @@ pub(crate) fn type_loop(
                 "loop condition".to_string(),
                 None,
             )?;
-            let _ = type_body(typed, resolved, loop_context, body)?;
+            let body_entry_flow = typed.ownership_flow_state();
+            let body_expr = type_body(typed, resolved, loop_context, body)?;
+            let mut continuation_flows = vec![body_entry_flow.clone()];
+            if !body_expr.is_never(typed) {
+                continuation_flows.push(typed.ownership_flow_state());
+            }
+            typed.merge_ownership_flows(&body_entry_flow, &continuation_flows);
         }
         LoopCondition::Iteration {
             var,
@@ -358,6 +364,7 @@ pub(crate) fn type_loop(
                 routine_return_type: context.routine_return_type,
                 routine_error_type: context.routine_error_type,
                 error_call_mode: context.error_call_mode,
+                processor_task_call: context.processor_task_call,
                 allow_mutex_handle: false,
                 repeating_loop_scope: Some(binder_scope),
                 inside_deferred_block: context.inside_deferred_block,
@@ -380,7 +387,13 @@ pub(crate) fn type_loop(
                     None,
                 )?;
             }
-            let _ = type_body(typed, resolved, loop_context, body)?;
+            let body_entry_flow = typed.ownership_flow_state();
+            let body_expr = type_body(typed, resolved, loop_context, body)?;
+            let mut continuation_flows = vec![body_entry_flow.clone()];
+            if !body_expr.is_never(typed) {
+                continuation_flows.push(typed.ownership_flow_state());
+            }
+            typed.merge_ownership_flows(&body_entry_flow, &continuation_flows);
         }
     }
 
@@ -403,8 +416,16 @@ pub(crate) fn type_select(
             "select requires hosted std support; declare the bundled internal standard dependency",
         ));
     }
+    let entry_flow = typed.ownership_flow_state();
+    let mut branch_flows = Vec::new();
     let mut used_scopes = std::collections::BTreeSet::new();
     for arm in arms {
+        // Select arms are mutually exclusive. Type every arm from the same
+        // ownership state, then conservatively merge the continuing paths.
+        // Otherwise a reinitialization in a later arm can erase a move from
+        // an earlier arm even though that earlier runtime path never executes
+        // the reinitialization.
+        typed.restore_ownership_flow(&entry_flow);
         let channel_node = match &arm.channel {
             AstNode::ChannelAccess {
                 channel,
@@ -472,9 +493,13 @@ pub(crate) fn type_select(
             scope_id: arm_scope,
             ..context
         };
-        let _ = type_body(typed, resolved, arm_context, &arm.body)?;
+        let arm_expr = type_body(typed, resolved, arm_context, &arm.body)?;
+        if !arm_expr.is_never(typed) {
+            branch_flows.push(typed.ownership_flow_state());
+        }
     }
     if let Some(default) = default {
+        typed.restore_ownership_flow(&entry_flow);
         let default_scope = resolved
             .scopes
             .iter_with_ids()
@@ -485,7 +510,7 @@ pub(crate) fn type_select(
                 .then_some(scope_id)
             })
             .unwrap_or(context.scope_id);
-        let _ = type_body(
+        let default_expr = type_body(
             typed,
             resolved,
             TypeContext {
@@ -494,7 +519,15 @@ pub(crate) fn type_select(
             },
             default,
         )?;
+        if !default_expr.is_never(typed) {
+            branch_flows.push(typed.ownership_flow_state());
+        }
+    } else {
+        // A blocking select can still continue without choosing an arm when
+        // every receiver is closed, so preserve the unchanged entry path.
+        branch_flows.push(entry_flow.clone());
     }
+    typed.merge_ownership_flows(&entry_flow, &branch_flows);
     Ok(TypedExpr::none())
 }
 
