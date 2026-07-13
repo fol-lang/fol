@@ -549,6 +549,17 @@ fn control_iteration_fixture_compiles_and_runs() {
 }
 
 #[test]
+fn control_sibling_iterations_use_their_exact_loop_scopes() {
+    let fixture = fixture_root("control_sibling_iterations");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
+    assert_artifact_paths_exist(&compile_output);
+
+    let run_output = compile_and_run_app(&fixture);
+    assert_exit_code(&run_output, 0);
+}
+
+#[test]
 fn procedure_call_fixture_compiles_and_runs() {
     let fixture = fixture_root("procedure_call");
 

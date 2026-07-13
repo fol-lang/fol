@@ -1282,6 +1282,7 @@ pub(crate) fn check_call_arguments(
                     super::bindings::mark_plain_identifier_move(
                         typed,
                         resolved,
+                        context,
                         Some(arg),
                         actual,
                     )?;
@@ -1367,6 +1368,7 @@ pub(crate) fn check_call_arguments(
                     super::bindings::mark_plain_identifier_move(
                         typed,
                         resolved,
+                        context,
                         Some(arg),
                         actual,
                     )?;

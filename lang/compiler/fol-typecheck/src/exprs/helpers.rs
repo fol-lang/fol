@@ -6,7 +6,7 @@ use fol_parser::ast::{AstNode, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{
     ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind,
 };
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 
 use super::{ErrorCallMode, TypeContext, TypedExpr};
 
@@ -550,78 +550,29 @@ pub(crate) fn inline_body_block_scope(
     single_scope(candidate_scopes)
 }
 
-pub(crate) fn loop_binder_scope(
+pub(crate) fn loop_body_scope(
     resolved: &ResolvedProgram,
-    source_unit_id: SourceUnitId,
-    parent_scope_id: ScopeId,
-    binder_name: &str,
-    condition: &Option<Box<AstNode>>,
-    body: &[AstNode],
+    syntax_id: Option<SyntaxNodeId>,
 ) -> Result<ScopeId, TypecheckError> {
-    let mut syntax_ids = BTreeSet::new();
-    if let Some(condition) = condition.as_deref() {
-        collect_syntax_ids(condition, &mut syntax_ids);
-    }
-    for node in body {
-        collect_syntax_ids(node, &mut syntax_ids);
-    }
-
-    let mut referenced_scopes = BTreeSet::new();
-    for reference in resolved.references.iter() {
-        let Some(syntax_id) = reference.syntax_id else {
-            continue;
-        };
-        if !syntax_ids.contains(&syntax_id) {
-            continue;
-        }
-        let Some(symbol_id) = reference.resolved else {
-            continue;
-        };
-        let Some(symbol) = resolved.symbol(symbol_id) else {
-            continue;
-        };
-        if symbol.source_unit == source_unit_id
-            && symbol.kind == SymbolKind::LoopBinder
-            && symbol.name == binder_name
-        {
-            referenced_scopes.insert(symbol.scope);
-        }
-    }
-
-    if let Some(scope_id) = single_scope(referenced_scopes) {
-        return Ok(scope_id);
-    }
-
-    let mut queue = VecDeque::from([parent_scope_id]);
-    let mut matched_scopes = BTreeSet::new();
-    while let Some(scope_id) = queue.pop_front() {
-        for (child_scope_id, child_scope) in resolved.scopes.iter_with_ids() {
-            if child_scope.parent != Some(scope_id)
-                || child_scope.source_unit != Some(source_unit_id)
-            {
-                continue;
-            }
-            queue.push_back(child_scope_id);
-            if child_scope.kind != fol_resolver::ScopeKind::LoopBinder {
-                continue;
-            }
-            if resolved.symbols.iter().any(|symbol| {
-                symbol.source_unit == source_unit_id
-                    && symbol.scope == child_scope_id
-                    && symbol.kind == SymbolKind::LoopBinder
-                    && symbol.name == binder_name
-            }) {
-                matched_scopes.insert(child_scope_id);
-            }
-        }
-    }
-
-    single_scope(matched_scopes).ok_or_else(|| {
-        TypecheckError::new(
-            TypecheckErrorKind::Internal,
-            format!("could not uniquely recover the loop binder scope for '{binder_name}'"),
+    let syntax_id = syntax_id.ok_or_else(|| {
+        internal_error("loop syntax anchor disappeared before typechecking", None)
+    })?;
+    let scope_id = resolved.scope_for_syntax(syntax_id).ok_or_else(|| {
+        internal_error("resolved loop body scope disappeared before typechecking", None)
+    })?;
+    let valid = resolved.scope(scope_id).is_some_and(|scope| {
+        matches!(
+            scope.kind,
+            fol_resolver::ScopeKind::Block | fol_resolver::ScopeKind::LoopBinder
         )
-    })
+    });
+    if !valid {
+        return Err(internal_error(
+            "resolved loop syntax anchor does not point at a loop body scope",
+            None,
+        ));
+    }
+    Ok(scope_id)
 }
 
 fn single_scope(scopes: BTreeSet<ScopeId>) -> Option<ScopeId> {

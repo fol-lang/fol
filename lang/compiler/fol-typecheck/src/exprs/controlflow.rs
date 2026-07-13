@@ -3,7 +3,7 @@ use fol_parser::ast::{AstNode, ChannelEndpoint, LoopCondition, SelectArm, WhenCa
 use fol_resolver::{ResolvedProgram, SymbolKind};
 
 use super::helpers::{
-    ensure_assignable, loop_binder_scope, merge_recoverable_effects, node_origin, plain_value_expr,
+    ensure_assignable, loop_body_scope, merge_recoverable_effects, node_origin, plain_value_expr,
     record_symbol_type, reject_recoverable_error_shell_conversion, unsupported_node_surface,
 };
 use super::{type_body, type_node, type_node_with_expectation};
@@ -141,15 +141,26 @@ pub(crate) fn type_loop(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
     context: TypeContext,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
     condition: &LoopCondition,
     body: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
+    let body_scope = loop_body_scope(resolved, syntax_id)?;
     match condition {
         LoopCondition::Condition(condition) => {
-            let condition_raw = type_node(typed, resolved, context, condition)?;
+            let loop_context = TypeContext {
+                scope_id: body_scope,
+                repeating_loop_scope: Some(body_scope),
+                ..context
+            };
+            let condition_context = TypeContext {
+                scope_id: context.scope_id,
+                ..loop_context
+            };
+            let condition_raw = type_node(typed, resolved, condition_context, condition)?;
             let condition_type = plain_value_expr(
                 typed,
-                context,
+                condition_context,
                 condition_raw,
                 node_origin(resolved, condition),
                 "loop condition",
@@ -162,7 +173,12 @@ pub(crate) fn type_loop(
                 "loop condition".to_string(),
                 None,
             )?;
-            let _ = type_body(typed, resolved, context, body)?;
+            let _ = type_body(
+                typed,
+                resolved,
+                loop_context,
+                body,
+            )?;
         }
         LoopCondition::Iteration {
             var,
@@ -218,14 +234,7 @@ pub(crate) fn type_loop(
                 .required_value("loop iterable does not have a type")?;
                 iterable_element_type(typed, iterable_type)?
             };
-            let binder_scope = loop_binder_scope(
-                resolved,
-                context.source_unit_id,
-                context.scope_id,
-                var,
-                condition,
-                body,
-            )?;
+            let binder_scope = body_scope;
             if let Some(type_hint) = type_hint {
                 let hinted = decls::lower_type(typed, resolved, binder_scope, type_hint)?;
                 ensure_assignable(
@@ -262,6 +271,7 @@ pub(crate) fn type_loop(
                 routine_error_type: context.routine_error_type,
                 error_call_mode: context.error_call_mode,
                 allow_mutex_handle: false,
+                repeating_loop_scope: Some(binder_scope),
             };
             if let Some(condition) = condition.as_deref() {
                 let guard_raw = type_node(typed, resolved, loop_context, condition)?;
@@ -449,7 +459,18 @@ pub(crate) fn type_return(
         "return".to_string(),
         node_origin(resolved, value),
     )?;
-    super::bindings::mark_plain_identifier_move(typed, resolved, Some(value), actual)?;
+    // Returning exits the routine, so a transfer here cannot repeat even when
+    // the return is nested in a loop body.
+    super::bindings::mark_plain_identifier_move(
+        typed,
+        resolved,
+        TypeContext {
+            repeating_loop_scope: None,
+            ..context
+        },
+        Some(value),
+        actual,
+    )?;
     Ok(TypedExpr::value(typed.builtin_types().never))
 }
 

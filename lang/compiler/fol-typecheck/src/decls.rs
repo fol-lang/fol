@@ -104,6 +104,7 @@ fn lower_record_field_layout(
                 routine_error_type: None,
                 error_call_mode: crate::exprs::ErrorCallMode::Propagate,
                 allow_mutex_handle: false,
+                repeating_loop_scope: None,
             };
             let typed_default = crate::exprs::type_node_with_expectation(
                 typed,
@@ -843,12 +844,15 @@ fn lower_nested_declarations_in_node(
                 )?;
             }
         }
-        AstNode::Loop { condition, body } => {
-            // A condition (while-like) loop keeps its body in the parent
-            // scope, but an iteration (for-like) loop resolves its body in a
-            // dedicated `LoopBinder` scope. Nested bindings must be lowered
-            // against whichever scope the resolver actually used, mirroring
-            // the When-case handling above.
+        AstNode::Loop {
+            syntax_id,
+            condition,
+            body,
+        } => {
+            // Every loop body is a lexical scope. Iteration loops use that
+            // same scope for their binder; condition loops use an ordinary
+            // block scope.
+            let body_scope = crate::exprs::loop_body_scope(resolved, *syntax_id)?;
             match condition.as_ref() {
                 fol_parser::ast::LoopCondition::Condition(cond) => {
                     lower_nested_declarations_in_node(
@@ -862,12 +866,12 @@ fn lower_nested_declarations_in_node(
                         typed,
                         resolved,
                         source_unit_id,
-                        current_scope,
+                        body_scope,
                         body,
                     )?;
                 }
                 fol_parser::ast::LoopCondition::Iteration {
-                    var,
+                    var: _,
                     iterable,
                     condition: guard,
                     ..
@@ -879,14 +883,7 @@ fn lower_nested_declarations_in_node(
                         current_scope,
                         iterable,
                     )?;
-                    let binder_scope = crate::exprs::loop_binder_scope(
-                        resolved,
-                        source_unit_id,
-                        current_scope,
-                        var,
-                        guard,
-                        body,
-                    )?;
+                    let binder_scope = body_scope;
                     if let Some(guard) = guard.as_deref() {
                         lower_nested_declarations_in_node(
                             typed,

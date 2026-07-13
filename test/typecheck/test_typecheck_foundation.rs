@@ -1300,6 +1300,114 @@ fn optional_and_error_owned_shell_transfers_move_the_source() {
 }
 
 #[test]
+fn outer_move_only_bindings_cannot_be_transferred_from_repeating_loops() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             @var owned: Item = { value = 7 };\n\
+             var[mut] keep: bol = true;\n\
+             loop(keep) {\n\
+                 @var moved: Item = owned;\n\
+                 keep = false;\n\
+             };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message().contains(
+                    "move-only binding 'owned' declared outside a repeating loop cannot be transferred",
+                )
+        }),
+        "outer move-only values must not be consumed on a potentially later iteration: {errors:#?}"
+    );
+}
+
+#[test]
+fn outer_move_only_bindings_cannot_move_from_repeated_loop_conditions() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] stop(value: @Item): bol = { return false; };\n\
+         fun[] main(): int = {\n\
+             @var owned: Item = { value = 7 };\n\
+             loop(stop(owned)) { var ignored: int = 0; };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| error.message().contains(
+        "move-only binding 'owned' declared outside a repeating loop cannot be transferred"
+    )));
+}
+
+#[test]
+fn move_only_bindings_created_inside_a_loop_can_move_each_iteration() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             var[mut] keep: bol = true;\n\
+             loop(keep) {\n\
+                 @var owned: Item = { value = 7 };\n\
+                 @var moved: Item = owned;\n\
+                 keep = false;\n\
+             };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn outer_borrows_are_not_released_when_a_nested_loop_scope_ends() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             var owner: Item = { value = 7 };\n\
+             var[bor] view: Item = owner;\n\
+             loop(false) { var ignored: int = 0; };\n\
+             return owner.value;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::OwnerBorrowed
+                && error
+                    .message()
+                    .contains("owner 'owner' is inaccessible while borrowed")
+        }),
+        "leaving a loop body must not release a borrow created outside it: {errors:#?}"
+    );
+}
+
+#[test]
+fn borrows_created_inside_a_loop_end_with_the_loop_body_scope() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             var owner: Item = { value = 7 };\n\
+             loop(false) {\n\
+                 var[bor] view: Item = owner;\n\
+                 var seen: int = view.value;\n\
+             };\n\
+             return owner.value;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
 fn inferred_borrow_from_binding_keeps_owner_inaccessible() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
@@ -1780,6 +1888,31 @@ fn awaiting_an_eventual_binding_consumes_it() {
 }
 
 #[test]
+fn outer_eventuals_cannot_be_awaited_from_repeating_loops() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work() | async;\n\
+                 var[mut] keep: bol = true;\n\
+                 loop(keep) {\n\
+                     var value: int = pending | await;\n\
+                     keep = false;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "move-only binding 'pending' declared outside a repeating loop cannot be transferred"
+    )));
+}
+
+#[test]
 fn transferring_an_eventual_binding_moves_the_source() {
     let typed = typecheck_fixture_folder_with_config(
         &[(
@@ -2058,6 +2191,32 @@ fn transferring_a_channel_receiver_moves_the_source_binding() {
                 .message()
                 .contains("use of moved channel receiver binding 'channel'")
     }));
+}
+
+#[test]
+fn outer_channel_receivers_cannot_move_into_consumers_from_repeating_loops() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(channel: chn[int]): int = { return channel[rx]; };\n\
+             fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 42 | channel[tx];\n\
+                 var[mut] keep: bol = true;\n\
+                 loop(keep) {\n\
+                     var value: int = consume(channel);\n\
+                     keep = false;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "move-only binding 'channel' declared outside a repeating loop cannot be transferred"
+    )));
 }
 
 #[test]

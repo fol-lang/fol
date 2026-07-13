@@ -167,10 +167,24 @@ pub(crate) fn lower_loop_statement(
     cursor: &mut RoutineCursor<'_>,
     source_unit_id: SourceUnitId,
     scope_id: ScopeId,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
     condition: &LoopCondition,
     body: &[AstNode],
 ) -> Result<(), LoweringError> {
     use super::expressions::lower_expression;
+    let body_scope_id = syntax_id
+        .and_then(|syntax_id| {
+            typed_package
+                .program
+                .resolved()
+                .scope_for_syntax(syntax_id)
+        })
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "loop body does not retain its exact resolved scope",
+            )
+        })?;
     match condition {
         LoopCondition::Condition(condition) => {
             let header_block = cursor.create_block();
@@ -209,7 +223,7 @@ pub(crate) fn lower_loop_statement(
                 decl_index,
                 cursor,
                 source_unit_id,
-                scope_id,
+                body_scope_id,
                 body,
                 DeferScopeKind::Loop,
             )?;
@@ -242,7 +256,7 @@ pub(crate) fn lower_loop_statement(
                     decl_index,
                     cursor,
                     source_unit_id,
-                    scope_id,
+                    body_scope_id,
                     var,
                     channel,
                     condition.as_deref(),
@@ -290,23 +304,7 @@ pub(crate) fn lower_loop_statement(
             )?;
 
             // Find the loop binder symbol and create its local
-            let binder_scope_id = typed_package
-                .program
-                .resolved()
-                .scopes
-                .iter_with_ids()
-                .find_map(|(sid, s)| {
-                    (s.kind == fol_resolver::ScopeKind::LoopBinder
-                        && s.parent == Some(scope_id)
-                        && s.source_unit == Some(source_unit_id))
-                    .then_some(sid)
-                })
-                .ok_or_else(|| {
-                    LoweringError::with_kind(
-                        LoweringErrorKind::InvalidInput,
-                        "iteration loop binder scope not found",
-                    )
-                })?;
+            let binder_scope_id = body_scope_id;
             let binder_symbol_id = crate::decls::find_symbol_in_scope_or_descendants(
                 &typed_package.program,
                 source_unit_id,
@@ -524,7 +522,7 @@ fn lower_channel_iteration(
     decl_index: &WorkspaceDeclIndex,
     cursor: &mut RoutineCursor<'_>,
     source_unit_id: SourceUnitId,
-    scope_id: ScopeId,
+    binder_scope_id: ScopeId,
     var: &str,
     channel: &AstNode,
     condition: Option<&AstNode>,
@@ -562,23 +560,6 @@ fn lower_channel_iteration(
         )
     })?;
 
-    let binder_scope_id = typed_package
-        .program
-        .resolved()
-        .scopes
-        .iter_with_ids()
-        .find_map(|(sid, scope)| {
-            (scope.kind == fol_resolver::ScopeKind::LoopBinder
-                && scope.parent == Some(scope_id)
-                && scope.source_unit == Some(source_unit_id))
-            .then_some(sid)
-        })
-        .ok_or_else(|| {
-            LoweringError::with_kind(
-                LoweringErrorKind::InvalidInput,
-                "channel iteration binder scope not found",
-            )
-        })?;
     let binder_symbol_id = crate::decls::find_symbol_in_scope_or_descendants(
         &typed_package.program,
         source_unit_id,

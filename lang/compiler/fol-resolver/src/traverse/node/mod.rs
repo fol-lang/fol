@@ -794,12 +794,17 @@ fn traverse_node_inner(
                 routine_context,
             )?;
         }
-        AstNode::Loop { condition, body } => {
+        AstNode::Loop {
+            syntax_id,
+            condition,
+            body,
+        } => {
             statements::traverse_loop_node(
                 session,
                 program,
                 source_unit_id,
                 scope_id,
+                *syntax_id,
                 condition.as_ref(),
                 body,
                 routine_context,

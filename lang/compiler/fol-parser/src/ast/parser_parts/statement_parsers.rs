@@ -564,6 +564,7 @@ impl AstParser {
             ));
         }
 
+        let syntax_id = self.record_syntax_origin(&loop_token);
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
 
@@ -608,6 +609,7 @@ impl AstParser {
         };
 
         Ok(AstNode::Loop {
+            syntax_id,
             condition: Box::new(condition),
             body,
         })

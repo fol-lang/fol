@@ -20,7 +20,7 @@ use helpers::{
     binding_kind_for, describe_type, ensure_assignable, ensure_assignable_target, internal_error,
     node_origin, origin_for, plain_value_expr, unsupported_node_surface,
 };
-pub(crate) use helpers::{inline_body_block_scope, loop_binder_scope};
+pub(crate) use helpers::{inline_body_block_scope, loop_body_scope};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ErrorCallMode {
@@ -38,6 +38,10 @@ pub(crate) struct TypeContext {
     /// True only while an argument is being passed from one `[mux]`
     /// parameter to another. Every other whole-value use stays forbidden.
     pub(crate) allow_mutex_handle: bool,
+    /// Exact body scope of the innermost repeating loop. Transfers from
+    /// bindings declared outside this scope would execute more than once and
+    /// therefore cannot consume a move-only value.
+    pub(crate) repeating_loop_scope: Option<ScopeId>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -115,6 +119,7 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
             routine_error_type: None,
             error_call_mode: ErrorCallMode::Propagate,
             allow_mutex_handle: false,
+            repeating_loop_scope: None,
         };
         for item in &source_unit.items {
             if let Err(error) = type_node(typed, &resolved, context, &item.node) {
@@ -515,6 +520,7 @@ fn type_node_with_expectation_inner(
                 routine_error_type: expected_error_type,
                 error_call_mode: ErrorCallMode::Propagate,
                 allow_mutex_handle: false,
+                repeating_loop_scope: None,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -766,6 +772,7 @@ fn type_node_with_expectation_inner(
                 routine_error_type: expected_error_type,
                 error_call_mode: ErrorCallMode::Propagate,
                 allow_mutex_handle: false,
+                repeating_loop_scope: None,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -847,8 +854,12 @@ fn type_node_with_expectation_inner(
             cases,
             default,
         } => controlflow::type_when(typed, resolved, context, expr, cases, default.as_deref()),
-        AstNode::Loop { condition, body } => {
-            controlflow::type_loop(typed, resolved, context, condition, body)
+        AstNode::Loop {
+            syntax_id,
+            condition,
+            body,
+        } => {
+            controlflow::type_loop(typed, resolved, context, *syntax_id, condition, body)
         }
         AstNode::Assignment { target, value } => {
             ensure_assignable_target(
@@ -870,7 +881,13 @@ fn type_node_with_expectation_inner(
                 "assignment",
             )?;
             ensure_assignable(typed, expected, actual, "assignment".to_string(), None)?;
-            bindings::mark_plain_identifier_move(typed, resolved, Some(value), actual)?;
+            bindings::mark_plain_identifier_move(
+                typed,
+                resolved,
+                context,
+                Some(value),
+                actual,
+            )?;
             Ok(TypedExpr::value(expected))
         }
         AstNode::FunctionCall {

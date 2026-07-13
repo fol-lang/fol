@@ -778,7 +778,11 @@ pub(crate) fn lower_body_node(
             )?;
             Ok(None)
         }
-        AstNode::Loop { condition, body } => {
+        AstNode::Loop {
+            syntax_id,
+            condition,
+            body,
+        } => {
             lower_loop_statement(
                 typed_package,
                 type_table,
@@ -788,6 +792,7 @@ pub(crate) fn lower_body_node(
                 cursor,
                 source_unit_id,
                 scope_id,
+                *syntax_id,
                 condition,
                 body,
             )?;

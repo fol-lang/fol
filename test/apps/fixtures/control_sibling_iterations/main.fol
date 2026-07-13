@@ -1,0 +1,12 @@
+fun[] main(): int = {
+    var first: seq[int] = {1, 2};
+    var second: seq[int] = {10, 20};
+    var[mut] total: int = 0;
+    loop(left in first) {
+        total = total + left;
+    };
+    loop(right in second) {
+        total = total + right;
+    };
+    return total;
+};

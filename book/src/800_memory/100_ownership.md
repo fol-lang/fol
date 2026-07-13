@@ -48,6 +48,14 @@ family. The diagnostic points at both the invalid use and the transfer site.
 The backend emits stack transfers with `.clone()` and unique heap transfers as
 ordinary Rust moves. No runtime tag decides which operation occurs.
 
+Loop bodies are lexical scopes that execute once per iteration. A move-only
+binding declared outside a repeating loop cannot be transferred from the loop
+body or its repeated condition: a later iteration would try to consume the
+same value again. Create the move-only value inside the loop when each
+iteration needs a fresh owner, or transfer it after the loop. A `return` that
+transfers a value is allowed because it exits the routine instead of reaching
+another iteration.
+
 ## Recursive owned data
 
 Owned heap indirection gives recursive types a finite runtime shape:

@@ -126,7 +126,7 @@ pub(crate) fn type_binding_initializer(
                 )?;
                 Ok(TypedExpr::value(borrowed))
             } else {
-                mark_plain_identifier_move(typed, resolved, value, actual)?;
+                mark_plain_identifier_move(typed, resolved, context, value, actual)?;
                 Ok(TypedExpr::value(expected))
             }
         }
@@ -210,6 +210,7 @@ pub(crate) fn type_binding_initializer(
                 mark_plain_identifier_move(
                     typed,
                     resolved,
+                    context,
                     value,
                     inferred_expr.value_type.unwrap(),
                 )?;
@@ -518,6 +519,7 @@ fn register_borrow_binding(
 pub(crate) fn mark_plain_identifier_move(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
+    context: TypeContext,
     value: Option<&AstNode>,
     actual_type: crate::CheckedTypeId,
 ) -> Result<(), TypecheckError> {
@@ -526,7 +528,7 @@ pub(crate) fn mark_plain_identifier_move(
     };
     let AstNode::Identifier {
         syntax_id: Some(syntax_id),
-        ..
+        name,
     } = super::helpers::strip_comments(value)
     else {
         return Ok(());
@@ -548,6 +550,7 @@ pub(crate) fn mark_plain_identifier_move(
     let Some(symbol) = reference.resolved else {
         return Ok(());
     };
+    reject_repeated_outer_move(resolved, context, value, symbol, name)?;
     if let Some(origin) = node_origin(resolved, value) {
         if eventual {
             typed.mark_eventual_transferred(symbol, origin);
@@ -556,6 +559,41 @@ pub(crate) fn mark_plain_identifier_move(
         }
     }
     Ok(())
+}
+
+pub(crate) fn reject_repeated_outer_move(
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    value: &AstNode,
+    symbol: SymbolId,
+    name: &str,
+) -> Result<(), TypecheckError> {
+    let Some(loop_scope) = context.repeating_loop_scope else {
+        return Ok(());
+    };
+    let declaration = resolved.symbol(symbol).ok_or_else(|| {
+        internal_error("resolved move-only binding disappeared before move checking", None)
+    })?;
+    let declared_inside_loop = std::iter::successors(Some(declaration.scope), |scope_id| {
+        resolved.scope(*scope_id).and_then(|scope| scope.parent)
+    })
+    .any(|scope_id| scope_id == loop_scope);
+    if declared_inside_loop {
+        return Ok(());
+    }
+
+    let message = format!(
+        "move-only binding '{name}' declared outside a repeating loop cannot be transferred from the loop body"
+    );
+    let error = node_origin(resolved, value).map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+        |origin| {
+            TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+        },
+    );
+    Err(declaration.origin.clone().map_or(error.clone(), |origin| {
+        error.with_related_origin(origin, "move-only binding declared here")
+    }))
 }
 
 fn ownership_moves_on_transfer(
@@ -737,7 +775,7 @@ pub(crate) fn type_record_init(
             format!("record field '{}'", field.name),
             field_origin.clone(),
         )?;
-        mark_plain_identifier_move(typed, resolved, Some(&field.value), actual)?;
+        mark_plain_identifier_move(typed, resolved, context, Some(&field.value), actual)?;
     }
 
     // Fields carrying a declared default may be omitted; the default fills

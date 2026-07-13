@@ -191,7 +191,7 @@ pub(crate) fn type_binary_op(
                     "| await requires the internal eventual produced by | async",
                 ));
             };
-            mark_awaited_eventual_binding(typed, resolved, left);
+            mark_awaited_eventual_binding(typed, resolved, context, left)?;
             return Ok(TypedExpr::value(value_type).with_optional_effect(
                 error_type.map(|error_type| crate::RecoverableCallEffect { error_type }),
             ));
@@ -424,14 +424,15 @@ pub(crate) fn type_pipe_or(
 fn mark_awaited_eventual_binding(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
+    context: TypeContext,
     node: &AstNode,
-) {
+) -> Result<(), TypecheckError> {
     let AstNode::Identifier {
         syntax_id: Some(syntax_id),
-        ..
+        name,
     } = super::helpers::strip_comments(node)
     else {
-        return;
+        return Ok(());
     };
     let Some(symbol) = resolved
         .references
@@ -441,11 +442,13 @@ fn mark_awaited_eventual_binding(
         })
         .and_then(|reference| reference.resolved)
     else {
-        return;
+        return Ok(());
     };
+    super::bindings::reject_repeated_outer_move(resolved, context, node, symbol, name)?;
     if let Some(origin) = node_origin(resolved, node) {
         typed.mark_eventual_awaited(symbol, origin);
     }
+    Ok(())
 }
 
 pub(crate) fn type_unary_op(

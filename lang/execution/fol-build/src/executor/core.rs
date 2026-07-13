@@ -242,7 +242,9 @@ impl BuildBodyExecutor {
                 Ok(())
             }
 
-            AstNode::Loop { condition, body } => {
+            AstNode::Loop {
+                condition, body, ..
+            } => {
                 self.exec_loop(condition, body)?;
                 self.last_value = None;
                 Ok(())
@@ -752,7 +754,9 @@ fn validate_node_public_surface(
                 }
             }
         }
-        AstNode::Loop { condition, body } => {
+        AstNode::Loop {
+            condition, body, ..
+        } => {
             match condition.as_ref() {
                 LoopCondition::Condition(expr) => validate_node_public_surface(package, expr)?,
                 LoopCondition::Iteration {

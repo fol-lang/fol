@@ -116,6 +116,7 @@ pub fn traverse_loop_node(
     program: &mut ResolvedProgram,
     source_unit_id: SourceUnitId,
     scope_id: ScopeId,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
     condition: &LoopCondition,
     body: &[AstNode],
     routine_context: Option<RoutineContext>,
@@ -131,12 +132,14 @@ pub fn traverse_loop_node(
                 false,
                 routine_context,
             )?;
+            let body_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
+            program.record_scope_for_syntax(syntax_id, body_scope);
             for statement in body {
                 super::traverse_node(
                     session,
                     program,
                     source_unit_id,
-                    scope_id,
+                    body_scope,
                     statement,
                     false,
                     routine_context,
@@ -170,6 +173,7 @@ pub fn traverse_loop_node(
             )?;
             let binder_scope =
                 program.add_scope(ScopeKind::LoopBinder, scope_id, source_unit_id);
+            program.record_scope_for_syntax(syntax_id, binder_scope);
             insert_local_symbol(
                 program,
                 source_unit_id,

@@ -1145,6 +1145,20 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             Some("'.echo(...)' requires hosted std support"),
         ),
         (
+            "examples/mem_move_stack_vs_heap_m1",
+            "typ Item: rec = { value: int };\n\
+             fun[] main(): int = {\n\
+                 @var owned: Item = { value = 7 };\n\
+                 var[mut] keep: bol = true;\n\
+                 loop(keep) {\n\
+                     @var moved: Item = owned;\n\
+                     keep = false;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+            Some("move-only binding 'owned' declared outside a repeating loop cannot be transferred"),
+        ),
+        (
             "examples/std_bundled_fmt",
             "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::math::answer();\n};\n",
             None,

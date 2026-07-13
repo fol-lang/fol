@@ -372,6 +372,10 @@ pub enum AstNode {
 
     /// Loop statement: loop(condition) { body }
     Loop {
+        /// Syntax node for the loop keyword. Scope-owning nodes keep an
+        /// explicit anchor so later compiler stages can recover this exact
+        /// loop's lexical body scope without guessing among sibling loops.
+        syntax_id: Option<SyntaxNodeId>,
         condition: Box<LoopCondition>,
         body: Vec<AstNode>,
     },
@@ -472,6 +476,7 @@ impl AstNode {
             | AstNode::RecordInit { syntax_id, .. }
             | AstNode::Dfr { syntax_id, .. }
             | AstNode::Edf { syntax_id, .. }
+            | AstNode::Loop { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,
             AstNode::Commented { node, .. } => node.syntax_id(),
             _ => None,
@@ -742,7 +747,9 @@ impl AstNode {
                 }
                 children
             }
-            AstNode::Loop { condition, body } => {
+            AstNode::Loop {
+                condition, body, ..
+            } => {
                 let mut children: Vec<&AstNode> = body.iter().collect();
                 match condition.as_ref() {
                     LoopCondition::Condition(cond) => children.push(cond.as_ref()),
