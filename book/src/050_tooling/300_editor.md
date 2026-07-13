@@ -22,6 +22,8 @@ The public entrypoints are exposed through `fol tool`:
 - `fol tool rename <PATH> --line <LINE> --character <CHARACTER> <NEW_NAME>`
 - `fol tool semantic-tokens <PATH>`
 - `fol tool tree generate <PATH>`
+- `fol tool clean`
+- `fol tool completion [bash|zsh|fish]`
 
 This keeps editor workflows under the same `fol` binary rather than introducing
 a second public tool.
@@ -45,33 +47,27 @@ It is responsible for:
 - open-document state
 - compiler-backed diagnostics
 - hover
-- go-to-definition
+- go-to-definition, go-to-type-definition, and go-to-implementation
+- current-document symbol highlights
 - whole-document formatting
 - code actions for exact compiler suggestions
   The current shipped inventory is intentionally one diagnostic family:
   unresolved-name replacements where the compiler attached an exact replacement.
 - signature help for plain and qualified routine calls
 - references
-- rename for same-file local and current-package top-level symbols
+- prepare-rename and rename for same-file local bindings, routine parameters,
+  and current-package top-level symbols
 - semantic tokens
+- inferred-type inlay hints
+- brace-block folding ranges and word/block/file selection ranges
 - document symbols
 - workspace symbols across discovered `.fol` files under the mapped workspace root
-- completion
+- completion and completion-item resolve
 
-The currently supported v1 LSP surface is:
-
-- diagnostics
-- hover
-- definition
-- formatting
-- code actions for exact compiler suggestions
-- signature help for plain and qualified routine calls
-- references
-- rename for same-file local and current-package top-level symbols
-- semantic tokens
-- document symbols
-- workspace symbols across discovered `.fol` files under the mapped workspace root
-- completion
+These general editor services cover the implemented V1 contract and the
+checked-in shipped V2 and V3 example matrices. The exact capability list and
+version-bounded semantic expectations live in
+[Language Server](./500_lsp.md).
 
 The server keeps diagnostics and semantic snapshots separately.
 
@@ -82,9 +78,12 @@ structure-preserving boundary instead of a partial line-rewriter.
 The current formatter contract is intentionally narrow but explicit:
 
 - indentation is four spaces per brace depth
-- lines are trimmed before indentation is re-applied
-- leading blank lines are removed and repeated blank lines collapse to one
-- trailing blank lines are removed
+- ordinary code lines are trimmed before indentation is re-applied
+- braces inside cooked/raw quotes or any compiler-recognized comment form do
+  not affect indentation depth
+- multiline quote/comment payload lines retain their original content
+- outside protected multiline payloads, leading blank lines are removed,
+  repeated blank lines collapse to one, and trailing blank lines are removed
 - output always ends with one final newline when the document is non-empty
 - line endings are normalized to `\n`
 - `build.fol` follows the same formatter entrypoint and indentation rules as
@@ -93,9 +92,10 @@ The current formatter contract is intentionally narrow but explicit:
 Diagnostics refresh on `didOpen` and `didChange`.
 
 Semantic requests keep one semantic snapshot per open document version and
-reuse it for hover, definition, signature help, references, rename, semantic
-tokens, document symbols, workspace symbols, and completion until the document
-changes or closes.
+reuse it for hover, definition, type definition, implementation, document
+highlight, signature help, references, prepare rename, rename, semantic tokens,
+document/workspace symbols, completion, inlay hints, folding ranges, and
+selection ranges until the document changes or closes.
 
 ## Compiler Truth
 
@@ -146,3 +146,19 @@ fol tool semantic-tokens path/to/file.fol
 ```
 
 for parser/query debugging and validation.
+
+The three Tree-sitter inspection commands use the checked-in generated parser
+and execute queries in-process:
+
+- `parse` returns the real S-expression, node counts, and recovered
+  `ERROR`/missing-node ranges
+- `highlight` executes the shipped highlight query and returns every actual
+  capture with its zero-based range and source text
+- `symbols` executes the shipped symbol query and returns every actual symbol
+  capture plus the number of captured scopes
+
+All three include `parse_status=ok` or `parse_status=ERROR`. Syntax errors do
+not prevent inspection of the recovered tree, so dead syntax examples can be
+used to verify that a removed form still produces an `ERROR` node. The normal
+inspection path does not shell out to the Tree-sitter CLI; only bundle
+generation does.

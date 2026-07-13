@@ -16,6 +16,10 @@ var value = pending | await;
 eventual type is not nameable in `V3`; `evt[T]` is only a possible later design
 slot.
 
+The call to the left of `| async` must resolve directly to a named routine
+declaration. Stored routine values and routine parameters are not async task
+targets in `V3`.
+
 Eventual bindings are move-only. A plain binding or assignment transfers the
 eventual and makes the source binding unavailable; `| await` consumes the final
 binding exactly once. `V3` does not embed eventuals in composite values or pass
@@ -37,6 +41,6 @@ Program exit joins outstanding async work just as it joins bare `[>]` tasks.
 Cancellation, worker pools, and runtime scheduling controls are not part of
 `V3`.
 
-The eventual slice is implemented end to end. See
-`examples/proc_async_await_m4` and `examples/proc_await_error_m4`; attempts to
-spell `evt[T]` are covered by `examples/fail_proc_evt_named_m4`.
+The eventual slice is implemented end to end. Its exact positive, tier-failure,
+and unnameable-`evt[T]` example set is maintained in the
+[canonical shipped processor inventory](./_index.md#shipped-example-inventory).

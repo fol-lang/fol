@@ -48,6 +48,27 @@ family. The diagnostic points at both the invalid use and the transfer site.
 The backend emits stack transfers with `.clone()` and unique heap transfers as
 ordinary Rust moves. No runtime tag decides which operation occurs.
 
+Evaluating a move-only value as a standalone expression is also a transfer even
+when its result is discarded. Lowering still evaluates that expression, so the
+source cannot be used afterward. Copy-safe scalar expression statements remain
+usable because their values clone.
+
+A whole mutable binding can be reinitialized after its old value moves:
+
+```fol
+var[mut] pointer: ptr[int] = &first;
+consume(pointer);
+pointer = &second;
+return *pointer;
+```
+
+The assignment target is a storage place, not a read of the missing old value.
+The right-hand side is checked and transferred first, then a successful store
+makes the binding usable again. Ordinary mutability and active-borrow rules
+still apply. Self-assignment of a live mutable owner transfers the value through
+the assignment and leaves the same binding initialized. Assignment is a
+statement and does not yield a second copy of the stored value.
+
 Transferring a move-only record field consumes the whole source binding. V3
 does not leave a partially moved record available through its other fields.
 Any indexed read whose element or map value is move-only remains unsupported,
@@ -62,6 +83,12 @@ through a field projection is not yet observable because V3 has no place-aware
 projection IR; such a lookup is rejected instead of partially moving its
 source. The same boundary rejects nested field access through a move-only
 intermediate.
+
+Dereferencing a unique-pointer field is another place observation, not a whole
+field transfer. Until V3 has place-aware projection IR, `*record.pointer` is
+rejected when the field is a unique pointer; otherwise backend lowering would
+partially move the pointer just to observe its target. Direct `*pointer` and
+fields containing `ptr[shared, T]` remain available.
 
 Forward slices currently create a new `vec[...]` or `seq[...]` by cloning the
 selected elements. Their element type must therefore be clone-safe. Fixed-size
@@ -86,7 +113,9 @@ as moved.
 Value-matching `when` arms use the same equality contract as `==`: selector and
 case values must have the same equality-safe scalar type. Pointer, record, and
 other move-only selectors are rejected rather than being moved by an implicit
-comparison.
+comparison. A `when` without value arms is instead a boolean control gate, so it
+also rejects move-only selectors rather than evaluating and silently moving an
+unused owner.
 
 Loop bodies are lexical scopes that execute once per iteration. A move-only
 binding declared outside a repeating loop cannot be transferred from the loop
@@ -102,6 +131,11 @@ reserved until the registration scope exits and the selected deferred work has
 run. A later transfer in the same scope is rejected with both the transfer and
 deferred-use locations. If the deferred block belongs to a nested scope, the
 reservation ends with that nested scope.
+
+Reinitializing an already-moved binding inside `dfr` or `edf` is rejected in
+V3. The assignment runs only at scope exit, so applying its ownership effect
+when the deferred body is registered would unsafely expose the binding before
+the new value exists.
 
 ## Recursive owned data
 
@@ -167,13 +201,14 @@ return owner.value;
 ```
 
 `!view` gives a borrow back before scope exit. A returned borrow cannot be used
-again:
+again; attempting to read `view` afterward reports `O2004` with the give-back
+site as related information:
 
 ```fol
 var[bor] view: Node = owner;
 var value: int = view.value;
 !view;
-return owner.value;
+return view.value;
 ```
 
 The `!` prefix is give-back only. It is not deletion or manual memory free.

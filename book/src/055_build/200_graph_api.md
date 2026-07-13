@@ -45,14 +45,39 @@ Optional fields: `fol_model`, `target`, `optimize`.
 `root` is the path to the entry-point `.fol` source file relative to the
 package root.
 
-`fol_model` selects the runtime capability tier for the artifact:
+The resolved root must be a real source file contained by that package. The
+frontend canonicalizes the path before checking containment, so neither `..`
+nor a symlink may make an artifact root escape the package.
+
+For an artifact-targeted build, the directory containing `root` is the source
+scope: FOL recursively parses that directory and checks every source in it
+under the artifact's `fol_model`. A package may declare both `core` and `memo`
+artifacts only when their source scopes are disjoint. The scopes overlap, and
+the graph is rejected, when they are the same directory or one contains the
+other. Put different-model artifacts in sibling directories or separate
+package members; do not put `core.fol` and `memo.fol` beside each other in one
+recursively parsed source directory.
+
+Package-wide commands that require one capability model reject mixed-model
+packages. Use an exact artifact or named build step when targeting one of the
+disjoint scopes.
+
+`fol_model` selects one of the two runtime capability modes for the artifact:
 
 - `core`
   no heap, no OS/runtime services
 - `memo`
   heap-backed facilities, still no OS/runtime services
-- `std`
-  hosted/runtime services on top of `memo`
+
+Bundled `std` is not a third `fol_model`. A `memo` artifact reaches the hosted
+tier only when the package explicitly declares the bundled internal dependency:
+
+```fol
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+Source code reaches that dependency through its declared alias, for example
+`use std: pkg = {"std"};`.
 
 The recommended style is to spell `fol_model` explicitly on every artifact so
 the capability contract is visible in `build.fol`.
@@ -65,7 +90,8 @@ The important boundary is semantic and runtime-facing:
   `dfr`
 - `memo` artifacts may use heap-backed runtime types but not hosted services
 - bundled `std` wrappers require an explicit internal `standard` dependency
-- hosted `run` / `test` are not tied to bundled std presence
+- hosted wrappers, processor features, and host-executed `run` / `test` routes
+  require `fol_model = "memo"` plus that explicit bundled `std` dependency
 
 Current implementation note:
 
@@ -81,6 +107,7 @@ Mixed-model example:
 pro[] build(): non = {
     var build = .build();
     build.meta({ name = "workspace_tools", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
     var graph = build.graph();
     var corelib = graph.add_static_lib({
         name = "corelib",
@@ -102,6 +129,11 @@ pro[] build(): non = {
     graph.add_run(tool);
 };
 ```
+
+The separate `core/`, `memo/`, and `app/` directories above are semantic, not
+just organizational: they keep the recursively parsed artifact scopes
+disjoint. Moving those roots into the same directory would make the `core` and
+`memo` contracts overlap and the frontend would reject the targeted build.
 
 ### `graph.add_static_lib`
 

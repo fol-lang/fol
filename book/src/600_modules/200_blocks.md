@@ -117,8 +117,8 @@ For source layout, the mental model is:
 - `use` imports packages or namespaces
 - `hid` keeps a declaration private to one file
 - `loc` imports a local directory tree without a package control file
-- `std` imports a toolchain-owned directory tree
 - `pkg` imports a formal external package defined by `build.fol`
+- bundled std is declared as an internal dependency and imported through `pkg`
 
 This means FOL is **not** "one file = one module".
 The package is the folder; the file is a source unit inside that package.
@@ -128,8 +128,6 @@ The package is the folder; the file is a source unit inside that package.
 When a directory is treated as a package root, the exact contract depends on the import kind:
 
 - `loc`: plain local directory import, no package metadata required
-- `loc`: plain local directory import, no package control file required
-- `std`: toolchain standard-library directory import
 - `pkg`: installed external package import with explicit root files
 
 For `pkg`, the root is not just "a folder containing `.fol` files".

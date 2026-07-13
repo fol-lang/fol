@@ -23,6 +23,13 @@ other unique heap-owned values, and are freed when their owner leaves scope.
 `*pointer` dereferences once to the `T` pointee. A unique pointer binding
 declared with `var[mut]` supports write-through assignment.
 
+Direct unique-pointer bindings can be dereferenced, but a unique pointer reached
+through a record field cannot be dereferenced in V3. That observation needs a
+place-aware field projection in lowering; treating the field as an ordinary
+value would partially move the pointer merely to read its pointee. Keep the
+unique pointer in a direct binding, or use `ptr[shared, T]` when a read-only
+pointer field is the intended shape.
+
 ## Shared pointers
 
 `ptr[shared, T]` is a reference-counted shared pointer:

@@ -26,6 +26,9 @@ fun[] main(): int = {
 
 A bare spawn must be infallible. Spawning a routine declared with `/ ErrorType`
 without awaiting it is rejected because the error would otherwise disappear.
+The call form must resolve directly to a named routine declaration; stored
+routine values and routine parameters are not spawn targets in `V3`. The
+explicit zero-parameter anonymous spawn form remains available for captures.
 
 The spawn boundary follows the `V3` memory rules:
 
@@ -41,14 +44,8 @@ The spawn boundary follows the `V3` memory rules:
 
 Cross-thread shared mutation belongs to `[mux]` parameters, not `Rc`.
 
-Current implementation examples:
-
-- `examples/proc_spawn_m1`
-- `examples/proc_spawn_move_heap_m1`
-- `examples/fail_proc_spawn_in_memo_m1`
-- `examples/fail_proc_spawn_rc_cross_m1`
-- `examples/fail_proc_spawn_recoverable_m1`
-- `examples/fail_proc_spawn_heap_use_after_move_m1`
+The exact positive and negative spawn examples are maintained in the
+[canonical shipped processor inventory](./_index.md#shipped-example-inventory).
 
 ## Channels
 
@@ -93,13 +90,9 @@ Spawned anonymous routines can clone a transmitter explicitly with
 `[>]fun()[c[tx]] = { ... }`. Receiver endpoints are not cloned: MPSC retains a
 single consuming side.
 
-Current examples:
-
-- `examples/proc_channel_m2`
-- `examples/proc_channel_pull_m2`
-- `examples/proc_channel_capture_m2`
-- `examples/fail_proc_channel_index_m2`
-- `examples/fail_proc_channel_in_core_m2`
+The exact positive, ownership-boundary, lifecycle, and tier-failure channel
+examples are maintained in the
+[canonical shipped processor inventory](./_index.md#shipped-example-inventory).
 
 ## Select
 
@@ -107,9 +100,9 @@ The chosen multiplexing form is a multi-arm statement:
 
 ```fol
 select {
-    when first[rx] as value { consume(value); }
-    when second[rx] as value { consume(value); }
-}
+    when first as value { consume(value); }
+    when second as value { consume(value); }
+};
 ```
 
 The old single-channel `select(channel as name) { ... }` form is not retained.
@@ -138,6 +131,12 @@ released automatically at the end of the lexical scope that acquired it, or
 early with `.unlock()` in that same scope. The historical `((name))` parameter
 spelling is not retained.
 
+Mutex field access and `.lock()`/`.unlock()` are not allowed inside `dfr` or
+`edf` bodies in `V3`. Guard transitions are tracked for immediate lexical
+execution and are not replayed as delayed effects at scope exit. Forwarding a
+mutex handle from a deferred body to another `[mux]` routine is rejected for
+the same reason.
+
 The guarded `T` cannot be copied, returned, embedded, or passed to an ordinary
 `T` parameter as a whole value. Passing the mutex handle directly to another
 `[mux]` parameter is allowed, including through spawn; data access still
@@ -150,8 +149,6 @@ declare `[mux]` parameters. Those routine-value forms do not yet retain the
 mutex ABI metadata needed to preserve `Arc<Mutex<T>>`; use a named direct call
 instead.
 
-Current examples:
-
-- `examples/proc_select_m3`
-- `examples/proc_mutex_m3`
-- `examples/proc_mutex_explicit_unlock_m3`
+The exact positive, removed-syntax, deferred-effect, and tier-failure examples
+for `select` and mutexes are maintained in the
+[canonical shipped processor inventory](./_index.md#shipped-example-inventory).

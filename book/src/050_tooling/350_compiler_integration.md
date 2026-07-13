@@ -126,12 +126,36 @@ When you add a new language feature, ask these questions in order:
 1. Does the lexer need new tokens or token families?
 2. Does the parser need new syntax or AST nodes?
 3. Does resolver or typechecker logic need new meaning?
-4. Does the feature introduce or change diagnostics?
-5. Does the LSP need hover, completion, definition, or symbol updates?
-6. Does Tree-sitter need grammar, query, or corpus updates?
-7. Can any new editor-visible facts be generated from compiler-owned sources?
+4. Do lowering, runtime, or backend transfer/execution rules change?
+5. Does frontend artifact routing or capability evaluation change?
+6. Does the feature introduce or change diagnostics and explanations?
+7. Does the formatter or a public `fol tool` inspection command need an update?
+8. Does the LSP need hover, completion, definition, symbols, tokens, positions,
+   or artifact-scope updates?
+9. Does Tree-sitter need grammar, query, or executable corpus updates?
+10. Can any new editor-visible facts be generated from compiler-owned sources?
+11. Do canonical positive/failure inventories, docs, or book claims change?
 
 If the answer to any of those is yes, update that layer in the same change set.
+
+## End-To-End Feature Completeness
+
+Compiler-backed editor analysis prevents semantic duplication, but it does not
+make the other mirrors automatic. A shipped feature is complete only when its
+meaning survives:
+
+- lowering and runtime/backend execution
+- frontend artifact selection and capability routing
+- structured CLI diagnostics, explanations, and LSP adaptation
+- whole-document formatting and public parse/highlight/symbol commands
+- explicit LSP UX such as completion, tokens, navigation, and position mapping
+- Tree-sitter grammar, highlight/locals/symbol queries, and executable corpus
+- canonical positive/failure examples, integration tests, docs, and the book
+
+For V3 specifically, this rule covers every ownership, borrow, pointer, `dfr` /
+`edf`, spawn, channel, `select`, `[mux]`, async, and await boundary. Reusing the
+typechecker is necessary, but it is not permission to skip an explicit syntax,
+tooling, inventory, or documentation audit.
 
 ## Current Practical Rule
 

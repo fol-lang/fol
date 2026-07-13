@@ -23,8 +23,12 @@ Finalized design contract:
 - source code should reach bundled std through the dependency system with `pkg`
   imports, for example:
   - `use std: pkg = {"std"};`
-- `graph.add_run(...)` is independent of std-library presence
-- runnable `core` and `memo` examples do not need bundled std at all
+- `graph.add_run(...)` may declare a run target independently of std-library
+  presence
+- building or checking an executable `core` or unhosted `memo` artifact does
+  not require bundled std
+- executing a run or test target on the host does require a `memo` artifact
+  plus the explicit bundled `standard` dependency
 
 Normal build usage:
 
@@ -107,7 +111,9 @@ Current rule:
 
 - `.echo(...)` remains the low-level hosted substrate
 - `std.io` is the first bundled public wrapper over that substrate
-- runnable artifacts still do not need bundled std unless they actually import it
+- executable artifacts can still be built without bundled std, but routed
+  `run` / `test` host execution requires the explicit bundled dependency even
+  when source code does not import a `std` module
 
 That keeps the first shipped std honest:
 
@@ -118,13 +124,15 @@ That keeps the first shipped std honest:
 
 Canonical bootstrap example packages:
 
-- `examples/core_run_min`
-- `examples/memo_run_min`
-- `examples/std_bundled_fmt`
-- `examples/std_bundled_io`
-- `examples/std_explicit_pkg`
-- `examples/std_alias_pkg`
-- `examples/std_substrate_echo`
+- buildable unhosted executable artifacts:
+  - `examples/core_run_min`
+  - `examples/memo_run_min`
+- bundled-std consumers:
+  - `examples/std_bundled_fmt`
+  - `examples/std_bundled_io`
+  - `examples/std_explicit_pkg`
+  - `examples/std_alias_pkg`
+  - `examples/std_substrate_echo`
 
 Current shipped public routines:
 

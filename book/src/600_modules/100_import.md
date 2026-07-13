@@ -9,7 +9,8 @@ use alias: source_kind = {"source"}
 
 Current source kinds are:
 - `loc` for local directory imports
-- `pkg` for installed external packages
+- `pkg` for formal dependency packages, including installed/fetched packages
+  and a declared bundled-standard alias
 
 ## What `use` imports
 
@@ -44,15 +45,16 @@ Also note:
 - it points to a local directory
 - that directory is scanned as a FOL package / namespace tree
 - no `build.fol` is required
-- no `build.fol` is required
 
 This makes `loc` useful for local workspace code, experiments, and monorepo-style sharing.
 
 ### `pkg`
 
-`pkg` is for formal external packages.
+`pkg` is for formal dependency packages. The dependency may come from an
+installed/fetched external package or from the explicitly declared internal
+`standard` target; source syntax does not gain a separate `std` source kind.
 
-Unlike `loc` and `std`, a `pkg` import does not just point at an arbitrary source directory.
+Unlike `loc`, a `pkg` import does not just point at an arbitrary source directory.
 It points at an installed package root that must define its identity and build surface explicitly.
 The package layer discovers that root first, and ordinary name resolution happens only after the package has been prepared.
 
@@ -162,7 +164,7 @@ If `space` contains multiple `.fol` files in the same folder, they still belong 
 But if the target directory already defines `build.fol` at its root, that directory is treated as a formal package root and should be imported through `pkg`, not `loc`.
 
 ## External packages
-External packages are imported through `pkg`:
+External packages are imported through their declared `pkg` dependency alias:
 
 ```
 use space: pkg = {"space"};

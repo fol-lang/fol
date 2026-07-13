@@ -103,6 +103,8 @@ written as `~var`, but `~` is never accepted inside the option brackets.
 |  mut   | ~ |   flag    | making a variable mutable                         | mutability    |
 |  imu   |   |   flag    | making a variable imutable (default)              |               |
 |  sta   | ! |   flag    | making a variable a static                        |               |
+|  new   | @ |   flag    | allocating a uniquely owned heap value            | ownership     |
+|  bor   |   |   flag    | declaring a lexical borrow binding                | ownership     |
 |  rac   | ? |   flag    | making a variable reactive                        |               |
 ----------------------------------------------------------------------------------------------
 |  exp   | + |   flag    | making a global variable exported                 | visibility    |

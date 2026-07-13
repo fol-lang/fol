@@ -32,8 +32,10 @@ Use `work` for:
 Scaffold reminder:
 
 - `fol work init --bin` creates a hosted binary package with `fol_model = "memo"`
-- scaffolded packages rely on bundled `std` automatically
-- scaffolded packages do not add `std` as an explicit dependency
+- the generated `build.fol` explicitly declares bundled `std` through
+  `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
+- source code that uses bundled-library names imports that declared alias with
+  `use std: pkg = {"std"};`
 
 ## Pack
 
@@ -163,6 +165,43 @@ Use `tool` for:
 - Tree-sitter debugging
 - LSP serving
 - generated tool assets
+
+### Parse And Query Results
+
+`parse`, `highlight`, and `symbols` execute the checked-in generated FOL
+Tree-sitter parser in-process. They do not estimate results from source text or
+report the contents of query files as if those were matches.
+
+`fol tool parse <PATH>` reports:
+
+- `parse_status=ok` for a tree with no `ERROR` or missing nodes, otherwise
+  `parse_status=ERROR`
+- root kind plus total and named node counts
+- exact `error_count` and `missing_count` values
+- one zero-based source range and escaped source excerpt for every error or
+  missing node
+- the real Tree-sitter S-expression as `syntax_tree=...`
+
+The command is error-tolerant: a source file with invalid syntax still produces
+its recovered tree and exits through the normal command-result path. For
+example, the removed `select(channel as value) { ... }` form reports an
+`ERROR` node rather than being accepted as a second select grammar.
+
+`fol tool highlight <PATH>` runs `queries/fol/highlights.scm` against that tree
+and reports the actual capture count, capture kinds, and every capture as:
+
+```text
+capture=<name>@<start-row>:<start-column>-<end-row>:<end-column>:<text>
+```
+
+`fol tool symbols <PATH>` runs `queries/fol/symbols.scm`, reports the actual
+symbol and scope counts, and reports each non-scope capture in the equivalent
+`symbol=<name>@...:<text>` form. Rows and columns are zero-based. Backslashes,
+tabs, carriage returns, and newlines in excerpts are escaped.
+
+These three normal commands need no external `tree-sitter` executable. The
+external CLI is required only by `fol tool tree generate`, which regenerates an
+exportable parser bundle.
 
 The public editor surface stays under `fol tool ...`.
 There is no parallel `fol editor ...` command group.

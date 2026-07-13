@@ -14,7 +14,8 @@ Current boundary:
 - the `axi[...]` axiom container and `.add(...)` mutation shown later are not
   implemented; they are later design work, not current behavior
 - the `set[...]` tuple-member form typechecks, but only single-member sets are
-  executable today (backend boundary)
+  executable today; those homogeneous runtime sets support `.len(...)`,
+  deterministic positional lookup, and ordinary iteration
 
 Containers are of compound types. They contain other primitive or constructed types. To access the types in container those brackets are used: `[]`, so:
 ```

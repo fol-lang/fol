@@ -340,16 +340,30 @@ Current landed subset note:
 
 ### `V3`
 
-This is later systems/runtime work.
+This is the current shipped systems/runtime milestone. It has two complete
+pillars:
 
-Examples already marked as V3-oriented in the book:
+- memory: ownership, lexical borrowing, typed unique/shared pointers, and
+  ownership-aware `dfr` / `edf`
+- processor: OS-thread spawn, channels, `select`, `[mux]`, and internal
+  eventuals through `| async` / `| await`
 
-- ownership
-- borrowing
-- pointers
-- async/eventuals
-- coroutines/channels/mutex-style processor work
-- richer ownership-aware `dfr`
+Current deliberate V3 boundaries include:
+
+- dereferencing a unique pointer reached through a record field is rejected
+  until lowering has place-aware projection IR
+- a moved owner cannot be reinitialized inside `dfr` or `edf`, because the
+  delayed assignment has not happened when the deferred body is registered
+- spawn and async task calls must target direct named routine declarations;
+  stored routine values and routine parameters are not indirect task targets
+- deferred bodies cannot access mutex fields, call `.lock()` / `.unlock()`, or
+  forward a mutex handle to another `[mux]` routine
+
+V3 work is incomplete unless the whole shipped surface is synchronized across
+compiler semantics, lowering, runtime/backend, frontend routing, diagnostics,
+LSP, tree-sitter grammar/queries/corpus, examples, tests, docs, and the book.
+The editor must reuse compiler truth for semantic behavior, but its explicit
+syntax, completion, token, inventory, and UX mirrors still have to be audited.
 
 References:
 

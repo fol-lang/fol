@@ -88,4 +88,4 @@
   - [Pointers](./800_memory/200_pointers.md)
 - [Concurrency And Processing](./900_processor/_index.md)
   - [Eventuals](./900_processor/100_eventuals.md)
-  - [Coroutines](./900_processor/200_corutines.md)
+  - [Tasks, Channels, and Mutexes](./900_processor/200_corutines.md)

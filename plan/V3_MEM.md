@@ -1,12 +1,18 @@
 # V3 Memory Pillar Plan
 
+> **Status: complete.** This file is retained as the implementation record for
+> the shipped V3 memory pillar. The current user-facing contract lives in the
+> linked book chapters and the V3 section of `plan/VERSIONS.md`; present-tense
+> planning language below describes the work as it was staged, not unfinished
+> current behavior.
+
 The V2 Deepening plan is complete. V3 is the systems-semantics release, and it
 is split into two pillars that land in order:
 
 - the **memory pillar** (this plan): ownership, borrowing, pointers, and
   ownership-aware `dfr`/`edf`
-- the **processor pillar** (`plan/V3_PROC.md`): coroutines, channels, mutex, and
-  eventuals
+- the **processor pillar** (`plan/V3_PROC.md`): OS-thread tasks, channels,
+  mutexes, and eventuals
 
 This plan covers the memory pillar only. The theme is:
 
@@ -17,7 +23,9 @@ This plan covers the memory pillar only. The theme is:
   discipline in typecheck, never a dataflow/NLL solver
 - heap allocation stays gated behind `memo`+, exactly like the existing `str` /
   `vec` heap gates
-- every feature change is mirrored in the LSP and the tree-sitter grammar in the
+- every feature change is mirrored through frontend capability routing,
+  structured diagnostics and explanations, formatter/tool commands, the LSP,
+  tree-sitter grammar/queries/corpus, examples, tests, docs, and the book in the
   **same** change set, never later
 - the memory pillar completes fully (M1 -> M2 -> M3) **before** the processor
   pillar starts; the processor pillar consumes the move-at-boundary rule and the
@@ -76,11 +84,13 @@ field survives but is retriggered exclusively by the explicit
 `name[bor]: T` parameter syntax introduced in Workstream S.
 
 
-# 2. Current Truth Snapshot
+# 2. Pre-Implementation Truth Snapshot (Historical)
 
-Verified against the code at repo head.
+This was the verified baseline before the memory pillar landed. It is preserved
+to explain the workstream decisions and must not be read as current compiler
+behavior.
 
-Parsed today, semantically rejected (the current "deferred" memory surface):
+Parsed at that baseline, but semantically rejected:
 
 - `ptr[T]` parses to `FolType::Pointer { target }` — **exactly one** type
   argument, and the AST node carries **no qualifier**
@@ -94,27 +104,28 @@ Parsed today, semantically rejected (the current "deferred" memory surface):
   binding options parse (`binding_option_parsers.rs:38,39,31`). Typecheck rejects
   `[bor]` at `decls.rs:3466`, `[new]`/heap at `decls.rs:3471`, borrowable params
   at `decls.rs:3455`, mutex params at `decls.rs:3453`.
-- `~var` prefix parses to `VarOption::Mutable`; `var[~]` **also** parses to
-  Mutable today (`binding_option_parsers.rs:31`) — the charter kills the second
-  spelling.
-- `ALL_CAPS` parameter names set `Parameter.is_borrowable = true` today
-  (`routine_header_parsers.rs:125` et al., `types.rs:252`).
+- `~var` prefix parsed to `VarOption::Mutable`; `var[~]` **also** parsed to
+  Mutable at that baseline (`binding_option_parsers.rs:31`) — the charter kills
+  the second spelling.
+- `ALL_CAPS` parameter names set `Parameter.is_borrowable = true` at that
+  baseline (`routine_header_parsers.rs:125` et al., `types.rs:252`).
 
-Does **not** parse today — real grammar work is required:
+Did **not** parse at that baseline — real grammar work was required:
 
 - `@` in **type** position (`opt @Node`) — `special_type_parsers.rs` has no `@`
   type handler.
 - `#x` borrow-from prefix sugar — `#`/`Hash` maps to no unary operator.
-- `!x` give-back prefix — `!`/`Bang` is currently the `[!]` static-var sigil and
+- `!x` give-back prefix — `!`/`Bang` was the `[!]` static-var sigil and
   the postfix `x!` unwrap (`UnaryOperator::Unwrap`,
   `postfix_expression_parsers.rs:162`); there is **no** give-back operator, and
   the prefix `!` slot collides with the static-var meaning.
-- `ptr[shared, T]` / `ptr[raw, T]` — `ptr[...]` accepts exactly one arg today.
+- `ptr[shared, T]` / `ptr[raw, T]` — `ptr[...]` accepted exactly one argument at
+  that baseline.
 - `name[options]: type` parameter-option grammar (needed for `name[bor]:` and,
   in the processor pillar, `name[mux]:`) — parameters do not parse an option
   bracket list.
 
-Recursive types are **rejected wholesale** today
+Recursive types were **rejected wholesale** at that baseline
 (`reject_recursive_type_definition`, `fol-typecheck/src/decls.rs:2527`), because
 the lowered layer is purely structural: `LoweredType`
 (`fol-lower/src/types.rs:22`) has **no named/nominal variant** — `Record` inlines
@@ -127,7 +138,7 @@ Lexer facts touched by prep:
   (`fol-lexer/src/token/buildin/mod.rs:11`); `go` is reserved but unused.
 
 Diagnostics: `family_for_code` (`fol-diagnostics/src/explain.rs:31`) maps a
-code's first byte to a family; `O` currently falls through to the generic
+code's first byte to a family; `O` fell through to the generic
 `ERROR` family. The registry-honesty test
 `every_registered_code_has_a_recognized_family_prefix`
 (`explain.rs`) fails the moment an `O####` code is registered without an `O`
@@ -144,9 +155,11 @@ This plan is complete when all of the following are true:
 1. Prep (Q) has landed: `defer` is spelled `dfr` everywhere, `go` is removed,
    the sigil charter is enforced, the `ALL_CAPS` borrowable hook is gone, and the
    `O####` OWNERSHIP diagnostic family exists end to end.
-2. M1 (R), M2 (S), and M3 (T) are each implemented end to end — parser,
-   resolver, typecheck, lowering, backend, LSP, tree-sitter, positive and
-   `fail_*` examples, and docs — and each landed workspace-green.
+2. M1 (R), M2 (S), and M3 (T) are each implemented end to end — lexer/parser,
+   resolver, typecheck, lowering, runtime/backend, frontend routing,
+   diagnostics/explanations, formatter/tool commands, LSP, tree-sitter
+   grammar/queries/corpus, positive and `fail_*` inventories, docs, and the book
+   — and each landed workspace-green.
 3. No "planned for a future release" rejection remains in the compiler for a
    memory surface this plan has chosen to build; each such site is either
    deleted or replaced with an honest permanent boundary message (raw pointers,
@@ -369,8 +382,10 @@ Editor / tree-sitter for R:
 Examples:
 
 - positive: `examples/mem_linked_list_m1` — build a linked list of `@Node`,
-  traverse, and let it free at scope end
-- positive: `examples/mem_tree_m1` — a binary tree with two `opt @Node` children
+  consume its next edge during traversal without cloning ownership, and let it
+  free at scope end
+- positive: `examples/mem_tree_m1` — build a binary tree with two `opt @Node`
+  children, then consume one child edge without duplicating either owner
 - positive: `examples/mem_move_stack_vs_heap_m1` — a stack value cloned, a heap
   value moved, both observable
 - negative: `examples/fail_mem_use_after_move_m1` — read a heap binding after it
@@ -538,7 +553,8 @@ Work:
 
 - parser: extend `ptr[...]` (`special_type_parsers.rs:183`) to accept an optional
   leading qualifier (`shared` / `raw`) plus the element type, i.e. one or two
-  arguments; today it accepts exactly one and errors otherwise
+  arguments; at the planning baseline it accepted exactly one and errored
+  otherwise
 - AST: give `FolType::Pointer` a qualifier enum (`Unique` / `Shared` / `Raw`)
   alongside `target` (`ast/types.rs:134`)
 - typecheck: delete the pointer-type rejection (`decls.rs:3288`) for `Unique` and
@@ -557,8 +573,9 @@ Work:
   type `&x` as `ptr[T]` over `x`'s type; type `*p` as the pointee, usable as an
   lvalue for write-through
 - shared deref: the book's double-deref (`*(*pointerPoint)`) is **simplified** —
-  propose the cleaner rule that a single `*p` on a `ptr[shared, T]` yields `T`
-  directly (the refcount indirection is invisible), and mark the book edit in U
+  the shipped rule is that a single `*p` on a `ptr[shared, T]` yields `T`
+  directly (the refcount indirection is invisible), as recorded by the book
+  edit in U
 - lowering/backend: `&x` emits a reference/`Box::new` per qualifier; `*p` emits a
   deref; shared deref emits an `Rc` deref
 
@@ -623,10 +640,10 @@ Tracked slices:
 
 # 8. Workstream U: Book Updates Required (Memory Pillar)
 
-The V3 memory chapters are future-design sketches that contradict the decisions
-above in many places. This workstream rewrites them to match, in the same change
-set as the milestone that owns each fact. Nothing here is optional prose polish;
-these are honesty fixes.
+At planning time the V3 memory chapters were future-design sketches that
+contradicted the decisions above in many places. This workstream rewrote them to
+match in the same change set as the milestone that owned each fact. Nothing here
+was optional prose polish; these were honesty fixes.
 
 Contradictions to fix (chapter -> exact edit):
 
@@ -680,7 +697,7 @@ Tracked slices:
 - [x] U5. Remove the `ALL_CAPS`-borrowable convention from the book.
 
 
-# 9. Workstream V: Editor and Tree-Sitter Hardening (Cross-Cutting)
+# 9. Workstream V: Tooling and Editor Hardening (Cross-Cutting)
 
 This is not a phase after Q through U. It runs **in the same change set** as each
 workstream above.
@@ -696,6 +713,15 @@ Per-feature editor requirements:
 - tree-sitter parse test: each removed/dead surface (`defer`, `go`, `var[~]`,
   the `ALL_CAPS` borrowable convention, `ptr[raw,...]` as a V3 surface) is not
   silently accepted
+- formatter test: every positive memory example remains idempotent and
+  compiler-analyzable after formatting; comments and raw strings containing
+  memory sigils do not affect structural formatting
+- tool-command test: `fol tool parse`, `highlight`, and `symbols` execute the
+  generated parser and shipped queries rather than approximating V3 syntax
+- inventory test: the canonical positive/failure matrix stays identical to the
+  checked-in `mem_*` and `fail_mem_*` package directories
+- capability-routing test: direct and routed editor/frontend analysis use the
+  evaluated artifact model and preserve the `core` allocation boundary
 
 Primary files:
 
@@ -706,6 +732,9 @@ Primary files:
 - `lang/tooling/fol-editor/src/tree_sitter.rs`
 - `lang/tooling/fol-editor/src/lsp/tests/example_models.rs`
 - `lang/tooling/fol-editor/src/lsp/tests/navigation.rs`
+- `lang/tooling/fol-frontend/src/`
+- `lang/compiler/fol-diagnostics/src/`
+- `test/v3_example_inventory.rs`
 - any fixtures under `lang/tooling/fol-editor/tests/`
 
 Tracked slices:
@@ -768,14 +797,15 @@ The memory pillar is complete only when:
 - prep (Q) has fully landed: `dfr` everywhere, no `go`, sigil charter enforced,
   no `ALL_CAPS` borrowable hook, `O####` OWNERSHIP family live end to end
 - M1 (R), M2 (S), and M3 (T) each ship end to end in parser, resolver,
-  typecheck, lowering, backend, LSP, tree-sitter, docs, and examples, and each
-  landed workspace-green
+  typecheck, lowering, runtime/backend, frontend routing, structured
+  diagnostics, formatter/tool commands, LSP, tree-sitter grammar/queries/corpus,
+  docs, book, and canonical examples, and each landed workspace-green
 - no "planned for a future release" message in the compiler refers to a memory
   surface the project has chosen to build; raw pointers and weak refs are the
   only memory surfaces left with an honest permanent boundary message
 - the linked-list and tree examples build, run, and free correctly with no leaks
-  (verified in the emitted Rust), and every `fail_*` example rejects with the
-  specified diagnostic
+  or hidden ownership clones (verified in the emitted Rust), and every `fail_*`
+  example rejects with the specified diagnostic
 - the V3 memory chapters (`100_ownership.md`, `200_pointers.md`, `250_dfr.md`)
   describe the resulting language exactly, with no leftover pre-rewrite wording
 - the project can honestly say: "V3 memory is compile-time-only ownership,

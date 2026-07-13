@@ -30,8 +30,10 @@ the active parser/package/resolver/typecheck/lower/backend chain:
 - JSON diagnostics preserve the same structured information with labels, notes,
   helps, and stable producer-owned diagnostic codes
 - the parser recovers after failed declarations instead of cascading errors
-- duplicate diagnostics on the same line are suppressed, with a hard cap at 50
-- LSP diagnostics are deduplicated by line and code before reaching the editor
+- exact consecutive diagnostic duplicates are suppressed in compiler reports,
+  with a hard cap at 50
+- LSP publishing removes only exact wire-identical duplicates; diagnostics that
+  merely share a line and code remain distinct
 
 The exact wording of messages is still implementation detail, but the current
 compiler contract is that locations, codes, and structured diagnostic shape are

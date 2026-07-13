@@ -57,7 +57,33 @@ Recommended style:
 - omit `fol_model` when the artifact is meant to take the default `memo`
 - treat `core` and `memo` as capability choices
 - treat bundled `std` as a declared internal dependency, not as a third model
-- treat `graph.add_run(...)` as independent from std-library presence
+- `graph.add_run(...)` may declare a run step without bundled `std`, but
+  actually executing that step through `fol code run` / `fol code test` is a
+  hosted operation and requires the explicit bundled dependency
+
+## Artifact source scopes
+
+An artifact's `root` selects both its entry file and its compilation scope.
+For an artifact-targeted build, the frontend:
+
+1. resolves and canonicalizes `root` relative to the package root
+2. requires the resolved root to be a source file inside that package
+3. recursively parses the directory containing that root
+4. checks that whole source directory under the artifact's `fol_model`
+
+The containment check follows the resolved path, so `..` paths and symlinks
+cannot be used to make an artifact root escape its declaring package.
+
+This directory-scoped compilation is also the mixed-model isolation boundary.
+Artifacts declared with different public models (`core` versus `memo`) must
+use disjoint source directories. Two scopes overlap when they are the same
+directory or when either directory contains the other; the frontend rejects
+that graph instead of silently checking `core` source as `memo`. Sibling
+directories such as `core/`, `memo/`, and `app/` are the intended layout.
+
+Commands that need to compile an entire package under one model still reject a
+mixed-model package. Select an exact artifact or its named build step, or split
+the artifacts into separate package members.
 
 ## Tiers
 
@@ -191,15 +217,20 @@ use std: pkg = {"std"};
 
 - pick `core` first if the artifact can stay array-only and no-heap
 - move to `memo` when you actually need `str` or dynamic containers
-- add bundled `std` only when the package genuinely needs shipped hosted-library
-  wrappers
+- add bundled `std` only when the package genuinely needs shipped
+  hosted-library wrappers, V3 processor facilities, or routed host execution
 
 The intent is to keep capability growth and dependency growth explicit.
 
-Runnable examples without bundled std:
+Executable-artifact examples that build without bundled std:
 
 - `examples/core_run_min`
 - `examples/memo_run_min`
+
+These examples may declare a graph run target, but their unhosted `core` or
+`memo` tier only permits building and checking the artifact. Routed host
+execution requires a `memo` artifact plus the explicit bundled `standard`
+dependency.
 
 Hosted std examples with explicit bundled dependency:
 
@@ -247,8 +278,9 @@ Direct boundary reminder:
 - a `core` artifact must not declare `str`, `seq`, `vec`, `set`, or `map`
 - a `memo` artifact without the bundled `standard` dependency must not call
   `.echo(...)`
-- a `core` or `memo` artifact may still be runnable without bundled std if it
-  does not import bundled std APIs
+- a `core` or unhosted `memo` artifact may still declare an executable and a
+  graph run target, but `fol code run` / `fol code test` must reject host
+  execution until bundled `standard` is declared on a `memo` package
 
 Transitive boundary reminder:
 

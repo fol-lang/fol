@@ -14,12 +14,15 @@ Current milestone note:
 
 - ordinary procedure declarations are part of `V1`
 - recoverable procedure errors (`Result / Error`) are part of `V1`
-- ownership-, borrowing-, and heap-move-specific calling conventions are later
-  systems-language work
+- ownership-aware transfers, unique heap moves, and explicit `[bor]` parameters
+  are part of the shipped `V3` memory contract
+- `[mux]` parameters and the direct named-routine task boundary are part of the
+  shipped `V3` processor contract
 
-So this chapter describes the routine surface that exists now, while any
-pointer/borrowing examples should be read as future design rather than current
-compiler behavior.
+Pointer and borrowing examples in this chapter therefore describe current V3
+behavior when the artifact's capability mode permits the underlying value.
+Broader indirect task dispatch and future ownership/interop designs remain
+outside that shipped surface.
 
 Procedures can also declare a custom recoverable error type with `/` after the result type:
 
@@ -72,5 +75,4 @@ The authoritative version split is:
 Borrow give-back uses the `!borrow` prefix. Ownership behavior never depends on
 identifier casing, and there is no alternate parenthesized parameter grammar.
 
-See the memory chapters and [VERSIONS.md](../../../VERSIONS.md) for the version
-boundary.
+See the memory chapters and `plan/VERSIONS.md` for the version boundary.

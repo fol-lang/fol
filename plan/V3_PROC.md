@@ -1,20 +1,30 @@
 # V3 Processor Pillar Plan
 
+> **Status: complete.** This file is retained as the implementation record for
+> the shipped V3 processor pillar. The current user-facing contract lives in the
+> linked book chapters and `plan/VERSIONS.md`. The exact checked-in processor
+> examples are maintained in the
+> [canonical shipped inventory](../book/src/900_processor/_index.md#shipped-example-inventory).
+> Present-tense planning language below describes the original staging work,
+> not unfinished current behavior.
+
 V3 is the systems-semantics release, split into two pillars. The **memory
 pillar** (`plan/V3_MEM.md`) lands first. This plan covers the **processor
-pillar**: coroutines/spawn, channels, mutex, and eventuals.
+pillar**: OS-thread task spawning, channels, mutexes, and eventuals.
 
 The theme is:
 
 - the **entire** processor surface is **`std`-only**; `core` and `memo` reject it
-  with tier diagnostics exactly like `.echo(...)` today
+  with tier diagnostics that follow the existing `.echo(...)` gate
 - concurrency is real OS threads through the Rust standard library — **no** Rust
   async/futures/tokio, so FOL never grows colored functions or a runtime
   dependency
 - the spawn boundary reuses the memory pillar's static move/clone rule: stack
   clones, `@` moves, `Rc` never crosses
 - program exit **joins** all outstanding tasks
-- every feature change is mirrored in the LSP and the tree-sitter grammar in the
+- every feature change is mirrored through frontend capability routing,
+  structured diagnostics and explanations, formatter/tool commands, the LSP,
+  tree-sitter grammar/queries/corpus, examples, tests, docs, and the book in the
   **same** change set, never later
 
 The book chapters this plan implements — and heavily rewrites — are:
@@ -61,12 +71,13 @@ Dependency on the memory pillar (`plan/V3_MEM.md`):
 - keyword hygiene from prep (Q1/Q2) is assumed: `dfr` spelling, no `go`
 
 
-# 2. Current Truth Snapshot
+# 2. Pre-Implementation Truth Snapshot (Historical)
 
-Verified against the code at repo head.
+This was the verified baseline before the processor pillar landed. It is
+preserved to explain the workstream decisions and must not be read as current
+compiler behavior.
 
-Parses today, semantically rejected (the current "deferred" concurrency
-surface):
+Parsed at that baseline, but was semantically rejected:
 
 - `[>]expr` spawn parses to `AstNode::Spawn { task }`
   (`primary_expression_parsers.rs:167`, `ast/node.rs:202`). Typecheck rejects it
@@ -86,18 +97,19 @@ surface):
   body }` (`statement_parsers.rs:4`) — a **single-channel header** form, **not**
   a multi-arm `when`-branch form. Typecheck rejects channel `when`/`on` branches
   at `exprs/controlflow.rs:54` and select/channel semantics at `exprs/mod.rs:615`.
-- mutex parameters use the `((name))` **double-paren** form today, which sets
-  `Parameter.is_mutex = true` (`routine_header_parsers.rs:56`, `ast/types.rs:253`).
+- mutex parameters used the `((name))` **double-paren** form at that baseline,
+  which set `Parameter.is_mutex = true`
+  (`routine_header_parsers.rs:56`, `ast/types.rs:253`).
   Typecheck rejects mutex params at `decls.rs:3453`.
 
-Does **not** parse today — real grammar work is required:
+Did **not** parse at that baseline — real grammar work was required:
 
 - `select { when c1 as x { ... } when c2 as y { ... } }` multi-arm select — the
-  current `select(...)` is a single-channel header, so the multiplexing form is
-  new grammar; the single-channel `select(...)` form is **dead** and is removed.
-- `name[mux]: T` mutex parameter — parameters do not parse the option bracket
-  today; this reuses the memory pillar's Q5 seam, and the `((name))` double-paren
-  form is **dead** and is removed.
+  baseline `select(...)` was a single-channel header, so the multiplexing form
+  is new grammar; the single-channel `select(...)` form is **dead** and is removed.
+- `name[mux]: T` mutex parameter — parameters did not parse the option bracket
+  at that baseline; this reuses the memory pillar's Q5 seam, and the `((name))`
+  double-paren form is **dead** and is removed.
 - `chn[T, N]` bounded channel — `chn[...]` accepts exactly one arg (future slot,
   not V3).
 
@@ -116,8 +128,10 @@ violations use the existing `std`-gate diagnostic shape (TYPES family), like
 This plan is complete when all of the following are true:
 
 1. P1 (W), P2 (X), P3 (Y), and P4 (Z) are each implemented end to end — parser,
-   resolver, typecheck, lowering, backend, LSP, tree-sitter, positive and
-   `fail_*` examples, and docs — and each landed workspace-green.
+   resolver, typecheck, lowering, runtime/backend, frontend routing,
+   diagnostics/explanations, formatter/tool commands, LSP, tree-sitter
+   grammar/queries/corpus, positive and `fail_*` inventories, docs, and the book
+   — and each landed workspace-green.
 2. The entire processor surface is `std`-only: `core` and `memo` builds reject
    every processor construct with a tier diagnostic, verified by `fail_*`
    examples.
@@ -207,7 +221,8 @@ Editor / tree-sitter for W:
 - LSP diagnostics surface the tier gate, the `Rc`-crossing error, and the
   recoverable-fire-and-forget error at the spawn site
 
-Examples:
+Original milestone seed examples (the complete current matrix is the
+[canonical shipped inventory](../book/src/900_processor/_index.md#shipped-example-inventory)):
 
 - positive: `examples/proc_spawn_m1` — spawn an infallible routine, join at exit
 - positive: `examples/proc_spawn_move_heap_m1` — spawn captures an `@` value by
@@ -219,7 +234,7 @@ Examples:
 - negative: `examples/fail_proc_spawn_recoverable_m1` — fire-and-forget a
   recoverable routine
 
-Docs for W: see Workstream AA (coroutine chapter: `[>]`, worker wording,
+Docs for W: see Workstream AA (task/channel chapter: `[>]`, worker wording,
 join-at-exit, capture rules).
 
 Tracked slices:
@@ -318,7 +333,8 @@ Editor / tree-sitter for X:
 - LSP diagnostics reject `[rx][i]` indexing with a message pointing at the pull
   expression / iteration
 
-Examples:
+Original milestone seed examples (the complete current matrix is the
+[canonical shipped inventory](../book/src/900_processor/_index.md#shipped-example-inventory)):
 
 - positive: `examples/proc_channel_m2` — spawn producers, send via `| c[tx]`,
   drain via `for msg in c[rx]`
@@ -360,17 +376,16 @@ select {
 }
 ```
 
-Reuse the `when`-branch shapes already used elsewhere. Semantics to define
-honestly (propose and mark the open bits):
+Reuse the `when`-branch shapes already used elsewhere. The planning questions
+were resolved by the shipped contract as follows:
 
 - each arm waits on one receiver; the first ready arm runs
 - **closed-channel arm**: an arm whose channel is closed is skipped; when all
   arms are closed, `select` completes
-- **default arm**: propose an optional `*` default arm that runs when no channel
-  is ready (non-blocking select); mark this as an **open design bit** if the
-  first cut ships blocking-only
-- ordering/fairness across simultaneously-ready arms is an **open bit** to
-  specify
+- **default arm**: an optional `*` arm runs immediately when no channel is
+  ready, making that selection non-blocking
+- **ordering/fairness**: ready arms are polled in source order; V3 deliberately
+  promises no fairness beyond that deterministic bias
 
 Work:
 
@@ -418,7 +433,8 @@ Editor / tree-sitter for Y:
 - LSP diagnostics reject the old `select(...)` and `((...))` forms as no longer
   valid syntax
 
-Examples:
+Original milestone seed examples (the complete current matrix is the
+[canonical shipped inventory](../book/src/900_processor/_index.md#shipped-example-inventory)):
 
 - positive: `examples/proc_select_m3` — multiplex two channels
 - positive: `examples/proc_mutex_m3` — spawn workers sharing a `[mux]` value,
@@ -429,6 +445,8 @@ Examples:
 - negative: `examples/fail_proc_mutex_double_paren_m3` — `((x))` no longer parses
 - negative: `examples/fail_proc_mutex_in_memo_m3` — `[mux]` in a `memo` build
   (tier)
+- negative: `examples/fail_proc_mutex_deferred_m3` — deferred mutex field and
+  guard effects remain outside the current lexical guard model
 
 Docs for Y: see Workstream AA (mutex section: `[mux]` not `((x))`; select
 section: `when` arms not `[rx][c]`).
@@ -500,7 +518,8 @@ Editor / tree-sitter for Z:
 - LSP diagnostics on an awaited recoverable value are identical to the
   synchronous-call diagnostics
 
-Examples:
+Original milestone seed examples (the complete current matrix is the
+[canonical shipped inventory](../book/src/900_processor/_index.md#shipped-example-inventory)):
 
 - positive: `examples/proc_async_await_m4` — `call() | async` then `evt | await`
 - positive: `examples/proc_await_error_m4` — awaited recoverable calls handled
@@ -525,9 +544,9 @@ Tracked slices:
 
 # 8. Workstream AA: Book Updates Required (Processor Pillar)
 
-The V3 processor chapters are future-design sketches that contradict the
-decisions above in many places. This workstream rewrites them to match, in the
-same change set as the milestone that owns each fact.
+At planning time the V3 processor chapters were future-design sketches that
+contradicted the decisions above in many places. This workstream rewrote them to
+match in the same change set as the milestone that owned each fact.
 
 Contradictions to fix (chapter -> exact edit):
 
@@ -567,7 +586,7 @@ Tracked slices:
 - [x] AA3. State the `std`-only tier requirement in both chapters.
 
 
-# 9. Workstream BB: Editor and Tree-Sitter Hardening (Cross-Cutting)
+# 9. Workstream BB: Tooling and Editor Hardening (Cross-Cutting)
 
 This is not a phase after W through AA. It runs **in the same change set** as
 each workstream above.
@@ -583,6 +602,15 @@ Per-feature editor requirements:
 - tree-sitter parse test: each removed/dead surface (single-channel `select(...)`,
   the `((name))` double-paren mutex param) **fails to parse** at the grammar
   level
+- formatter test: every positive processor example remains idempotent and
+  compiler-analyzable after formatting; comments and raw strings containing
+  processor syntax do not affect structural formatting
+- tool-command test: `fol tool parse`, `highlight`, and `symbols` execute the
+  generated parser and shipped queries rather than approximating V3 syntax
+- inventory test: the canonical positive/failure matrix stays identical to the
+  checked-in `proc_*` and `fail_proc_*` package directories
+- capability-routing test: direct and routed editor/frontend analysis use the
+  evaluated artifact model and active bundled-standard dependency set
 
 Primary files:
 
@@ -593,6 +621,9 @@ Primary files:
 - `lang/tooling/fol-editor/src/tree_sitter.rs`
 - `lang/tooling/fol-editor/src/lsp/tests/example_models.rs`
 - `lang/tooling/fol-editor/src/lsp/tests/navigation.rs`
+- `lang/tooling/fol-frontend/src/`
+- `lang/compiler/fol-diagnostics/src/`
+- `test/v3_example_inventory.rs`
 - any fixtures under `lang/tooling/fol-editor/tests/`
 
 Tracked slices:
@@ -654,8 +685,9 @@ If a workstream starts to require one of these, it stops.
 The processor pillar is complete only when:
 
 - P1 (W), P2 (X), P3 (Y), and P4 (Z) each ship end to end in parser, resolver,
-  typecheck, lowering, backend, LSP, tree-sitter, docs, and examples, and each
-  landed workspace-green
+  typecheck, lowering, runtime/backend, frontend routing, structured
+  diagnostics, formatter/tool commands, LSP, tree-sitter grammar/queries/corpus,
+  docs, book, and canonical examples, and each landed workspace-green
 - the whole processor surface is `std`-only, verified by tier `fail_*` examples
   in `core` and `memo`
 - no "planned for a future release" message in the compiler refers to a processor
