@@ -75,7 +75,7 @@ Allowed language surface:
 - records, entries, aliases
 - routines and method sugar
 - control flow
-- `defer`
+- `dfr`
 - `opt[...]`, `err[...]`
 - array `.len(...)`
 - `panic(...)`
@@ -364,7 +364,7 @@ pro[] build(): non = {
 ## Example packages
 
 - `examples/core_blink_shape`
-- `examples/core_defer`
+- `examples/core_dfr`
 - `examples/core_records`
 - `examples/core_surface_showcase`
 - `examples/memo_defaults`

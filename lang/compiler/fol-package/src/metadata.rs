@@ -255,7 +255,7 @@ fn collect_metadata_fields(
                     collect_metadata_fields(default_body, parsed, &mut aliases, &mut bindings, fields);
                 }
             }
-            AstNode::Loop { body, .. } | AstNode::Defer { body, .. } => {
+            AstNode::Loop { body, .. } | AstNode::Dfr { body, .. } => {
                 let mut aliases = build_aliases.clone();
                 let mut bindings = string_bindings.clone();
                 collect_metadata_fields(body, parsed, &mut aliases, &mut bindings, fields);
@@ -369,7 +369,7 @@ fn collect_dependency_decls(
                     );
                 }
             }
-            AstNode::Loop { body, .. } | AstNode::Defer { body, .. } => {
+            AstNode::Loop { body, .. } | AstNode::Dfr { body, .. } => {
                 let mut aliases = build_aliases.clone();
                 let mut bindings = string_bindings.clone();
                 collect_dependency_decls(body, parsed, &mut aliases, &mut bindings, dependencies);

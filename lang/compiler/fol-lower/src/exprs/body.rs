@@ -235,7 +235,7 @@ pub(crate) fn lower_body_sequence(
         let deferred = cursor.pop_defer_scope().ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                "active defer scope disappeared before body finished lowering",
+                "active dfr scope disappeared before body finished lowering",
             )
         })?;
         if !cursor.current_block_terminated()? {
@@ -359,7 +359,7 @@ fn lower_defers_until_loop_exit(
         let scope = cursor.pop_defer_scope().ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                "defer scope stack underflow while lowering break",
+                "dfr scope stack underflow while lowering break",
             )
         })?;
         lower_deferred_entries(
@@ -676,9 +676,9 @@ pub(crate) fn lower_body_node(
         // Routine-local imports bind an alias during resolution; they have
         // no runtime effect, so lowering skips them.
         AstNode::UseDecl { .. } => Ok(None),
-        AstNode::Defer { syntax_id, body } => {
+        AstNode::Dfr { syntax_id, body } => {
             let deferred_scope_id =
-                nested_scope_for_syntax(typed_package, *syntax_id, scope_id, "defer block")?;
+                nested_scope_for_syntax(typed_package, *syntax_id, scope_id, "dfr block")?;
             cursor.register_defer(source_unit_id, deferred_scope_id, body)?;
             Ok(None)
         }

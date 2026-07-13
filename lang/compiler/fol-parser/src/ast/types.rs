@@ -249,7 +249,7 @@ impl BindingPattern {
 pub struct Parameter {
     pub name: String,
     pub param_type: FolType,
-    pub is_borrowable: bool, // ALL_CAPS names are borrowable
+    pub is_borrowable: bool,
     pub is_mutex: bool,
     /// Declared with the explicit `... T` variadic marker. The parameter's
     /// `param_type` is the collected `seq[T]`; a plain trailing `seq[T]`

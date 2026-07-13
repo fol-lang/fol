@@ -69,7 +69,7 @@ answers “which runtime capabilities this artifact is allowed to use.”
 
 For the runtime split:
 
-- arrays, scalars, records, routines, control flow, `defer`, and
+- arrays, scalars, records, routines, control flow, `dfr`, and
   `opt[...]`/`err[...]` belong to `core`
 - heap-backed `str`, `vec`, `seq`, `set`, and `map` belong to `memo`
 - hosted wrappers are reached through explicit bundled `std`
@@ -516,14 +516,14 @@ That means:
 
 So sugar does not get a free pass just because it looks syntactically small.
 
-One useful example is `defer`:
+One useful example is `dfr`:
 
-- a narrow lexical-scope `defer { ... }` that only guarantees scope-exit
+- a narrow lexical-scope `dfr { ... }` that only guarantees scope-exit
   execution order is compatible with `V1`
-- a more complicated `defer` model that depends on ownership, borrowing,
+- a more complicated `dfr` model that depends on ownership, borrowing,
   pointer/resource cleanup, async task cleanup, or foreign/native resource
   coordination belongs later
-- ownership-aware and runtime-aware `defer` semantics therefore belong with the
+- ownership-aware and runtime-aware `dfr` semantics therefore belong with the
   `V3`/`V4` milestones that own those semantics
 
 ## The practical compiler roadmap implied by this file

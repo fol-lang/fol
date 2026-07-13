@@ -380,7 +380,7 @@ impl<'a> RoutineCursor<'a> {
         let Some(scope) = self.defer_scopes.last_mut() else {
             return Err(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                "defer registration requires an active defer scope",
+                "dfr registration requires an active dfr scope",
             ));
         };
         scope.entries.push(DeferredBody {

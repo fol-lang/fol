@@ -24,6 +24,7 @@
 /// - `P` — parser (syntax)
 /// - `R` — resolver (names/imports)
 /// - `T` — typechecker (types/capabilities)
+/// - `O` — ownership and borrowing
 /// - `L` — lowering (typed program -> IR)
 /// - `K` — package / build-graph model
 /// - `F` — frontend / build configuration
@@ -41,6 +42,10 @@ pub fn family_for_code(code: &str) -> (&'static str, &'static str) {
         Some(b'T') => (
             "TYPES",
             "a type or capability mismatch — the values do not fit the expected types",
+        ),
+        Some(b'O') => (
+            "OWNERSHIP",
+            "an ownership or borrowing violation — a value is not accessible in this state",
         ),
         Some(b'L') => (
             "LOWERING",
@@ -545,6 +550,7 @@ mod tests {
         assert_eq!(family_for_code("P1001").0, "PARSER");
         assert_eq!(family_for_code("R1003").0, "NAMES");
         assert_eq!(family_for_code("T1003").0, "TYPES");
+        assert_eq!(family_for_code("O1001").0, "OWNERSHIP");
         assert_eq!(family_for_code("L1001").0, "LOWERING");
         assert_eq!(family_for_code("K1001").0, "PACKAGE");
         assert_eq!(family_for_code("K1101").0, "PACKAGE");

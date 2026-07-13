@@ -7,7 +7,7 @@ fun (Counter)tick(by: int = 1): int = {
 };
 
 fun[] main(): int = {
-    defer {
+    dfr {
         var done: int = 1;
     };
 

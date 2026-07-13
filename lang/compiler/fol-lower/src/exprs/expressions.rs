@@ -1053,9 +1053,9 @@ fn lower_expression_observed_inner(
             LoweringErrorKind::InvalidInput,
             "break statement should not appear in expression lowering",
         )),
-        AstNode::Defer { .. } => Err(LoweringError::with_kind(
+        AstNode::Dfr { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            "defer statement should not appear in expression lowering",
+            "dfr statement should not appear in expression lowering",
         )),
         AstNode::Inquiry { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,

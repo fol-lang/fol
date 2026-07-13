@@ -3,11 +3,8 @@ fun[] show(value: int): int = {
 };
 
 fun[] main(): int = {
-    defer {
+    dfr {
         show(1);
     };
-    defer {
-        show(2);
-    };
-    return show(7);
+    panic "panic-bad";
 };

@@ -574,7 +574,7 @@ fn validate_node_public_surface(
         | AstNode::Block {
             statements: body, ..
         }
-        | AstNode::Defer { body, .. }
+        | AstNode::Dfr { body, .. }
         | AstNode::Select { body, .. } => {
             for stmt in body {
                 validate_node_public_surface(package, stmt)?;

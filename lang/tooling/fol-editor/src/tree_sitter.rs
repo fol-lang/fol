@@ -255,7 +255,7 @@ mod tests {
             "each_stmt",
             "return_stmt",
             "yield_stmt",
-            "defer_stmt",
+            "dfr_stmt",
             "report_stmt",
             "panic_stmt",
             "assert_stmt",
@@ -304,7 +304,6 @@ mod tests {
             "get_expr",
             "async_expr",
             "await_expr",
-            "go_expr",
             "do_expr",
         ] {
             assert!(
@@ -530,7 +529,7 @@ mod tests {
             "(each_stmt \"each\" @keyword.repeat)",
             "(return_stmt \"return\" @keyword.return)",
             "(yield_stmt \"yield\" @keyword.return)",
-            "(defer_stmt \"defer\" @keyword.repeat)",
+            "(dfr_stmt \"dfr\" @keyword.repeat)",
             "(report_stmt \"report\" @keyword.exception)",
             "(panic_stmt \"panic\" @keyword.exception)",
             "(assert_stmt \"assert\" @keyword.exception)",
@@ -1457,7 +1456,7 @@ mod tests {
         let root = build_bundle_root("v1_niceties_and_models");
         let cases = [
             (
-                repo_root().join("test/apps/fixtures/defer_scope_exit/main.fol"),
+                repo_root().join("test/apps/fixtures/dfr_scope_exit/main.fol"),
                 ["keyword.repeat", "punctuation.bracket"].as_slice(),
             ),
             (
@@ -1505,7 +1504,7 @@ mod tests {
                 ["type", "function"].as_slice(),
             ),
             (
-                repo_root().join("examples/core_defer/src/main.fol"),
+                repo_root().join("examples/core_dfr/src/main.fol"),
                 ["keyword.repeat", "type.builtin"].as_slice(),
             ),
             (

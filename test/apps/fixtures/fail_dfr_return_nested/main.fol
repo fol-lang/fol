@@ -1,5 +1,5 @@
 fun[] main(): int = {
-    defer {
+    dfr {
         when(true) {
             case(true) {
                 return 1;

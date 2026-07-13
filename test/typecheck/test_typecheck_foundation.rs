@@ -80,11 +80,11 @@ fn builtin_type_tables_install_v1_scalar_types_canonically() {
 }
 
 #[test]
-fn defer_blocks_typecheck_as_scope_exit_statements() {
+fn dfr_blocks_typecheck_as_scope_exit_statements() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun[] main(): int = {\n\
-             defer {\n\
+             dfr {\n\
                  .echo(1);\n\
              };\n\
              return 7;\n\
@@ -98,17 +98,17 @@ fn defer_blocks_typecheck_as_scope_exit_statements() {
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
         Some(&CheckedType::Builtin(BuiltinType::Int)),
-        "Expected defer-bearing routine to keep its declared return type",
+        "Expected dfr-bearing routine to keep its declared return type",
     );
 }
 
 #[test]
-fn defer_blocks_reject_break_in_v1() {
+fn dfr_blocks_reject_break_in_v1() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] bad_break(): int = {\n\
              loop(true) {\n\
-                 defer {\n\
+                 dfr {\n\
                      break;\n\
                  };\n\
                  break;\n\
@@ -122,18 +122,18 @@ fn defer_blocks_reject_break_in_v1() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("break is not allowed inside deferred blocks in V1")
+                    .contains("break is not allowed inside dfr blocks in V1")
         }),
         "Expected deferred break rejection, got: {errors:?}"
     );
 }
 
 #[test]
-fn defer_blocks_reject_nested_return_in_v1() {
+fn dfr_blocks_reject_nested_return_in_v1() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] bad_return(): int = {\n\
-             defer {\n\
+             dfr {\n\
                  when(true) {\n\
                      case(true) {\n\
                          return 1;\n\
@@ -149,18 +149,18 @@ fn defer_blocks_reject_nested_return_in_v1() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("return is not allowed inside deferred blocks in V1")
+                    .contains("return is not allowed inside dfr blocks in V1")
         }),
         "Expected deferred nested return rejection, got: {errors:?}"
     );
 }
 
 #[test]
-fn defer_blocks_allow_report_statements_in_error_routines() {
+fn dfr_blocks_allow_report_statements_in_error_routines() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun[] main(flag: bol): int / str = {\n\
-             defer {\n\
+             dfr {\n\
                  when(flag) {\n\
                      case(true) { report \"cleanup-bad\"; }\n\
                      * { .echo(1); }\n\
@@ -177,7 +177,7 @@ fn defer_blocks_allow_report_statements_in_error_routines() {
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
         Some(&CheckedType::Builtin(BuiltinType::Int)),
-        "Expected defer-bearing error routine to keep its declared return type",
+        "Expected dfr-bearing error routine to keep its declared return type",
     );
 }
 
@@ -2339,15 +2339,15 @@ fn panic_terminates_when_arms_and_stays_out_of_defer() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] main(): int = {\n\
-             defer { panic \"cleanup\"; };\n\
+             dfr { panic \"cleanup\"; };\n\
              return 0;\n\
          };\n",
     )]);
     assert!(
         errors
             .iter()
-            .any(|error| error.message().contains("panic is not allowed inside deferred blocks")),
-        "defer should keep an explicit panic boundary: {errors:#?}"
+            .any(|error| error.message().contains("panic is not allowed inside dfr blocks")),
+        "dfr should keep an explicit panic boundary: {errors:#?}"
     );
 }
 

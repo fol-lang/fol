@@ -685,11 +685,11 @@ fn lower_nested_declarations_in_node(
                 let _ = lower_type(typed, resolved, current_scope, error_type)?;
             }
         }
-        AstNode::Defer {
+        AstNode::Dfr {
             syntax_id, body, ..
         } => {
             let deferred_scope =
-                nested_scope_for_syntax(resolved, current_scope, *syntax_id, "defer block")?;
+                nested_scope_for_syntax(resolved, current_scope, *syntax_id, "dfr block")?;
             lower_nested_declarations_in_nodes(
                 typed,
                 resolved,

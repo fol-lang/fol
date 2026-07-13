@@ -20,7 +20,7 @@ fun[] choose(active: bol): opt[int] = {
 };
 
 fun[] main(): int = {
-    defer {
+    dfr {
         var done: int = 1;
     };
 

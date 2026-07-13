@@ -72,7 +72,7 @@
 - [Syntactic Sugar](./700_sugar/_index.md)
   - [Silent Forms](./700_sugar/100_silents.md)
   - [Pipes](./700_sugar/200_pipes.md)
-  - [Defer](./700_sugar/250_defer.md)
+  - [Dfr](./700_sugar/250_dfr.md)
   - [Mixture](./700_sugar/300_mixture.md)
   - [Limits](./700_sugar/400_limits.md)
   - [Matching](./700_sugar/450_matching.md)

@@ -405,7 +405,7 @@ fn lsp_server_offers_language_keywords_in_plain_completion() {
     let items = serde_json::from_value::<LspCompletionList>(completion.result.unwrap())
         .unwrap()
         .items;
-    for keyword in ["fun", "var", "typ", "return", "if", "defer", "select", "true", "check"] {
+    for keyword in ["fun", "var", "typ", "return", "if", "dfr", "select", "true", "check"] {
         let item = items.iter().find(|item| item.label == keyword);
         assert!(item.is_some(), "keyword '{keyword}' should be offered: {items:?}");
         assert_eq!(

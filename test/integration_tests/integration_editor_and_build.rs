@@ -175,7 +175,7 @@ fn positive_runtime_model_examples() -> &'static [(&'static str, &'static str)] 
     &[
         ("examples/core_run_min", "core"),
         ("examples/core_blink_shape", "core"),
-        ("examples/core_defer", "core"),
+        ("examples/core_dfr", "core"),
         ("examples/core_records", "core"),
         ("examples/core_surface_showcase", "core"),
         ("examples/memo_run_min", "memo"),
@@ -2674,7 +2674,7 @@ fn test_cli_build_emits_rust_for_model_examples() {
         ("examples/build_system_tool", "use fol_runtime::memo as rt;"),
         ("examples/build_source_paths", "use fol_runtime::memo as rt;"),
         ("examples/core_blink_shape", "use fol_runtime::core as rt;"),
-        ("examples/core_defer", "use fol_runtime::core as rt;"),
+        ("examples/core_dfr", "use fol_runtime::core as rt;"),
         ("examples/core_records", "use fol_runtime::core as rt;"),
         ("examples/core_surface_showcase", "use fol_runtime::core as rt;"),
         ("examples/memo_defaults", "use fol_runtime::memo as rt;"),
@@ -2735,7 +2735,7 @@ fn test_cli_example_build_summaries_surface_expected_models() {
         ("examples/build_system_tool", "memo"),
         ("examples/build_source_paths", "memo"),
         ("examples/core_blink_shape", "core"),
-        ("examples/core_defer", "core"),
+        ("examples/core_dfr", "core"),
         ("examples/core_records", "core"),
         ("examples/core_surface_showcase", "core"),
         ("examples/memo_defaults", "memo"),
@@ -4162,7 +4162,7 @@ fn test_cli_run_reports_missing_entry_step_separately_from_model_rejection() {
 fn test_cli_examples_emit_runtime_imports_in_generated_package_sources() {
     let cases = [
         ("examples/core_blink_shape", "use fol_runtime::core as rt;"),
-        ("examples/core_defer", "use fol_runtime::core as rt;"),
+        ("examples/core_dfr", "use fol_runtime::core as rt;"),
         (
             "examples/memo_collections",
             "use fol_runtime::memo as rt;",
@@ -4475,7 +4475,7 @@ fn test_docs_reference_real_example_packages() {
     let runtime_examples = [
         "examples/core_run_min",
         "examples/core_blink_shape",
-        "examples/core_defer",
+        "examples/core_dfr",
         "examples/core_records",
         "examples/core_surface_showcase",
         "examples/memo_run_min",

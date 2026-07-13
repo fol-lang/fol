@@ -82,8 +82,8 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Defer)) {
-                body.push(self.parse_defer_stmt(tokens)?);
+            if matches!(key, KEYWORD::Keyword(BUILDIN::Dfr)) {
+                body.push(self.parse_dfr_stmt(tokens)?);
                 self.consume_required_semicolon(tokens)?;
                 continue;
             }

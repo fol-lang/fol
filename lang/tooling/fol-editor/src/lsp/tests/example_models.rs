@@ -51,7 +51,7 @@ fn find_nth_position(text: &str, needle: &str, ordinal: usize) -> LspPosition {
 #[test]
 fn lsp_server_opens_real_model_example_packages_cleanly() {
     for example in [
-        "examples/core_defer",
+        "examples/core_dfr",
         "examples/generic_routine_m1",
         "examples/generic_routine_pair_m1",
         "examples/generic_routine_cross_file_m1",
@@ -220,7 +220,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             None,
         ),
         (
-            "examples/core_defer",
+            "examples/core_dfr",
             "fun[] main(): str = {\n    return \"bad\";\n};\n",
             Some("str requires heap support and is unavailable in 'fol_model = core'"),
         ),
@@ -302,7 +302,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
 #[test]
 fn lsp_server_returns_semantic_tokens_for_real_model_examples() {
     for example in [
-        "examples/core_defer",
+        "examples/core_dfr",
         "examples/generic_standard_constraint_m1m2",
         "examples/generic_type_exec_m1m2",
         "examples/std_echo_min",
@@ -381,7 +381,7 @@ fn lsp_server_reports_missing_bundled_std_dependency_from_editor_path() {
 fn lsp_server_respects_model_completion_when_opened_at_real_example_roots() {
     let cases = [
         (
-            "examples/core_defer",
+            "examples/core_dfr",
             "fun[] main(): int = {\n    var value: ;\n    return 0;\n};\n",
             LspPosition {
                 line: 1,

@@ -62,7 +62,7 @@ The important boundary is semantic and runtime-facing:
 - `core` artifacts must not use heap-backed `str`, `vec`, `seq`, `set`, or
   `map`
 - `core` artifacts may still use arrays, records, routines, control flow, and
-  `defer`
+  `dfr`
 - `memo` artifacts may use heap-backed runtime types but not hosted services
 - bundled `std` wrappers require an explicit internal `standard` dependency
 - hosted `run` / `test` are not tied to bundled std presence

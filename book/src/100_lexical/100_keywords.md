@@ -26,6 +26,7 @@ BK_SELF            `self`
 BK_BREAK           `break`
 BK_RETURN          `return`
 BK_YEILD           `yield`
+BK_DFR             `dfr`
 BK_PANIC           `panic`
 BK_REPORT          `report`
 BK_CHECK           `check`
@@ -39,7 +40,6 @@ BK_AS              `as`
 BK_CAST            `cast`
 
 BK_DO              `do`
-BK_GO              `go`
 
 ```
 

@@ -160,8 +160,8 @@ impl AstParser {
             return Ok(vec![node]);
         }
 
-        if matches!(key, KEYWORD::Keyword(BUILDIN::Defer)) {
-            let node = self.parse_defer_stmt(tokens)?;
+        if matches!(key, KEYWORD::Keyword(BUILDIN::Dfr)) {
+            let node = self.parse_dfr_stmt(tokens)?;
             return Ok(vec![node]);
         }
 

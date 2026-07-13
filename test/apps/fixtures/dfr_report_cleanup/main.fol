@@ -3,7 +3,7 @@ fun[] show(value: int): int = {
 };
 
 fun[] main(): int / str = {
-    defer {
+    dfr {
         show(1);
     };
     when(true) {

@@ -1,5 +1,5 @@
 fun[] main(): int = {
-    defer {
+    dfr {
         {
             return 1;
         };

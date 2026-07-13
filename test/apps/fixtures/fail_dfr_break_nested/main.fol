@@ -1,6 +1,6 @@
 fun[] main(): int = {
     loop(true) {
-        defer {
+        dfr {
             {
                 break;
             }

@@ -215,8 +215,8 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Defer)) {
-                body.push(self.parse_defer_stmt(tokens)?);
+            if matches!(key, KEYWORD::Keyword(BUILDIN::Dfr)) {
+                body.push(self.parse_dfr_stmt(tokens)?);
                 self.consume_required_semicolon(tokens)?;
                 continue;
             }
@@ -545,25 +545,25 @@ impl AstParser {
         })
     }
 
-    pub(super) fn parse_defer_stmt(
+    pub(super) fn parse_dfr_stmt(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<AstNode, ParseError> {
-        let defer_token = tokens.curr(false)?;
-        if !matches!(defer_token.key(), KEYWORD::Keyword(BUILDIN::Defer)) {
+        let dfr_token = tokens.curr(false)?;
+        if !matches!(dfr_token.key(), KEYWORD::Keyword(BUILDIN::Dfr)) {
             return Err(ParseError::from_token(
-                &defer_token,
-                "Expected 'defer' statement".to_string(),
+                &dfr_token,
+                "Expected 'dfr' statement".to_string(),
             ));
         }
 
         if !self.is_inside_routine() {
             return Err(ParseError::from_token(
-                &defer_token,
-                "'defer' is only allowed inside routines".to_string(),
+                &dfr_token,
+                "'dfr' is only allowed inside routines".to_string(),
             ));
         }
-        let syntax_id = self.record_syntax_origin(&defer_token);
+        let syntax_id = self.record_syntax_origin(&dfr_token);
 
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
@@ -571,11 +571,11 @@ impl AstParser {
         if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
             return Err(ParseError::from_token(
                 &open,
-                "Expected '{' to start deferred block".to_string(),
+                "Expected '{' to start dfr block".to_string(),
             ));
         }
         let _ = tokens.bump();
-        let body = self.parse_block_body(tokens, "Expected '}' to close deferred block")?;
-        Ok(AstNode::Defer { syntax_id, body })
+        let body = self.parse_block_body(tokens, "Expected '}' to close dfr block")?;
+        Ok(AstNode::Dfr { syntax_id, body })
     }
 }

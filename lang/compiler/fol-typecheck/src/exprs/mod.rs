@@ -618,17 +618,17 @@ fn type_node_with_expectation_inner(
             controlflow::type_return(typed, resolved, context, value.as_deref())
         }
         AstNode::Break => Ok(TypedExpr::value(typed.builtin_types().never)),
-        AstNode::Defer { body, .. } => {
+        AstNode::Dfr { body, .. } => {
             if body_contains_return(body) {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
-                    "return is not allowed inside deferred blocks in V1",
+                    "return is not allowed inside dfr blocks in V1",
                 ));
             }
             if body_contains_break(body) {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
-                    "break is not allowed inside deferred blocks in V1",
+                    "break is not allowed inside dfr blocks in V1",
                 ));
             }
             // Deferred blocks replay at every exit; a diverging terminator
@@ -636,7 +636,7 @@ fn type_node_with_expectation_inner(
             if body_contains_panic(body) {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
-                    "panic is not allowed inside deferred blocks in V1",
+                    "panic is not allowed inside dfr blocks in V1",
                 ));
             }
             let _ = type_body(typed, resolved, context, body)?;
@@ -772,7 +772,7 @@ fn body_contains_break(nodes: &[AstNode]) -> bool {
                 | fol_parser::ast::WhenCase::Of { body, .. } => body_contains_break(body),
             }) || default.as_ref().is_some_and(|body| body_contains_break(body))
         }
-        AstNode::Loop { body, .. } | AstNode::Defer { body, .. } => body_contains_break(body),
+        AstNode::Loop { body, .. } | AstNode::Dfr { body, .. } => body_contains_break(body),
         AstNode::FunDecl { .. }
         | AstNode::ProDecl { .. }
         | AstNode::LogDecl { .. }

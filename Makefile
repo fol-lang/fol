@@ -14,7 +14,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c run r test t help h clean docs release
+.PHONY: build b compile c run r test t tree help h clean docs release
 
 SHELL := /bin/bash
 
@@ -35,6 +35,11 @@ run:
 
 r: run
 
+TREE_DIR ?= $(TOP_DIR)/lang/tooling/fol-editor/tree-sitter
+
+tree:
+	@cargo run -- tool tree generate $(TREE_DIR)
+
 
 test:
 	@cargo test --workspace
@@ -50,6 +55,7 @@ help:
 	@echo "  build        Build project"
 	@echo "  compile      Configure and generate build files"
 	@echo "  run          Run the main executable"
+	@echo "  tree         Regenerate the checked-in tree-sitter bundle"
 	@echo "  test         Run tests"
 	@echo "  docs         Build documentation (TYPE=mdbook|doxygen)"
 	@echo "  release      Create a new release (TYPE=patch|minor|major)"

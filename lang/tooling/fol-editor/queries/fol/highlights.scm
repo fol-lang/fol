@@ -31,7 +31,7 @@
 (each_stmt "each" @keyword.repeat)
 (return_stmt "return" @keyword.return)
 (yield_stmt "yield" @keyword.return)
-(defer_stmt "defer" @keyword.repeat)
+(dfr_stmt "dfr" @keyword.repeat)
 (report_stmt "report" @keyword.exception)
 (panic_stmt "panic" @keyword.exception)
 (assert_stmt "assert" @keyword.exception)
@@ -60,6 +60,8 @@
 (anonymous_log_expr "log" @keyword.function)
 (typed_binding ":" @punctuation.delimiter)
 (param ":" @punctuation.delimiter)
+(parameter_options "[" @punctuation.bracket "]" @punctuation.bracket)
+(parameter_options ["bor" "mux"] @attribute)
 (return_type ":" @punctuation.delimiter)
 (ali_decl ":" @punctuation.delimiter)
 (typ_decl ":" @punctuation.delimiter)
@@ -165,7 +167,6 @@
 (get_expr) @keyword
 (async_expr) @keyword
 (await_expr) @keyword
-(go_expr) @keyword
 (do_expr) @keyword
 (qualified_path root: (identifier) @namespace)
 (qualified_path segment: (identifier) @namespace)

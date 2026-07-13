@@ -134,7 +134,7 @@ That means:
 
 | Capability mode | Bundled std declared | Type completion | Intrinsic completion | Diagnostics focus | Example packages |
 |-----------------|----------------------|-----------------|----------------------|-------------------|------------------|
-| `core` | no | scalar, array, record, entry, shell surfaces only | no hosted or heap-only guidance | reject `str`, dynamic containers, dynamic `.len(...)`, bundled std imports, `.echo(...)` | `examples/core_blink_shape`, `examples/core_defer`, `examples/core_records`, `examples/core_surface_showcase`, `examples/fail_core_std_import` |
+| `core` | no | scalar, array, record, entry, shell surfaces only | no hosted or heap-only guidance | reject `str`, dynamic containers, dynamic `.len(...)`, bundled std imports, `.echo(...)` | `examples/core_blink_shape`, `examples/core_dfr`, `examples/core_records`, `examples/core_surface_showcase`, `examples/fail_core_std_import` |
 | `memo` | no | `core` types plus `str`, `vec`, `seq`, `set`, `map` | no bundled std wrappers or hosted intrinsics | reject bundled std imports and `.echo(...)`; allow heap-backed strings and containers | `examples/memo_defaults`, `examples/memo_containers`, `examples/memo_collections`, `examples/memo_surface_showcase`, `examples/fail_memo_echo`, `examples/fail_memo_std_missing_dep` |
 | `memo` | yes | `memo` types plus bundled `std` package exports under the declared alias | bundled `std` wrappers and hosted-runtime behavior | ordinary semantic/type diagnostics plus dependency-backed std import behavior | `examples/std_bundled_fmt`, `examples/std_bundled_io`, `examples/std_cli`, `examples/std_echo_min`, `examples/std_named_calls`, `examples/std_surface_showcase`, `examples/std_alias_pkg` |
 

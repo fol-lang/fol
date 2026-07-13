@@ -3,11 +3,11 @@ fun[] show(value: int): int = {
 };
 
 fun[] loop_demo(): int = {
-    defer {
+    dfr {
         show(10);
     };
     loop(true) {
-        defer {
+        dfr {
             show(20);
         };
         show(30);
@@ -17,11 +17,11 @@ fun[] loop_demo(): int = {
 };
 
 fun[] main(): int = {
-    defer {
+    dfr {
         show(50);
     };
     {
-        defer {
+        dfr {
             show(60);
         };
         loop_demo();

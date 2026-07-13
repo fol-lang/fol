@@ -395,8 +395,8 @@ pub enum AstNode {
         value: Box<AstNode>,
     },
 
-    /// Defer statement: defer { body }
-    Defer {
+    /// Deferred statement: dfr { body }
+    Dfr {
         syntax_id: Option<SyntaxNodeId>,
         body: Vec<AstNode>,
     },
@@ -464,7 +464,7 @@ impl AstNode {
             | AstNode::FunctionCall { syntax_id, .. }
             | AstNode::MethodCall { syntax_id, .. }
             | AstNode::RecordInit { syntax_id, .. }
-            | AstNode::Defer { syntax_id, .. }
+            | AstNode::Dfr { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,
             AstNode::Commented { node, .. } => node.syntax_id(),
             _ => None,
@@ -613,7 +613,7 @@ impl AstNode {
             AstNode::Inquiry { .. } => None,
             AstNode::PatternWildcard => None,
             AstNode::PatternCapture { pattern, .. } => pattern.syntactic_type_hint(),
-            AstNode::Defer { .. } => None,
+            AstNode::Dfr { .. } => None,
             AstNode::RecordInit { .. } => None,
             AstNode::TemplateCall { .. } => None,
 
@@ -824,7 +824,7 @@ impl AstNode {
             AstNode::Yield { value } => {
                 vec![value.as_ref()]
             }
-            AstNode::Defer { body, .. } => body.iter().collect(),
+            AstNode::Dfr { body, .. } => body.iter().collect(),
             AstNode::Range { start, end, .. } => {
                 let mut children = Vec::new();
                 if let Some(s) = start {

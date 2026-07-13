@@ -644,7 +644,7 @@ impl AstParser {
                     KEYWORD::Keyword(BUILDIN::Return)
                         | KEYWORD::Keyword(BUILDIN::Break)
                         | KEYWORD::Keyword(BUILDIN::Yield)
-                        | KEYWORD::Keyword(BUILDIN::Defer)
+                        | KEYWORD::Keyword(BUILDIN::Dfr)
                         | KEYWORD::Keyword(BUILDIN::When)
                         | KEYWORD::Keyword(BUILDIN::If)
                         | KEYWORD::Keyword(BUILDIN::Select)
@@ -686,14 +686,14 @@ impl AstParser {
                         &mut errors,
                         |parser, tokens| parser.parse_yield_stmt(tokens).map(|_| ()),
                     )
-                } else if matches!(key, KEYWORD::Keyword(BUILDIN::Defer)) {
+                } else if matches!(key, KEYWORD::Keyword(BUILDIN::Dfr)) {
                     self.reject_file_root_form(
                         tokens,
                         &token,
                         before,
                         "Control-flow statements are not allowed at file root",
                         &mut errors,
-                        |parser, tokens| parser.parse_defer_stmt(tokens).map(|_| ()),
+                        |parser, tokens| parser.parse_dfr_stmt(tokens).map(|_| ()),
                     )
                 } else if matches!(key, KEYWORD::Keyword(BUILDIN::When)) {
                     self.reject_file_root_form(

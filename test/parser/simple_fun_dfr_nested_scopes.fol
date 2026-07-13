@@ -1,9 +1,9 @@
 fun[] main(flag: bol): int = {
-    defer {
+    dfr {
         .echo(1);
     };
     {
-        defer {
+        dfr {
             .echo(2);
         };
         when(flag) {

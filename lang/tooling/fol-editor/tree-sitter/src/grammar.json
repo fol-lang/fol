@@ -1403,6 +1403,22 @@
           }
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "options",
+              "content": {
+                "type": "SYMBOL",
+                "name": "parameter_options"
+              }
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "STRING",
           "value": ":"
         },
@@ -1450,6 +1466,62 @@
               "type": "BLANK"
             }
           ]
+        }
+      ]
+    },
+    "parameter_options": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "bor"
+                },
+                {
+                  "type": "STRING",
+                  "value": "mux"
+                }
+              ]
+            },
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": ","
+                  },
+                  {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "STRING",
+                        "value": "bor"
+                      },
+                      {
+                        "type": "STRING",
+                        "value": "mux"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "]"
         }
       ]
     },
@@ -2071,7 +2143,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "defer_stmt"
+          "name": "dfr_stmt"
         },
         {
           "type": "SYMBOL",
@@ -2223,12 +2295,12 @@
         ]
       }
     },
-    "defer_stmt": {
+    "dfr_stmt": {
       "type": "SEQ",
       "members": [
         {
           "type": "STRING",
-          "value": "defer"
+          "value": "dfr"
         },
         {
           "type": "SYMBOL",
@@ -3131,10 +3203,6 @@
         {
           "type": "SYMBOL",
           "name": "await_expr"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "go_expr"
         },
         {
           "type": "SYMBOL",
@@ -4419,10 +4487,6 @@
     "await_expr": {
       "type": "STRING",
       "value": "await"
-    },
-    "go_expr": {
-      "type": "STRING",
-      "value": "go"
     },
     "do_expr": {
       "type": "STRING",

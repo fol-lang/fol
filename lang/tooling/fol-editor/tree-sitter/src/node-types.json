@@ -624,7 +624,7 @@
     }
   },
   {
-    "type": "defer_stmt",
+    "type": "dfr_stmt",
     "named": true,
     "fields": {},
     "children": {
@@ -834,10 +834,6 @@
         },
         {
           "type": "get_expr",
-          "named": true
-        },
-        {
-          "type": "go_expr",
           "named": true
         },
         {
@@ -1493,6 +1489,16 @@
           }
         ]
       },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "parameter_options",
+            "named": true
+          }
+        ]
+      },
       "type": {
         "multiple": false,
         "required": true,
@@ -1504,6 +1510,11 @@
         ]
       }
     }
+  },
+  {
+    "type": "parameter_options",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "params",
@@ -2339,7 +2350,7 @@
           "named": true
         },
         {
-          "type": "defer_stmt",
+          "type": "dfr_stmt",
           "named": true
         },
         {
@@ -2973,6 +2984,10 @@
     "named": false
   },
   {
+    "type": "bor",
+    "named": false
+  },
+  {
     "type": "break",
     "named": false
   },
@@ -3006,7 +3021,7 @@
     "named": false
   },
   {
-    "type": "defer",
+    "type": "dfr",
     "named": false
   },
   {
@@ -3055,10 +3070,6 @@
     "named": true
   },
   {
-    "type": "go_expr",
-    "named": true
-  },
-  {
     "type": "has",
     "named": false
   },
@@ -3104,6 +3115,10 @@
   },
   {
     "type": "map",
+    "named": false
+  },
+  {
+    "type": "mux",
     "named": false
   },
   {

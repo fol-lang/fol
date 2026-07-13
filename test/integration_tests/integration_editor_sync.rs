@@ -105,7 +105,7 @@ fn test_editor_sync_suite_bundle_writes_canonical_query_assets() {
 #[test]
 fn test_editor_sync_suite_lsp_keeps_model_boundary_diagnostics() {
     let source = "fun[] main(): str = {\n    return \"bad\";\n};\n";
-    let root = copied_example_root("examples/core_defer");
+    let root = copied_example_root("examples/core_dfr");
     let source_path = root.join("src/main.fol");
     std::fs::write(&source_path, source).expect("should write example source");
     let uri = EditorDocumentUri::from_file_path(source_path)
@@ -149,7 +149,7 @@ fn test_editor_sync_suite_lsp_keeps_model_boundary_diagnostics() {
 fn test_editor_sync_suite_lsp_completion_respects_model_examples() {
     let core_source = "fun[] main(): int = {\n    return .;\n};\n";
     let (core_root, core_uri, mut core_server) =
-        open_example_server("examples/core_defer", core_source);
+        open_example_server("examples/core_dfr", core_source);
     let core_response = core_server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),

@@ -369,7 +369,7 @@ fn traverse_node_inner(
         | AstNode::Break
         | AstNode::AsyncStage
         | AstNode::AwaitStage => {}
-        AstNode::Defer { syntax_id, body } => {
+        AstNode::Dfr { syntax_id, body } => {
             traverse_block_body(
                 session,
                 program,

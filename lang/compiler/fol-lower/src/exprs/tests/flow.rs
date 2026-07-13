@@ -174,11 +174,11 @@ fn return_lowering_emits_explicit_return_terminators_and_skips_trailing_body_nod
 }
 
 #[test]
-fn defer_lowering_runs_registered_bodies_before_return_in_reverse_order() {
+fn dfr_lowering_runs_registered_bodies_before_return_in_reverse_order() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer { var first: int = .echo(1); };\n",
-        "    defer { var second: int = .echo(2); };\n",
+        "    dfr { var first: int = .echo(1); };\n",
+        "    dfr { var second: int = .echo(2); };\n",
         "    return 7;\n",
         "};\n",
     ));
@@ -191,7 +191,7 @@ fn defer_lowering_runs_registered_bodies_before_return_in_reverse_order() {
         .expect("main routine should exist");
     let echoed = collect_echoed_ints(routine);
 
-    assert_eq!(echoed, vec![2, 1], "defer should lower in reverse order before return");
+    assert_eq!(echoed, vec![2, 1], "dfr should lower in reverse order before return");
     assert!(
         matches!(
             routine
@@ -200,15 +200,15 @@ fn defer_lowering_runs_registered_bodies_before_return_in_reverse_order() {
                 .and_then(|block| block.terminator.as_ref()),
             Some(LoweredTerminator::Return { value: Some(_) })
         ),
-        "defer-bearing routine should still end in an explicit return terminator"
+        "dfr-bearing routine should still end in an explicit return terminator"
     );
 }
 
 #[test]
-fn defer_lowering_keeps_local_bindings_inside_deferred_blocks() {
+fn dfr_lowering_keeps_local_bindings_inside_deferred_blocks() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer {\n",
+        "    dfr {\n",
         "        var done: int = 1;\n",
         "        var shown: int = .echo(done);\n",
         "    };\n",
@@ -231,12 +231,12 @@ fn defer_lowering_keeps_local_bindings_inside_deferred_blocks() {
 }
 
 #[test]
-fn defer_lowering_runs_inner_scope_cleanup_before_outer_scope_cleanup() {
+fn dfr_lowering_runs_inner_scope_cleanup_before_outer_scope_cleanup() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer { var outer: int = .echo(1); };\n",
+        "    dfr { var outer: int = .echo(1); };\n",
         "    {\n",
-        "        defer { var inner: int = .echo(2); };\n",
+        "        dfr { var inner: int = .echo(2); };\n",
         "        var body: int = .echo(3);\n",
         "    }\n",
         "    return .echo(7);\n",
@@ -258,12 +258,12 @@ fn defer_lowering_runs_inner_scope_cleanup_before_outer_scope_cleanup() {
 }
 
 #[test]
-fn defer_lowering_runs_loop_cleanup_before_break_and_outer_cleanup_before_return() {
+fn dfr_lowering_runs_loop_cleanup_before_break_and_outer_cleanup_before_return() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer { var outer: int = .echo(1); };\n",
+        "    dfr { var outer: int = .echo(1); };\n",
         "    loop(true) {\n",
-        "        defer { var inner: int = .echo(2); };\n",
+        "        dfr { var inner: int = .echo(2); };\n",
         "        var body: int = .echo(3);\n",
         "        break;\n",
         "    }\n",
@@ -286,10 +286,10 @@ fn defer_lowering_runs_loop_cleanup_before_break_and_outer_cleanup_before_return
 }
 
 #[test]
-fn defer_lowering_runs_cleanup_before_report_terminators() {
+fn dfr_lowering_runs_cleanup_before_report_terminators() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int / str = {\n",
-        "    defer { var cleanup: int = .echo(1); };\n",
+        "    dfr { var cleanup: int = .echo(1); };\n",
         "    report \"bad\";\n",
         "    return 7;\n",
         "};\n",
@@ -313,15 +313,15 @@ fn defer_lowering_runs_cleanup_before_report_terminators() {
     );
     assert!(
         matches!(entry_block.terminator, Some(LoweredTerminator::Report { .. })),
-        "defer-bearing report routine should still terminate with an explicit Report"
+        "dfr-bearing report routine should still terminate with an explicit Report"
     );
 }
 
 #[test]
-fn defer_lowering_runs_cleanup_before_panic_terminators() {
+fn dfr_lowering_runs_cleanup_before_panic_terminators() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(): int = {\n",
-        "    defer { var cleanup: int = .echo(1); };\n",
+        "    dfr { var cleanup: int = .echo(1); };\n",
         "    panic \"boom\";\n",
         "};\n",
     ));
@@ -344,7 +344,7 @@ fn defer_lowering_runs_cleanup_before_panic_terminators() {
     );
     assert!(
         matches!(entry_block.terminator, Some(LoweredTerminator::Panic { .. })),
-        "defer-bearing panic routine should still terminate with an explicit Panic"
+        "dfr-bearing panic routine should still terminate with an explicit Panic"
     );
 }
 

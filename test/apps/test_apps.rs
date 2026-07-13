@@ -350,18 +350,18 @@ fn generic_standard_constraint_exec_fixture_compiles_and_runs() {
 }
 
 #[test]
-fn defer_v1_showcase_example_compiles_and_runs() {
+fn dfr_v1_showcase_example_compiles_and_runs() {
     let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("test/apps/showcases/defer_v1_showcase/app");
+        .join("test/apps/showcases/dfr_v1_showcase/app");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&entry);
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = Command::new(built_binary_path(&compile_output))
         .output()
-        .expect("should run defer v1 showcase binary");
+        .expect("should run dfr v1 showcase binary");
     assert_exit_code(&run_output, 0);
-    assert_stdout_order(&run_output, &["30", "20", "40", "10", "60", "70", "50"], "defer v1 showcase");
+    assert_stdout_order(&run_output, &["30", "20", "40", "10", "60", "70", "50"], "dfr v1 showcase");
 }
 
 #[test]
@@ -869,14 +869,14 @@ fn method_call_niceties_fixture_compiles_and_runs() {
 }
 
 #[test]
-fn defer_scope_exit_fixture_compiles_and_runs_in_reverse_order() {
-    let fixture = fixture_root("defer_scope_exit");
+fn dfr_scope_exit_fixture_compiles_and_runs_in_reverse_order() {
+    let fixture = fixture_root("dfr_scope_exit");
     let run_output = compile_and_run_app(&fixture);
     let stdout = String::from_utf8_lossy(&run_output.stdout);
 
     let seven = stdout.find("7").expect("program should print body output first");
-    let two = stdout.find("2").expect("program should print inner defer output");
-    let one = stdout.find("1").expect("program should print outer defer output");
+    let two = stdout.find("2").expect("program should print inner dfr output");
+    let one = stdout.find("1").expect("program should print outer dfr output");
 
     assert!(
         seven < two && two < one,
@@ -886,26 +886,26 @@ fn defer_scope_exit_fixture_compiles_and_runs_in_reverse_order() {
 }
 
 #[test]
-fn defer_nested_scopes_fixture_compiles_and_runs() {
-    let fixture = fixture_root("defer_nested_scopes");
+fn dfr_nested_scopes_fixture_compiles_and_runs() {
+    let fixture = fixture_root("dfr_nested_scopes");
     let run_output = compile_and_run_app(&fixture);
 
     assert_exit_code(&run_output, 0);
-    assert_stdout_order(&run_output, &["3", "2", "7", "1"], "nested defer scopes");
+    assert_stdout_order(&run_output, &["3", "2", "7", "1"], "nested dfr scopes");
 }
 
 #[test]
-fn defer_loop_break_fixture_compiles_and_runs() {
-    let fixture = fixture_root("defer_loop_break");
+fn dfr_loop_break_fixture_compiles_and_runs() {
+    let fixture = fixture_root("dfr_loop_break");
     let run_output = compile_and_run_app(&fixture);
 
     assert_exit_code(&run_output, 0);
-    assert_stdout_order(&run_output, &["3", "2", "7", "1"], "defer loop break");
+    assert_stdout_order(&run_output, &["3", "2", "7", "1"], "dfr loop break");
 }
 
 #[test]
-fn defer_report_cleanup_fixture_compiles_and_runs() {
-    let fixture = fixture_root("defer_report_cleanup");
+fn dfr_report_cleanup_fixture_compiles_and_runs() {
+    let fixture = fixture_root("dfr_report_cleanup");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
     assert_artifact_paths_exist(&compile_output);
@@ -913,17 +913,17 @@ fn defer_report_cleanup_fixture_compiles_and_runs() {
     let run_output = compile_and_run_app(&fixture);
     assert!(
         !run_output.status.success(),
-        "reported defer cleanup fixture should fail at process boundary\nstdout=\n{}\nstderr=\n{}",
+        "reported dfr cleanup fixture should fail at process boundary\nstdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
-    assert_stdout_order(&run_output, &["1"], "defer report cleanup");
+    assert_stdout_order(&run_output, &["1"], "dfr report cleanup");
     assert_output_contains(&run_output, "main-bad");
 }
 
 #[test]
-fn defer_panic_cleanup_fixture_compiles_and_runs() {
-    let fixture = fixture_root("defer_panic_cleanup");
+fn dfr_panic_cleanup_fixture_compiles_and_runs() {
+    let fixture = fixture_root("dfr_panic_cleanup");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
     assert_artifact_paths_exist(&compile_output);
@@ -931,14 +931,14 @@ fn defer_panic_cleanup_fixture_compiles_and_runs() {
     let binary = built_binary_path(&compile_output);
     let panic_output = Command::new(&binary)
         .output()
-        .expect("should run defer panic cleanup fixture");
+        .expect("should run dfr panic cleanup fixture");
     assert!(
         !panic_output.status.success(),
-        "defer panic cleanup fixture should fail\nstdout=\n{}\nstderr=\n{}",
+        "dfr panic cleanup fixture should fail\nstdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&panic_output.stdout),
         String::from_utf8_lossy(&panic_output.stderr)
     );
-    assert_stdout_order(&panic_output, &["1"], "defer panic cleanup");
+    assert_stdout_order(&panic_output, &["1"], "dfr panic cleanup");
     assert_output_contains(&panic_output, "panic-bad");
 }
 
@@ -1278,19 +1278,19 @@ fn fail_deferred_intrinsic_fixture_fails_cleanly() {
 }
 
 #[test]
-fn fail_defer_return_nested_fixture_fails_cleanly() {
-    let fixture = fixture_root("fail_defer_return_nested");
+fn fail_dfr_return_nested_fixture_fails_cleanly() {
+    let fixture = fixture_root("fail_dfr_return_nested");
 
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "return is not allowed inside deferred blocks in V1");
+    assert_output_contains(&output, "return is not allowed inside dfr blocks in V1");
 }
 
 #[test]
-fn fail_defer_break_nested_fixture_fails_cleanly() {
-    let fixture = fixture_root("fail_defer_break_nested");
+fn fail_dfr_break_nested_fixture_fails_cleanly() {
+    let fixture = fixture_root("fail_dfr_break_nested");
 
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "break is not allowed inside deferred blocks in V1");
+    assert_output_contains(&output, "break is not allowed inside dfr blocks in V1");
 }
 
 #[test]
