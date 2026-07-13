@@ -312,11 +312,17 @@ mod tests {
     use super::*;
     use crate::cli::args::{FrontendOutputArgs, FrontendProfileArgs};
 
-    fn semantic_dispatch_build() -> &'static str {
-        concat!(
+    fn semantic_dispatch_build(with_bundled_std: bool) -> String {
+        let bundled_std_dependency = with_bundled_std
+            .then_some(
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+            )
+            .unwrap_or("");
+        [
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            bundled_std_dependency,
             "    var graph = build.graph();\n",
             "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
             "    graph.install(app);\n",
@@ -324,10 +330,14 @@ mod tests {
             "    graph.add_test({ name = \"app_test\", root = \"src/main.fol\" });\n",
             "    return;\n",
             "};\n",
-        )
+        ]
+        .concat()
     }
 
-    fn absorbed_build_dispatch_fixture(label: &str) -> FrontendWorkspace {
+    fn absorbed_build_dispatch_fixture_with_source(
+        label: &str,
+        build_source: &str,
+    ) -> FrontendWorkspace {
         let root = std::env::temp_dir().join(format!(
             "fol_frontend_dispatch_route_{label}_{}_{}",
             std::process::id(),
@@ -338,8 +348,7 @@ mod tests {
         ));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
+        std::fs::write(root.join("build.fol"), build_source).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -358,6 +367,14 @@ mod tests {
         }
     }
 
+    fn absorbed_build_dispatch_fixture(label: &str) -> FrontendWorkspace {
+        absorbed_build_dispatch_fixture_with_source(label, &semantic_dispatch_build(false))
+    }
+
+    fn absorbed_hosted_build_dispatch_fixture(label: &str) -> FrontendWorkspace {
+        absorbed_build_dispatch_fixture_with_source(label, &semantic_dispatch_build(true))
+    }
+
     fn modern_dispatch_fixture(label: &str) -> FrontendWorkspace {
         let root = std::env::temp_dir().join(format!(
             "fol_frontend_dispatch_modern_{label}_{}_{}",
@@ -370,7 +387,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build(false)).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -434,7 +451,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build(false)).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -655,7 +672,7 @@ mod tests {
 
     #[test]
     fn workspace_dispatch_keeps_run_summary_and_binary_artifact_on_routed_execution() {
-        let workspace = absorbed_build_dispatch_fixture("run_artifacts");
+        let workspace = absorbed_hosted_build_dispatch_fixture("run_artifacts");
         let command = FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs::default(),
             profile: FrontendProfileArgs::default(),

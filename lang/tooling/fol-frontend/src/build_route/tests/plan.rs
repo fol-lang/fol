@@ -23,7 +23,10 @@ fn plan_member_execution(
     super::super::plan_member_execution(&workspace, member, config)
 }
 
-pub(super) fn absorbed_build_workspace_fixture(label: &str) -> FrontendWorkspace {
+pub(super) fn absorbed_build_workspace_fixture(
+    label: &str,
+    with_bundled_std: bool,
+) -> FrontendWorkspace {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_{label}_{}_{}",
         std::process::id(),
@@ -34,19 +37,26 @@ pub(super) fn absorbed_build_workspace_fixture(label: &str) -> FrontendWorkspace
     ));
     let app = root.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
+    let bundled_std_dependency = with_bundled_std
+        .then_some(
+            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+        )
+        .unwrap_or("");
     fs::write(
         app.join("build.fol"),
-        concat!(
+        [
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
             "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
+            bundled_std_dependency,
             "    var graph = build.graph();\n",
             "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
             "    graph.install(app);\n",
             "    graph.add_run(app);\n",
             "    return;\n",
             "};\n",
-        ),
+        ]
+        .concat(),
     )
     .unwrap();
     fs::write(
@@ -250,7 +260,7 @@ fn workspace_route_model_guard_allows_hosted_untargeted_members() {
 
 #[test]
 fn semantic_member_planning_uses_graph_projected_build_run_and_check_steps() {
-    let workspace = absorbed_build_workspace_fixture("compat_graph_plan");
+    let workspace = absorbed_build_workspace_fixture("compat_graph_plan", false);
 
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
@@ -591,7 +601,7 @@ fn modern_members_plan_custom_steps_from_semantic_builds() {
 
 #[test]
 fn absorbed_build_executor_maps_build_steps_back_onto_existing_workspace_commands() {
-    let workspace = absorbed_build_workspace_fixture("compat_exec_build");
+    let workspace = absorbed_build_workspace_fixture("compat_exec_build", false);
 
     let result = execute_workspace_build_route(
         &workspace,
@@ -614,7 +624,7 @@ fn absorbed_build_executor_maps_build_steps_back_onto_existing_workspace_command
 
 #[test]
 fn absorbed_build_executor_routes_run_steps_with_arguments() {
-    let workspace = absorbed_build_workspace_fixture("compat_exec_run");
+    let workspace = absorbed_build_workspace_fixture("compat_exec_run", true);
 
     let result = execute_workspace_build_route(
         &workspace,
@@ -635,7 +645,7 @@ fn absorbed_build_executor_routes_run_steps_with_arguments() {
 
 #[test]
 fn absorbed_build_executor_rejects_unknown_named_steps() {
-    let workspace = absorbed_build_workspace_fixture("compat_exec_unknown");
+    let workspace = absorbed_build_workspace_fixture("compat_exec_unknown", false);
 
     let error = execute_workspace_build_route(
         &workspace,

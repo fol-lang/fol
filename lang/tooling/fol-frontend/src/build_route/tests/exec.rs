@@ -45,8 +45,7 @@ fn cli_selected_custom_graph_steps_flow_into_the_routed_member_plan() {
             .expect("system time before epoch")
             .as_nanos()
     ));
-    fs::create_dir_all(root.join("app")).unwrap();
-    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
         concat!(
@@ -1423,7 +1422,8 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
             .expect("system time before epoch")
             .as_nanos()
     ));
-    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("app")).unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
     fs::write(
         root.join("build.fol"),
         concat!(
