@@ -1,4 +1,87 @@
 use super::*;
+use fol_typecheck::TypecheckCapabilityModel;
+
+#[test]
+fn imported_channel_receiver_effect_reaches_local_spawn_wrappers() {
+    let root = unique_temp_dir("workspace_imported_channel_receiver");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] consume(channel: chn[int]): int = { return channel[rx]; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] wrapper(channel: chn[int]): int = { return consume(channel); };\n",
+                    "fun[] main(): int = {\n",
+                    "    var channel: chn[int];\n",
+                    "    [>]wrapper(channel);\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect_err("Imported receiver effects should reject spawned wrappers");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("routine 'wrapper' receives from a channel and cannot be spawned directly")));
+}
+
+#[test]
+fn imported_sender_only_channel_routine_stays_spawnable() {
+    let root = unique_temp_dir("workspace_imported_channel_sender");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "fun[exp] produce(channel: chn[int]): int = {\n",
+                    "    42 | channel[tx];\n",
+                    "    return 42;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] wrapper(channel: chn[int]): int = { return produce(channel); };\n",
+                    "fun[] main(): int = {\n",
+                    "    var channel: chn[int];\n",
+                    "    [>]wrapper(channel);\n",
+                    "    return channel[rx];\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("Imported sender-only effects should preserve spawnable producer wrappers");
+}
 
 #[test]
 fn workspace_expression_typing_rejects_plain_imported_call_argument_mismatches() {

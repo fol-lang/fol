@@ -158,10 +158,11 @@ This plan is complete when all of the following are true:
    with no leftover pre-rewrite wording (Workstream U).
 6. Ownership/borrow checking is legal in `core`; every allocating construct is
    gated to `memo`+ with the existing model-legality machinery.
-7. Every checked-in `.fol` source (examples, build files, bundled std,
-   showcases) still parses with **zero** tree-sitter ERROR nodes, and the
-   linked-list and tree examples build, run, and free correctly (verified in the
-   emitted Rust).
+7. Every checked-in `.fol` source intended to be syntactically valid (examples,
+   build files, bundled std, showcases) still parses with **zero** tree-sitter
+   ERROR nodes; fixtures that pin deleted syntax retain an expected ERROR node.
+   The linked-list and tree examples build, run, and free correctly (verified in
+   the emitted Rust).
 
 
 # 4. Workstream Q: Shared Prep (Referenced by the Processor Pillar)

@@ -90,14 +90,17 @@ The chosen mutex surface uses the ordinary parameter-option seam:
 fun[] update(value[mux]: Counter): int = {
     value.lock();
     value.total = value.total + 1;
+    var result: int = value.total;
     value.unlock();
-    return value.total;
+    return result;
 };
 ```
 
 `[mux]` lowers to `Arc<Mutex<T>>`. A routine acquires the guard with `.lock()`;
-the guard is released automatically at routine exit or explicitly with
-`.unlock()`. The historical `((name))` parameter spelling is not retained.
+guarded fields are accessible only while that guard is active. The guard is
+released automatically at the end of the lexical scope that acquired it, or
+early with `.unlock()` in that same scope. The historical `((name))` parameter
+spelling is not retained.
 
 Current examples:
 

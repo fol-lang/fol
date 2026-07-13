@@ -406,6 +406,7 @@ fn type_moves_on_transfer(
         Some(LoweredType::Owned { .. }) => true,
         Some(LoweredType::Pointer { shared: false, .. }) => true,
         Some(LoweredType::Eventual { .. }) => true,
+        Some(LoweredType::Channel { .. }) => true,
         Some(LoweredType::Optional { inner }) | Some(LoweredType::Error { inner: Some(inner) }) => {
             type_moves_on_transfer(type_table, *inner, depth + 1)
         }
@@ -447,6 +448,10 @@ pub fn render_local_name(
         local_id,
         local.name.as_deref(),
     ))
+}
+
+pub fn render_mutex_guard_name(local_id: fol_lower::LoweredLocalId) -> String {
+    format!("__fol_mutex_guard_l{}", local_id.0)
 }
 
 pub fn render_operand(operand: &LoweredOperand) -> BackendResult<String> {

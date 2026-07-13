@@ -1262,6 +1262,155 @@ impl SemanticSnapshot {
         self.hover_for_symbol(reference.resolved?)
     }
 
+    // COMPILER-BACKED: the textual layer only locates the operand adjacent to
+    // the pipe keyword; value and error types come from the typed symbol.
+    pub(super) fn hover_for_processor_pipe_stage(
+        &self,
+        operand_position: LspPosition,
+        stage: &str,
+    ) -> Option<LspHover> {
+        let reference = self.reference_at(operand_position)?;
+        let symbol_id = reference.resolved?;
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
+        let table = typed_package.program.type_table();
+
+        let contents = match (stage, table.get(type_id)?) {
+            (
+                "await",
+                fol_typecheck::CheckedType::Eventual {
+                    value_type,
+                    error_type,
+                },
+            ) => {
+                let value = render_checked_type(table, *value_type);
+                match error_type {
+                    Some(error) => format!(
+                        "| await: blocks for `{value}` and preserves recoverable error `{}`",
+                        render_checked_type(table, *error)
+                    ),
+                    None => format!("| await: blocks for `{value}`"),
+                }
+            }
+            ("async", fol_typecheck::CheckedType::Routine(signature)) => {
+                let value = signature
+                    .return_type
+                    .map(|type_id| render_checked_type(table, type_id))
+                    .unwrap_or_else(|| "non".to_string());
+                match signature.error_type {
+                    Some(error) => format!(
+                        "| async: spawns an OS thread; yields an internal eventual of `{value}` with recoverable error `{}`",
+                        render_checked_type(table, error)
+                    ),
+                    None => format!(
+                        "| async: spawns an OS thread; yields an internal eventual of `{value}`"
+                    ),
+                }
+            }
+            _ => return None,
+        };
+        Some(LspHover {
+            contents,
+            range: None,
+        })
+    }
+
+    // COMPILER-BACKED: endpoint element types come from the resolved channel
+    // binding rather than reparsing its declaration text.
+    pub(super) fn hover_for_channel_endpoint(
+        &self,
+        channel_position: LspPosition,
+        endpoint: &str,
+    ) -> Option<LspHover> {
+        let reference = self.reference_at(channel_position)?;
+        let symbol_id = reference.resolved?;
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
+        let table = typed_package.program.type_table();
+        let element = match table.get(type_id)? {
+            fol_typecheck::CheckedType::Channel { element_type }
+            | fol_typecheck::CheckedType::ChannelSender { element_type } => {
+                render_checked_type(table, *element_type)
+            }
+            _ => return None,
+        };
+        Some(LspHover {
+            contents: if endpoint == "tx" {
+                format!("c[tx]: non-blocking send of `{element}`")
+            } else {
+                format!("c[rx]: blocking receive of `{element}`; iteration continues until closed")
+            },
+            range: None,
+        })
+    }
+
+    // COMPILER-BACKED: parameter declaration sites are not references, so use
+    // the resolver scope chain to find the named symbol and its typed mutex bit.
+    pub(super) fn hover_for_mutex_binding(
+        &self,
+        position: LspPosition,
+        name: &str,
+    ) -> Option<LspHover> {
+        let (program, mut scope_id) = self.scope_at_position(position)?;
+        let key = fol_types::canonical_identifier_key(name);
+        let symbol_id = loop {
+            if let Some(symbol) = program
+                .symbols_named_in_scope(scope_id, &key)
+                .into_iter()
+                .find(|symbol| symbol.kind == fol_resolver::SymbolKind::Parameter)
+            {
+                break symbol.id;
+            }
+            scope_id = program.scope(scope_id)?.parent?;
+        };
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let symbol = typed_package.program.typed_symbol(symbol_id)?;
+        if !symbol.is_mutex {
+            return None;
+        }
+        let guarded =
+            render_checked_type(typed_package.program.type_table(), symbol.declared_type?);
+        Some(LspHover {
+            contents: format!("[mux]: mutex-guarded shared `{guarded}` (auto-unlock at scope end)"),
+            range: None,
+        })
+    }
+
+    // COMPILER-BACKED: dereference hover is derived from the operand's checked
+    // pointer type; the source scan only identifies the adjacent operand.
+    pub(super) fn hover_for_dereference(&self, operand_position: LspPosition) -> Option<LspHover> {
+        let reference = self.reference_at(operand_position)?;
+        let symbol_id = reference.resolved?;
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
+        let table = typed_package.program.type_table();
+        let (target, shared) = match table.get(type_id)? {
+            fol_typecheck::CheckedType::Pointer { target, shared } => (*target, *shared),
+            _ => return None,
+        };
+        Some(LspHover {
+            contents: format!(
+                "*: dereference {} pointer to `{}`",
+                if shared { "shared" } else { "unique" },
+                render_checked_type(table, target)
+            ),
+            range: None,
+        })
+    }
+
     // COMPILER-BACKED: resolved symbol origin (no text fallback)
     pub(super) fn definition_for_symbol(
         &self,

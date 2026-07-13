@@ -129,7 +129,8 @@ pub(crate) fn channel_element_type(
 ) -> Result<CheckedTypeId, TypecheckError> {
     let apparent = apparent_type_id(typed, channel_type)?;
     match typed.type_table().get(apparent) {
-        Some(CheckedType::Channel { element_type }) => Ok(*element_type),
+        Some(CheckedType::Channel { element_type })
+        | Some(CheckedType::ChannelSender { element_type }) => Ok(*element_type),
         _ => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
             format!(
@@ -152,6 +153,27 @@ pub(crate) fn expected_nil_shell_type(
         Some(CheckedType::Optional { .. }) | Some(CheckedType::Error { .. }) => Some(expected_type),
         _ => None,
     })
+}
+
+pub(crate) fn channel_receiver_element_type(
+    typed: &TypedProgram,
+    channel_type: CheckedTypeId,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let apparent = apparent_type_id(typed, channel_type)?;
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Channel { element_type }) => Ok(*element_type),
+        Some(CheckedType::ChannelSender { .. }) => Err(TypecheckError::new(
+            TypecheckErrorKind::Ownership,
+            "sender-only channel endpoints cannot receive; keep the single receiver in the owning routine",
+        )),
+        _ => Err(TypecheckError::new(
+            TypecheckErrorKind::InvalidInput,
+            format!(
+                "channel receive requires chn[T], got '{}'",
+                describe_type(typed, channel_type)
+            ),
+        )),
+    }
 }
 
 pub(crate) fn is_error_shell_type(
@@ -514,6 +536,14 @@ pub(crate) fn is_v1_assignable(
     }
 
     Ok(match typed.type_table().get(expected_apparent) {
+        Some(CheckedType::ChannelSender {
+            element_type: expected_element,
+        }) => matches!(
+            typed.type_table().get(actual_apparent),
+            Some(CheckedType::Channel {
+                element_type: actual_element,
+            }) if actual_element == expected_element
+        ),
         Some(CheckedType::Owned { inner }) if *inner == actual_apparent => true,
         Some(CheckedType::Optional { inner }) => {
             apparent_type_id(typed, *inner)? == actual_apparent
@@ -722,11 +752,11 @@ fn binding_is_mutable_by_name(
         SymbolKind::LabelBinding,
         SymbolKind::Parameter,
     ]
-        .into_iter()
-        .find_map(|kind| find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind))
-        .and_then(|symbol_id| typed.typed_symbol(symbol_id))
-        .map(|symbol| symbol.is_mutable || symbol.is_mutex)
-        .unwrap_or(false)
+    .into_iter()
+    .find_map(|kind| find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind))
+    .and_then(|symbol_id| typed.typed_symbol(symbol_id))
+    .map(|symbol| symbol.is_mutable || symbol.is_mutex)
+    .unwrap_or(false)
 }
 
 pub(crate) fn strip_comments(node: &AstNode) -> &AstNode {

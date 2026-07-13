@@ -182,6 +182,7 @@ pub(crate) fn type_loop(
                         "channel iteration requires hosted std support; declare the bundled internal standard dependency",
                     ));
                 }
+                super::reject_sender_capture_receive(typed, resolved, channel)?;
                 let channel_raw = type_node(typed, resolved, context, channel)?;
                 let channel_type = plain_value_expr(
                     typed,
@@ -310,6 +311,7 @@ pub(crate) fn type_select(
             }
             channel => channel,
         };
+        super::reject_sender_capture_receive(typed, resolved, channel_node)?;
         let channel_raw = type_node(typed, resolved, context, channel_node)?;
         let channel_type = plain_value_expr(
             typed,
@@ -333,8 +335,7 @@ pub(crate) fn type_select(
                     && !used_scopes.contains(&scope_id)
                     && scope.symbols.iter().any(|symbol_id| {
                         resolved.symbol(*symbol_id).is_some_and(|symbol| {
-                            symbol.kind == SymbolKind::ValueBinding
-                                && symbol.name == arm.binding
+                            symbol.kind == SymbolKind::ValueBinding && symbol.name == arm.binding
                         })
                     }))
                 .then_some(scope_id)
@@ -342,7 +343,10 @@ pub(crate) fn type_select(
             .ok_or_else(|| {
                 TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
-                    format!("select arm binding '{}' lost its resolver scope", arm.binding),
+                    format!(
+                        "select arm binding '{}' lost its resolver scope",
+                        arm.binding
+                    ),
                 )
             })?;
         used_scopes.insert(arm_scope);
@@ -434,6 +438,7 @@ pub(crate) fn type_return(
         "return".to_string(),
         node_origin(resolved, value),
     )?;
+    super::bindings::mark_plain_identifier_move(typed, resolved, Some(value), actual)?;
     Ok(TypedExpr::value(typed.builtin_types().never))
 }
 

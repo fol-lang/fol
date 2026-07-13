@@ -9,10 +9,10 @@ use fol_resolver::PackageIdentity;
 
 use super::helpers::{
     render_clone_expr, render_global_load, render_local_list, render_local_name,
-    render_namespace_module_path, render_native_intrinsic_expression, render_operand,
-    render_routine_path, render_transfer_expr, render_type_default_expr_in_workspace,
-    render_type_path, rendered_result_local, resolve_global_decl, resolve_routine_decl,
-    resolve_type_decl,
+    render_mutex_guard_name, render_namespace_module_path, render_native_intrinsic_expression,
+    render_operand, render_routine_path, render_transfer_expr,
+    render_type_default_expr_in_workspace, render_type_path, rendered_result_local,
+    resolve_global_decl, resolve_routine_decl, resolve_type_decl,
 };
 
 pub fn render_core_instruction(
@@ -80,17 +80,22 @@ pub fn render_core_instruction_in_workspace(
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
             Ok(format!("{target} = {value};"))
         }
+        LoweredInstrKind::DropLocal { local } => {
+            let local = render_local_name(package_identity, routine, *local)?;
+            Ok(format!("drop({local});"))
+        }
         LoweredInstrKind::StoreField { base, field, value } => {
             let base_id = *base;
             let base = render_local_name(package_identity, routine, base_id)?;
-            let value = render_local_name(package_identity, routine, *value)?;
+            let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
             let field = crate::escape_rust_field_ident(field);
             if routine.mutex_params.contains(&base_id) {
+                let guard = render_mutex_guard_name(base_id);
                 Ok(format!(
-                    "{base}.with_mut(|value| value.{field} = {value}.clone());"
+                    "{guard}.as_mut().expect(\"mutex field assignment requires .lock()\").{field} = {value};"
                 ))
             } else {
-                Ok(format!("{base}.{field} = {value}.clone();"))
+                Ok(format!("{base}.{field} = {value};"))
             }
         }
         LoweredInstrKind::LoadGlobal { global } => {
@@ -103,7 +108,7 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::StoreGlobal { global, value } => {
             let (global_identity, global_decl) = resolve_global_decl(workspace, *global)?;
-            let value = render_local_name(package_identity, routine, *value)?;
+            let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
             if !global_decl.mutable {
                 return Err(BackendError::new(
                     BackendErrorKind::Unsupported,
@@ -125,7 +130,7 @@ pub fn render_core_instruction_in_workspace(
             let default_expr =
                 render_type_default_expr_in_workspace(workspace, type_table, global_decl.type_id)?;
             Ok(format!(
-                "*{global_path}.get_or_init(|| std::sync::Mutex::new({default_expr})).lock().unwrap_or_else(|e| e.into_inner()) = {value}.clone();",
+                "*{global_path}.get_or_init(|| std::sync::Mutex::new({default_expr})).lock().unwrap_or_else(|e| e.into_inner()) = {value};",
             ))
         }
         LoweredInstrKind::Call {
@@ -134,13 +139,8 @@ pub fn render_core_instruction_in_workspace(
             error_type: None,
         } => {
             let (callee_identity, callee_decl) = resolve_routine_decl(workspace, *callee)?;
-            let rendered_args = render_call_arguments(
-                type_table,
-                package_identity,
-                routine,
-                callee_decl,
-                args,
-            )?;
+            let rendered_args =
+                render_call_arguments(type_table, package_identity, routine, callee_decl, args)?;
             let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;
             match instruction.result {
                 Some(_) => {
@@ -156,13 +156,8 @@ pub fn render_core_instruction_in_workspace(
             error_type: Some(_),
         } => {
             let (callee_identity, callee_decl) = resolve_routine_decl(workspace, *callee)?;
-            let rendered_args = render_call_arguments(
-                type_table,
-                package_identity,
-                routine,
-                callee_decl,
-                args,
-            )?;
+            let rendered_args =
+                render_call_arguments(type_table, package_identity, routine, callee_decl, args)?;
             let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;
             match instruction.result {
                 Some(_) => {
@@ -174,13 +169,8 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::SpawnCall { callee, args } => {
             let (callee_identity, callee_decl) = resolve_routine_decl(workspace, *callee)?;
-            let rendered_args = render_call_arguments(
-                type_table,
-                package_identity,
-                routine,
-                callee_decl,
-                args,
-            )?;
+            let rendered_args =
+                render_call_arguments(type_table, package_identity, routine, callee_decl, args)?;
             let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;
             Ok(format!(
                 "rt::spawn_task(move || {{ let _ = {callee_name}({rendered_args}); }});"
@@ -189,13 +179,8 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::AsyncCall { callee, args, .. } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let (callee_identity, callee_decl) = resolve_routine_decl(workspace, *callee)?;
-            let rendered_args = render_call_arguments(
-                type_table,
-                package_identity,
-                routine,
-                callee_decl,
-                args,
-            )?;
+            let rendered_args =
+                render_call_arguments(type_table, package_identity, routine, callee_decl, args)?;
             let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;
             Ok(format!(
                 "{result} = rt::spawn_eventual(move || {callee_name}({rendered_args}));"
@@ -238,12 +223,14 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::ProcessorYield => Ok("rt::yield_processor();".to_string()),
         LoweredInstrKind::MutexLock { mutex } => {
-            let mutex = render_local_name(package_identity, routine, *mutex)?;
-            Ok(format!("{mutex}.lock();"))
+            let mutex_id = *mutex;
+            let mutex = render_local_name(package_identity, routine, mutex_id)?;
+            let guard = render_mutex_guard_name(mutex_id);
+            Ok(format!("{guard} = Some({mutex}.lock());"))
         }
         LoweredInstrKind::MutexUnlock { mutex } => {
-            let mutex = render_local_name(package_identity, routine, *mutex)?;
-            Ok(format!("{mutex}.unlock();"))
+            let guard = render_mutex_guard_name(*mutex);
+            Ok(format!("drop({guard}.take());"))
         }
         LoweredInstrKind::OptionalHasValue { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -256,8 +243,9 @@ pub fn render_core_instruction_in_workspace(
             let base = render_local_name(package_identity, routine, base_id)?;
             let field = crate::escape_rust_field_ident(field);
             if routine.mutex_params.contains(&base_id) {
+                let guard = render_mutex_guard_name(base_id);
                 Ok(format!(
-                    "{result} = {base}.with(|value| value.{field}.clone());"
+                    "{result} = {guard}.as_ref().expect(\"mutex field access requires .lock()\").{field}.clone();"
                 ))
             } else {
                 Ok(format!("{result} = {base}.{field}.clone();"))

@@ -40,6 +40,48 @@ fn serialize_result(value: &impl serde::Serialize) -> EditorResult<serde_json::V
         )
     })
 }
+
+fn word_span_at_position(line: &str, character: u32) -> Option<(usize, usize, String)> {
+    let chars = line.chars().collect::<Vec<_>>();
+    let cursor = (character as usize).min(chars.len());
+    let mut start = cursor;
+    while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_') {
+        start -= 1;
+    }
+    let mut end = cursor;
+    while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+        end += 1;
+    }
+    (start < end).then(|| (start, end, chars[start..end].iter().collect()))
+}
+
+fn identifier_positions_before(line: &str, before: usize) -> Vec<u32> {
+    let chars = line.chars().collect::<Vec<_>>();
+    let mut cursor = before.min(chars.len());
+    let mut positions = Vec::new();
+    while cursor > 0 {
+        while cursor > 0 && !(chars[cursor - 1].is_alphanumeric() || chars[cursor - 1] == '_') {
+            cursor -= 1;
+        }
+        let end = cursor;
+        while cursor > 0 && (chars[cursor - 1].is_alphanumeric() || chars[cursor - 1] == '_') {
+            cursor -= 1;
+        }
+        if cursor < end && (chars[cursor].is_alphabetic() || chars[cursor] == '_') {
+            positions.push(cursor as u32);
+        }
+    }
+    positions
+}
+
+fn identifier_position_after(line: &str, after: usize) -> Option<u32> {
+    let chars = line.chars().collect::<Vec<_>>();
+    let mut cursor = after.min(chars.len());
+    while cursor < chars.len() && !(chars[cursor].is_alphabetic() || chars[cursor] == '_') {
+        cursor += 1;
+    }
+    (cursor < chars.len()).then_some(cursor as u32)
+}
 use crate::workspace::discover_workspace_roots;
 use analysis::analyze_document_semantics;
 use completion_helpers::completion_context_with_lsp;
@@ -501,25 +543,10 @@ impl EditorLspServer {
                     .method_target_symbol_at(position)
                     .and_then(|symbol_id| snapshot.hover_for_symbol(symbol_id))
             });
-        let word_at_position = document
-            .text
-            .lines()
-            .nth(position.line as usize)
-            .and_then(|line| {
-                let chars = line.chars().collect::<Vec<_>>();
-                let cursor = (position.character as usize).min(chars.len());
-                let mut start = cursor;
-                while start > 0
-                    && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_')
-                {
-                    start -= 1;
-                }
-                let mut end = cursor;
-                while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
-                    end += 1;
-                }
-                (start < end).then(|| chars[start..end].iter().collect::<String>())
-            });
+        let current_line = document.text.lines().nth(position.line as usize);
+        let word_span =
+            current_line.and_then(|line| word_span_at_position(line, position.character));
+        let word_at_position = word_span.as_ref().map(|(_, _, word)| word.clone());
         if hit.is_none() && word_at_position.as_deref() == Some("edf") {
             hit = Some(LspHover {
                 contents: "edf: error-only defer (runs on recoverable error exit only)".to_string(),
@@ -527,40 +554,76 @@ impl EditorLspServer {
             });
         }
         if hit.is_none() && word_at_position.as_deref() == Some("mux") {
-            let guarded_type = document
-                .text
-                .lines()
-                .nth(position.line as usize)
-                .and_then(|line| line.split(":").nth(1))
-                .and_then(|tail| {
-                    tail.trim()
-                        .split(|character: char| {
-                            !(character.is_alphanumeric() || character == '_')
+            hit = current_line
+                .zip(word_span.as_ref())
+                .and_then(|(line, (start, _, _))| {
+                    identifier_positions_before(line, *start)
+                        .into_iter()
+                        .find_map(|character| {
+                            snapshot.hover_for_mutex_binding(
+                                LspPosition {
+                                    line: position.line,
+                                    character,
+                                },
+                                word_span_at_position(line, character)?.2.as_str(),
+                            )
                         })
-                        .next()
                 })
-                .filter(|name| !name.is_empty())
-                .unwrap_or("T");
-            hit = Some(LspHover {
-                contents: format!(
-                    "[mux]: mutex-guarded shared `{guarded_type}` (auto-unlock at scope end)"
-                ),
-                range: None,
-            });
+                .or_else(|| {
+                    Some(LspHover {
+                        contents: "[mux]: mutex-guarded shared value (auto-unlock at scope end)"
+                            .to_string(),
+                        range: None,
+                    })
+                });
         }
         if hit.is_none() && word_at_position.as_deref() == Some("async") {
-            hit = Some(LspHover {
-                contents: "| async: spawns an OS thread; yields an eventual (internal type)"
-                    .to_string(),
-                range: None,
-            });
+            hit = current_line
+                .zip(word_span.as_ref())
+                .and_then(|(line, (start, _, _))| {
+                    identifier_positions_before(line, *start)
+                        .into_iter()
+                        .find_map(|character| {
+                            snapshot.hover_for_processor_pipe_stage(
+                                LspPosition {
+                                    line: position.line,
+                                    character,
+                                },
+                                "async",
+                            )
+                        })
+                })
+                .or_else(|| {
+                    Some(LspHover {
+                        contents:
+                            "| async: spawns an OS thread; yields an eventual (internal type)"
+                                .to_string(),
+                        range: None,
+                    })
+                });
         }
         if hit.is_none() && word_at_position.as_deref() == Some("await") {
-            hit = Some(LspHover {
-                contents: "| await: blocks for the eventual value and preserves its recoverable error type"
-                    .to_string(),
-                range: None,
-            });
+            hit = current_line
+                .zip(word_span.as_ref())
+                .and_then(|(line, (start, _, _))| {
+                    identifier_positions_before(line, *start)
+                        .into_iter()
+                        .find_map(|character| {
+                            snapshot.hover_for_processor_pipe_stage(
+                                LspPosition {
+                                    line: position.line,
+                                    character,
+                                },
+                                "await",
+                            )
+                        })
+                })
+                .or_else(|| {
+                    Some(LspHover {
+                        contents: "| await: blocks for the eventual value".to_string(),
+                        range: None,
+                    })
+                });
         }
         let spawn_marker_at_position = document
             .text
@@ -579,47 +642,48 @@ impl EditorLspServer {
                 range: None,
             });
         }
-        if hit.is_none()
-            && matches!(word_at_position.as_deref(), Some("tx" | "rx"))
-        {
+        if hit.is_none() && matches!(word_at_position.as_deref(), Some("tx" | "rx")) {
             let endpoint = word_at_position.as_deref().unwrap_or_default();
-            let channel_element = document
-                .text
-                .lines()
-                .nth(position.line as usize)
-                .and_then(|line| {
-                    let bracket = line[..line
-                        .char_indices()
-                        .nth(position.character as usize)
-                        .map(|(offset, _)| offset)
-                        .unwrap_or(line.len())]
-                        .rfind('[')?;
-                    let prefix = &line[..bracket];
-                    let name = prefix
-                        .trim_end()
-                        .rsplit(|character: char| {
-                            !(character.is_alphanumeric() || character == '_')
+            hit = current_line
+                .zip(word_span.as_ref())
+                .and_then(|(line, (start, _, _))| {
+                    identifier_positions_before(line, *start)
+                        .into_iter()
+                        .find_map(|character| {
+                            snapshot.hover_for_channel_endpoint(
+                                LspPosition {
+                                    line: position.line,
+                                    character,
+                                },
+                                endpoint,
+                            )
                         })
-                        .next()?;
-                    document.text.lines().find_map(|candidate| {
-                        let marker = format!("{name}: chn[");
-                        let start = candidate.find(&marker)? + marker.len();
-                        let rest = &candidate[start..];
-                        let end = rest.find(']')?;
-                        Some(rest[..end].trim().to_string())
-                    })
                 })
-                .unwrap_or_else(|| "T".to_string());
-            hit = Some(LspHover {
-                contents: if endpoint == "tx" {
-                    format!("c[tx]: non-blocking send of `{channel_element}`")
-                } else {
-                    format!(
-                        "c[rx]: blocking receive of `{channel_element}`; iteration continues until closed"
-                    )
-                },
-                range: None,
-            });
+                .or_else(|| {
+                    Some(LspHover {
+                        contents: if endpoint == "tx" {
+                            "c[tx]: non-blocking send".to_string()
+                        } else {
+                            "c[rx]: blocking receive; iteration continues until closed".to_string()
+                        },
+                        range: None,
+                    })
+                });
+        }
+        let deref_at_position = current_line.is_some_and(|line| {
+            line.chars()
+                .nth(position.character as usize)
+                .is_some_and(|character| character == '*')
+        });
+        if hit.is_none() && deref_at_position {
+            hit = current_line
+                .and_then(|line| identifier_position_after(line, position.character as usize + 1))
+                .and_then(|character| {
+                    snapshot.hover_for_dereference(LspPosition {
+                        line: position.line,
+                        character,
+                    })
+                });
         }
         let owned_type_site = document
             .text

@@ -1,10 +1,11 @@
 use std: pkg = {"std"};
 
-fun[] worker(): int = {
-    return std::io::echo_int(17);
+fun[] worker(value: int): int = {
+    return std::io::echo_int(value);
 };
 
 fun[] main(): int = {
-    [>]worker();
-    return 0;
+    var value: int = 17;
+    [>]worker(value);
+    return value - 17;
 };

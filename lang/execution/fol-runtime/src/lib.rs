@@ -29,11 +29,15 @@
 //! Explicitly out of scope for this runtime crate:
 //!
 //! - runtime ownership bookkeeping (V3 ownership remains compiler/backend work)
-//! - borrowing and pointers until their V3 milestones land
+//! - compiler-owned borrowing and pointer legality
 //! - a runtime-owned generic reification model
 //! - object-style standards/dispatch machinery
-//! - concurrency runtime
 //! - C ABI
+//!
+//! The hosted [`std`] tier does provide the small V3 processor substrate used by
+//! generated programs: OS-thread task tracking, unbounded MPSC channels,
+//! mutex-backed sharing, and internal eventual delivery. The compiler still
+//! owns the language-level legality and capability rules for those surfaces.
 //!
 //! Full `V2` generics, generic types, and procedural standards still execute
 //! through the current backend strategy. The important boundary is narrower:

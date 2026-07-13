@@ -51,6 +51,8 @@ pub(crate) struct DeferredBody {
 pub(crate) struct ActiveDeferScope {
     pub kind: DeferScopeKind,
     pub entries: Vec<DeferredBody>,
+    pub mutex_guards: Vec<LoweredLocalId>,
+    pub lexical_drops: Vec<LoweredLocalId>,
 }
 
 #[derive(Debug, Default)]
@@ -415,6 +417,8 @@ impl<'a> RoutineCursor<'a> {
         self.defer_scopes.push(ActiveDeferScope {
             kind,
             entries: Vec::new(),
+            mutex_guards: Vec::new(),
+            lexical_drops: Vec::new(),
         });
     }
 
@@ -456,6 +460,55 @@ impl<'a> RoutineCursor<'a> {
             error_only,
         });
         Ok(())
+    }
+
+    pub(crate) fn register_lexical_drop(
+        &mut self,
+        local: LoweredLocalId,
+    ) -> Result<(), LoweringError> {
+        let Some(scope) = self.defer_scopes.last_mut() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "owned local registration requires an active lexical scope",
+            ));
+        };
+        scope.lexical_drops.push(local);
+        Ok(())
+    }
+
+    pub(crate) fn register_mutex_guard(
+        &mut self,
+        local: LoweredLocalId,
+    ) -> Result<(), LoweringError> {
+        if self
+            .defer_scopes
+            .iter()
+            .any(|scope| scope.mutex_guards.contains(&local))
+        {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "mutex parameter is already locked",
+            ));
+        }
+        let Some(scope) = self.defer_scopes.last_mut() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "mutex lock requires an active lexical scope",
+            ));
+        };
+        scope.mutex_guards.push(local);
+        Ok(())
+    }
+
+    pub(crate) fn release_mutex_guard(&mut self, local: LoweredLocalId) -> bool {
+        let Some(scope) = self.defer_scopes.last_mut() else {
+            return false;
+        };
+        let Some(index) = scope.mutex_guards.iter().rposition(|guard| *guard == local) else {
+            return false;
+        };
+        scope.mutex_guards.remove(index);
+        true
     }
 
     pub(crate) fn current_block_terminated(&self) -> Result<bool, LoweringError> {

@@ -316,6 +316,8 @@ impl TypecheckSession {
         typed_symbol.receiver_type = translated_receiver;
         typed_symbol.generic_params = foreign_type.generic_params.clone();
         typed_symbol.generic_constraints = foreign_type.generic_constraints.clone();
+        typed_symbol.is_channel_sender_capture = foreign_type.is_channel_sender_capture;
+        typed_symbol.channel_receiver_params = foreign_type.channel_receiver_params.clone();
         Ok(())
     }
 

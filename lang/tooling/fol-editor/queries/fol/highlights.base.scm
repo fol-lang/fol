@@ -165,6 +165,7 @@ __FOL_SHELL_TYPE_LINES__
 (binary_expr operator: "at" @operator)
 (unary_expr operator: "not" @operator)
 (unary_expr operator: ["&" "*" "#" "!"] @operator)
+(deref_target "*" @operator)
 (routine_capture_list "[" @punctuation.bracket "]" @punctuation.bracket)
 (routine_capture_list "," @punctuation.delimiter)
 (routine_capture endpoint: ["tx" "rx"] @attribute)

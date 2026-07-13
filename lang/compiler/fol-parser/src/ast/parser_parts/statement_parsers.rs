@@ -77,11 +77,13 @@ impl AstParser {
                 &binding_token,
                 "Expected message binding after 'as' in select arm",
             )?;
+            let binding_syntax_id = self.record_syntax_origin(&binding_token);
             let _ = tokens.bump();
             let body = self.parse_branch_body(tokens)?;
             arms.push(SelectArm {
                 channel,
                 binding,
+                binding_syntax_id,
                 body,
             });
         }

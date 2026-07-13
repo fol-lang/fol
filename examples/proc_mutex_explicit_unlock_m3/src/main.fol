@@ -7,8 +7,9 @@ typ Counter: rec = {
 fun[] update(counter[mux]: Counter): int = {
     counter.lock();
     counter.value = 42;
+    var result: int = counter.value;
     counter.unlock();
-    return std::io::echo_int(counter.value);
+    return std::io::echo_int(result);
 };
 
 fun[] main(): int = {

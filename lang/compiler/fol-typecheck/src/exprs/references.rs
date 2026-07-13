@@ -26,22 +26,50 @@ pub(crate) fn type_identifier_reference(
         .and_then(|reference| reference.resolved)
     {
         if let Some(move_origin) = typed.moved_binding_origin(symbol).cloned() {
+            let eventual = typed
+                .typed_symbol(symbol)
+                .and_then(|symbol| symbol.declared_type)
+                .and_then(|type_id| typed.type_table().get(type_id))
+                .is_some_and(|typ| matches!(typ, crate::CheckedType::Eventual { .. }));
+            let channel = typed
+                .typed_symbol(symbol)
+                .and_then(|symbol| symbol.declared_type)
+                .and_then(|type_id| typed.type_table().get(type_id))
+                .is_some_and(|typ| matches!(typ, crate::CheckedType::Channel { .. }));
+            let eventual_move = typed.eventual_move_kind(symbol);
+            let message = match eventual_move {
+                Some(crate::model::EventualMoveKind::Await) => {
+                    format!("use of consumed eventual binding '{name}'")
+                }
+                Some(crate::model::EventualMoveKind::Transfer) => {
+                    format!("use of moved eventual binding '{name}'")
+                }
+                None if eventual => format!("use of moved eventual binding '{name}'"),
+                None if channel => format!("use of moved channel receiver binding '{name}'"),
+                None => format!("use of moved heap-owned binding '{name}'"),
+            };
             let mut error = origin_for(resolved, syntax_id).map_or_else(
-                || {
-                    TypecheckError::new(
-                        TypecheckErrorKind::Ownership,
-                        format!("use of moved heap-owned binding '{name}'"),
-                    )
-                },
+                || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
                 |origin| {
                     TypecheckError::with_origin(
                         TypecheckErrorKind::Ownership,
-                        format!("use of moved heap-owned binding '{name}'"),
+                        message.clone(),
                         origin,
                     )
                 },
             );
-            error = error.with_related_origin(move_origin, "ownership moved here");
+            error = error.with_related_origin(
+                move_origin,
+                match eventual_move {
+                    Some(crate::model::EventualMoveKind::Await) => {
+                        "eventual consumed by await here"
+                    }
+                    Some(crate::model::EventualMoveKind::Transfer) => {
+                        "eventual ownership transferred here"
+                    }
+                    None => "ownership moved here",
+                },
+            );
             return Err(error);
         }
         if let Some(borrow) = typed.active_borrow_for_owner(symbol).cloned() {

@@ -1,10 +1,6 @@
 use super::cursor::{LoweredValue, RoutineCursor, WorkspaceDeclIndex};
 use super::expressions::lower_expression_expected;
-use crate::{
-    control::LoweredInstrKind,
-    ids::LoweredTypeId,
-    LoweringError, LoweringErrorKind,
-};
+use crate::{control::LoweredInstrKind, ids::LoweredTypeId, LoweringError, LoweringErrorKind};
 use fol_parser::ast::AstNode;
 use fol_resolver::{PackageIdentity, ScopeId, SourceUnitId, SymbolKind};
 use std::collections::BTreeMap;
@@ -47,6 +43,14 @@ pub(crate) fn lower_local_binding(
         })?;
     let local_id = cursor.allocate_local(type_id, Some(name.to_string()));
     cursor.routine.local_symbols.insert(symbol_id, local_id);
+    if type_needs_lexical_drop(type_table, type_id, 0)
+        && typed_package
+            .program
+            .moved_binding_origin(symbol_id)
+            .is_none()
+    {
+        cursor.register_lexical_drop(local_id)?;
+    }
 
     if let Some(value) = value {
         let lowered_value = lower_expression_expected(
@@ -79,5 +83,24 @@ pub(crate) fn lower_local_binding(
             type_id,
             recoverable_error_type: None,
         }))
+    }
+}
+
+fn type_needs_lexical_drop(
+    type_table: &crate::LoweredTypeTable,
+    type_id: LoweredTypeId,
+    depth: usize,
+) -> bool {
+    if depth > 32 {
+        return false;
+    }
+    match type_table.get(type_id) {
+        Some(crate::LoweredType::Owned { .. }) => true,
+        Some(crate::LoweredType::Pointer { shared: false, .. }) => true,
+        Some(crate::LoweredType::Optional { inner })
+        | Some(crate::LoweredType::Error { inner: Some(inner) }) => {
+            type_needs_lexical_drop(type_table, *inner, depth + 1)
+        }
+        _ => false,
     }
 }

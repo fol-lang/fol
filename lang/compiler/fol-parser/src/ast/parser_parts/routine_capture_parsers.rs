@@ -11,7 +11,10 @@ impl AstParser {
         for capture in captures {
             if !seen.insert(canonical_identifier_key(&capture.name)) {
                 let error = if let Ok(token) = tokens.curr(false) {
-                    ParseError::from_token(&token, format!("Duplicate capture name '{}'", capture.name))
+                    ParseError::from_token(
+                        &token,
+                        format!("Duplicate capture name '{}'", capture.name),
+                    )
                 } else {
                     ParseError {
                         kind: ParseErrorKind::Syntax,
@@ -56,6 +59,7 @@ impl AstParser {
 
             let name =
                 Self::expect_named_label(&token, "Expected capture name in routine capture list")?;
+            let syntax_id = self.record_syntax_origin(&token);
             let _ = tokens.bump();
 
             self.skip_ignorable(tokens)?;
@@ -90,7 +94,11 @@ impl AstParser {
             } else {
                 None
             };
-            captures.push(RoutineCapture { name, endpoint });
+            captures.push(RoutineCapture {
+                name,
+                syntax_id,
+                endpoint,
+            });
 
             self.skip_ignorable(tokens)?;
             let sep = tokens.curr(false)?;

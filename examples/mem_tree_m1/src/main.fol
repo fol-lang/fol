@@ -8,5 +8,5 @@ fun[] main(): int = {
     @var left: Node = { value = 2, left = nil, right = nil };
     @var right: Node = { value = 3, left = nil, right = nil };
     @var root: Node = { value = 1, left = left, right = right };
-    return root.value;
+    return root.value + (root.left!).value + (root.right!).value;
 };

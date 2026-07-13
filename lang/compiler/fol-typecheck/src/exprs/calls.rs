@@ -9,12 +9,12 @@ use fol_intrinsics::{
 };
 use fol_parser::ast::{AstNode, QualifiedPath, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{ReferenceId, ReferenceKind, ResolvedProgram, SymbolId, SymbolKind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::helpers::{
     apparent_type_id, describe_type, ensure_assignable, internal_error, is_error_shell_type,
     merge_recoverable_effects, node_origin, observe_context, origin_for, plain_value_expr,
-    reject_recoverable_error_shell_conversion, unsupported_node_surface,
+    reject_recoverable_error_shell_conversion, strip_comments, unsupported_node_surface,
 };
 use super::type_node;
 use super::type_node_with_expectation;
@@ -722,6 +722,74 @@ pub(crate) fn type_method_call(
             ));
         }
         let _ = type_node(typed, resolved, context, object)?;
+        let AstNode::Identifier {
+            name,
+            syntax_id: Some(syntax_id),
+        } = strip_comments(object)
+        else {
+            return Err(unsupported_node_surface(
+                resolved,
+                object,
+                format!("mutex .{method}() requires a local [mux] parameter"),
+            ));
+        };
+        let mutex_symbol = resolved
+            .references
+            .iter()
+            .find(|reference| {
+                reference.syntax_id == Some(*syntax_id)
+                    && reference.kind == ReferenceKind::Identifier
+            })
+            .and_then(|reference| reference.resolved)
+            .ok_or_else(|| {
+                internal_error(
+                    format!("mutex operation on '{name}' lost its resolved symbol"),
+                    node_origin(resolved, object),
+                )
+            })?;
+        let is_mutex = typed
+            .typed_symbol(mutex_symbol)
+            .is_some_and(|symbol| symbol.is_mutex);
+        if !is_mutex {
+            return Err(unsupported_node_surface(
+                resolved,
+                object,
+                format!(".{method}() requires a [mux] parameter; '{name}' is not mutex-guarded"),
+            ));
+        }
+        let origin = node_origin(resolved, node)
+            .or_else(|| node_origin(resolved, object))
+            .ok_or_else(|| internal_error("mutex operation lost its syntax origin", None))?;
+        if method == "lock" {
+            let guard = crate::ActiveMutexGuard {
+                scope: context.scope_id,
+                origin: origin.clone(),
+            };
+            if let Some(active) = typed.register_mutex_guard(mutex_symbol, guard) {
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::InvalidInput,
+                    format!("mutex parameter '{name}' is already locked"),
+                    origin,
+                )
+                .with_related_origin(active.origin, "mutex lock acquired here"));
+            }
+        } else if typed
+            .release_mutex_guard(mutex_symbol, context.scope_id)
+            .is_none()
+        {
+            let message = if typed.active_mutex_guard(mutex_symbol).is_some() {
+                format!(
+                    "mutex parameter '{name}' must be unlocked in the lexical scope that acquired it"
+                )
+            } else {
+                format!("mutex parameter '{name}' is not locked")
+            };
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                message,
+                origin,
+            ));
+        }
         return Ok(TypedExpr::none());
     }
     let receiver_raw = type_node(typed, resolved, context, object)?;
@@ -1097,6 +1165,14 @@ pub(crate) fn check_call_arguments(
         allow_named,
         allow_defaults,
     )?;
+    validate_call_site_borrows(
+        typed,
+        resolved,
+        signature,
+        &ordered_args,
+        callee,
+        origin.clone(),
+    )?;
 
     let mut generic_bindings = BTreeMap::new();
     let mut arg_effects = Vec::new();
@@ -1135,6 +1211,15 @@ pub(crate) fn check_call_arguments(
                 let actual = actual_expr
                     .required_value(format!("argument for '{callee}' does not have a type"))?;
                 arg_effects.push(actual_expr.recoverable_effect);
+                validate_eventual_call_argument(
+                    typed,
+                    resolved,
+                    arg,
+                    actual,
+                    contains_generics,
+                    callee,
+                    origin.clone(),
+                )?;
                 if contains_generics {
                     infer_generic_bindings_from_argument(
                         typed,
@@ -1151,6 +1236,28 @@ pub(crate) fn check_call_arguments(
                         apparent_type_id(typed, actual)?,
                         format!("call to '{callee}'"),
                         origin.clone(),
+                    )?;
+                }
+                let extracts_sender = matches!(
+                    (
+                        typed.type_table().get(*expected),
+                        typed.type_table().get(actual),
+                    ),
+                    (
+                        Some(CheckedType::ChannelSender {
+                            element_type: expected,
+                        }),
+                        Some(CheckedType::Channel {
+                            element_type: actual,
+                        }),
+                    ) if expected == actual
+                );
+                if !extracts_sender {
+                    super::bindings::mark_plain_identifier_move(
+                        typed,
+                        resolved,
+                        Some(arg),
+                        actual,
                     )?;
                 }
             }
@@ -1204,6 +1311,15 @@ pub(crate) fn check_call_arguments(
                         "variadic argument for '{callee}' does not have a type"
                     ))?;
                     arg_effects.push(actual_expr.recoverable_effect);
+                    validate_eventual_call_argument(
+                        typed,
+                        resolved,
+                        arg,
+                        actual,
+                        contains_generics,
+                        callee,
+                        origin.clone(),
+                    )?;
                     if contains_generics {
                         infer_generic_bindings_from_argument(
                             typed,
@@ -1222,6 +1338,12 @@ pub(crate) fn check_call_arguments(
                             origin.clone(),
                         )?;
                     }
+                    super::bindings::mark_plain_identifier_move(
+                        typed,
+                        resolved,
+                        Some(arg),
+                        actual,
+                    )?;
                 }
             }
             BoundCallArg::Default => {}
@@ -1234,6 +1356,219 @@ pub(crate) fn check_call_arguments(
         instantiated,
         merge_recoverable_effects(typed, origin, "call arguments", arg_effects)?,
     ))
+}
+
+fn validate_eventual_call_argument(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+    actual: CheckedTypeId,
+    generic_parameter: bool,
+    callee: &str,
+    call_origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let origin = node_origin(resolved, arg).or(call_origin);
+    super::bindings::reject_nested_eventual_value(
+        typed,
+        actual,
+        origin.clone(),
+        format!("argument to '{callee}'"),
+    )?;
+    if generic_parameter
+        && matches!(
+            typed.type_table().get(actual),
+            Some(CheckedType::Eventual { .. })
+        )
+    {
+        let message = format!(
+            "call to '{callee}' cannot pass an internal eventual through a generic parameter in V3; await it before the call"
+        );
+        return Err(match origin {
+            Some(origin) => {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin)
+            }
+            None => TypecheckError::new(TypecheckErrorKind::Ownership, message),
+        });
+    }
+    Ok(())
+}
+
+fn validate_call_site_borrows(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    signature: &RoutineType,
+    args: &[BoundCallArg<'_>],
+    callee: &str,
+    call_origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let mut transient_sources = vec![None; args.len()];
+
+    for (index, (expected, bound)) in signature.params.iter().zip(args.iter()).enumerate() {
+        let Some(CheckedType::Borrowed { mutable, .. }) = typed.type_table().get(*expected) else {
+            continue;
+        };
+        let Some(arg) = explicit_bound_arg(bound) else {
+            continue;
+        };
+        if let Some(owner) = borrow_from_owner(resolved, arg) {
+            let borrow_origin = node_origin(resolved, arg)
+                .or_else(|| call_origin.clone())
+                .unwrap_or(SyntaxOrigin {
+                    file: None,
+                    line: 1,
+                    column: 1,
+                    length: 1,
+                });
+            if let Some(conflict) = typed.active_borrow_for_owner(owner) {
+                if *mutable || conflict.mutable {
+                    return Err(TypecheckError::with_origin(
+                        TypecheckErrorKind::BorrowConflict,
+                        format!(
+                            "call to '{callee}' borrows an owner that already has an incompatible active borrow"
+                        ),
+                        borrow_origin,
+                    )
+                    .with_related_origin(conflict.origin.clone(), "conflicting borrow created here"));
+                }
+            }
+            transient_sources[index] = Some((owner, borrow_origin, *mutable));
+            continue;
+        }
+        if argument_is_borrow_binding(typed, resolved, arg) {
+            continue;
+        }
+        return Err(node_origin(resolved, arg).or(call_origin.clone()).map_or_else(
+            || {
+                TypecheckError::new(
+                    TypecheckErrorKind::BorrowConflict,
+                    format!(
+                        "call to '{callee}' must pass '#owner' or an existing borrow binding to a [bor] parameter"
+                    ),
+                )
+            },
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::BorrowConflict,
+                    format!(
+                        "call to '{callee}' must pass '#owner' or an existing borrow binding to a [bor] parameter"
+                    ),
+                    origin,
+                )
+            },
+        ));
+    }
+
+    for (borrow_index, source) in transient_sources.iter().enumerate() {
+        let Some((owner, borrow_origin, _mutable)) = source else {
+            continue;
+        };
+        for (arg_index, bound) in args.iter().enumerate() {
+            if arg_index == borrow_index
+                || transient_sources[arg_index]
+                    .as_ref()
+                    .is_some_and(|(other_owner, _, _)| other_owner == owner)
+            {
+                continue;
+            }
+            if bound_arg_references_symbol(resolved, bound, *owner) {
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::BorrowConflict,
+                    format!(
+                        "call to '{callee}' accesses an owner in another argument while it is borrowed for a [bor] parameter"
+                    ),
+                    node_origin_for_bound_arg(resolved, bound)
+                        .or_else(|| call_origin.clone())
+                        .unwrap_or_else(|| borrow_origin.clone()),
+                )
+                .with_related_origin(borrow_origin.clone(), "call-site borrow created here"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn explicit_bound_arg<'a>(arg: &'a BoundCallArg<'a>) -> Option<&'a AstNode> {
+    match arg {
+        BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => Some(arg),
+        BoundCallArg::Default | BoundCallArg::VariadicPack(_) => None,
+    }
+}
+
+fn borrow_from_owner(resolved: &ResolvedProgram, arg: &AstNode) -> Option<SymbolId> {
+    matches!(
+        strip_comments(arg),
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::BorrowFrom,
+            ..
+        }
+    )
+    .then(|| super::bindings::borrow_source_symbol(resolved, strip_comments(arg)))?
+}
+
+fn argument_is_borrow_binding(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+) -> bool {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = strip_comments(arg)
+    else {
+        return false;
+    };
+    resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+        .and_then(|symbol| typed.typed_symbol(symbol))
+        .and_then(|symbol| symbol.declared_type)
+        .and_then(|type_id| typed.type_table().get(type_id))
+        .is_some_and(|typ| matches!(typ, CheckedType::Borrowed { .. }))
+}
+
+fn bound_arg_references_symbol(
+    resolved: &ResolvedProgram,
+    arg: &BoundCallArg<'_>,
+    symbol: SymbolId,
+) -> bool {
+    match arg {
+        BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
+            node_references_symbol(resolved, arg, symbol)
+        }
+        BoundCallArg::VariadicPack(args) => args
+            .iter()
+            .any(|arg| node_references_symbol(resolved, arg, symbol)),
+        BoundCallArg::Default => false,
+    }
+}
+
+fn node_references_symbol(resolved: &ResolvedProgram, node: &AstNode, symbol: SymbolId) -> bool {
+    let mut syntax_ids = BTreeSet::new();
+    super::helpers::collect_syntax_ids(node, &mut syntax_ids);
+    resolved.references.iter().any(|reference| {
+        reference.resolved == Some(symbol)
+            && reference
+                .syntax_id
+                .is_some_and(|syntax_id| syntax_ids.contains(&syntax_id))
+    })
+}
+
+fn node_origin_for_bound_arg(
+    resolved: &ResolvedProgram,
+    arg: &BoundCallArg<'_>,
+) -> Option<SyntaxOrigin> {
+    match arg {
+        BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
+            node_origin(resolved, arg)
+        }
+        BoundCallArg::VariadicPack(args) => args.iter().find_map(|arg| node_origin(resolved, arg)),
+        BoundCallArg::Default => None,
+    }
 }
 
 fn infer_generic_bindings_from_argument(

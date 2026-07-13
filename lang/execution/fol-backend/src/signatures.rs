@@ -1,7 +1,7 @@
 use crate::{
-    mangle_global_name, mangle_local_name, mangle_routine_name,
-    render_core_instruction_in_workspace, render_rust_type_in_workspace, render_terminator,
-    BackendError, BackendErrorKind, BackendResult,
+    instructions::render_mutex_guard_name, mangle_global_name, mangle_local_name,
+    mangle_routine_name, render_core_instruction_in_workspace, render_rust_type_in_workspace,
+    render_terminator, BackendError, BackendErrorKind, BackendResult,
 };
 use fol_lower::{
     LoweredBlockId, LoweredGlobal, LoweredRoutine, LoweredRoutineType, LoweredType, LoweredTypeId,
@@ -292,6 +292,37 @@ pub fn render_routine_definition(
         })
         .collect::<BackendResult<Vec<_>>>()?
         .join("\n");
+    let mutex_guard_decls = routine
+        .mutex_params
+        .iter()
+        .map(|local_id| {
+            let local = routine.locals.get(*local_id).ok_or_else(|| {
+                BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!(
+                        "mutex local {:?} is missing from routine '{}'",
+                        local_id, routine.name
+                    ),
+                )
+            })?;
+            let type_id = local.type_id.ok_or_else(|| {
+                BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!(
+                        "mutex local {:?} in routine '{}' is missing a lowered type",
+                        local_id, routine.name
+                    ),
+                )
+            })?;
+            let inner = render_rust_type_in_workspace(Some(workspace), type_table, type_id)?;
+            Ok(format!(
+                "    let mut {}: Option<std::sync::MutexGuard<'_, {}>> = None;",
+                render_mutex_guard_name(*local_id),
+                inner
+            ))
+        })
+        .collect::<BackendResult<Vec<_>>>()?
+        .join("\n");
     let rendered_blocks = routine
         .blocks
         .iter_with_ids()
@@ -308,10 +339,15 @@ pub fn render_routine_definition(
         .collect::<BackendResult<Vec<_>>>()?
         .join("\n");
 
-    let local_section = if local_decls.is_empty() {
+    let local_section = [local_decls, mutex_guard_decls]
+        .into_iter()
+        .filter(|section| !section.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let local_section = if local_section.is_empty() {
         String::new()
     } else {
-        format!("{local_decls}\n")
+        format!("{local_section}\n")
     };
 
     Ok(format!(

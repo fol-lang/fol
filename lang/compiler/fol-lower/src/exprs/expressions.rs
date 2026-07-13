@@ -50,8 +50,7 @@ pub(crate) fn channel_binding_local(
         .references
         .iter()
         .find(|reference| {
-            reference.syntax_id == Some(*syntax_id)
-                && reference.kind == ReferenceKind::Identifier
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
         })
         .and_then(|reference| reference.resolved)
         .ok_or_else(|| {
@@ -82,7 +81,10 @@ pub(crate) fn channel_binding_local(
                 format!("channel binding '{name}' does not retain a lowered type"),
             )
         })?;
-    if !matches!(type_table.get(type_id), Some(LoweredType::Channel { .. })) {
+    if !matches!(
+        type_table.get(type_id),
+        Some(LoweredType::Channel { .. }) | Some(LoweredType::ChannelSender { .. })
+    ) {
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
             format!("channel binding '{name}' is not a lowered chn[T] value"),
@@ -100,26 +102,35 @@ pub(crate) fn lower_channel_access(
 ) -> Result<LoweredValue, LoweringError> {
     let (channel_local, channel_type) =
         channel_binding_local(typed_package, type_table, cursor, channel)?;
-    let Some(LoweredType::Channel { element_type }) = type_table.get(channel_type) else {
-        unreachable!("channel_binding_local verifies the lowered type")
+    let (element_type, sender_only) = match type_table.get(channel_type) {
+        Some(LoweredType::Channel { element_type }) => (*element_type, false),
+        Some(LoweredType::ChannelSender { element_type }) => (*element_type, true),
+        _ => unreachable!("channel_binding_local verifies the lowered type"),
     };
+    if endpoint == ChannelEndpoint::Rx && sender_only {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            "sender-only channel endpoints cannot lower a receive operation",
+        ));
+    }
     let result_type = match endpoint {
         ChannelEndpoint::Tx => type_table
-            .find(&LoweredType::ChannelSender {
-                element_type: *element_type,
-            })
+            .find(&LoweredType::ChannelSender { element_type })
             .ok_or_else(|| {
                 LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
                     "channel sender type was not translated into lowered IR",
                 )
             })?,
-        ChannelEndpoint::Rx => *element_type,
+        ChannelEndpoint::Rx => element_type,
     };
     let result_local = cursor.allocate_local(result_type, None);
     cursor.push_instr(
         Some(result_local),
         match endpoint {
+            ChannelEndpoint::Tx if sender_only => LoweredInstrKind::LoadLocal {
+                local: channel_local,
+            },
             ChannelEndpoint::Tx => LoweredInstrKind::ChannelSender {
                 channel: channel_local,
             },
@@ -149,8 +160,10 @@ pub(crate) fn lower_channel_send(
 ) -> Result<(), LoweringError> {
     let (channel_local, channel_type) =
         channel_binding_local(typed_package, type_table, cursor, channel)?;
-    let Some(LoweredType::Channel { element_type }) = type_table.get(channel_type) else {
-        unreachable!("channel_binding_local verifies the lowered type")
+    let element_type = match type_table.get(channel_type) {
+        Some(LoweredType::Channel { element_type })
+        | Some(LoweredType::ChannelSender { element_type }) => *element_type,
+        _ => unreachable!("channel_binding_local verifies the lowered type"),
     };
     let lowered_value = lower_expression_expected(
         typed_package,
@@ -161,7 +174,7 @@ pub(crate) fn lower_channel_send(
         cursor,
         source_unit_id,
         scope_id,
-        Some(*element_type),
+        Some(element_type),
         value,
     )?;
     cursor.push_instr(
@@ -211,14 +224,15 @@ pub(crate) fn lower_expression_expected(
     expected_type: Option<LoweredTypeId>,
     node: &AstNode,
 ) -> Result<LoweredValue, LoweringError> {
-    if let Some(borrowed) = lower_direct_borrow_reference(
-        typed_package,
-        type_table,
-        cursor,
-        expected_type,
-        node,
-    )? {
+    if let Some(borrowed) =
+        lower_direct_borrow_reference(typed_package, type_table, cursor, expected_type, node)?
+    {
         return Ok(borrowed);
+    }
+    if let Some(sender) =
+        lower_direct_channel_sender(typed_package, type_table, cursor, expected_type, node)?
+    {
+        return Ok(sender);
     }
     let lowered = lower_expression_observed(
         typed_package,
@@ -242,6 +256,74 @@ pub(crate) fn lower_expression_expected(
         ));
     }
     apply_expected_shell_wrap(type_table, cursor, expected_type, lowered)
+}
+
+fn lower_direct_channel_sender(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    cursor: &mut RoutineCursor<'_>,
+    expected_type: Option<LoweredTypeId>,
+    node: &AstNode,
+) -> Result<Option<LoweredValue>, LoweringError> {
+    let Some(expected_type) = expected_type else {
+        return Ok(None);
+    };
+    let Some(LoweredType::ChannelSender {
+        element_type: expected_element,
+    }) = type_table.get(expected_type)
+    else {
+        return Ok(None);
+    };
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = (match node {
+        AstNode::Commented { node, .. } => node.as_ref(),
+        other => other,
+    })
+    else {
+        return Ok(None);
+    };
+    let source = typed_package
+        .program
+        .resolved()
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+        .and_then(|symbol| cursor.routine.local_symbols.get(&symbol).copied());
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    let Some(source_type) = cursor
+        .routine
+        .locals
+        .get(source)
+        .and_then(|local| local.type_id)
+    else {
+        return Ok(None);
+    };
+    let Some(LoweredType::Channel {
+        element_type: source_element,
+    }) = type_table.get(source_type)
+    else {
+        return Ok(None);
+    };
+    if source_element != expected_element {
+        return Ok(None);
+    }
+    let result = cursor.allocate_local(expected_type, None);
+    cursor.push_instr(
+        Some(result),
+        LoweredInstrKind::ChannelSender { channel: source },
+    )?;
+    Ok(Some(LoweredValue {
+        local_id: result,
+        type_id: expected_type,
+        recoverable_error_type: None,
+    }))
 }
 
 fn lower_direct_borrow_reference(
@@ -277,8 +359,7 @@ fn lower_direct_borrow_reference(
         .references
         .iter()
         .find(|reference| {
-            reference.syntax_id == Some(*syntax_id)
-                && reference.kind == ReferenceKind::Identifier
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
         })
         .and_then(|reference| reference.resolved);
     let Some(owner) = symbol.and_then(|symbol| cursor.routine.local_symbols.get(&symbol).copied())
@@ -1345,13 +1426,12 @@ fn lower_expression_observed_inner(
             LoweringErrorKind::Unsupported,
             "block expression lowering is not yet implemented",
         )),
-        // Beyond V1 — deferred
         AstNode::ChannelAccess { channel, endpoint } => {
             lower_channel_access(typed_package, type_table, cursor, channel, endpoint.clone())
         }
         AstNode::AsyncStage | AstNode::AwaitStage | AstNode::Spawn { .. } | AstNode::Select { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
-            "concurrency primitives (async, await, spawn, channels, select) are not yet supported",
+            "V3 concurrency form reached expression lowering outside its supported pipe or statement position",
         )),
         AstNode::Rolling { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
@@ -1615,7 +1695,10 @@ pub(crate) fn lower_anonymous_routine(
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                format!("capture '{}' does not retain a lowering symbol", capture.name),
+                format!(
+                    "capture '{}' does not retain a lowering symbol",
+                    capture.name
+                ),
             )
         })?;
         let capture_type = typed_package

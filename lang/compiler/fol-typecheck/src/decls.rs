@@ -45,6 +45,12 @@ pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult
     }
 
     if errors.is_empty() {
+        if let Err(error) = crate::channel_analysis::refine_channel_parameters(typed) {
+            errors.push(error);
+        }
+    }
+
+    if errors.is_empty() {
         Ok(())
     } else {
         Err(errors)
@@ -137,9 +143,7 @@ fn lower_top_level_declaration(
     source_unit_id: SourceUnitId,
     item: &ParsedTopLevel,
 ) -> Result<(), TypecheckError> {
-    if let Some(error) =
-        unsupported_v1_top_level_decl(resolved, item, typed.capability_model())
-    {
+    if let Some(error) = unsupported_v1_top_level_decl(resolved, item, typed.capability_model()) {
         return Err(error);
     }
 
@@ -582,9 +586,7 @@ fn lower_nested_declarations_in_node(
             });
         }
     } else if current_scope != source_unit.scope_id {
-        if let Some(error) =
-            unsupported_v1_nested_decl(resolved, node, typed.capability_model())
-        {
+        if let Some(error) = unsupported_v1_nested_decl(resolved, node, typed.capability_model()) {
             return Err(error);
         }
     }
@@ -610,15 +612,14 @@ fn lower_nested_declarations_in_node(
                     &[symbol_kind_for_node(node)],
                     name,
                 )?;
-                let mut type_id = lower_type(typed, resolved, current_scope, type_hint).map_err(
-                    |error| {
+                let mut type_id =
+                    lower_type(typed, resolved, current_scope, type_hint).map_err(|error| {
                         resolved
                             .symbol(symbol_id)
                             .and_then(|symbol| symbol.origin.clone())
                             .or_else(|| node_origin(resolved, node))
                             .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
-                    },
-                )?;
+                    })?;
                 if options
                     .iter()
                     .any(|option| matches!(option, VarOption::New))
@@ -3281,7 +3282,7 @@ fn find_symbol_id(
         })
 }
 
-fn find_routine_symbol_id(
+pub(crate) fn find_routine_symbol_id(
     resolved: &ResolvedProgram,
     source_unit_id: SourceUnitId,
     name: &str,
@@ -3530,7 +3531,9 @@ fn unsupported_type_error(
         FolType::Channel { .. } if !model.supports_processor() => {
             "channel types require hosted std support; declare the bundled internal standard dependency"
         }
-        FolType::Channel { .. } => "channel types are planned for a future release",
+        FolType::Channel { .. } => {
+            "channel types require hosted std support; declare the bundled internal standard dependency"
+        }
         FolType::Multiple { .. } => "multiple-return types are not yet supported",
         FolType::Union { .. } => "union types are not yet supported",
         FolType::Limited { .. } => "limited/constrained types are not yet supported",

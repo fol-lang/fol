@@ -4,9 +4,7 @@ use crate::{
 };
 use fol_parser::ast::{AstNode, FolType, Generic, Parameter, RoutineCapture, SyntaxNodeId};
 
-use super::super::scope::{
-    insert_generic_symbols, insert_local_symbol, insert_local_symbol_with_origin,
-};
+use super::super::scope::{insert_generic_symbols, insert_local_symbol_with_origin};
 use super::types::resolve_type_reference;
 use super::RoutineContext;
 
@@ -68,13 +66,21 @@ pub fn traverse_named_routine(
     }
 
     for capture in captures {
-        insert_local_symbol(
+        let capture_origin = capture
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned();
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
             &capture.name,
             SymbolKind::Capture,
-            format!("symbol#{}", fol_types::canonical_identifier_key(&capture.name)),
+            format!(
+                "symbol#{}",
+                fol_types::canonical_identifier_key(&capture.name)
+            ),
+            capture_origin,
         )?;
     }
     if receiver_type.is_some() {
@@ -174,13 +180,21 @@ pub fn traverse_anonymous_routine(
     }
 
     for capture in captures {
-        insert_local_symbol(
+        let capture_origin = capture
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned();
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
             &capture.name,
             SymbolKind::Capture,
-            format!("symbol#{}", fol_types::canonical_identifier_key(&capture.name)),
+            format!(
+                "symbol#{}",
+                fol_types::canonical_identifier_key(&capture.name)
+            ),
+            capture_origin,
         )?;
     }
 

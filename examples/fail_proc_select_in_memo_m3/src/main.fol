@@ -1,0 +1,6 @@
+fun[] main(): int = {
+    select {
+        * {}
+    }
+    return 0;
+};

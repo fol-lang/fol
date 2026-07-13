@@ -8,7 +8,12 @@ fun[] probe(fail: bol): int / int = {
 };
 
 fun[] main(): int = {
-    var eventual = probe(true) | async;
-    var value: int = (eventual | await) || 42;
-    return std::io::echo_int(value);
+    var checked = probe(true) | async;
+    var failed: bol = check(checked | await);
+    var recovered = probe(true) | async;
+    var value: int = (recovered | await) || 41;
+    when(failed) {
+        case(true) { return std::io::echo_int(value + 1); }
+        * { return 0; }
+    }
 };

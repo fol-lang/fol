@@ -249,10 +249,38 @@ pub(crate) fn lower_body_sequence(
                 deferred.entries,
                 false,
             )?;
+            lower_mutex_unlocks(cursor, deferred.mutex_guards)?;
+            lower_lexical_drops(cursor, deferred.lexical_drops)?;
         }
     }
 
     Ok(final_value)
+}
+
+fn lower_lexical_drops(
+    cursor: &mut RoutineCursor<'_>,
+    locals: Vec<crate::LoweredLocalId>,
+) -> Result<(), LoweringError> {
+    if cursor.current_block_terminated()? {
+        return Ok(());
+    }
+    for local in locals.into_iter().rev() {
+        cursor.push_instr(None, crate::LoweredInstrKind::DropLocal { local })?;
+    }
+    Ok(())
+}
+
+fn lower_mutex_unlocks(
+    cursor: &mut RoutineCursor<'_>,
+    mutexes: Vec<crate::LoweredLocalId>,
+) -> Result<(), LoweringError> {
+    if cursor.current_block_terminated()? {
+        return Ok(());
+    }
+    for mutex in mutexes.into_iter().rev() {
+        cursor.push_instr(None, crate::LoweredInstrKind::MutexUnlock { mutex })?;
+    }
+    Ok(())
 }
 
 fn lower_deferred_entries(
@@ -348,6 +376,8 @@ fn lower_all_active_defers(
         if cursor.current_block_terminated()? {
             break;
         }
+        lower_mutex_unlocks(cursor, scope.mutex_guards)?;
+        lower_lexical_drops(cursor, scope.lexical_drops)?;
     }
     Ok(())
 }
@@ -378,6 +408,8 @@ fn lower_defers_until_loop_exit(
         if cursor.current_block_terminated()? {
             return Ok(());
         }
+        lower_mutex_unlocks(cursor, scope.mutex_guards)?;
+        lower_lexical_drops(cursor, scope.lexical_drops)?;
     }
     Ok(())
 }
@@ -656,7 +688,8 @@ pub(crate) fn lower_body_node(
                 endpoint: ChannelEndpoint::Tx,
                 ..
             }
-        ) => {
+        ) =>
+        {
             let AstNode::ChannelAccess { channel, .. } = right.as_ref() else {
                 unreachable!("channel-send guard preserves the endpoint shape")
             };
@@ -834,6 +867,14 @@ pub(crate) fn lower_body_node(
                     return Err(LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
                         format!(".{method}() requires a [mux] parameter"),
+                    ));
+                }
+                if method == "lock" {
+                    cursor.register_mutex_guard(mutex.local_id)?;
+                } else if !cursor.release_mutex_guard(mutex.local_id) {
+                    return Err(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "mutex .unlock() requires a guard acquired in the current lexical scope",
                     ));
                 }
                 cursor.push_instr(

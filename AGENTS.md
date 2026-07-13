@@ -49,7 +49,7 @@ Expected surface:
 - arrays
 - records and entries
 - ordinary routines and method sugar
-- `defer`
+- `dfr`
 - optional and error shells
 - array `.len(...)`
 
@@ -262,7 +262,7 @@ Examples of current V1 material:
 - routines and current call binding
 - method sugar for records
 - recoverable errors
-- narrow `defer`
+- narrow `dfr`
 - current runtime-model split
 - current build system surface
 
@@ -349,7 +349,7 @@ Examples already marked as V3-oriented in the book:
 - pointers
 - async/eventuals
 - coroutines/channels/mutex-style processor work
-- richer ownership-aware `defer`
+- richer ownership-aware `dfr`
 
 References:
 
@@ -357,7 +357,7 @@ References:
 - `book/src/800_memory/200_pointers.md`
 - `book/src/900_processor/100_eventuals.md`
 - `book/src/900_processor/200_corutines.md`
-- `book/src/700_sugar/250_defer.md`
+- `book/src/700_sugar/250_dfr.md`
 
 ### `V4`
 

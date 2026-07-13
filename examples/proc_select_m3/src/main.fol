@@ -18,5 +18,13 @@ fun[] main(): int = {
             selected = value;
         }
     };
+    select {
+        when first as ignored {
+            selected = ignored;
+        }
+        * {
+            selected = selected;
+        }
+    };
     return std::io::echo_int(selected);
 };

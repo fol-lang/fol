@@ -164,6 +164,10 @@
         "required": true,
         "types": [
           {
+            "type": "deref_target",
+            "named": true
+          },
+          {
             "type": "field_access",
             "named": true
           },
@@ -678,6 +682,22 @@
     }
   },
   {
+    "type": "deref_target",
+    "named": true,
+    "fields": {
+      "pointer": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr_atom",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "dfr_stmt",
     "named": true,
     "fields": {},
@@ -1008,6 +1028,10 @@
           },
           {
             "type": "index_access",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
             "named": true
           },
           {

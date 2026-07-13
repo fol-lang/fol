@@ -72,6 +72,7 @@ pub(super) fn verify_instruction(
             }
         }
         crate::LoweredInstrKind::LoadLocal { local }
+        | crate::LoweredInstrKind::DropLocal { local }
         | crate::LoweredInstrKind::UnwrapShell { operand: local }
         | crate::LoweredInstrKind::CheckRecoverable { operand: local }
         | crate::LoweredInstrKind::UnwrapRecoverable { operand: local }
@@ -413,7 +414,13 @@ pub(super) fn verify_instruction(
             verify_local_reference(routine, instr.id.0, "pointer operand", *pointer, errors);
         }
         crate::LoweredInstrKind::StoreDeref { pointer, value } => {
-            verify_local_reference(routine, instr.id.0, "pointer store target", *pointer, errors);
+            verify_local_reference(
+                routine,
+                instr.id.0,
+                "pointer store target",
+                *pointer,
+                errors,
+            );
             verify_local_reference(routine, instr.id.0, "pointer store value", *value, errors);
         }
         crate::LoweredInstrKind::GiveBackBorrow { borrow } => {

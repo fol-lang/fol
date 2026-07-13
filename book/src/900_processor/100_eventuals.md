@@ -16,6 +16,12 @@ var value = pending | await;
 eventual type is not nameable in `V3`; `evt[T]` is only a possible later design
 slot.
 
+Eventual bindings are move-only. A plain binding or assignment transfers the
+eventual and makes the source binding unavailable; `| await` consumes the final
+binding exactly once. `V3` does not embed eventuals in composite values or pass
+them through generic parameters, because generic bodies do not yet carry a
+move-only contract. Await the value before crossing either boundary.
+
 Error behavior stays identical to the synchronous call. An infallible call
 awaits to `T`. A routine declared as `T / E` remains recoverable after await and
 must be handled with the existing `check(...)` or `||` surfaces. Async and await

@@ -1098,7 +1098,12 @@ fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
         let run = std::process::Command::new(built_binary_path(&build))
             .output()
             .expect("V3 memory example binary should run");
-        assert!(run.status.success(), "{example} should run successfully");
+        assert!(
+            run.status.success(),
+            "{example} should run successfully: stdout=\n{}\nstderr=\n{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
 
         let emitted = collect_rust_source_files(&emitted_crate_root(&build))
             .into_iter()
@@ -1107,8 +1112,17 @@ fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
             .join("\n");
         assert!(emitted.contains("Box<"));
         assert!(emitted.contains("Box::new"));
-        if example.contains("linked_list") || example.contains("tree") {
+        if example.contains("linked_list") {
             assert!(emitted.contains("FolOption<Box<"));
+            assert!(emitted.contains(".next.clone()"));
+            assert!(emitted.contains("unwrap_optional_shell"));
+            assert!(emitted.contains("drop(") && emitted.contains("__head);"));
+        } else if example.contains("tree") {
+            assert!(emitted.contains("FolOption<Box<"));
+            assert!(emitted.contains(".left.clone()"));
+            assert!(emitted.contains(".right.clone()"));
+            assert!(emitted.matches("unwrap_optional_shell").count() >= 2);
+            assert!(emitted.contains("drop(") && emitted.contains("__root);"));
         } else {
             assert!(emitted.contains(".clone()"));
         }
@@ -1190,7 +1204,10 @@ fn test_v3_memory_m2_examples_build_run_and_emit_borrows() {
         .output()
         .expect("edf example binary should run");
     assert!(run.status.success());
-    assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "1\n1\n2\n");
+    assert_eq!(
+        strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+        "1\n1\n2\n"
+    );
 }
 
 #[test]
@@ -1198,10 +1215,7 @@ fn test_v3_memory_m2_negative_examples_reject_at_the_chosen_boundaries() {
     for (example, expected) in [
         ("examples/fail_mem_owner_while_borrowed_m2", "O2001"),
         ("examples/fail_mem_second_mut_borrow_m2", "O2002"),
-        (
-            "examples/fail_mem_mut_borrow_immutable_owner_m2",
-            "O2003",
-        ),
+        ("examples/fail_mem_mut_borrow_immutable_owner_m2", "O2003"),
     ] {
         let root = temp_example_root(example);
         let check = run_fol_in_dir(&root, &["code", "check"]);
@@ -1246,7 +1260,10 @@ fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
         if example.contains("unique") {
             assert!(emitted.contains("Box<"));
             assert!(emitted.contains("Box::new"));
-            assert!(emitted.contains("*l__"), "unique pointer should dereference");
+            assert!(
+                emitted.contains("*l__"),
+                "unique pointer should dereference"
+            );
             assert!(
                 emitted.lines().any(|line| {
                     line.trim_start().starts_with("*l__") && line.contains("__pointer =")
@@ -1319,8 +1336,11 @@ fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
             .join("\n");
         assert!(emitted.contains("rt::spawn_task(move ||"));
         assert!(emitted.contains("rt::join_all_tasks()"));
+        assert!(emitted.contains("rt::task_join_guard()"));
         if example.contains("move_heap") {
             assert!(emitted.contains(" = *l__"));
+        } else {
+            assert!(emitted.contains(".clone()"));
         }
     }
 }
@@ -1328,6 +1348,11 @@ fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
 #[test]
 fn test_v3_processor_m1_spawn_negative_examples_reject() {
     for (example, expected, needs_std) in [
+        (
+            "examples/fail_proc_spawn_in_core_m1",
+            "spawn requires hosted std support",
+            false,
+        ),
         (
             "examples/fail_proc_spawn_in_memo_m1",
             "spawn requires hosted std support",
@@ -1351,11 +1376,7 @@ fn test_v3_processor_m1_spawn_negative_examples_reject() {
     ] {
         let root = temp_example_root(example);
         let check = if needs_std {
-            run_fol_with_store_in_dir(
-                &root,
-                &repo_root().join("lang/library"),
-                &["code", "check"],
-            )
+            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
         } else {
             run_fol_in_dir(&root, &["code", "check"])
         };
@@ -1391,7 +1412,56 @@ fn test_v3_processor_m2_channel_examples_build_and_run() {
             strip_ansi(&String::from_utf8_lossy(&run.stdout)),
             expected_output
         );
+        let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+            .into_iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(emitted.contains("rt::FolChannel<"));
+        assert!(emitted.contains("rt::join_all_tasks()"));
+        assert!(emitted.contains("rt::task_join_guard()"));
+        if example == "examples/proc_channel_m2"
+            || example == "examples/proc_channel_capture_m2"
+        {
+            assert!(
+                emitted.contains("rt::FolSender<"),
+                "{example} should type spawned channel capabilities as senders"
+            );
+            assert!(
+                emitted.contains(".sender()"),
+                "{example} should extract a sender without cloning the channel receiver"
+            );
+        }
     }
+}
+
+#[test]
+fn test_v3_channel_receiver_moves_into_a_synchronous_consumer() {
+    let root = temp_example_root("examples/proc_channel_pull_m2");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "use std: pkg = {\"std\"};\n\
+         fun[] consume(channel: chn[int]): int = { return channel[rx]; };\n\
+         fun[] main(): int = {\n\
+             var channel: chn[int];\n\
+             42 | channel[tx];\n\
+             return std::io::echo_int(consume(channel));\n\
+         };\n",
+    )
+    .expect("channel receiver transfer fixture should write");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "channel receiver transfer should build:\n{}\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("channel receiver transfer binary should run");
+    assert!(run.status.success());
+    assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "42\n");
 }
 
 #[test]
@@ -1407,14 +1477,25 @@ fn test_v3_processor_m2_channel_negative_examples_reject() {
             "channel types require hosted std support",
             false,
         ),
+        (
+            "examples/fail_proc_channel_in_memo_m2",
+            "channel types require hosted std support",
+            false,
+        ),
+        (
+            "examples/fail_proc_channel_capture_rx_m2",
+            "captured endpoint 'channel[tx]' is sender-only",
+            true,
+        ),
+        (
+            "examples/fail_proc_channel_spawn_consumer_m2",
+            "routine 'consume' receives from a channel and cannot be spawned directly",
+            true,
+        ),
     ] {
         let root = temp_example_root(example);
         let check = if needs_std {
-            run_fol_with_store_in_dir(
-                &root,
-                &repo_root().join("lang/library"),
-                &["code", "check"],
-            )
+            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
         } else {
             run_fol_in_dir(&root, &["code", "check"])
         };
@@ -1446,6 +1527,21 @@ fn test_v3_processor_m3_select_and_mutex_examples_build_and_run() {
             strip_ansi(&String::from_utf8_lossy(&run.stdout)),
             expected_output
         );
+        let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+            .into_iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(emitted.contains("rt::join_all_tasks()"));
+        assert!(emitted.contains("rt::task_join_guard()"));
+        if example.contains("select") {
+            assert!(emitted.contains(".try_receive()"));
+        } else {
+            assert!(emitted.contains("rt::FolMutex<"));
+            assert!(emitted.contains("std::sync::MutexGuard<'_"));
+            assert!(emitted.contains("__fol_mutex_guard_l"));
+            assert!(emitted.contains("drop(__fol_mutex_guard_l"));
+        }
     }
 }
 
@@ -1467,14 +1563,25 @@ fn test_v3_processor_m3_dead_and_tier_forms_reject() {
             "mutex parameters require hosted std support",
             false,
         ),
+        (
+            "examples/fail_proc_select_in_core_m3",
+            "select requires hosted std support",
+            false,
+        ),
+        (
+            "examples/fail_proc_select_in_memo_m3",
+            "select requires hosted std support",
+            false,
+        ),
+        (
+            "examples/fail_proc_mutex_in_core_m3",
+            "mutex parameters require hosted std support",
+            false,
+        ),
     ] {
         let root = temp_example_root(example);
         let check = if needs_std {
-            run_fol_with_store_in_dir(
-                &root,
-                &repo_root().join("lang/library"),
-                &["code", "check"],
-            )
+            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
         } else {
             run_fol_in_dir(&root, &["code", "check"])
         };
@@ -1509,6 +1616,8 @@ fn test_v3_processor_m4_eventual_examples_build_and_run() {
             .join("\n");
         assert!(emitted.contains("rt::spawn_eventual(move ||"));
         assert!(emitted.contains(".await_value()"));
+        assert!(emitted.contains("rt::join_all_tasks()"));
+        assert!(emitted.contains("rt::task_join_guard()"));
     }
 }
 
@@ -1525,14 +1634,25 @@ fn test_v3_processor_m4_eventual_negative_examples_reject() {
             "async pipe stages require hosted std support",
             false,
         ),
+        (
+            "examples/fail_proc_async_in_memo_m4",
+            "async pipe stages require hosted std support",
+            false,
+        ),
+        (
+            "examples/fail_proc_await_in_core_m4",
+            "await pipe stages require hosted std support",
+            false,
+        ),
+        (
+            "examples/fail_proc_await_in_memo_m4",
+            "await pipe stages require hosted std support",
+            false,
+        ),
     ] {
         let root = temp_example_root(example);
         let check = if needs_std {
-            run_fol_with_store_in_dir(
-                &root,
-                &repo_root().join("lang/library"),
-                &["code", "check"],
-            )
+            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
         } else {
             run_fol_in_dir(&root, &["code", "check"])
         };

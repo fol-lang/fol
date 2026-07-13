@@ -1,6 +1,12 @@
 module.exports = grammar({
   name: 'fol',
 
+  word: $ => $.identifier,
+
+  reserved: {
+    global: $ => [$._removed_keyword],
+  },
+
   extras: $ => [
     /\s/,
     $.comment,
@@ -25,7 +31,16 @@ module.exports = grammar({
   ],
 
   rules: {
-    source_file: $ => repeat(choice($._top_level_item, ';')),
+    source_file: $ => seq(
+      optional($._reserved_word_anchor),
+      repeat(choice($._top_level_item, ';')),
+    ),
+
+    // Keep deleted keywords reachable for Tree-sitter's reserved-word table
+    // without admitting them into ordinary FOL source.
+    _reserved_word_anchor: $ => seq($._reserved_word_anchor_token, repeat1($._removed_keyword)),
+    _reserved_word_anchor_token: $ => alias('\u0001', $.comment),
+    _removed_keyword: _ => token(choice('defer', 'go')),
 
     _top_level_item: $ => choice(
       $.use_decl,
@@ -45,7 +60,7 @@ module.exports = grammar({
     ),
 
     use_decl: $ => seq('use', field('name', $.identifier), ':', field('source_kind', $.source_kind), '=', '{', field('target', $.string_literal), '}'),
-    var_decl: $ => seq(choice('var', '+var', '~var', '-var', '!var', '?var', '@var'), optional(field('modifiers', $.decl_modifiers)), $.typed_binding, optional(seq('=', field('value', $.expr)))),
+    var_decl: $ => prec.right(seq(choice('var', '+var', '~var', '-var', '!var', '?var', '@var'), optional(field('modifiers', $.decl_modifiers)), $.typed_binding, optional(seq('=', field('value', $.expr))))),
     con_decl: $ => seq(choice('con', '-con'), optional(field('modifiers', $.decl_modifiers)), $.typed_binding, '=', field('value', $.expr)),
     lab_decl: $ => seq('lab', optional(field('modifiers', $.decl_modifiers)), $.typed_binding, '=', field('value', $.expr)),
     fun_decl: $ => seq('fun', optional(field('modifiers', $.decl_modifiers)), field('declaration', choice($.plain_fun_decl, $.method_decl))),
@@ -195,10 +210,11 @@ module.exports = grammar({
     ),
 
     assignment_stmt: $ => prec(1, seq(
-      field('target', choice($.identifier, $.qualified_path, $.field_access, $.index_access)),
+      field('target', choice($.identifier, $.qualified_path, $.field_access, $.index_access, $.deref_target)),
       '=',
       field('value', $.expr),
     )),
+    deref_target: $ => prec.right(4, seq('*', field('pointer', $.expr_atom))),
     return_stmt: $ => prec.right(seq('return', optional($.expr))),
     yield_stmt: $ => prec.right(seq('yield', optional($.expr))),
     dfr_stmt: $ => seq('dfr', $.block),
@@ -335,7 +351,7 @@ module.exports = grammar({
     check_expr: $ => seq('check', '(', $.expr, ')'),
     dot_intrinsic: $ => seq('.', field('name', $.identifier), '(', optional(commaSep($.expr)), ')'),
     field_access: $ => prec.left(4, seq(
-      field('receiver', choice($.identifier, $.qualified_path, $.field_access, $.self_expr, $.channel_access, $.index_access, $.call_expr)),
+      field('receiver', choice($.identifier, $.qualified_path, $.field_access, $.self_expr, $.channel_access, $.index_access, $.call_expr, $.paren_expr)),
       '.',
       field('field', $.identifier),
     )),

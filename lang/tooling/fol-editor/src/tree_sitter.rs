@@ -207,6 +207,61 @@ mod tests {
             .expect("tree-sitter query should run")
     }
 
+    fn run_tree_sitter_parse(
+        bundle_root: &Path,
+        cache_root: &Path,
+        source_path: &Path,
+    ) -> std::process::Output {
+        Command::new("tree-sitter")
+            .env("XDG_CACHE_HOME", cache_root)
+            .arg("parse")
+            .arg("--grammar-path")
+            .arg(bundle_root)
+            .arg(source_path)
+            .output()
+            .expect("tree-sitter parse should run")
+    }
+
+    fn run_tree_sitter_parse_many(
+        bundle_root: &Path,
+        cache_root: &Path,
+        source_paths: &[PathBuf],
+    ) -> std::process::Output {
+        Command::new("tree-sitter")
+            .env("XDG_CACHE_HOME", cache_root)
+            .arg("parse")
+            .arg("--quiet")
+            .arg("--grammar-path")
+            .arg(bundle_root)
+            .args(source_paths)
+            .output()
+            .expect("tree-sitter multi-file parse should run")
+    }
+
+    fn collect_fol_sources(root: &Path, sources: &mut BTreeSet<PathBuf>) {
+        let mut entries = std::fs::read_dir(root)
+            .unwrap_or_else(|error| panic!("failed to read '{}': {error}", root.display()))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_or_else(|error| panic!("failed to enumerate '{}': {error}", root.display()));
+        entries.sort_by_key(|entry| entry.path());
+
+        for entry in entries {
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .unwrap_or_else(|error| panic!("failed to inspect '{}': {error}", path.display()));
+            if file_type.is_dir() {
+                if entry.file_name() != ".fol" {
+                    collect_fol_sources(&path, sources);
+                }
+            } else if file_type.is_file()
+                && path.extension().and_then(|extension| extension.to_str()) == Some("fol")
+            {
+                sources.insert(path);
+            }
+        }
+    }
+
     #[test]
     fn grammar_scaffold_has_the_fol_language_name() {
         let grammar = fol_tree_sitter_grammar();
@@ -773,7 +828,9 @@ mod tests {
             .iter()
             .any(|case| case.source.contains("use shared: loc")));
         assert!(corpus.iter().any(|case| case.source.contains("when(flag)")));
-        assert!(corpus.iter().any(|case| case.source.contains("[>]worker()")));
+        assert!(corpus
+            .iter()
+            .any(|case| case.source.contains("[>]worker()")));
         assert!(corpus
             .iter()
             .any(|case| case.source.contains("report \"bad-input\"")));
@@ -1567,8 +1624,7 @@ mod tests {
                 ["type.builtin", "variable"].as_slice(),
             ),
             (
-                repo_root()
-                    .join("examples/fail_mem_mut_borrow_immutable_owner_m2/src/main.fol"),
+                repo_root().join("examples/fail_mem_mut_borrow_immutable_owner_m2/src/main.fol"),
                 ["type.builtin", "variable"].as_slice(),
             ),
             (
@@ -1744,5 +1800,119 @@ mod tests {
         }
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn v3_examples_keep_zero_error_trees_and_dead_forms_stay_dead() {
+        let root = build_bundle_root("v3_zero_error_trees");
+        let cache = tree_sitter_cache_root("v3_zero_error_trees");
+        let repo = repo_root();
+        let mut sources = BTreeSet::new();
+        for relative_root in [
+            "examples",
+            "lang/library/std",
+            "test/apps/showcases",
+            "xtra",
+        ] {
+            collect_fol_sources(&repo.join(relative_root), &mut sources);
+        }
+
+        // These are deliberately invalid grammar fixtures. Their build files
+        // and every other example source remain in the zero-ERROR sweep.
+        let intentionally_invalid_syntax = [
+            "examples/fail_proc_select_old_form_m3/src/main.fol",
+            "examples/fail_proc_mutex_double_paren_m3/src/main.fol",
+        ];
+        for relative in intentionally_invalid_syntax {
+            let path = repo.join(relative);
+            assert!(
+                sources.remove(&path),
+                "explicit invalid-syntax fixture '{relative}' should exist in the source inventory"
+            );
+        }
+
+        for required in [
+            "examples/core_run_min/build.fol",
+            "examples/core_run_min/src/main.fol",
+            "examples/mem_ptr_unique_m3/src/main.fol",
+            "examples/proc_async_await_m4/src/main.fol",
+            "lang/library/std/build.fol",
+            "lang/library/std/io/lib.fol",
+            "test/apps/showcases/full_v1_showcase/app/main.fol",
+            "xtra/logtiny/build.fol",
+            "xtra/logtiny/src/log.fol",
+        ] {
+            assert!(
+                sources.contains(&repo.join(required)),
+                "checked-in syntax inventory should include '{required}'"
+            );
+        }
+        assert!(
+            sources.len() > 250,
+            "checked-in syntax inventory unexpectedly shrank to {} files",
+            sources.len()
+        );
+
+        let sources = sources.into_iter().collect::<Vec<_>>();
+        let output = run_tree_sitter_parse_many(&root, &cache, &sources);
+        assert!(
+            output.status.success(),
+            "{} checked-in FOL sources should parse without ERROR nodes:\nstdout:\n{}\nstderr:\n{}",
+            sources.len(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        for relative in intentionally_invalid_syntax {
+            let source = repo.join(relative);
+            let output = run_tree_sitter_parse(&root, &cache, &source);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                !output.status.success() && stdout.contains("(ERROR"),
+                "dead V3 form '{relative}' should retain an ERROR node:\nstdout:\n{}\nstderr:\n{}",
+                stdout,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        for (name, source) in [
+            (
+                "legacy_defer_block.fol",
+                "pro[] main(): non = {\n    defer { return; };\n};\n",
+            ),
+            (
+                "legacy_go_block.fol",
+                "pro[] main(): non = {\n    go { return; };\n};\n",
+            ),
+        ] {
+            let path = root.join(name);
+            std::fs::write(&path, source).expect("legacy-form fixture should be writable");
+            let output = run_tree_sitter_parse(&root, &cache, &path);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                !output.status.success() && stdout.contains("(ERROR"),
+                "deleted legacy form '{name}' should retain an ERROR node:\nstdout:\n{}\nstderr:\n{}",
+                stdout,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let reserved_prefixes = root.join("reserved_prefix_identifiers.fol");
+        std::fs::write(
+            &reserved_prefixes,
+            "pro[] deferred(goal: int): int = {\n    return goal;\n};\n",
+        )
+        .expect("reserved-prefix fixture should be writable");
+        let output = run_tree_sitter_parse(&root, &cache, &reserved_prefixes);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && !stdout.contains("(ERROR"),
+            "only the exact deleted words should be reserved:\nstdout:\n{}\nstderr:\n{}",
+            stdout,
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_dir_all(cache).ok();
     }
 }

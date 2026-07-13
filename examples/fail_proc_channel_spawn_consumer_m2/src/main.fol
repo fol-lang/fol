@@ -1,0 +1,9 @@
+fun[] consume(channel: chn[int]): int = {
+    return channel[rx];
+};
+
+fun[] main(): int = {
+    var channel: chn[int];
+    [>]consume(channel);
+    return 0;
+};

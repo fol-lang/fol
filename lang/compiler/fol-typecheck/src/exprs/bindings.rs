@@ -91,6 +91,12 @@ pub(crate) fn type_binding_initializer(
             )?;
             let actual = actual_expr
                 .required_value(format!("initializer for '{name}' does not have a type"))?;
+            reject_nested_eventual_value(
+                typed,
+                actual,
+                value.and_then(|node| node_origin(resolved, node)),
+                format!("initializer for '{name}'"),
+            )?;
             let actual_view = owned_or_borrowed_inner(typed, actual);
             ensure_assignable(
                 typed,
@@ -126,8 +132,38 @@ pub(crate) fn type_binding_initializer(
             }
             let inferred = inferred_expr
                 .required_value(format!("initializer for '{name}' does not have a type"))?;
+            if (heap_owned || borrowing) && type_contains_eventual(typed, inferred) {
+                return Err(value
+                    .and_then(|node| node_origin(resolved, node))
+                    .map_or_else(
+                        || {
+                            TypecheckError::new(
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "initializer for '{name}' cannot wrap the internal eventual type in an ownership or borrow shell in V3"
+                                ),
+                            )
+                        },
+                        |origin| {
+                            TypecheckError::with_origin(
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "initializer for '{name}' cannot wrap the internal eventual type in an ownership or borrow shell in V3"
+                                ),
+                                origin,
+                            )
+                        },
+                    ));
+            }
             let inferred_view = owned_or_borrowed_inner(typed, inferred);
-            let inferred = if borrowing {
+            let inferred_borrow_from = !heap_owned
+                && !borrowing
+                && value.is_some_and(is_borrow_from_expression)
+                && matches!(
+                    typed.type_table().get(inferred),
+                    Some(CheckedType::Borrowed { .. })
+                );
+            let inferred = if borrowing || inferred_borrow_from {
                 register_borrow_binding(
                     typed,
                     resolved,
@@ -135,7 +171,7 @@ pub(crate) fn type_binding_initializer(
                     symbol_id,
                     value,
                     inferred_view,
-                    mutable_borrow,
+                    borrowing && mutable_borrow,
                 )?
             } else if heap_owned {
                 typed
@@ -144,11 +180,17 @@ pub(crate) fn type_binding_initializer(
             } else {
                 inferred
             };
+            reject_nested_eventual_value(
+                typed,
+                inferred,
+                value.and_then(|node| node_origin(resolved, node)),
+                format!("initializer for '{name}'"),
+            )?;
             let symbol = typed.typed_symbol_mut(symbol_id).ok_or_else(|| {
                 internal_error("typed symbol table lost an inferred binding", None)
             })?;
             symbol.declared_type = Some(inferred);
-            if !borrowing {
+            if !borrowing && !inferred_borrow_from {
                 mark_plain_identifier_move(
                     typed,
                     resolved,
@@ -161,6 +203,16 @@ pub(crate) fn type_binding_initializer(
         (Some(expected), None) => Ok(TypedExpr::value(expected)),
         (None, None) => Ok(TypedExpr::none()),
     }
+}
+
+fn is_borrow_from_expression(node: &AstNode) -> bool {
+    matches!(
+        super::helpers::strip_comments(node),
+        AstNode::UnaryOp {
+            op: UnaryOperator::BorrowFrom,
+            ..
+        }
+    )
 }
 
 fn borrow_source_identifier(node: &AstNode) -> Option<(&AstNode, fol_parser::ast::SyntaxNodeId)> {
@@ -180,19 +232,18 @@ fn borrow_source_identifier(node: &AstNode) -> Option<(&AstNode, fol_parser::ast
     }
 }
 
-fn borrow_source_symbol(resolved: &ResolvedProgram, node: &AstNode) -> Option<SymbolId> {
+pub(crate) fn borrow_source_symbol(resolved: &ResolvedProgram, node: &AstNode) -> Option<SymbolId> {
     let (_, syntax_id) = borrow_source_identifier(node)?;
     resolved
         .references
         .iter()
         .find(|reference| {
-            reference.syntax_id == Some(syntax_id)
-                && reference.kind == ReferenceKind::Identifier
+            reference.syntax_id == Some(syntax_id) && reference.kind == ReferenceKind::Identifier
         })?
         .resolved
 }
 
-fn owned_or_borrowed_inner(
+pub(crate) fn owned_or_borrowed_inner(
     typed: &TypedProgram,
     type_id: crate::CheckedTypeId,
 ) -> crate::CheckedTypeId {
@@ -200,6 +251,110 @@ fn owned_or_borrowed_inner(
         Some(CheckedType::Owned { inner }) | Some(CheckedType::Borrowed { inner, .. }) => *inner,
         _ => type_id,
     }
+}
+
+pub(crate) fn type_contains_eventual(typed: &TypedProgram, type_id: crate::CheckedTypeId) -> bool {
+    fn contains(
+        typed: &TypedProgram,
+        type_id: crate::CheckedTypeId,
+        visiting: &mut BTreeSet<crate::CheckedTypeId>,
+    ) -> bool {
+        if !visiting.insert(type_id) {
+            return false;
+        }
+        let result = if let Some(apparent) = typed.apparent_type_override(type_id) {
+            contains(typed, apparent, visiting)
+        } else {
+            match typed.type_table().get(type_id) {
+                Some(CheckedType::Eventual { .. }) => true,
+                Some(CheckedType::Declared { args, .. }) => {
+                    args.iter().any(|arg| contains(typed, *arg, visiting))
+                }
+                Some(CheckedType::Array { element_type, .. })
+                | Some(CheckedType::Vector { element_type })
+                | Some(CheckedType::Sequence { element_type })
+                | Some(CheckedType::Channel { element_type })
+                | Some(CheckedType::ChannelSender { element_type }) => {
+                    contains(typed, *element_type, visiting)
+                }
+                Some(CheckedType::Optional { inner })
+                | Some(CheckedType::Owned { inner })
+                | Some(CheckedType::Borrowed { inner, .. }) => contains(typed, *inner, visiting),
+                Some(CheckedType::Pointer { target, .. }) => contains(typed, *target, visiting),
+                Some(CheckedType::Error { inner }) => {
+                    inner.is_some_and(|inner| contains(typed, inner, visiting))
+                }
+                Some(CheckedType::Set { member_types }) => member_types
+                    .iter()
+                    .any(|member| contains(typed, *member, visiting)),
+                Some(CheckedType::Map {
+                    key_type,
+                    value_type,
+                }) => {
+                    contains(typed, *key_type, visiting) || contains(typed, *value_type, visiting)
+                }
+                Some(CheckedType::Record { fields }) => fields
+                    .values()
+                    .any(|field| contains(typed, *field, visiting)),
+                Some(CheckedType::Entry { variants }) => variants
+                    .values()
+                    .flatten()
+                    .any(|variant| contains(typed, *variant, visiting)),
+                Some(CheckedType::Routine(signature)) => {
+                    signature
+                        .params
+                        .iter()
+                        .any(|param| contains(typed, *param, visiting))
+                        || signature
+                            .return_type
+                            .is_some_and(|ret| contains(typed, ret, visiting))
+                        || signature
+                            .error_type
+                            .is_some_and(|error| contains(typed, error, visiting))
+                }
+                Some(CheckedType::Builtin(_)) | None => false,
+            }
+        };
+        visiting.remove(&type_id);
+        result
+    }
+
+    contains(typed, type_id, &mut BTreeSet::new())
+}
+
+pub(crate) fn type_has_nested_eventual(
+    typed: &TypedProgram,
+    type_id: crate::CheckedTypeId,
+) -> bool {
+    match typed.type_table().get(type_id) {
+        Some(CheckedType::Eventual {
+            value_type,
+            error_type,
+        }) => {
+            type_contains_eventual(typed, *value_type)
+                || error_type.is_some_and(|error| type_contains_eventual(typed, error))
+        }
+        _ => type_contains_eventual(typed, type_id),
+    }
+}
+
+pub(crate) fn reject_nested_eventual_value(
+    typed: &TypedProgram,
+    type_id: crate::CheckedTypeId,
+    origin: Option<fol_parser::ast::SyntaxOrigin>,
+    surface: impl Into<String>,
+) -> Result<(), TypecheckError> {
+    if !type_has_nested_eventual(typed, type_id) {
+        return Ok(());
+    }
+    let message = format!(
+        "{} cannot embed the internal eventual type in a composite value in V3; transfer or await the eventual directly",
+        surface.into()
+    );
+    Err(match origin {
+        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin),
+        None => TypecheckError::new(TypecheckErrorKind::Ownership, message),
+    })
 }
 
 fn type_borrow_source(
@@ -236,7 +391,11 @@ fn register_borrow_binding(
         )
     })?;
     let origin = node_origin(resolved, value)
-        .or_else(|| resolved.symbol(binding).and_then(|symbol| symbol.origin.clone()))
+        .or_else(|| {
+            resolved
+                .symbol(binding)
+                .and_then(|symbol| symbol.origin.clone())
+        })
         .ok_or_else(|| internal_error("borrow binding lost its syntax origin", None))?;
 
     if mutable
@@ -283,17 +442,22 @@ pub(crate) fn mark_plain_identifier_move(
     value: Option<&AstNode>,
     actual_type: crate::CheckedTypeId,
 ) -> Result<(), TypecheckError> {
-    let Some(AstNode::Identifier {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let AstNode::Identifier {
         syntax_id: Some(syntax_id),
         ..
-    }) = value
+    } = super::helpers::strip_comments(value)
     else {
         return Ok(());
     };
-    if !matches!(
+    let eventual = matches!(
         typed.type_table().get(actual_type),
-        Some(CheckedType::Owned { .. }) | Some(CheckedType::Pointer { shared: false, .. })
-    ) {
+        Some(CheckedType::Eventual { .. })
+    );
+    let ownership_move = ownership_moves_on_transfer(typed, actual_type, 0);
+    if !eventual && !ownership_move {
         return Ok(());
     }
     let Some(reference) = resolved.references.iter().find(|reference| {
@@ -305,10 +469,33 @@ pub(crate) fn mark_plain_identifier_move(
     let Some(symbol) = reference.resolved else {
         return Ok(());
     };
-    if let Some(origin) = node_origin(resolved, value.expect("identifier value exists")) {
-        typed.mark_binding_moved(symbol, origin);
+    if let Some(origin) = node_origin(resolved, value) {
+        if eventual {
+            typed.mark_eventual_transferred(symbol, origin);
+        } else {
+            typed.mark_binding_moved(symbol, origin);
+        }
     }
     Ok(())
+}
+
+fn ownership_moves_on_transfer(
+    typed: &TypedProgram,
+    type_id: crate::CheckedTypeId,
+    depth: usize,
+) -> bool {
+    if depth > 32 {
+        return false;
+    }
+    match typed.type_table().get(type_id) {
+        Some(CheckedType::Owned { .. })
+        | Some(CheckedType::Pointer { shared: false, .. })
+        | Some(CheckedType::Channel { .. }) => true,
+        Some(CheckedType::Optional { inner }) | Some(CheckedType::Error { inner: Some(inner) }) => {
+            ownership_moves_on_transfer(typed, *inner, depth + 1)
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn type_record_init(

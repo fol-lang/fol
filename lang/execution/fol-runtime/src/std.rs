@@ -1,9 +1,9 @@
 //! Hosted runtime tier surface, including console-facing formatting hooks.
 
 use crate::core::RuntimeTier;
-use std::sync::{Mutex, OnceLock};
-use std::sync::{mpsc, Arc};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
 
 pub use crate::abi::{check_recoverable, recoverable_succeeded, FolRecover};
@@ -60,6 +60,19 @@ pub fn join_all_tasks() {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct FolTaskJoinGuard;
+
+pub fn task_join_guard() -> FolTaskJoinGuard {
+    FolTaskJoinGuard
+}
+
+impl Drop for FolTaskJoinGuard {
+    fn drop(&mut self) {
+        join_all_tasks();
+    }
+}
+
 #[derive(Debug)]
 pub struct FolEventual<T> {
     receiver: Mutex<Option<mpsc::Receiver<T>>>,
@@ -76,9 +89,9 @@ impl<T> Default for FolEventual<T> {
 }
 
 impl<T> FolEventual<T> {
-    pub fn await_value(&self) -> T {
+    pub fn await_value(self) -> T {
         self.receiver
-            .lock()
+            .into_inner()
             .unwrap_or_else(|error| error.into_inner())
             .take()
             .expect("eventual can only be awaited once")
@@ -108,8 +121,8 @@ where
 #[derive(Debug)]
 pub struct FolChannel<T> {
     sender: Mutex<Option<mpsc::Sender<T>>>,
-    receiver: Arc<Mutex<mpsc::Receiver<T>>>,
-    receiver_closed: Arc<AtomicBool>,
+    receiver: Mutex<mpsc::Receiver<T>>,
+    receiver_closed: AtomicBool,
 }
 
 impl<T> Default for FolChannel<T> {
@@ -117,24 +130,8 @@ impl<T> Default for FolChannel<T> {
         let (sender, receiver) = mpsc::channel();
         Self {
             sender: Mutex::new(Some(sender)),
-            receiver: Arc::new(Mutex::new(receiver)),
-            receiver_closed: Arc::new(AtomicBool::new(false)),
-        }
-    }
-}
-
-impl<T> Clone for FolChannel<T> {
-    fn clone(&self) -> Self {
-        let sender = self
-            .sender
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-            .cloned();
-        Self {
-            sender: Mutex::new(sender),
-            receiver: self.receiver.clone(),
-            receiver_closed: self.receiver_closed.clone(),
+            receiver: Mutex::new(receiver),
+            receiver_closed: AtomicBool::new(false),
         }
     }
 }
@@ -233,16 +230,12 @@ impl<T> FolSender<T> {
 #[derive(Debug)]
 pub struct FolMutex<T> {
     value: Arc<Mutex<T>>,
-    gate: Arc<AtomicBool>,
-    owns_gate: AtomicBool,
 }
 
 impl<T: Default> Default for FolMutex<T> {
     fn default() -> Self {
         Self {
             value: Arc::new(Mutex::new(T::default())),
-            gate: Arc::new(AtomicBool::new(false)),
-            owns_gate: AtomicBool::new(false),
         }
     }
 }
@@ -251,8 +244,6 @@ impl<T> Clone for FolMutex<T> {
     fn clone(&self) -> Self {
         Self {
             value: self.value.clone(),
-            gate: self.gate.clone(),
-            owns_gate: AtomicBool::new(false),
         }
     }
 }
@@ -261,51 +252,21 @@ impl<T> FolMutex<T> {
     pub fn from_value(value: T) -> Self {
         Self {
             value: Arc::new(Mutex::new(value)),
-            gate: Arc::new(AtomicBool::new(false)),
-            owns_gate: AtomicBool::new(false),
         }
     }
 
-    pub fn lock(&self) {
-        if self.owns_gate.load(Ordering::Acquire) {
-            return;
-        }
-        while self
-            .gate
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            std::thread::yield_now();
-        }
-        self.owns_gate.store(true, Ordering::Release);
-    }
-
-    pub fn unlock(&self) {
-        if self.owns_gate.swap(false, Ordering::AcqRel) {
-            self.gate.store(false, Ordering::Release);
-        }
+    pub fn lock(&self) -> std::sync::MutexGuard<'_, T> {
+        self.value.lock().unwrap_or_else(|error| error.into_inner())
     }
 
     pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
-        let value = self
-            .value
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let value = self.lock();
         read(&value)
     }
 
     pub fn with_mut<R>(&self, write: impl FnOnce(&mut T) -> R) -> R {
-        let mut value = self
-            .value
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut value = self.lock();
         write(&mut value)
-    }
-}
-
-impl<T> Drop for FolMutex<T> {
-    fn drop(&mut self) {
-        self.unlock();
     }
 }
 
@@ -434,6 +395,70 @@ mod tests {
         join_all_tasks();
 
         assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn cloned_senders_feed_one_uncloned_channel_receiver() {
+        let channel = FolChannel::default();
+        let first = channel.sender();
+        let second = first.clone();
+        spawn_task(move || first.send(19));
+        spawn_task(move || second.send(23));
+
+        let left = channel.receive();
+        let right = channel.receive();
+        join_all_tasks();
+
+        assert_eq!(left + right, 42);
+    }
+
+    #[test]
+    fn awaiting_an_eventual_consumes_its_runtime_handle() {
+        let eventual = spawn_eventual(|| 42);
+        assert_eq!(eventual.await_value(), 42);
+        join_all_tasks();
+    }
+
+    #[test]
+    fn task_join_guard_joins_during_unwind() {
+        let completed = Arc::new(AtomicBool::new(false));
+        let task_completed = completed.clone();
+        let outcome = std::panic::catch_unwind(move || {
+            let _guard = task_join_guard();
+            spawn_task(move || task_completed.store(true, Ordering::Release));
+            panic!("exercise generated-entry unwind");
+        });
+
+        assert!(outcome.is_err());
+        assert!(completed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn explicit_mutex_lock_blocks_other_handles_until_unlock() {
+        let owner = FolMutex::from_value(1i64);
+        let contender = owner.clone();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (entered_tx, entered_rx) = mpsc::channel();
+
+        let mut guard = owner.lock();
+        let handle = std::thread::spawn(move || {
+            started_tx.send(()).expect("announce mutex access");
+            contender.with_mut(|value| {
+                *value += 1;
+                entered_tx.send(()).expect("announce protected access");
+            });
+        });
+
+        started_rx.recv().expect("contender started");
+        assert!(entered_rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .is_err());
+        *guard += 40;
+        drop(guard);
+
+        entered_rx.recv().expect("contender entered after unlock");
+        handle.join().expect("contender finished");
+        assert_eq!(owner.with(|value| *value), 42);
     }
 
     #[test]

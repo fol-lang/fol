@@ -13,7 +13,7 @@ use crate::{
 };
 use fol_intrinsics::{select_intrinsic, IntrinsicSurface};
 use fol_parser::ast::{AstNode, CallSurface, ChannelEndpoint, FolType, ParsedSourceUnitKind};
-use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId};
+use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId};
 use std::collections::BTreeMap;
 
 use helpers::{
@@ -135,6 +135,73 @@ pub(crate) fn type_node(
     type_node_with_expectation(typed, resolved, context, node, None)
 }
 
+pub(crate) fn reject_sender_capture_receive(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    channel: &AstNode,
+) -> Result<(), TypecheckError> {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        name,
+    } = helpers::strip_comments(channel)
+    else {
+        return Ok(());
+    };
+    let sender_only = resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+        .and_then(|symbol| typed.typed_symbol(symbol))
+        .is_some_and(|symbol| symbol.is_channel_sender_capture);
+    if !sender_only {
+        return Ok(());
+    }
+    Err(unsupported_node_surface(
+        resolved,
+        channel,
+        format!(
+            "captured endpoint '{name}[tx]' is sender-only; keep '{name}[rx]' in the owning receiving routine"
+        ),
+    ))
+}
+
+pub(crate) fn reject_direct_spawn_channel_receiver(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    task: &AstNode,
+) -> Result<(), TypecheckError> {
+    let AstNode::FunctionCall {
+        syntax_id: Some(syntax_id),
+        name,
+        ..
+    } = helpers::strip_comments(task)
+    else {
+        return Ok(());
+    };
+    let receiver_params = resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::FunctionCall
+        })
+        .and_then(|reference| reference.resolved)
+        .and_then(|symbol| typed.typed_symbol(symbol))
+        .map(|symbol| &symbol.channel_receiver_params);
+    if !receiver_params.is_some_and(|params| !params.is_empty()) {
+        return Ok(());
+    }
+    Err(unsupported_node_surface(
+        resolved,
+        task,
+        format!(
+            "routine '{name}' receives from a channel and cannot be spawned directly; keep the single receiver in the owning routine and spawn sender-only producers"
+        ),
+    ))
+}
+
 pub(crate) fn type_node_with_expectation(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -166,15 +233,7 @@ fn type_node_with_expectation_inner(
             operators::type_binary_op(typed, resolved, context, op, left, right)
         }
         AstNode::UnaryOp { op, operand } => {
-            operators::type_unary_op(
-                typed,
-                resolved,
-                context,
-                node,
-                op,
-                operand,
-                expected_type,
-            )
+            operators::type_unary_op(typed, resolved, context, node, op, operand, expected_type)
         }
         AstNode::VarDecl {
             name,
@@ -258,6 +317,7 @@ fn type_node_with_expectation_inner(
                     "spawn requires hosted std support; declare the bundled internal standard dependency",
                 ));
             }
+            reject_direct_spawn_channel_receiver(typed, resolved, task)?;
             let observed = type_node_with_expectation(
                 typed,
                 resolved,
@@ -356,10 +416,9 @@ fn type_node_with_expectation_inner(
             inquiries,
             ..
         } => {
-            if let Some(message) = decls::unsupported_routine_param_surface_message(
-                params,
-                typed.capability_model(),
-            ) {
+            if let Some(message) =
+                decls::unsupported_routine_param_surface_message(params, typed.capability_model())
+            {
                 return Err(unsupported_node_surface(resolved, node, message));
             }
             let routine_scope = syntax_id
@@ -460,10 +519,9 @@ fn type_node_with_expectation_inner(
             inquiries,
             ..
         } => {
-            if let Some(message) = decls::unsupported_routine_param_surface_message(
-                params,
-                typed.capability_model(),
-            ) {
+            if let Some(message) =
+                decls::unsupported_routine_param_surface_message(params, typed.capability_model())
+            {
                 return Err(unsupported_node_surface(resolved, node, message));
             }
             for param in params {
@@ -526,16 +584,20 @@ fn type_node_with_expectation_inner(
                             format!("capture '{}' does not retain a type", capture.name),
                         )
                     })?;
-                if !matches!(
-                    typed.type_table().get(capture_type),
-                    Some(CheckedType::Channel { .. })
-                ) {
-                    return Err(unsupported_node_surface(
-                        resolved,
-                        node,
-                        format!("capture '{}[tx]' requires a chn[T] binding", capture.name),
-                    ));
-                }
+                let element_type = match typed.type_table().get(capture_type) {
+                    Some(CheckedType::Channel { element_type })
+                    | Some(CheckedType::ChannelSender { element_type }) => *element_type,
+                    _ => {
+                        return Err(unsupported_node_surface(
+                            resolved,
+                            node,
+                            format!("capture '{}[tx]' requires a chn[T] binding", capture.name),
+                        ));
+                    }
+                };
+                let sender_type = typed
+                    .type_table_mut()
+                    .intern(CheckedType::ChannelSender { element_type });
                 let capture_symbol = decls::find_symbol_id_in_scope(
                     resolved,
                     context.source_unit_id,
@@ -543,8 +605,11 @@ fn type_node_with_expectation_inner(
                     &[fol_resolver::SymbolKind::Capture],
                     &capture.name,
                 )?;
-                decls::record_symbol_type(typed, capture_symbol, capture_type)?;
-                lowered_params.push(capture_type);
+                decls::record_symbol_type(typed, capture_symbol, sender_type)?;
+                if let Some(symbol) = typed.typed_symbol_mut(capture_symbol) {
+                    symbol.is_channel_sender_capture = true;
+                }
+                lowered_params.push(sender_type);
             }
             for param in params {
                 let param_type =
@@ -635,7 +700,10 @@ fn type_node_with_expectation_inner(
                 context.scope_id,
                 statements,
             )
-            .map(|scope_id| TypeContext { scope_id, ..context })
+            .map(|scope_id| TypeContext {
+                scope_id,
+                ..context
+            })
             .unwrap_or(context);
             type_body(typed, resolved, block_context, statements)
         }
@@ -661,6 +729,12 @@ fn type_node_with_expectation_inner(
             let actual =
                 type_node_with_expectation(typed, resolved, context, value, Some(expected))?
                     .required_value("assignment value does not have a type")?;
+            bindings::reject_nested_eventual_value(
+                typed,
+                actual,
+                node_origin(resolved, value),
+                "assignment",
+            )?;
             ensure_assignable(typed, expected, actual, "assignment".to_string(), None)?;
             bindings::mark_plain_identifier_move(typed, resolved, Some(value), actual)?;
             Ok(TypedExpr::value(expected))
@@ -725,6 +799,9 @@ fn type_node_with_expectation_inner(
                     "channel endpoint access requires hosted std support; declare the bundled internal standard dependency",
                 ));
             }
+            if matches!(endpoint, ChannelEndpoint::Rx) {
+                reject_sender_capture_receive(typed, resolved, channel)?;
+            }
             let channel_raw = type_node(typed, resolved, context, channel)?;
             let channel_type = plain_value_expr(
                 typed,
@@ -734,7 +811,10 @@ fn type_node_with_expectation_inner(
                 "channel endpoint receiver",
             )?
             .required_value("channel endpoint receiver does not have a type")?;
-            let element_type = helpers::channel_element_type(typed, channel_type)?;
+            let element_type = match endpoint {
+                ChannelEndpoint::Tx => helpers::channel_element_type(typed, channel_type)?,
+                ChannelEndpoint::Rx => helpers::channel_receiver_element_type(typed, channel_type)?,
+            };
             Ok(match endpoint {
                 ChannelEndpoint::Tx => TypedExpr::value(
                     typed
@@ -788,18 +868,14 @@ fn type_node_with_expectation_inner(
             node,
             "range expressions are not yet supported",
         )),
-        AstNode::Select { arms, default } => controlflow::type_select(
-            typed,
-            resolved,
-            context,
-            arms,
-            default.as_deref(),
-        ),
+        AstNode::Select { arms, default } => {
+            controlflow::type_select(typed, resolved, context, arms, default.as_deref())
+        }
         AstNode::Return { value } => {
             controlflow::type_return(typed, resolved, context, value.as_deref())
         }
         AstNode::Break => Ok(TypedExpr::value(typed.builtin_types().never)),
-        AstNode::Dfr { body, .. } | AstNode::Edf { body, .. } => {
+        AstNode::Dfr { syntax_id, body } | AstNode::Edf { syntax_id, body } => {
             if body_contains_return(body) {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
@@ -820,7 +896,20 @@ fn type_node_with_expectation_inner(
                     "panic is not allowed inside dfr/edf blocks",
                 ));
             }
-            let _ = type_body(typed, resolved, context, body)?;
+            let deferred_scope = syntax_id
+                .and_then(|syntax_id| resolved.scope_for_syntax(syntax_id))
+                .ok_or_else(|| {
+                    internal_error("dfr/edf block lost its resolved lexical scope", None)
+                })?;
+            let _ = type_body(
+                typed,
+                resolved,
+                TypeContext {
+                    scope_id: deferred_scope,
+                    ..context
+                },
+                body,
+            )?;
             Ok(TypedExpr::none())
         }
         AstNode::Yield { .. } => Err(TypecheckError::new(
@@ -958,9 +1047,9 @@ fn body_contains_break(nodes: &[AstNode]) -> bool {
                 .as_ref()
                 .is_some_and(|body| body_contains_break(body))
         }
-        AstNode::Loop { body, .. }
-        | AstNode::Dfr { body, .. }
-        | AstNode::Edf { body, .. } => body_contains_break(body),
+        AstNode::Loop { body, .. } | AstNode::Dfr { body, .. } | AstNode::Edf { body, .. } => {
+            body_contains_break(body)
+        }
         AstNode::FunDecl { .. }
         | AstNode::ProDecl { .. }
         | AstNode::LogDecl { .. }
@@ -1063,6 +1152,7 @@ pub(crate) fn type_body(
         Ok(final_expr)
     })();
     typed.release_borrows_in_scope(context.scope_id);
+    typed.release_mutex_guards_in_scope(context.scope_id);
     result
 }
 

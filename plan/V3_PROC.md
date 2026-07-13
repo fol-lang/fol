@@ -442,8 +442,10 @@ Work:
 - typecheck: delete the async/await rejections (`exprs/mod.rs:225,229`,
   `exprs/operators.rs:41,51`); `x | async` types `x` as spawned and yields an
   internal eventual over `x`'s value type; `e | await` types as the eventual's
-  value type; an eventual value may only be produced by `| async` and consumed by
-  `| await` (it has no spellable type)
+  value type; an eventual value may only be produced by `| async`, moves between
+  plain bindings/assignments rather than cloning, and is consumed exactly once
+  by `| await` (it has no spellable type); composite embedding and unchecked
+  generic-parameter crossings remain rejected in V3
 - lowering/backend: `| async` emits a `std::thread::spawn` returning its value
   through a join handle (or a one-shot channel); `| await` emits the join/recv
   that blocks for the value; process exit joins all outstanding eventuals
@@ -451,14 +453,16 @@ Work:
 ## Z2. Error transparency
 
 The await site behaves **exactly** like the synchronous call site for recoverable
-errors: propagation with `/`, pipe-or `||` handling, `check(...)`, and the `x!`
-postfix unwrap all work with **zero** new error surface.
+errors: the existing pipe-or `||` and `check(...)` handlers work with **zero**
+new error surface. Current V1 deliberately has no plain `/` propagation and
+rejects postfix `x!` on recoverable calls; await preserves those same boundaries
+rather than inventing processor-only handling.
 
 Work:
 
 - typecheck: an awaited recoverable call carries its error type through `| await`
-  unchanged; verify each V2 error path (`/` return type, `||` fallback,
-  `check(...)`, `x!`) works identically on an awaited value
+  unchanged; verify both current recoverable-call handlers (`||` fallback and
+  `check(...)`) work identically on an awaited value
 - lowering/backend: the awaited result is the same recoverable shell the
   synchronous call would produce; no new wrapper
 
@@ -476,8 +480,8 @@ Editor / tree-sitter for Z:
 Examples:
 
 - positive: `examples/proc_async_await_m4` — `call() | async` then `evt | await`
-- positive: `examples/proc_await_error_m4` — an awaited recoverable call handled
-  with `||` / `/`, identical to the synchronous form
+- positive: `examples/proc_await_error_m4` — awaited recoverable calls handled
+  with both `check(...)` and `||`, identical to the synchronous form
 - negative: `examples/fail_proc_evt_named_m4` — attempting to name the eventual
   type (`var e: evt[int] = ...`) is rejected (internal-only)
 - negative: `examples/fail_proc_async_in_core_m4` — `| async` in a `core` build
@@ -490,8 +494,8 @@ Tracked slices:
 
 - [x] Z1. `| async` / `| await` with an internal (non-nameable) eventual type;
   delete the async/await rejections; join-all-at-exit.
-- [x] Z2. Error transparency: every V2 error path works identically on an awaited
-  value, with no new surface.
+- [x] Z2. Error transparency: both current recoverable-call handlers work
+  identically on an awaited value, with no new surface.
 - [x] Z3. LSP + tree-sitter: async/await hover/diagnostics, keyword highlights.
 - [x] Z4. Positive and `fail_*` eventual examples build/run/reject as specified.
 

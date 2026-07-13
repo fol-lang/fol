@@ -5,8 +5,8 @@ use fol_intrinsics::intrinsic_by_canonical_name;
 use fol_lower::{
     LoweredBlockId, LoweredBuiltinType, LoweredInstr, LoweredInstrId, LoweredInstrKind,
     LoweredLocal, LoweredLocalId, LoweredOperand, LoweredPackage, LoweredRecoverableAbi,
-    LoweredRoutine, LoweredRoutineId, LoweredSourceMap, LoweredSourceUnit, LoweredTypeTable,
-    LoweredWorkspace,
+    LoweredRoutine, LoweredRoutineId, LoweredSourceMap, LoweredSourceUnit, LoweredType,
+    LoweredTypeTable, LoweredWorkspace,
 };
 use fol_resolver::{PackageSourceKind, SourceUnitId, SymbolId};
 use std::collections::BTreeMap;
@@ -311,6 +311,98 @@ fn workspace_global_rendering_uses_fol_default_initializers_for_mutable_globals(
     assert!(store_rendered.contains(
         "*crate::packages::pkg__entry__app::root::g__pkg__entry__app__g0__counter.get_or_init(|| std::sync::Mutex::new(0_i64)).lock().unwrap_or_else(|e| e.into_inner()) = l__pkg__entry__app__r15__l0__value.clone();"
     ));
+}
+
+#[test]
+fn field_and_global_stores_move_unique_values_instead_of_cloning_them() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let owned_id = table.intern(LoweredType::Owned { inner: int_id });
+    let unique_pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(16), "main", LoweredBlockId(0));
+    let base = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(int_id),
+        name: Some("record".to_string()),
+    });
+    let owned = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(owned_id),
+        name: Some("child".to_string()),
+    });
+    let unique_pointer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(2),
+        type_id: Some(unique_pointer_id),
+        name: Some("pointer".to_string()),
+    });
+
+    let field_store = LoweredInstr {
+        id: LoweredInstrId(22),
+        result: None,
+        kind: LoweredInstrKind::StoreField {
+            base,
+            field: "child".to_string(),
+            value: owned,
+        },
+    };
+    let global_store = LoweredInstr {
+        id: LoweredInstrId(23),
+        result: None,
+        kind: LoweredInstrKind::StoreGlobal {
+            global: fol_lower::LoweredGlobalId(0),
+            value: unique_pointer,
+        },
+    };
+
+    let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
+    package.source_units.push(LoweredSourceUnit {
+        source_unit_id: SourceUnitId(0),
+        path: "app/main.fol".to_string(),
+        package: "app".to_string(),
+        namespace: "app".to_string(),
+    });
+    package.global_decls.insert(
+        fol_lower::LoweredGlobalId(0),
+        fol_lower::LoweredGlobal {
+            id: fol_lower::LoweredGlobalId(0),
+            symbol_id: SymbolId(21),
+            source_unit_id: SourceUnitId(0),
+            name: "pointer".to_string(),
+            type_id: unique_pointer_id,
+            mutable: true,
+        },
+    );
+    let workspace = LoweredWorkspace::new(
+        package_identity.clone(),
+        BTreeMap::from([(package_identity.clone(), package)]),
+        Vec::new(),
+        table.clone(),
+        LoweredSourceMap::new(),
+        LoweredRecoverableAbi::v1(int_id),
+    );
+
+    let field_rendered = render_core_instruction(&package_identity, &table, &routine, &field_store)
+        .expect("field store");
+    let global_rendered = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &global_store,
+    )
+    .expect("global store");
+
+    assert_eq!(
+        field_rendered,
+        "l__pkg__entry__app__r16__l0__record.child = l__pkg__entry__app__r16__l1__child;"
+    );
+    assert!(global_rendered.ends_with("= l__pkg__entry__app__r16__l2__pointer;"));
+    assert!(!field_rendered.contains(".clone()"));
+    assert!(!global_rendered.contains(".clone()"));
 }
 
 #[test]

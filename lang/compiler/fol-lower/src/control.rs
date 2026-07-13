@@ -83,6 +83,12 @@ pub enum LoweredInstrKind {
         global: LoweredGlobalId,
         value: LoweredLocalId,
     },
+    /// End the lexical lifetime of a still-owned local after deferred bodies
+    /// have run. Move analysis excludes locals whose ownership already left
+    /// the scope, so this never double-drops a transferred value.
+    DropLocal {
+        local: LoweredLocalId,
+    },
     /// Assign into a field of a mutable record local, e.g. `counter.total = 5`.
     /// `base` is the record binding's own local (not a cloned copy) so the
     /// store is observed by later reads.

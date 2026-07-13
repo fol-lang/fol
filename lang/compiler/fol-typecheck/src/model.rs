@@ -3,7 +3,7 @@ use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecoverableCallEffect {
@@ -41,6 +41,13 @@ pub struct TypedSymbol {
     /// Drives field-assignment legality.
     pub is_mutable: bool,
     pub is_mutex: bool,
+    /// A channel capture written as `c[tx]` exposes only the sender endpoint
+    /// inside its anonymous routine, even though lowering still carries the
+    /// enclosing channel handle.
+    pub is_channel_sender_capture: bool,
+    /// Parameter positions that perform a receive through `c[rx]`. Direct
+    /// spawn rejects these routines so the owning receiver stays single.
+    pub channel_receiver_params: BTreeSet<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +142,18 @@ pub struct ActiveBorrow {
     pub origin: SyntaxOrigin,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveMutexGuard {
+    pub scope: ScopeId,
+    pub origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EventualMoveKind {
+    Transfer,
+    Await,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
     capability_model: TypecheckCapabilityModel,
@@ -157,11 +176,13 @@ pub struct TypedProgram {
     /// finite-layout diagnostic. Transient — empty outside active lowering.
     active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
     moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
+    eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
     active_borrows: BTreeMap<SymbolId, Vec<ActiveBorrow>>,
     borrow_bindings: BTreeMap<SymbolId, ActiveBorrow>,
     borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
     owner_borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
     returned_borrows: BTreeMap<SymbolId, SyntaxOrigin>,
+    active_mutex_guards: BTreeMap<SymbolId, ActiveMutexGuard>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -254,12 +275,33 @@ impl TypedProgram {
         self.moved_bindings.entry(symbol).or_insert(origin);
     }
 
+    pub(crate) fn mark_eventual_transferred(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if !self.moved_bindings.contains_key(&symbol) {
+            self.eventual_moves
+                .insert(symbol, EventualMoveKind::Transfer);
+        }
+        self.mark_binding_moved(symbol, origin);
+    }
+
+    pub(crate) fn mark_eventual_awaited(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if !self.moved_bindings.contains_key(&symbol) {
+            self.eventual_moves.insert(symbol, EventualMoveKind::Await);
+        }
+        self.mark_binding_moved(symbol, origin);
+    }
+
+    pub(crate) fn eventual_move_kind(&self, symbol: SymbolId) -> Option<EventualMoveKind> {
+        self.eventual_moves.get(&symbol).copied()
+    }
+
     pub fn moved_binding_origin(&self, symbol: SymbolId) -> Option<&SyntaxOrigin> {
         self.moved_bindings.get(&symbol)
     }
 
     pub fn active_borrow_for_owner(&self, owner: SymbolId) -> Option<&ActiveBorrow> {
-        self.active_borrows.get(&owner).and_then(|borrows| borrows.first())
+        self.active_borrows
+            .get(&owner)
+            .and_then(|borrows| borrows.first())
     }
 
     pub fn active_borrow_binding(&self, binding: SymbolId) -> Option<&ActiveBorrow> {
@@ -332,6 +374,39 @@ impl TypedProgram {
         }
     }
 
+    pub fn active_mutex_guard(&self, mutex: SymbolId) -> Option<&ActiveMutexGuard> {
+        self.active_mutex_guards.get(&mutex)
+    }
+
+    pub(crate) fn register_mutex_guard(
+        &mut self,
+        mutex: SymbolId,
+        guard: ActiveMutexGuard,
+    ) -> Option<ActiveMutexGuard> {
+        if let Some(active) = self.active_mutex_guards.get(&mutex) {
+            return Some(active.clone());
+        }
+        self.active_mutex_guards.insert(mutex, guard);
+        None
+    }
+
+    pub(crate) fn release_mutex_guard(
+        &mut self,
+        mutex: SymbolId,
+        scope: ScopeId,
+    ) -> Option<ActiveMutexGuard> {
+        let guard = self.active_mutex_guards.get(&mutex)?;
+        if guard.scope != scope {
+            return None;
+        }
+        self.active_mutex_guards.remove(&mutex)
+    }
+
+    pub(crate) fn release_mutex_guards_in_scope(&mut self, scope: ScopeId) {
+        self.active_mutex_guards
+            .retain(|_, guard| guard.scope != scope);
+    }
+
     pub fn from_resolved(resolved: fol_resolver::ResolvedProgram) -> Self {
         Self::from_resolved_with_model(resolved, TypecheckCapabilityModel::Std)
     }
@@ -372,6 +447,8 @@ impl TypedProgram {
                         generic_constraints: BTreeMap::new(),
                         is_mutable: symbol.is_mutable,
                         is_mutex: false,
+                        is_channel_sender_capture: false,
+                        channel_receiver_params: BTreeSet::new(),
                     },
                 )
             })
@@ -427,11 +504,13 @@ impl TypedProgram {
             constraint_call_sites: std::collections::BTreeSet::new(),
             record_layouts: BTreeMap::new(),
             moved_bindings: BTreeMap::new(),
+            eventual_moves: BTreeMap::new(),
             active_borrows: BTreeMap::new(),
             borrow_bindings: BTreeMap::new(),
             borrow_history: BTreeMap::new(),
             owner_borrow_history: BTreeMap::new(),
             returned_borrows: BTreeMap::new(),
+            active_mutex_guards: BTreeMap::new(),
         }
     }
 

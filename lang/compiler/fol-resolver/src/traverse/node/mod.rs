@@ -817,7 +817,11 @@ fn traverse_node_inner(
                     routine_context,
                 )?;
                 let select_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
-                insert_local_symbol(
+                let binding_origin = arm
+                    .binding_syntax_id
+                    .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+                    .cloned();
+                insert_local_symbol_with_origin(
                     program,
                     source_unit_id,
                     select_scope,
@@ -827,6 +831,7 @@ fn traverse_node_inner(
                         "symbol#{}",
                         fol_types::canonical_identifier_key(&arm.binding)
                     ),
+                    binding_origin,
                 )?;
                 for statement in &arm.body {
                     traverse_node(

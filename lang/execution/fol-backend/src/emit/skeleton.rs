@@ -37,6 +37,9 @@ pub fn emit_main_rs_for_config(
     let join_tasks = matches!(config.runtime_tier(), BackendRuntimeTier::Std)
         .then_some("\n    rt::join_all_tasks();")
         .unwrap_or("");
+    let task_join_guard = matches!(config.runtime_tier(), BackendRuntimeTier::Std)
+        .then_some("\n    let _fol_task_join_guard = rt::task_join_guard();")
+        .unwrap_or("");
     let entry_wrapper = match resolve_entry_callable(session, entry_candidate, config.runtime_tier())? {
         EntryCallable {
             rust_path,
@@ -57,7 +60,7 @@ pub fn emit_main_rs_for_config(
         path: layout.main_rs_path,
         module_name: "main".to_string(),
         contents: format!(
-            "{}\n\nmod packages;\n\nfn main() {{\n    let _runtime = rt::crate_name();\n    let _runtime_tier = rt_model::tier_name();\n    let _entry_package = \"{entry_name}\";\n    let _entry_name = \"{}\";\n    let _ = (&_runtime, &_runtime_tier, &_entry_package, &_entry_name);\n{entry_wrapper}\n}}\n",
+            "{}\n\nmod packages;\n\nfn main() {{\n    let _runtime = rt::crate_name();\n    let _runtime_tier = rt_model::tier_name();\n    let _entry_package = \"{entry_name}\";\n    let _entry_name = \"{}\";\n    let _ = (&_runtime, &_runtime_tier, &_entry_package, &_entry_name);{task_join_guard}\n{entry_wrapper}\n}}\n",
             runtime_main_use_block(runtime_tier),
             entry_candidate.name
         ),

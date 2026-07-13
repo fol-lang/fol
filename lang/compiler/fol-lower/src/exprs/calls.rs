@@ -1088,7 +1088,7 @@ pub(crate) fn lower_spawn_call(
                 )
             })?;
         let mut capture_args = Vec::with_capacity(captures.len());
-        for capture in captures {
+        for (capture_index, capture) in captures.iter().enumerate() {
             let outer_local = cursor
                 .routine
                 .local_symbols
@@ -1104,10 +1104,37 @@ pub(crate) fn lower_spawn_call(
                 .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
-                        format!("spawn capture '{}' does not retain an outer local", capture.name),
+                        format!(
+                            "spawn capture '{}' does not retain an outer local",
+                            capture.name
+                        ),
                     )
                 })?;
             let capture_type = cursor
+                .anonymous_routines
+                .iter()
+                .find(|routine| routine.id == anonymous_routine)
+                .and_then(|routine| {
+                    routine
+                        .params
+                        .get(capture_index)
+                        .copied()
+                        .map(|param| (routine, param))
+                })
+                .and_then(|(routine, param)| {
+                    routine.locals.get(param).and_then(|local| local.type_id)
+                })
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!(
+                            "spawn capture '{}' does not retain its anonymous parameter type",
+                            capture.name
+                        ),
+                    )
+                })?;
+            let capture_local = cursor.allocate_local(capture_type, None);
+            let outer_type = cursor
                 .routine
                 .locals
                 .get(outer_local)
@@ -1115,14 +1142,42 @@ pub(crate) fn lower_spawn_call(
                 .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
-                        format!("spawn capture '{}' does not retain a lowered type", capture.name),
+                        format!(
+                            "spawn capture '{}' does not retain an outer lowered type",
+                            capture.name
+                        ),
                     )
                 })?;
-            let capture_local = cursor.allocate_local(capture_type, None);
-            cursor.push_instr(
-                Some(capture_local),
-                LoweredInstrKind::LoadLocal { local: outer_local },
-            )?;
+            let capture_kind = match (type_table.get(outer_type), type_table.get(capture_type)) {
+                (
+                    Some(crate::LoweredType::Channel {
+                        element_type: outer,
+                    }),
+                    Some(crate::LoweredType::ChannelSender {
+                        element_type: captured,
+                    }),
+                ) if outer == captured => LoweredInstrKind::ChannelSender {
+                    channel: outer_local,
+                },
+                (
+                    Some(crate::LoweredType::ChannelSender {
+                        element_type: outer,
+                    }),
+                    Some(crate::LoweredType::ChannelSender {
+                        element_type: captured,
+                    }),
+                ) if outer == captured => LoweredInstrKind::LoadLocal { local: outer_local },
+                _ => {
+                    return Err(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!(
+                            "spawn capture '{}[tx]' did not lower to a sender-only endpoint",
+                            capture.name
+                        ),
+                    ));
+                }
+            };
+            cursor.push_instr(Some(capture_local), capture_kind)?;
             capture_args.push(capture_local);
         }
         cursor.push_instr(
@@ -1147,12 +1202,8 @@ pub(crate) fn lower_spawn_call(
             "spawn currently requires a direct routine call",
         ));
     };
-    let resolved_symbol = resolve_reference_symbol(
-        typed_package,
-        *syntax_id,
-        ReferenceKind::FunctionCall,
-        name,
-    )?;
+    let resolved_symbol =
+        resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::FunctionCall, name)?;
     let (owning_identity, owning_symbol_id) = canonical_symbol_key(
         current_identity,
         resolved_symbol.mounted_from.as_ref(),
@@ -1282,12 +1333,8 @@ pub(crate) fn lower_async_call(
             "| async currently requires a direct routine call",
         ));
     };
-    let resolved_symbol = resolve_reference_symbol(
-        typed_package,
-        *syntax_id,
-        ReferenceKind::FunctionCall,
-        name,
-    )?;
+    let resolved_symbol =
+        resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::FunctionCall, name)?;
     let (owning_identity, owning_symbol_id) = canonical_symbol_key(
         current_identity,
         resolved_symbol.mounted_from.as_ref(),

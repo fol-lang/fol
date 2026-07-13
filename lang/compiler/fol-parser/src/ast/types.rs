@@ -364,6 +364,7 @@ pub enum ChannelEndpoint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoutineCapture {
     pub name: String,
+    pub syntax_id: Option<SyntaxNodeId>,
     pub endpoint: Option<ChannelEndpoint>,
 }
 
@@ -371,6 +372,7 @@ pub struct RoutineCapture {
 pub struct SelectArm {
     pub channel: AstNode,
     pub binding: String,
+    pub binding_syntax_id: Option<SyntaxNodeId>,
     pub body: Vec<AstNode>,
 }
 

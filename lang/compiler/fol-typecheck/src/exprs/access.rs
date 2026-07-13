@@ -1,14 +1,14 @@
 use crate::{CheckedType, TypecheckError, TypecheckErrorKind, TypedProgram};
 use fol_parser::ast::AstNode;
-use fol_resolver::ResolvedProgram;
+use fol_resolver::{ReferenceKind, ResolvedProgram, SymbolId};
 
 use super::helpers::{
     apparent_type_id, describe_type, ensure_assignable, merge_recoverable_effects, node_origin,
-    plain_value_expr,
+    plain_value_expr, strip_comments, with_node_origin,
 };
 use super::literals::type_set_index_access;
-use super::{TypeContext, TypedExpr};
 use super::type_node;
+use super::{TypeContext, TypedExpr};
 
 pub(crate) fn type_field_access(
     typed: &mut TypedProgram,
@@ -18,6 +18,18 @@ pub(crate) fn type_field_access(
     field: &str,
     expected_type: Option<crate::CheckedTypeId>,
 ) -> Result<TypedExpr, TypecheckError> {
+    if let Some((mutex, name)) = direct_mutex_identifier(typed, resolved, object) {
+        if typed.active_mutex_guard(mutex).is_none() {
+            return Err(with_node_origin(
+                resolved,
+                object,
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "mutex field access through '{name}' requires '{name}.lock()' in the current lexical scope"
+                ),
+            ));
+        }
+    }
     let object_raw = type_node(typed, resolved, context, object)?;
     let object_expr = plain_value_expr(
         typed,
@@ -67,8 +79,7 @@ pub(crate) fn type_field_access(
                         .with_optional_effect(object_expr.recoverable_effect));
                 }
             }
-            Ok(TypedExpr::value(object_type)
-                .with_optional_effect(object_expr.recoverable_effect))
+            Ok(TypedExpr::value(object_type).with_optional_effect(object_expr.recoverable_effect))
         }
         _ => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
@@ -78,6 +89,31 @@ pub(crate) fn type_field_access(
             ),
         )),
     }
+}
+
+fn direct_mutex_identifier(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    object: &AstNode,
+) -> Option<(SymbolId, String)> {
+    let AstNode::Identifier {
+        name,
+        syntax_id: Some(syntax_id),
+    } = strip_comments(object)
+    else {
+        return None;
+    };
+    let symbol = resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })?
+        .resolved?;
+    typed
+        .typed_symbol(symbol)
+        .is_some_and(|symbol| symbol.is_mutex)
+        .then(|| (symbol, name.clone()))
 }
 
 pub(crate) fn type_index_access(
@@ -108,13 +144,8 @@ pub(crate) fn type_index_access(
         | Some(CheckedType::Set { .. }) => Some(typed.builtin_types().int),
         _ => None,
     };
-    let index_raw = super::type_node_with_expectation(
-        typed,
-        resolved,
-        context,
-        index,
-        expected_index_type,
-    )?;
+    let index_raw =
+        super::type_node_with_expectation(typed, resolved, context, index, expected_index_type)?;
     let index_expr = plain_value_expr(
         typed,
         context,

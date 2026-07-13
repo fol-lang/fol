@@ -48,8 +48,7 @@ pub(crate) fn type_binary_op(
                     "channel send requires hosted std support; declare the bundled internal standard dependency",
                 ));
             }
-            let AstNode::ChannelAccess { channel, .. } =
-                super::helpers::strip_comments(right)
+            let AstNode::ChannelAccess { channel, .. } = super::helpers::strip_comments(right)
             else {
                 unreachable!("channel-send guard preserves the endpoint shape")
             };
@@ -81,7 +80,17 @@ pub(crate) fn type_binary_op(
             )?;
             return Ok(TypedExpr::none());
         }
-        BinaryOperator::Pipe | BinaryOperator::PipeOr
+        BinaryOperator::PipeOr
+            if matches!(super::helpers::strip_comments(right), AstNode::AsyncStage) =>
+        {
+            return Err(unsupported_binary_surface(
+                resolved,
+                left,
+                right,
+                "async is only a '|' pipe stage; '|| async' is not part of V3",
+            ));
+        }
+        BinaryOperator::Pipe
             if matches!(super::helpers::strip_comments(right), AstNode::AsyncStage) =>
         {
             if !typed.capability_model().supports_processor() {
@@ -103,6 +112,7 @@ pub(crate) fn type_binary_op(
                     "| async currently requires a direct routine call on its left side",
                 ));
             }
+            super::reject_direct_spawn_channel_receiver(typed, resolved, left)?;
             let observed = type_node(
                 typed,
                 resolved,
@@ -112,22 +122,30 @@ pub(crate) fn type_binary_op(
                 },
                 left,
             )?;
-            let value_type = observed
-                .value_type
-                .ok_or_else(|| TypecheckError::new(
+            let value_type = observed.value_type.ok_or_else(|| {
+                TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
                     "| async requires a call that yields a value",
-                ))?;
-            let error_type = observed
-                .recoverable_effect
-                .map(|effect| effect.error_type);
+                )
+            })?;
+            let error_type = observed.recoverable_effect.map(|effect| effect.error_type);
             let eventual = typed.type_table_mut().intern(CheckedType::Eventual {
                 value_type,
                 error_type,
             });
             return Ok(TypedExpr::value(eventual));
         }
-        BinaryOperator::Pipe | BinaryOperator::PipeOr
+        BinaryOperator::PipeOr
+            if matches!(super::helpers::strip_comments(right), AstNode::AwaitStage) =>
+        {
+            return Err(unsupported_binary_surface(
+                resolved,
+                left,
+                right,
+                "await is only a '|' pipe stage; '|| await' is not part of V3",
+            ));
+        }
+        BinaryOperator::Pipe
             if matches!(super::helpers::strip_comments(right), AstNode::AwaitStage) =>
         {
             if !typed.capability_model().supports_processor() {
@@ -139,9 +157,8 @@ pub(crate) fn type_binary_op(
                 ));
             }
             let eventual_raw = type_node(typed, resolved, context, left)?;
-            let eventual_type = eventual_raw.required_value(
-                "| await requires an eventual value on its left side",
-            )?;
+            let eventual_type = eventual_raw
+                .required_value("| await requires an eventual value on its left side")?;
             let Some(CheckedType::Eventual {
                 value_type,
                 error_type,
@@ -154,6 +171,7 @@ pub(crate) fn type_binary_op(
                     "| await requires the internal eventual produced by | async",
                 ));
             };
+            mark_awaited_eventual_binding(typed, resolved, left);
             return Ok(TypedExpr::value(value_type).with_optional_effect(
                 error_type.map(|error_type| crate::RecoverableCallEffect { error_type }),
             ));
@@ -383,6 +401,33 @@ pub(crate) fn type_pipe_or(
     }
 }
 
+fn mark_awaited_eventual_binding(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    node: &AstNode,
+) {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = super::helpers::strip_comments(node)
+    else {
+        return;
+    };
+    let Some(symbol) = resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+    else {
+        return;
+    };
+    if let Some(origin) = node_origin(resolved, node) {
+        typed.mark_eventual_awaited(symbol, origin);
+    }
+}
+
 pub(crate) fn type_unary_op(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -463,6 +508,54 @@ pub(crate) fn type_unary_op(
         };
     }
 
+    if matches!(op, UnaryOperator::BorrowFrom) {
+        let symbol = super::bindings::borrow_source_symbol(resolved, operand).ok_or_else(|| {
+            with_node_origin(
+                resolved,
+                node,
+                TypecheckErrorKind::InvalidInput,
+                "borrow-from requires an identifier owner",
+            )
+        })?;
+        if let Some(move_origin) = typed.moved_binding_origin(symbol).cloned() {
+            return Err(with_node_origin(
+                resolved,
+                node,
+                TypecheckErrorKind::Ownership,
+                "cannot borrow from an owner whose value was already moved",
+            )
+            .with_related_origin(move_origin, "ownership moved here"));
+        }
+        if let Some(conflict) = typed.active_borrow_for_owner(symbol).cloned() {
+            if conflict.mutable {
+                return Err(with_node_origin(
+                    resolved,
+                    node,
+                    TypecheckErrorKind::BorrowConflict,
+                    "shared borrow conflicts with an active mutable borrow of the same owner",
+                )
+                .with_related_origin(conflict.origin, "mutable borrow created here"));
+            }
+        }
+        let owner_type = typed
+            .typed_symbol(symbol)
+            .and_then(|symbol| symbol.declared_type)
+            .ok_or_else(|| {
+                with_node_origin(
+                    resolved,
+                    node,
+                    TypecheckErrorKind::Internal,
+                    "borrow-from owner lost its checked type",
+                )
+            })?;
+        let inner = super::bindings::owned_or_borrowed_inner(typed, owner_type);
+        let borrowed = typed.type_table_mut().intern(CheckedType::Borrowed {
+            inner,
+            mutable: false,
+        });
+        return Ok(TypedExpr::value(borrowed));
+    }
+
     let operand_raw = type_node(typed, resolved, context, operand)?;
     let operand_expr = plain_value_expr(
         typed,
@@ -519,17 +612,7 @@ pub(crate) fn type_unary_op(
             Some(CheckedType::Pointer { target, .. }) => Ok(TypedExpr::value(*target)),
             _ => Err(invalid_unary_operator_error(typed, op, operand_type)),
         },
-        UnaryOperator::BorrowFrom => {
-            let inner = match typed.type_table().get(operand_type) {
-                Some(CheckedType::Owned { inner }) => *inner,
-                _ => operand_type,
-            };
-            let borrowed = typed.type_table_mut().intern(CheckedType::Borrowed {
-                inner,
-                mutable: false,
-            });
-            Ok(TypedExpr::value(borrowed))
-        }
+        UnaryOperator::BorrowFrom => unreachable!("borrow-from is handled before operand typing"),
         UnaryOperator::GiveBack => unreachable!("give-back is handled before unary typing"),
         UnaryOperator::Unwrap => unreachable!("unwrap is handled before plain unary typing"),
     }
