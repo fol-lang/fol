@@ -316,14 +316,14 @@ pub fn render_core_instruction_in_workspace(
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand = render_local_name(package_identity, routine, *operand)?;
             Ok(format!(
-                "{result} = {operand}.into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
+                "{result} = std::mem::take(&mut {operand}).into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
             ))
         }
         LoweredInstrKind::ExtractRecoverableError { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand = render_local_name(package_identity, routine, *operand)?;
             Ok(format!(
-                "{result} = {operand}.into_error().expect(\"extract of recoverable error failed: result contains a value\");"
+                "{result} = std::mem::take(&mut {operand}).into_error().expect(\"extract of recoverable error failed: result contains a value\");"
             ))
         }
         LoweredInstrKind::ConstructOptional { value, .. } => {

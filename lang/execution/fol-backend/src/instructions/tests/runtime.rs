@@ -204,7 +204,7 @@ fn runtime_shaped_instruction_rendering_emits_unwrap_recoverable_success_lane() 
 
     assert_eq!(
         rendered,
-        "l__pkg__entry__app__r10__l1__unwrapped = l__pkg__entry__app__r10__l0__value.into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
+        "l__pkg__entry__app__r10__l1__unwrapped = std::mem::take(&mut l__pkg__entry__app__r10__l0__value).into_value().expect(\"unwrap of recoverable value failed: result contains an error\");"
     );
 }
 
@@ -234,7 +234,7 @@ fn runtime_shaped_instruction_rendering_emits_recoverable_error_extraction() {
 
     assert_eq!(
         rendered,
-        "l__pkg__entry__app__r11__l1__error = l__pkg__entry__app__r11__l0__value.into_error().expect(\"extract of recoverable error failed: result contains a value\");"
+        "l__pkg__entry__app__r11__l1__error = std::mem::take(&mut l__pkg__entry__app__r11__l0__value).into_error().expect(\"extract of recoverable error failed: result contains a value\");"
     );
 }
 
@@ -586,8 +586,8 @@ fn runtime_shaped_instruction_snapshot_stays_stable() {
             "l__pkg__entry__app__r15__l4__count = rt::len(&l__pkg__entry__app__r15__l2__maybe);\n",
             "l__pkg__entry__app__r15__l5__shown = rt::echo(l__pkg__entry__app__r15__l0__value.clone());\n",
             "l__pkg__entry__app__r15__l6__failed = rt::check_recoverable(&l__pkg__entry__app__r15__l1__recover);\n",
-            "l__pkg__entry__app__r15__l7__ok = l__pkg__entry__app__r15__l1__recover.into_value().expect(\"unwrap of recoverable value failed: result contains an error\");\n",
-            "l__pkg__entry__app__r15__l8__bad = l__pkg__entry__app__r15__l1__recover.into_error().expect(\"extract of recoverable error failed: result contains a value\");\n",
+            "l__pkg__entry__app__r15__l7__ok = std::mem::take(&mut l__pkg__entry__app__r15__l1__recover).into_value().expect(\"unwrap of recoverable value failed: result contains an error\");\n",
+            "l__pkg__entry__app__r15__l8__bad = std::mem::take(&mut l__pkg__entry__app__r15__l1__recover).into_error().expect(\"extract of recoverable error failed: result contains a value\");\n",
             "l__pkg__entry__app__r15__l2__maybe = rt::FolOption::some(l__pkg__entry__app__r15__l0__value.clone());\n",
             "l__pkg__entry__app__r15__l3__err = rt::FolError::new(l__pkg__entry__app__r15__l0__value.clone());\n",
             "l__pkg__entry__app__r15__l7__ok = rt::unwrap_optional_shell(l__pkg__entry__app__r15__l2__maybe.clone()).unwrap();"
