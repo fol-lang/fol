@@ -12,7 +12,9 @@ mod error;
 mod format;
 mod lsp;
 mod paths;
+mod positions;
 mod session;
+mod source_scan;
 mod tree_sitter;
 mod workspace;
 

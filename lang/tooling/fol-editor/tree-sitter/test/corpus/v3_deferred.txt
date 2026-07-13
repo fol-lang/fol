@@ -1,0 +1,83 @@
+==================
+V3 Deferred Cleanup
+==================
+
+fun[] deferred(fail: bol): int / int = {
+    edf {
+        var error_cleanup: int = 1;
+    };
+    dfr {
+        var cleanup: int = 2;
+    };
+    when(fail) {
+        case(true) { report 7; }
+        * { return 9; }
+    }
+};
+
+---
+
+(source_file
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (error_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (edf_stmt
+            (block
+              (stmt
+                (var_decl
+                  (typed_binding
+                    (identifier)
+                    (type_expr
+                      (identifier)))
+                  (expr
+                    (expr_atom
+                      (integer_literal))))))))
+        (stmt
+          (dfr_stmt
+            (block
+              (stmt
+                (var_decl
+                  (typed_binding
+                    (identifier)
+                    (type_expr
+                      (identifier)))
+                  (expr
+                    (expr_atom
+                      (integer_literal))))))))
+        (expr
+          (when_expr
+            (expr
+              (expr_atom
+                (identifier)))
+            (when_block
+              (case_clause
+                (expr
+                  (expr_atom
+                    (boolean_literal)))
+                (block
+                  (stmt
+                    (report_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal)))))))
+              (default_clause
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal))))))))))))))

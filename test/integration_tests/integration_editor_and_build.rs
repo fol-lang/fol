@@ -1,10 +1,10 @@
 use super::*;
 use crate::v3_example_inventory::{
-    assert_checked_in_example_directories, V3_MEM_M1_FAILURES, V3_MEM_M1_POSITIVES,
-    V3_MEM_M2_FAILURES, V3_MEM_M2_POSITIVES, V3_MEM_M3_FAILURES, V3_MEM_M3_POSITIVES,
-    V3_PROC_M1_FAILURES, V3_PROC_M1_POSITIVES, V3_PROC_M2_FAILURES,
-    V3_PROC_M2_POSITIVES, V3_PROC_M3_FAILURES, V3_PROC_M3_POSITIVES,
-    V3_PROC_M4_FAILURES, V3_PROC_M4_POSITIVES,
+    assert_checked_in_example_directories, V3FailureExample, V3_MEM_M1_FAILURES,
+    V3_MEM_M1_POSITIVES, V3_MEM_M2_FAILURES, V3_MEM_M2_POSITIVES, V3_MEM_M3_FAILURES,
+    V3_MEM_M3_POSITIVES, V3_PROC_M1_FAILURES, V3_PROC_M1_POSITIVES, V3_PROC_M2_FAILURES,
+    V3_PROC_M2_POSITIVES, V3_PROC_M3_FAILURES, V3_PROC_M3_POSITIVES, V3_PROC_M4_FAILURES,
+    V3_PROC_M4_POSITIVES,
 };
 use fol_editor::{LspDefinitionParams, LspHover, LspHoverParams, LspLocation};
 
@@ -354,38 +354,65 @@ fn test_generic_routine_cross_file_m1_example_opens_cleanly_and_dumps_lowered() 
 }
 
 #[test]
-fn test_generic_routine_m1_example_builds_and_runs() {
+fn test_generic_routine_m1_example_builds_and_executes_backend_binary() {
     let root = temp_example_root("examples/generic_routine_m1");
-    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic routine M1 example should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic routine M1 binary should execute");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
     assert!(
         run.status.success(),
-        "generic routine M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+        "generic routine M1 backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
 }
 
 #[test]
-fn test_generic_routine_pair_m1_example_builds_and_runs() {
+fn test_generic_routine_pair_m1_example_builds_and_executes_backend_binary() {
     let root = temp_example_root("examples/generic_routine_pair_m1");
-    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "generic pair M1 example should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("generic pair M1 binary should execute");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
     assert!(
         run.status.success(),
-        "generic pair M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+        "generic pair M1 backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
 }
 
 #[test]
-fn test_generic_routine_cross_file_m1_example_builds_and_runs() {
+fn test_generic_routine_cross_file_m1_builds_and_executes_backend_binary() {
     let root = temp_example_root("examples/generic_routine_cross_file_m1");
-    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "cross-file generic M1 example should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("cross-file generic M1 binary should execute");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
     assert!(
         run.status.success(),
-        "cross-file generic M1 example should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+        "cross-file generic M1 backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
 }
 
@@ -395,12 +422,21 @@ fn test_receiver_qualified_generic_routines_build_and_run() {
         "receiver_generic_m1",
         "typ Box: rec = {\n    value: int\n};\n\nvar current: Box = { value = 1 };\n\nfun (Box)pick(T)(value: T): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return current.pick(7);\n};\n",
     );
-    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "receiver-qualified generic routine should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("receiver-qualified generic binary should execute");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
     assert!(
         run.status.success(),
-        "receiver-qualified generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+        "receiver-qualified generic backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
     std::fs::remove_dir_all(root).ok();
 }
@@ -411,12 +447,21 @@ fn test_instantiated_generic_receiver_routines_build_and_run() {
         "receiver_generic_type_exec",
         "typ Box(T): rec = {\n    value: T\n};\n\nfun (Box[int])area(): int = {\n    return 1;\n};\n\nfun[] main(): int = {\n    var box: Box[int] = { value = 7 };\n    return box.area();\n};\n",
     );
-    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "instantiated generic receiver routine should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("instantiated generic receiver binary should execute");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
     assert!(
         run.status.success(),
-        "instantiated generic receiver routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+        "instantiated generic receiver backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
     std::fs::remove_dir_all(root).ok();
 }
@@ -427,12 +472,21 @@ fn test_default_argument_generic_routines_build_and_run() {
         "default_generic_m1",
         "fun pick(T)(value: T, fallback: int = 1): T = {\n    return value;\n};\n\nfun[] main(): int = {\n    return pick(7);\n};\n",
     );
-    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "default-argument generic routine should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("default-argument generic binary should execute");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
     assert!(
         run.status.success(),
-        "default-argument generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+        "default-argument generic backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
     std::fs::remove_dir_all(root).ok();
 }
@@ -443,12 +497,21 @@ fn test_recoverable_generic_routines_with_concrete_error_types_build_and_run() {
         "recoverable_generic_m1",
         "fun pick(T)(value: T): T = {\n    return value;\n};\n\nfun bounce(T)(value: T, fail: bol): T / str = {\n    when(fail) {\n        case(true) { report(\"bad\"); }\n        * { return pick(value); }\n    }\n};\n\nfun[] main(): int = {\n    when(check(bounce(7, false))) {\n        case(true) { return 0; }\n        * { return 1; }\n    }\n};\n",
     );
-    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "recoverable generic routine should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("recoverable generic binary should execute");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
     assert!(
         run.status.success(),
-        "recoverable generic routine should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+        "recoverable generic backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
     std::fs::remove_dir_all(root).ok();
 }
@@ -1117,7 +1180,8 @@ fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
             assert!(emitted.contains("Box<"));
             assert!(emitted.contains("Box::new"));
             assert!(emitted.contains("FolOption<Box<"));
-            assert!(emitted.contains(".next;"));
+            assert!(emitted.contains("std::mem::take(&mut"));
+            assert!(emitted.contains(".next);"));
             assert!(!emitted.contains(".next.clone()"));
             assert!(emitted.contains("unwrap_optional_shell"));
             assert!(!emitted.contains("std::mem::forget"));
@@ -1127,7 +1191,8 @@ fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
             assert!(emitted.contains("FolOption<Box<"));
             assert!(emitted.contains("pub left:"));
             assert!(emitted.contains("pub right:"));
-            assert!(emitted.contains(".left;"));
+            assert!(emitted.contains("std::mem::take(&mut"));
+            assert!(emitted.contains(".left);"));
             assert!(!emitted.contains(".left.clone()"));
             assert!(!emitted.contains(".right.clone()"));
             assert!(emitted.contains("unwrap_optional_shell"));
@@ -1152,25 +1217,37 @@ fn test_v3_example_directories_match_the_canonical_inventories() {
     assert_checked_in_example_directories(&repo_root());
 }
 
+fn assert_v3_failure(failure: V3FailureExample) {
+    let root = temp_example_root(failure.path);
+    let check = if failure.needs_std {
+        run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
+    } else {
+        run_fol_in_dir(&root, &["code", "check"])
+    };
+    let combined = format!(
+        "{}\n{}",
+        strip_ansi(&String::from_utf8_lossy(&check.stdout)),
+        strip_ansi(&String::from_utf8_lossy(&check.stderr))
+    );
+    assert!(!check.status.success(), "{} should reject", failure.path);
+    assert!(
+        combined.contains(failure.code),
+        "{} should retain code '{}', got:\n{combined}",
+        failure.path,
+        failure.code
+    );
+    assert!(
+        combined.contains(failure.message_contains),
+        "{} should contain '{}', got:\n{combined}",
+        failure.path,
+        failure.message_contains
+    );
+}
+
 #[test]
 fn test_v3_memory_m1_negative_examples_reject_at_the_chosen_boundaries() {
-    for &(example, expected, needs_std) in V3_MEM_M1_FAILURES {
-        let root = temp_example_root(example);
-        let check = if needs_std {
-            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
-        } else {
-            run_fol_in_dir(&root, &["code", "check"])
-        };
-        let combined = format!(
-            "{}\n{}",
-            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
-            strip_ansi(&String::from_utf8_lossy(&check.stderr))
-        );
-        assert!(!check.status.success(), "{example} should reject");
-        assert!(
-            combined.contains(expected),
-            "{example} should contain '{expected}', got:\n{combined}"
-        );
+    for &failure in V3_MEM_M1_FAILURES {
+        assert_v3_failure(failure);
     }
 }
 
@@ -1215,23 +1292,8 @@ fn test_v3_memory_m2_examples_build_run_and_emit_borrows() {
 
 #[test]
 fn test_v3_memory_m2_negative_examples_reject_at_the_chosen_boundaries() {
-    for &(example, expected, needs_std) in V3_MEM_M2_FAILURES {
-        let root = temp_example_root(example);
-        let check = if needs_std {
-            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
-        } else {
-            run_fol_in_dir(&root, &["code", "check"])
-        };
-        let combined = format!(
-            "{}\n{}",
-            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
-            strip_ansi(&String::from_utf8_lossy(&check.stderr))
-        );
-        assert!(!check.status.success(), "{example} should reject");
-        assert!(
-            combined.contains(expected),
-            "{example} should contain '{expected}', got:\n{combined}"
-        );
+    for &failure in V3_MEM_M2_FAILURES {
+        assert_v3_failure(failure);
     }
 }
 
@@ -1279,23 +1341,8 @@ fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
 
 #[test]
 fn test_v3_memory_m3_negative_examples_reject_at_the_chosen_boundaries() {
-    for &(example, expected, needs_std) in V3_MEM_M3_FAILURES {
-        let root = temp_example_root(example);
-        let check = if needs_std {
-            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
-        } else {
-            run_fol_in_dir(&root, &["code", "check"])
-        };
-        let combined = format!(
-            "{}\n{}",
-            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
-            strip_ansi(&String::from_utf8_lossy(&check.stderr))
-        );
-        assert!(!check.status.success(), "{example} should reject");
-        assert!(
-            combined.contains(expected),
-            "{example} should contain '{expected}', got:\n{combined}"
-        );
+    for &failure in V3_MEM_M3_FAILURES {
+        assert_v3_failure(failure);
     }
 }
 
@@ -1339,23 +1386,8 @@ fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
 
 #[test]
 fn test_v3_processor_m1_spawn_negative_examples_reject() {
-    for &(example, expected, needs_std) in V3_PROC_M1_FAILURES {
-        let root = temp_example_root(example);
-        let check = if needs_std {
-            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
-        } else {
-            run_fol_in_dir(&root, &["code", "check"])
-        };
-        let combined = format!(
-            "{}\n{}",
-            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
-            strip_ansi(&String::from_utf8_lossy(&check.stderr))
-        );
-        assert!(!check.status.success(), "{example} should reject");
-        assert!(
-            combined.contains(expected),
-            "{example} should contain '{expected}', got:\n{combined}"
-        );
+    for &failure in V3_PROC_M1_FAILURES {
+        assert_v3_failure(failure);
     }
 }
 
@@ -1426,20 +1458,8 @@ fn test_v3_channel_receiver_moves_into_a_synchronous_consumer() {
 
 #[test]
 fn test_v3_processor_m2_channel_negative_examples_reject() {
-    for &(example, expected, needs_std) in V3_PROC_M2_FAILURES {
-        let root = temp_example_root(example);
-        let check = if needs_std {
-            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
-        } else {
-            run_fol_in_dir(&root, &["code", "check"])
-        };
-        let combined = format!(
-            "{}\n{}",
-            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
-            strip_ansi(&String::from_utf8_lossy(&check.stderr))
-        );
-        assert!(!check.status.success(), "{example} should reject");
-        assert!(combined.contains(expected), "{combined}");
+    for &failure in V3_PROC_M2_FAILURES {
+        assert_v3_failure(failure);
     }
 }
 
@@ -1478,20 +1498,8 @@ fn test_v3_processor_m3_select_and_mutex_examples_build_and_run() {
 
 #[test]
 fn test_v3_processor_m3_dead_and_tier_forms_reject() {
-    for &(example, expected, needs_std) in V3_PROC_M3_FAILURES {
-        let root = temp_example_root(example);
-        let check = if needs_std {
-            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
-        } else {
-            run_fol_in_dir(&root, &["code", "check"])
-        };
-        let combined = format!(
-            "{}\n{}",
-            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
-            strip_ansi(&String::from_utf8_lossy(&check.stderr))
-        );
-        assert!(!check.status.success(), "{example} should reject");
-        assert!(combined.contains(expected), "{combined}");
+    for &failure in V3_PROC_M3_FAILURES {
+        assert_v3_failure(failure);
     }
 }
 
@@ -1524,20 +1532,8 @@ fn test_v3_processor_m4_eventual_examples_build_and_run() {
 
 #[test]
 fn test_v3_processor_m4_eventual_negative_examples_reject() {
-    for &(example, expected, needs_std) in V3_PROC_M4_FAILURES {
-        let root = temp_example_root(example);
-        let check = if needs_std {
-            run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "check"])
-        } else {
-            run_fol_in_dir(&root, &["code", "check"])
-        };
-        let combined = format!(
-            "{}\n{}",
-            strip_ansi(&String::from_utf8_lossy(&check.stdout)),
-            strip_ansi(&String::from_utf8_lossy(&check.stderr))
-        );
-        assert!(!check.status.success(), "{example} should reject");
-        assert!(combined.contains(expected), "{combined}");
+    for &failure in V3_PROC_M4_FAILURES {
+        assert_v3_failure(failure);
     }
 }
 
@@ -1588,17 +1584,26 @@ fn test_generic_type_exec_m1m2_example_builds_and_runs() {
 }
 
 #[test]
-fn test_nested_generic_types_build_and_run() {
+fn test_nested_generic_types_build_and_execute_backend_binary() {
     let root = write_temp_app(
         "nested_generic_type_exec",
         "typ Box(T): rec = {\n    value: T\n};\n\nfun[] take(value: Box[Box[int]]): int = {\n    return value.value.value;\n};\n\nfun[] main(): int = {\n    var inner: Box[int] = { value = 7 };\n    var outer: Box[Box[int]] = { value = inner };\n    return take(outer);\n};\n",
     );
-    let run = run_fol_in_dir(&root, &["code", "run"]);
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "nested generic types should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("nested generic type binary should execute");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
     assert!(
         run.status.success(),
-        "nested generic types should build and run: stdout=\n{stdout}\nstderr=\n{stderr}"
+        "nested generic backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
     );
     std::fs::remove_dir_all(root).ok();
 }
@@ -3315,7 +3320,7 @@ fn test_cli_std_examples_run_and_print_expected_output() {
 }
 
 #[test]
-fn test_cli_core_and_memo_examples_run_without_bundled_std_dependency() {
+fn test_cli_core_and_memo_examples_build_but_reject_hosted_run_without_std() {
     for path in ["examples/core_run_min", "examples/memo_run_min"] {
         let root = temp_example_root(path);
         let build = run_example_compile(&root, true);
@@ -3328,19 +3333,16 @@ fn test_cli_core_and_memo_examples_run_without_bundled_std_dependency() {
         );
 
         let run = run_fol_in_dir(&root, &["code", "run"]);
-        let run_stdout = String::from_utf8_lossy(&run.stdout);
-        assert!(
-            run.status.success(),
-            "no-std runnable example '{path}' should run: stdout=\n{}\nstderr=\n{}",
-            run_stdout,
+        let output = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&run.stdout),
             String::from_utf8_lossy(&run.stderr)
         );
         assert!(
-            run_stdout.contains("ran "),
-            "no-std runnable example '{path}' should report a run summary: stdout=\n{}\nstderr=\n{}",
-            run_stdout,
-            String::from_utf8_lossy(&run.stderr)
+            !run.status.success(),
+            "no-std example '{path}' must reject hosted CLI run: {output}"
         );
+        assert!(output.contains("bundled internal 'standard' dependency"));
     }
 }
 
@@ -4478,12 +4480,18 @@ fn test_cli_run_rejects_core_example_route() {
     .expect("should write source");
 
     let run = run_fol_in_dir(&root, &["code", "run"]);
-    assert!(
-        run.status.success(),
-        "core route should remain runnable: stdout=\n{}\nstderr=\n{}",
+    let output = format!(
+        "{}\n{}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
+    assert!(
+        !run.status.success(),
+        "core route must not host-execute without bundled std: {output}"
+    );
+    assert!(output.contains("artifact 'demo'"));
+    assert!(output.contains("capability model 'core'"));
+    assert!(output.contains("bundled internal 'standard' dependency"));
     std::fs::remove_dir_all(&temp_root).ok();
 }
 
@@ -4517,13 +4525,18 @@ fn test_cli_run_rejects_mem_example_route() {
     .expect("should write source");
 
     let run = run_fol_in_dir(&root, &["code", "run"]);
-    assert!(
-        run.status.success(),
-        "memo route should remain runnable: stdout=\n{}\nstderr=\n{}",
+    let output = format!(
+        "{}\n{}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert!(String::from_utf8_lossy(&run.stdout).contains("ran "));
+    assert!(
+        !run.status.success(),
+        "memo route must not host-execute without bundled std: {output}"
+    );
+    assert!(output.contains("artifact 'demo'"));
+    assert!(output.contains("capability model 'memo'"));
+    assert!(output.contains("bundled internal 'standard' dependency"));
 
     std::fs::remove_dir_all(&temp_root).ok();
 }
@@ -4557,12 +4570,18 @@ fn test_cli_test_rejects_memo_example_route() {
     .expect("should write source");
 
     let run = run_fol_in_dir(&root, &["code", "test"]);
-    assert!(
-        run.status.success(),
-        "memo test route should remain runnable: stdout=\n{}\nstderr=\n{}",
+    let output = format!(
+        "{}\n{}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
+    assert!(
+        !run.status.success(),
+        "memo test route must not host-execute without bundled std: {output}"
+    );
+    assert!(output.contains("artifact 'demo-tests'"));
+    assert!(output.contains("capability model 'memo'"));
+    assert!(output.contains("bundled internal 'standard' dependency"));
 
     std::fs::remove_dir_all(&temp_root).ok();
 }
@@ -4637,13 +4656,18 @@ fn test_cli_run_rejects_explicit_core_run_step_with_step_model_detail() {
     .expect("should write core source");
 
     let run = run_fol_in_dir(&root, &["code", "run", "--step", "run"]);
-    assert!(
-        run.status.success(),
-        "explicit core run step route should remain runnable: stdout=\n{}\nstderr=\n{}",
+    let output = format!(
+        "{}\n{}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert!(String::from_utf8_lossy(&run.stdout).contains("ran "));
+    assert!(
+        !run.status.success(),
+        "explicit core run step must retain hosted-tier rejection: {output}"
+    );
+    assert!(output.contains("artifact 'blink'"));
+    assert!(output.contains("capability model 'core'"));
+    assert!(output.contains("bundled internal 'standard' dependency"));
 
     std::fs::remove_dir_all(&temp_root).ok();
 }
@@ -5128,8 +5152,12 @@ fn test_v2_current_subset_inventory_stays_honest() {
 
     assert!(versions.contains("Milestone 1"));
     assert!(versions.contains("generic routine core"));
+    assert!(versions.contains("executable generic types"));
+    assert!(!versions.contains("\n- generic types\n"));
     assert!(versions.contains("Milestone 2"));
     assert!(versions.contains("protocol standards only"));
+    assert!(versions.contains("both `V3` pillars are implemented end to end"));
+    assert!(!versions.contains("then move into `V3` systems-semantics work"));
 }
 
 #[test]
@@ -5168,8 +5196,10 @@ fn test_runtime_crate_docs_align_with_the_v2_monomorphization_boundary() {
     assert!(runtime_docs.contains("a runtime-owned generic reification model"));
     assert!(runtime_docs.contains("object-style standards/dispatch machinery"));
     assert!(runtime_docs
-        .contains("Full `V2` generics, generic types, and procedural standards still execute"));
-    assert!(runtime_docs.contains("does not define a second witness/dictionary system"));
+        .contains("The shipped `V2` generic-routine, generic-type, and procedural-standard"));
+    assert!(runtime_docs.contains("subset executes through the current backend strategy"));
+    assert!(runtime_docs.contains("does not define a second"));
+    assert!(runtime_docs.contains("witness/dictionary system"));
     assert!(strategy.contains("`fol-runtime` remains a runtime support crate"));
 }
 

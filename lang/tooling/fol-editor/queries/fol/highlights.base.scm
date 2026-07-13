@@ -1,6 +1,7 @@
 (use_decl "use" @keyword.import)
 (var_decl "var" @keyword)
 (var_decl "@var" @keyword)
+(var_decl "~var" @keyword)
 (con_decl "con" @keyword)
 (lab_decl "lab" @keyword)
 (fun_decl "fun" @keyword.function)
@@ -95,46 +96,16 @@ __FOL_SHELL_TYPE_LINES__
 (pointer_type qualifier: ["shared" "raw"] @attribute)
 (record_type) @type.builtin
 (entry_type) @type.builtin
-(typed_binding type: (type_expr (generic_type_expr base: (identifier) @type.builtin))
+(generic_type_expr base: (identifier) @type.builtin
   (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(param type: (type_expr (generic_type_expr base: (identifier) @type.builtin))
+(generic_type_expr base: (identifier) @type
+  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
+(generic_type_expr base: (qualified_path) @type)
+(type_expr (identifier) @type.builtin
   (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(return_type (type_expr (generic_type_expr base: (identifier) @type.builtin))
-  (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(error_type (type_expr (generic_type_expr base: (identifier) @type.builtin))
-  (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(ali_decl target: (type_expr (generic_type_expr base: (identifier) @type.builtin))
-  (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(typed_binding type: (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(param type: (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(return_type (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(error_type (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(ali_decl target: (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(typed_binding type: (type_expr (generic_type_expr base: (identifier) @type))
+(type_expr (identifier) @type
   (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(param type: (type_expr (generic_type_expr base: (identifier) @type))
-  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(return_type (type_expr (generic_type_expr base: (identifier) @type))
-  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(error_type (type_expr (generic_type_expr base: (identifier) @type))
-  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(ali_decl target: (type_expr (generic_type_expr base: (identifier) @type))
-  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(typed_binding type: (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(param type: (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(return_type (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(error_type (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(ali_decl target: (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(typed_binding type: (type_expr (generic_type_expr base: (qualified_path) @type)))
-(param type: (type_expr (generic_type_expr base: (qualified_path) @type)))
-(return_type (type_expr (generic_type_expr base: (qualified_path) @type)))
-(error_type (type_expr (generic_type_expr base: (qualified_path) @type)))
-(ali_decl target: (type_expr (generic_type_expr base: (qualified_path) @type)))
-(typed_binding type: (type_expr (qualified_path) @type))
-(param type: (type_expr (qualified_path) @type))
-(return_type (type_expr (qualified_path) @type))
-(error_type (type_expr (qualified_path) @type))
-(ali_decl target: (type_expr (qualified_path) @type))
+(type_expr (qualified_path) @type)
 (error_type "/" @operator)
 (param name: (identifier) @variable.parameter)
 (record_field (typed_binding name: (identifier) @property))
@@ -188,6 +159,7 @@ __FOL_SHELL_TYPE_LINES__
 (nil_literal) @constant.builtin
 (boolean_literal) @boolean
 (string_literal) @string
+(raw_string_literal) @string
 (integer_literal) @number
 (plain_fun_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))
 (plain_pro_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))

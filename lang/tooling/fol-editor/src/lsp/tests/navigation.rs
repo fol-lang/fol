@@ -1,9 +1,9 @@
 use super::super::{
     EditorLspServer, JsonRpcId, JsonRpcRequest, LspCodeAction, LspCodeActionContext,
     LspCodeActionParams, LspDefinitionParams, LspDocumentSymbolParams, LspHover, LspHoverParams,
-    LspLocation, LspPosition, LspRange, LspReferenceContext, LspReferenceParams, LspRenameParams,
-    LspSignatureHelp, LspSignatureHelpParams, LspTextDocumentIdentifier, LspWorkspaceSymbol,
-    LspWorkspaceSymbolParams,
+    LspLocation, LspPosition, LspPrepareRenameResult, LspRange, LspReferenceContext,
+    LspReferenceParams, LspRenameParams, LspSignatureHelp, LspSignatureHelpParams,
+    LspTextDocumentIdentifier, LspWorkspaceSymbol, LspWorkspaceSymbolParams,
 };
 use super::helpers::{open_document, sample_loc_workspace_root, sample_package_root};
 use crate::EditorConfig;
@@ -173,6 +173,104 @@ fn lsp_server_resolves_imported_symbol_definitions_and_namespace_symbols() {
         .unwrap();
     let _symbols: Vec<crate::LspDocumentSymbol> =
         serde_json::from_value(symbols.result.unwrap()).unwrap();
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_navigation_and_rename_use_utf16_after_astral_text() {
+    let (root, uri) = sample_package_root("utf16_navigation");
+    let text = concat!(
+        "fun[] helper(): int = {\n",
+        "    return 7;\n",
+        "};\n\n",
+        "fun[] main(): int = {\n",
+        "    var icon: str = \"😀\"; return helper();\n",
+        "};\n",
+    );
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let use_line = text.lines().nth(5).unwrap();
+    let helper_byte = use_line.rfind("helper").unwrap();
+    let scalar_start = use_line[..helper_byte].chars().count() as u32;
+    let utf16_start = use_line[..helper_byte].encode_utf16().count() as u32;
+    assert_eq!(utf16_start, scalar_start + 1);
+
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), text);
+    assert!(diagnostics[0].diagnostics.is_empty());
+
+    let definition = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(6001),
+            method: "textDocument/definition".to_string(),
+            params: Some(
+                serde_json::to_value(LspDefinitionParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: LspPosition {
+                        line: 5,
+                        character: utf16_start + 1,
+                    },
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let definition: Option<LspLocation> =
+        serde_json::from_value(definition.result.unwrap()).unwrap();
+    assert!(definition.is_some(), "UTF-16 cursor should resolve helper");
+
+    let references = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(6002),
+            method: "textDocument/references".to_string(),
+            params: Some(
+                serde_json::to_value(LspReferenceParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: LspPosition {
+                        line: 5,
+                        character: utf16_start + 1,
+                    },
+                    context: LspReferenceContext {
+                        include_declaration: false,
+                    },
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let references: Vec<LspLocation> = serde_json::from_value(references.result.unwrap()).unwrap();
+    assert!(references.iter().any(|location| {
+        location.range.start.line == 5 && location.range.start.character == utf16_start
+    }));
+
+    let rename = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(6003),
+            method: "textDocument/rename".to_string(),
+            params: Some(
+                serde_json::to_value(LspRenameParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: LspPosition {
+                        line: 5,
+                        character: utf16_start + 1,
+                    },
+                    new_name: "renamed".to_string(),
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let rename: crate::LspWorkspaceEdit = serde_json::from_value(rename.result.unwrap()).unwrap();
+    let edits = rename.changes.get(&uri).expect("same-file rename edits");
+    assert!(edits
+        .iter()
+        .any(|edit| { edit.range.start.line == 5 && edit.range.start.character == utf16_start }));
 
     fs::remove_dir_all(root).ok();
 }
@@ -459,7 +557,7 @@ fn lsp_server_maps_current_v1_diagnostic_classes_stably() {
             "diag_core_std_import",
             Some("src/main.fol"),
             "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
-            "requires an explicit package store root",
+            "bundled std imports require 'fol_model = memo'; current artifact model is 'core'",
         ),
         (
             "diag_core_heap_boundary",
@@ -523,6 +621,38 @@ fn lsp_server_maps_current_v1_diagnostic_classes_stably() {
         );
         fs::remove_dir_all(root).ok();
     }
+}
+
+#[test]
+fn lsp_diagnostic_ranges_use_utf16_after_astral_text() {
+    let (root, uri) = sample_package_root("utf16_diagnostics");
+    let text = concat!(
+        "fun[] main(): int = {\n",
+        "    var icon: str = \"😀\"; return missing;\n",
+        "};\n",
+    );
+    fs::write(root.join("src/main.fol"), text).unwrap();
+    let line = text.lines().nth(1).unwrap();
+    let missing_byte = line.find("missing").unwrap();
+    let scalar_start = line[..missing_byte].chars().count() as u32;
+    let utf16_start = line[..missing_byte].encode_utf16().count() as u32;
+    assert_eq!(utf16_start, scalar_start + 1);
+
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri, text);
+    let unresolved = diagnostics[0]
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == "R1003")
+        .expect("missing should produce an unresolved-name diagnostic");
+    assert_eq!(unresolved.range.start.line, 1);
+    assert_eq!(unresolved.range.start.character, utf16_start);
+    assert_eq!(
+        unresolved.range.end.character,
+        utf16_start + "missing".encode_utf16().count() as u32
+    );
+
+    fs::remove_dir_all(root).ok();
 }
 
 #[test]
@@ -1227,14 +1357,14 @@ fn lsp_server_keeps_missing_std_dependency_without_quick_fix_for_now() {
 #[test]
 fn lsp_server_returns_same_package_namespaced_references() {
     let (root, uri) = sample_package_root("same_package_namespaced_references");
-    fs::create_dir_all(root.join("api")).unwrap();
+    fs::create_dir_all(root.join("src/api")).unwrap();
     fs::write(
         root.join("src/main.fol"),
         "fun[] main(): int = {\n    return api::helper();\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("api/lib.fol"),
+        root.join("src/api/lib.fol"),
         "fun[exp] helper(): int = {\n    return 7;\n};\n",
     )
     .unwrap();
@@ -1270,7 +1400,7 @@ fn lsp_server_returns_same_package_namespaced_references() {
     assert_eq!(references.len(), 2);
     assert!(references
         .iter()
-        .any(|location| location.uri.ends_with("api/lib.fol")));
+        .any(|location| location.uri.ends_with("src/api/lib.fol")));
     assert!(references
         .iter()
         .any(|location| location.uri.ends_with("src/main.fol")));
@@ -1637,7 +1767,7 @@ fn lsp_server_renames_same_file_top_level_routines() {
     let mut server = EditorLspServer::new(EditorConfig::default());
     open_document(&mut server, uri.clone(), &text);
 
-    let error = server
+    let rename = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: JsonRpcId::Number(93),
@@ -1646,7 +1776,7 @@ fn lsp_server_renames_same_file_top_level_routines() {
                 serde_json::to_value(LspRenameParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
                     position: LspPosition {
-                        line: 4,
+                        line: 5,
                         character: 13,
                     },
                     new_name: "assist".to_string(),
@@ -1654,8 +1784,14 @@ fn lsp_server_renames_same_file_top_level_routines() {
                 .unwrap(),
             ),
         })
-        .expect_err("top-level rename should stay outside the current safe boundary");
-    assert_eq!(error.kind, crate::EditorErrorKind::InvalidInput);
+        .unwrap()
+        .unwrap();
+    let edit: crate::LspWorkspaceEdit = serde_json::from_value(rename.result.unwrap()).unwrap();
+    let edits = edit.changes.get(&uri).expect("edits for current document");
+    assert_eq!(edits.len(), 2);
+    assert!(edits.iter().all(|edit| edit.new_text == "assist"));
+    assert!(edits.iter().any(|edit| edit.range.start.line == 0));
+    assert!(edits.iter().any(|edit| edit.range.start.line == 5));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1668,6 +1804,30 @@ fn lsp_server_refuses_build_entry_rename_outside_the_safe_boundary() {
     let text = fs::read_to_string(&build_path).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     open_document(&mut server, build_uri.clone(), &text);
+
+    let prepare = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(943),
+            method: "textDocument/prepareRename".to_string(),
+            params: Some(
+                serde_json::to_value(LspDefinitionParams {
+                    text_document: LspTextDocumentIdentifier {
+                        uri: build_uri.clone(),
+                    },
+                    position: LspPosition {
+                        line: 0,
+                        character: 7,
+                    },
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let prepare: Option<LspPrepareRenameResult> =
+        serde_json::from_value(prepare.result.unwrap()).unwrap();
+    assert!(prepare.is_none());
 
     let error = server
         .handle_request(JsonRpcRequest {
@@ -1695,7 +1855,7 @@ fn lsp_server_refuses_build_entry_rename_outside_the_safe_boundary() {
 }
 
 #[test]
-fn lsp_server_renames_same_package_namespaced_symbols_with_multi_file_edits() {
+fn lsp_server_refuses_same_package_namespaced_rename_outside_safe_boundary() {
     let (root, uri) = sample_package_root("rename_same_package_namespace_boundary");
     fs::create_dir_all(root.join("src/api")).unwrap();
     fs::write(
@@ -1774,17 +1934,9 @@ fn lsp_server_refuses_imported_symbol_rename_outside_the_safe_boundary() {
         .expect_err("imported rename should stay outside the first safe boundary");
 
     assert_eq!(error.kind, crate::EditorErrorKind::InvalidInput);
-    // A symbol imported from another package is declared outside the current
-    // package and its qualified call site does not resolve to a renameable
-    // reference in the current document, so rename refuses it before it can
-    // reach the multi-package boundary check. Either refusal keeps imported
-    // symbols outside the safe rename boundary.
-    assert!(
-        error.message.contains("no rename target")
-            || error
-                .message
-                .contains("rename currently refuses multi-package symbols"),
-        "imported symbol rename should stay outside the safe boundary: {error:?}"
+    assert_eq!(
+        error.message, "rename currently supports same-file symbols only",
+        "imported symbol rename should stay outside the safe boundary"
     );
 
     fs::remove_dir_all(root).ok();

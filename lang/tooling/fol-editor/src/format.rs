@@ -1,3 +1,4 @@
+use crate::source_scan::{mask_comments, scan_source, BraceEvent, BraceKind};
 use crate::{EditorError, EditorErrorKind, EditorResult, LspPosition, LspRange};
 
 const INDENT_WIDTH: usize = 4;
@@ -8,40 +9,81 @@ pub fn format_document(text: &str) -> String {
     }
 
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let source_scan = scan_source(&normalized);
     let mut depth = 0usize;
     let mut lines: Vec<String> = Vec::new();
 
-    for raw_line in normalized.split('\n') {
+    for (line_index, raw_line) in normalized.split('\n').enumerate() {
+        let protection = source_scan.lines[line_index];
         let trimmed = raw_line.trim();
         if trimmed.is_empty() {
+            if protection.starts_protected || protection.ends_protected {
+                lines.push(raw_line.to_string());
+                continue;
+            }
             if matches!(lines.last(), Some(previous) if !previous.is_empty()) {
                 lines.push(String::new());
             }
             continue;
         }
 
-        let indent_depth = depth.saturating_sub(leading_closing_brace_count(trimmed));
-        let indent = " ".repeat(indent_depth * INDENT_WIDTH);
-        lines.push(format!("{indent}{trimmed}"));
-        depth = update_brace_depth(trimmed, depth);
+        let line_events = source_scan
+            .braces
+            .iter()
+            .filter(|event| event.position.line == line_index as u32)
+            .copied()
+            .collect::<Vec<_>>();
+        let indent_depth =
+            depth.saturating_sub(leading_closing_brace_count(raw_line, &line_events));
+        if protection.starts_protected {
+            lines.push(raw_line.to_string());
+        } else {
+            let indent = " ".repeat(indent_depth * INDENT_WIDTH);
+            let content = if protection.ends_protected {
+                raw_line.trim_start()
+            } else {
+                trimmed
+            };
+            lines.push(format!("{indent}{content}"));
+        }
+        depth = update_brace_depth(&line_events, depth);
     }
 
-    while matches!(lines.last(), Some(line) if line.is_empty()) {
-        lines.pop();
+    let ends_in_protected_content = source_scan.terminal_unclosed;
+    if !ends_in_protected_content {
+        while matches!(lines.last(), Some(line) if line.is_empty()) {
+            lines.pop();
+        }
     }
 
     if lines.is_empty() {
         String::new()
-    } else if depth > 0 {
-        // The document is brace-unbalanced (for example mid-edit); keep the
-        // truncated tail as-is instead of appending a declaration terminator.
-        format!("{}\n", lines.join("\n"))
+    } else if depth > 0 || ends_in_protected_content {
+        // The document is structurally incomplete (for example mid-edit);
+        // keep the truncated tail instead of appending a terminator inside it.
+        let joined = lines.join("\n");
+        if joined.ends_with('\n') {
+            joined
+        } else {
+            format!("{joined}\n")
+        }
     } else {
         let mut joined = lines.join("\n");
-        if joined.ends_with(';') {
-            joined.pop();
+        let comment_masked = mask_comments(&joined);
+        if let Some((index, last_code)) = comment_masked
+            .char_indices()
+            .rev()
+            .find(|(_, ch)| !ch.is_whitespace())
+        {
+            if last_code != ';' {
+                joined.insert(index + last_code.len_utf8(), ';');
+            }
         }
-        format!("{};\n", joined)
+        if joined.ends_with('\n') {
+            joined
+        } else {
+            format!("{joined}\n")
+        }
     }
 }
 
@@ -115,49 +157,29 @@ impl FormatResult {
     }
 }
 
-fn leading_closing_brace_count(line: &str) -> usize {
-    let mut count = 0usize;
-    for ch in line.chars() {
-        if ch == '}' {
-            count += 1;
-        } else {
-            break;
-        }
-    }
-    count
+fn leading_closing_brace_count(line: &str, events: &[BraceEvent]) -> usize {
+    let first_non_whitespace = line.chars().position(|ch| !ch.is_whitespace()).unwrap_or(0) as u32;
+    let mut expected_character = first_non_whitespace;
+    events
+        .iter()
+        .take_while(|event| {
+            if event.kind == BraceKind::Close && event.position.character == expected_character {
+                expected_character += 1;
+                true
+            } else {
+                false
+            }
+        })
+        .count()
 }
 
-fn update_brace_depth(line: &str, initial_depth: usize) -> usize {
-    let mut depth = initial_depth;
-    let mut single_quoted = false;
-    let mut double_quoted = false;
-    let mut escaped = false;
-
-    for ch in line.chars() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' if single_quoted || double_quoted => {
-                escaped = true;
-            }
-            '"' if !single_quoted => {
-                double_quoted = !double_quoted;
-            }
-            '\'' if !double_quoted => {
-                single_quoted = !single_quoted;
-            }
-            '{' if !single_quoted && !double_quoted => {
-                depth += 1;
-            }
-            '}' if !single_quoted && !double_quoted => {
-                depth = depth.saturating_sub(1);
-            }
-            _ => {}
-        }
-    }
-    depth
+fn update_brace_depth(events: &[BraceEvent], initial_depth: usize) -> usize {
+    events
+        .iter()
+        .fold(initial_depth, |depth, event| match event.kind {
+            BraceKind::Open => depth + 1,
+            BraceKind::Close => depth.saturating_sub(1),
+        })
 }
 
 fn whole_document_range(text: &str) -> LspRange {
@@ -168,7 +190,7 @@ fn whole_document_range(text: &str) -> LspRange {
             line += 1;
             character = 0;
         } else {
-            character += 1;
+            character += ch.len_utf16() as u32;
         }
     }
     LspRange {
@@ -196,6 +218,13 @@ mod tests {
         let expected = fixture("record.formatted.fol");
 
         assert_eq!(format_document(&source), expected);
+    }
+
+    #[test]
+    fn formatting_edits_end_at_utf16_document_positions() {
+        let edit = formatting_edit("😀").expect("unterminated source should be formatted");
+        assert_eq!(edit.range.end.line, 0);
+        assert_eq!(edit.range.end.character, 2);
     }
 
     #[test]
@@ -247,6 +276,125 @@ mod tests {
     }
 
     #[test]
+    fn formatter_preserves_v3_memory_and_processor_surfaces() {
+        let source = "fun[] coordinate(counter[mux]: Counter): int / int = {\n\
+        @var owner: Node = { value = 1 };\n\
+        var[bor] view: Node = #owner;\n\
+        var pointer: ptr[shared, Node] = &view;\n\
+        dfr {\n\
+        !view;\n\
+        };\n\
+        edf {\n\
+        var ignored: int = 0;\n\
+        };\n\
+        var channel: chn[int];\n\
+        [>]worker(channel[tx]);\n\
+        var pending = work(1) | async;\n\
+        return pending | await;\n\
+        };\n";
+        let expected = concat!(
+            "fun[] coordinate(counter[mux]: Counter): int / int = {\n",
+            "    @var owner: Node = { value = 1 };\n",
+            "    var[bor] view: Node = #owner;\n",
+            "    var pointer: ptr[shared, Node] = &view;\n",
+            "    dfr {\n",
+            "        !view;\n",
+            "    };\n",
+            "    edf {\n",
+            "        var ignored: int = 0;\n",
+            "    };\n",
+            "    var channel: chn[int];\n",
+            "    [>]worker(channel[tx]);\n",
+            "    var pending = work(1) | async;\n",
+            "    return pending | await;\n",
+            "};\n",
+        );
+
+        assert_eq!(format_document(source), expected);
+        assert_eq!(format_document(expected), expected);
+    }
+
+    #[test]
+    fn formatter_ignores_braces_inside_comments_and_multiline_quotes() {
+        let source = concat!(
+            "fun[] main(): int = {\n",
+            "` comment {\n",
+            "  } still comment `\n",
+            "/* compatibility {\n",
+            "   } comment */\n",
+            "// { } line comment\n",
+            "var cooked = \"text {\n",
+            " one } text\";\n",
+            "var raw = 'text {\n",
+            "  two } text';\n",
+            "return 0;\n",
+            "};\n",
+        );
+        let expected = concat!(
+            "fun[] main(): int = {\n",
+            "    ` comment {\n",
+            "  } still comment `\n",
+            "    /* compatibility {\n",
+            "   } comment */\n",
+            "    // { } line comment\n",
+            "    var cooked = \"text {\n",
+            " one } text\";\n",
+            "    var raw = 'text {\n",
+            "  two } text';\n",
+            "    return 0;\n",
+            "};\n",
+        );
+
+        assert_eq!(format_document(source), expected);
+        assert_eq!(format_document(expected), expected);
+    }
+
+    #[test]
+    fn formatter_preserves_unclosed_multiline_payload_tail() {
+        let source = "fun[] main(): int = {\nvar text = \"one {\n\n";
+        let expected = "fun[] main(): int = {\n    var text = \"one {\n\n";
+
+        assert_eq!(format_document(source), expected);
+        assert!(!format_document(source).ends_with(";\n"));
+    }
+
+    #[test]
+    fn formatter_terminates_a_closed_multiline_quote_on_the_final_line() {
+        let source = "var text: str = \"first\nsecond\"";
+        let expected = "var text: str = \"first\nsecond\";\n";
+
+        assert_eq!(format_document(source), expected);
+        assert_eq!(format_document(expected), expected);
+    }
+
+    #[test]
+    fn formatter_places_the_final_terminator_before_trailing_comments() {
+        let cases = [
+            (
+                "var value: int = 1 // keep me",
+                "var value: int = 1; // keep me\n",
+            ),
+            (
+                "var value: int = 1 /* keep me */",
+                "var value: int = 1; /* keep me */\n",
+            ),
+            (
+                "var value: int = 1 ` keep me `",
+                "var value: int = 1; ` keep me `\n",
+            ),
+            (
+                "var value: int = 1; // keep me",
+                "var value: int = 1; // keep me\n",
+            ),
+        ];
+
+        for (source, expected) in cases {
+            assert_eq!(format_document(source), expected, "{source:?}");
+            assert_eq!(format_document(expected), expected, "{source:?}");
+        }
+    }
+
+    #[test]
     fn formatter_is_idempotent_on_formatted_output() {
         let fixtures = [
             "record.formatted.fol",
@@ -279,7 +427,10 @@ mod tests {
     fn formatter_normalizes_crlf_trailing_space_and_final_newline() {
         let source = "fun[] main(): int = {\r\n    return 7;   \r\n};";
 
-        assert_eq!(format_document(source), "fun[] main(): int = {\n    return 7;\n};\n");
+        assert_eq!(
+            format_document(source),
+            "fun[] main(): int = {\n    return 7;\n};\n"
+        );
     }
 
     #[test]

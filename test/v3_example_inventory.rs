@@ -2,7 +2,46 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 pub(crate) type V3PositiveExample = (&'static str, Option<&'static str>);
-pub(crate) type V3FailureExample = (&'static str, &'static str, bool);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct V3FailureExample {
+    pub(crate) path: &'static str,
+    /// Code surfaced by package/frontend checking.
+    pub(crate) code: &'static str,
+    /// Code surfaced by direct compiler-backed editor analysis.
+    pub(crate) lsp_code: &'static str,
+    /// Stable diagnostic substring. Some compiler messages add source-specific detail.
+    pub(crate) message_contains: &'static str,
+    pub(crate) needs_std: bool,
+    pub(crate) expect_related_site: bool,
+}
+
+macro_rules! v3_failure {
+    ($path:literal, $code:literal, $message:literal, $needs_std:literal, $related:literal) => {
+        V3FailureExample {
+            path: $path,
+            code: $code,
+            lsp_code: $code,
+            message_contains: $message,
+            needs_std: $needs_std,
+            expect_related_site: $related,
+        }
+    };
+}
+
+macro_rules! v3_failure_codes {
+    ($path:literal, $code:literal, $lsp_code:literal, $message:literal, $needs_std:literal, $related:literal) => {
+        V3FailureExample {
+            path: $path,
+            code: $code,
+            lsp_code: $lsp_code,
+            message_contains: $message,
+            needs_std: $needs_std,
+            expect_related_site: $related,
+        }
+    };
+}
+
 pub(crate) type V3NavigationProbe = (&'static str, &'static str, usize, Option<u32>);
 
 pub(crate) const V3_MEM_M1_POSITIVES: &[V3PositiveExample] = &[
@@ -43,10 +82,7 @@ pub(crate) const V3_PROC_M2_POSITIVES: &[V3PositiveExample] = &[
 pub(crate) const V3_PROC_M3_POSITIVES: &[V3PositiveExample] = &[
     ("examples/proc_select_m3", Some("42\n")),
     ("examples/proc_mutex_m3", Some("1\n2\n")),
-    (
-        "examples/proc_mutex_explicit_unlock_m3",
-        Some("42\n"),
-    ),
+    ("examples/proc_mutex_explicit_unlock_m3", Some("42\n")),
 ];
 
 pub(crate) const V3_PROC_M4_POSITIVES: &[V3PositiveExample] = &[
@@ -55,207 +91,305 @@ pub(crate) const V3_PROC_M4_POSITIVES: &[V3PositiveExample] = &[
 ];
 
 pub(crate) const V3_MEM_M1_FAILURES: &[V3FailureExample] = &[
-    ("examples/fail_mem_use_after_move_m1", "O1001", false),
-    (
+    v3_failure!(
+        "examples/fail_mem_use_after_move_m1",
+        "O1001",
+        "use of moved heap-owned binding 'owner'",
+        false,
+        true
+    ),
+    v3_failure!(
         "examples/fail_mem_discarded_move_m1",
+        "O1001",
         "use of moved heap-owned binding 'pointer'",
         false,
+        true
     ),
-    (
+    v3_failure!(
         "examples/fail_mem_deferred_reinit_m1",
+        "O1001",
         "moved binding 'pointer' cannot be reinitialized inside dfr/edf",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_mem_recursive_value_m1",
+        "T1002",
         "guard the recursive edge with owned heap indirection",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_mem_heap_in_core_m1",
+        "T1002",
         "heap allocation binding requires heap support",
         false,
+        false
     ),
 ];
 
 pub(crate) const V3_MEM_M2_FAILURES: &[V3FailureExample] = &[
-    ("examples/fail_mem_owner_while_borrowed_m2", "O2001", false),
-    ("examples/fail_mem_second_mut_borrow_m2", "O2002", false),
-    (
+    v3_failure!(
+        "examples/fail_mem_owner_while_borrowed_m2",
+        "O2001",
+        "owner 'owner' is inaccessible while borrowed",
+        false,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_mem_second_mut_borrow_m2",
+        "O2002",
+        "borrow conflicts with an active mutable borrow of the same owner",
+        false,
+        true
+    ),
+    v3_failure!(
         "examples/fail_mem_mut_borrow_immutable_owner_m2",
         "O2003",
+        "mutable borrow requires an owner declared with 'var[mut]'",
         false,
+        false
     ),
-    ("examples/fail_mem_borrow_reuse_m2", "O2004", false),
+    v3_failure!(
+        "examples/fail_mem_borrow_reuse_m2",
+        "O2004",
+        "borrow binding 'view' was already returned",
+        false,
+        true
+    ),
 ];
 
 pub(crate) const V3_MEM_M3_FAILURES: &[V3FailureExample] = &[
-    (
+    v3_failure!(
         "examples/fail_mem_ptr_raw_m3",
+        "T1002",
         "V4 interop surface",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_mem_ptr_in_core_m3",
+        "T1002",
         "pointer construction requires heap support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_mem_pointer_field_deref_m3",
+        "O1001",
         "dereferencing through a move-only field projection",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_mem_shared_ptr_write_m3",
+        "T1001",
         "cannot write through ptr[shared, T]; shared pointers are read-only",
         false,
+        false
     ),
 ];
 
 pub(crate) const V3_PROC_M1_FAILURES: &[V3FailureExample] = &[
-    (
+    v3_failure!(
         "examples/fail_proc_spawn_in_core_m1",
+        "T1002",
         "spawn requires hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_spawn_in_memo_m1",
+        "T1002",
         "spawn requires hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_spawn_rc_cross_m1",
+        "O1001",
         "shared Rc pointers cannot cross a spawn",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_spawn_recoverable_m1",
+        "T1002",
         "spawning a recoverable routine without await discards its error",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_spawn_heap_use_after_move_m1",
+        "O1001",
         "use of moved heap-owned binding 'owned'",
         true,
+        true
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_spawn_indirect_m1",
+        "T1002",
         "spawn requires a direct call to a named routine declaration in V3",
         true,
+        false
     ),
 ];
 
 pub(crate) const V3_PROC_M2_FAILURES: &[V3FailureExample] = &[
-    (
+    v3_failure!(
         "examples/fail_proc_channel_index_m2",
+        "T1002",
         "channel receivers are blocking pull expressions and cannot be indexed",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_channel_in_core_m2",
+        "T1002",
         "channel types require hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_channel_in_memo_m2",
+        "T1002",
         "channel types require hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_channel_capture_rx_m2",
+        "T1002",
         "captured endpoint 'channel[tx]' is sender-only",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_channel_spawn_consumer_m2",
+        "T1002",
         "routine 'consume' receives from a channel and cannot be spawned directly",
         true,
+        false
     ),
 ];
 
 pub(crate) const V3_PROC_M3_FAILURES: &[V3FailureExample] = &[
-    (
+    v3_failure_codes!(
         "examples/fail_proc_select_old_form_m3",
+        "K1001",
+        "P1001",
         "old select(channel as binding) form is not supported",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_select_in_core_m3",
+        "T1002",
         "select requires hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_select_in_memo_m3",
+        "T1002",
         "select requires hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure_codes!(
         "examples/fail_proc_mutex_double_paren_m3",
+        "K1001",
+        "P1001",
         "Expected generic parameter name",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_mutex_in_core_m3",
+        "T1002",
         "mutex parameters require hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_mutex_in_memo_m3",
+        "T1002",
         "mutex parameters require hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_mutex_deferred_m3",
+        "T1002",
         "mutex field access through 'counter' is not allowed inside dfr/edf",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_mutex_deferred_lock_m3",
+        "T1002",
         "mutex .lock() is not allowed inside dfr/edf",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_mutex_deferred_unlock_m3",
+        "T1002",
         "mutex .unlock() is not allowed inside dfr/edf",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_mutex_deferred_forward_m3",
+        "T1002",
         "mutex handles cannot be forwarded to [mux] parameter",
         true,
+        false
     ),
 ];
 
 pub(crate) const V3_PROC_M4_FAILURES: &[V3FailureExample] = &[
-    (
+    v3_failure!(
         "examples/fail_proc_evt_named_m4",
+        "T1002",
         "eventual types are internal in V3 and cannot be named",
         true,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_async_in_core_m4",
+        "T1002",
         "async pipe stages require hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_async_in_memo_m4",
+        "T1002",
         "async pipe stages require hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_await_in_core_m4",
+        "T1002",
         "await pipe stages require hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_await_in_memo_m4",
+        "T1002",
         "await pipe stages require hosted std support",
         false,
+        false
     ),
-    (
+    v3_failure!(
         "examples/fail_proc_async_indirect_m4",
+        "T1002",
         "async requires a direct call to a named routine declaration in V3",
         true,
+        false
     ),
 ];
 
@@ -307,12 +441,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/proc_channel_loop_m2", "channel", 2, None),
     ("examples/proc_select_m3", "first", 2, None),
     ("examples/proc_mutex_m3", "worker", 2, None),
-    (
-        "examples/proc_mutex_explicit_unlock_m3",
-        "update",
-        2,
-        None,
-    ),
+    ("examples/proc_mutex_explicit_unlock_m3", "update", 2, None),
     ("examples/proc_async_await_m4", "work", 2, None),
     ("examples/proc_await_error_m4", "probe", 2, None),
 ];
@@ -327,7 +456,7 @@ pub(crate) fn positive_example_paths() -> Vec<&'static str> {
 pub(crate) fn failure_example_paths() -> Vec<&'static str> {
     V3_FAILURE_GROUPS
         .iter()
-        .flat_map(|group| group.iter().map(|(path, _, _)| *path))
+        .flat_map(|group| group.iter().map(|failure| failure.path))
         .collect()
 }
 

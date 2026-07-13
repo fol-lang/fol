@@ -91,7 +91,7 @@ module.exports = grammar({
       $.standard_block,
     ),
 
-    source_kind: _ => choice('loc', 'std', 'pkg'),
+    source_kind: _ => choice('loc', 'pkg'),
     decl_modifiers: $ => seq('[', optional($.modifier_list), ']'),
     modifier_list: $ => seq($.identifier, repeat(seq(choice(',', ';'), $.identifier)), optional(choice(',', ';'))),
     typed_binding: $ => seq(field('name', $.identifier), optional(seq(':', field('type', $.type_expr)))),
@@ -315,6 +315,7 @@ module.exports = grammar({
       $.record_literal,
       $.container_literal,
       $.string_literal,
+      $.raw_string_literal,
       $.char_literal,
       $.integer_literal,
       $.boolean_literal,
@@ -391,12 +392,24 @@ module.exports = grammar({
     do_expr: _ => 'do',
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
     integer_literal: _ => /[0-9]+/,
-    char_literal: _ => /'(\\.|[^'\\])'/,
+    // Single quotes are the compiler's raw-quoted family: one Unicode scalar
+    // lowers as a character, while empty/two-or-more scalars lower as a raw
+    // string. Backslashes have no escape meaning in this family.
+    char_literal: _ => /'[^']'/,
+    raw_string_literal: _ => token(choice(/''/, /'[^'][^']+'/)),
     string_literal: _ => /"([^"\\]|\\.)*"/,
     boolean_literal: _ => choice('true', 'false'),
     nil_literal: _ => 'nil',
-    comment: _ => token(choice(/`[^`\n]*`/, /\/\/[^\n]*/)),
-    doc_comment: _ => token(/`\[[^`\n]*\][^`\n]*`/),
+    // These lexical boundaries intentionally mirror fol-lexer's non-nested
+    // comment forms. Negated classes include newlines, so backtick and slash
+    // block comments may span lines. A higher lexical precedence keeps the
+    // exact `[doc]` prefix distinct from an ordinary backtick comment.
+    comment: _ => token(choice(
+      /`[^`]*`/,
+      /\/\/[^\n]*/,
+      /\/\*[^*]*\*+([^/*][^*]*\*+)*\//,
+    )),
+    doc_comment: _ => token(prec(1, /`\[doc\][^`]*`/)),
   }
 });
 

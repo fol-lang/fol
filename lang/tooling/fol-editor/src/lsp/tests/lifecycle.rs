@@ -1,21 +1,21 @@
-use super::helpers::{copied_example_package_root, open_document, sample_package_root, temp_root};
 use super::super::{
     analysis::{
         analysis_stage_counts, analyze_document_diagnostics_call_count,
         analyze_document_semantics_call_count, reset_analysis_stage_counts,
-        reset_analyze_document_diagnostics_call_count,
-        reset_analyze_document_semantics_call_count,
+        reset_analyze_document_diagnostics_call_count, reset_analyze_document_semantics_call_count,
     },
-    completion_helpers::completion_context, completion_helpers::CompletionContext,
+    completion_helpers::completion_context,
+    completion_helpers::CompletionContext,
     EditorLspServer, JsonRpcId, JsonRpcNotification, JsonRpcRequest, LspCodeActionContext,
     LspCodeActionParams, LspCompletionList, LspCompletionParams, LspDefinitionParams,
-    LspDidChangeTextDocumentParams, LspDidCloseTextDocumentParams,
-    LspDocumentFormattingParams, LspDocumentSymbolParams, LspHover, LspHoverParams,
-    LspInitializeResult, LspLocation, LspPosition, LspRenameParams, LspSignatureHelp, LspSignatureHelpParams,
-    LspTextEdit, LspWorkspaceSymbol, LspWorkspaceSymbolParams,
-    LspTextDocumentContentChangeEvent, LspTextDocumentIdentifier, LspRange,
-    LspVersionedTextDocumentIdentifier, LspWorkspaceEdit,
+    LspDidChangeTextDocumentParams, LspDidCloseTextDocumentParams, LspDocumentFormattingParams,
+    LspDocumentSymbolParams, LspHover, LspHoverParams, LspInitializeResult, LspLocation,
+    LspPosition, LspRange, LspRenameParams, LspSignatureHelp, LspSignatureHelpParams,
+    LspTextDocumentContentChangeEvent, LspTextDocumentIdentifier, LspTextEdit,
+    LspVersionedTextDocumentIdentifier, LspWorkspaceEdit, LspWorkspaceSymbol,
+    LspWorkspaceSymbolParams,
 };
+use super::helpers::{copied_example_package_root, open_document, sample_package_root, temp_root};
 use crate::{EditorConfig, EditorDocument, EditorDocumentUri};
 use std::fs;
 use std::path::PathBuf;
@@ -33,12 +33,12 @@ fn lsp_server_handles_initialize_shutdown_and_exit() {
         })
         .unwrap()
         .unwrap();
-    let result: LspInitializeResult =
-        serde_json::from_value(initialize.result.unwrap()).unwrap();
+    let result: LspInitializeResult = serde_json::from_value(initialize.result.unwrap()).unwrap();
     assert!(result.capabilities.text_document_sync.open_close);
     assert_eq!(result.capabilities.text_document_sync.change, 2);
     assert!(result.capabilities.hover_provider);
     assert!(result.capabilities.definition_provider);
+    assert_eq!(result.capabilities.position_encoding, "utf-16");
     assert!(result.capabilities.document_symbol_provider);
     assert_eq!(result.capabilities.workspace_symbol_provider, Some(true));
     assert_eq!(result.capabilities.formatting_provider, Some(true));
@@ -67,7 +67,6 @@ fn lsp_server_handles_initialize_shutdown_and_exit() {
     assert_eq!(result.capabilities.folding_range_provider, Some(true));
     assert_eq!(result.capabilities.selection_range_provider, Some(true));
     assert_eq!(result.capabilities.inlay_hint_provider, Some(true));
-    assert!(result.capabilities.code_lens_provider.is_some());
     let semantic_tokens_provider = result
         .capabilities
         .semantic_tokens_provider
@@ -127,8 +126,7 @@ fn lsp_server_can_advertise_full_document_sync_when_config_requests_it() {
         })
         .unwrap()
         .unwrap();
-    let result: LspInitializeResult =
-        serde_json::from_value(initialize.result.unwrap()).unwrap();
+    let result: LspInitializeResult = serde_json::from_value(initialize.result.unwrap()).unwrap();
 
     assert_eq!(result.capabilities.text_document_sync.change, 1);
 }
@@ -146,9 +144,14 @@ fn lsp_server_initialize_surface_stays_aligned_with_shipped_capabilities() {
         })
         .unwrap()
         .unwrap();
-    let rendered = serde_json::to_string(&initialize.result.expect("initialize should return capabilities"))
-        .expect("initialize result should serialize");
+    let rendered = serde_json::to_string(
+        &initialize
+            .result
+            .expect("initialize should return capabilities"),
+    )
+    .expect("initialize result should serialize");
 
+    assert!(rendered.contains("\"positionEncoding\":\"utf-16\""));
     assert!(rendered.contains("\"hoverProvider\":true"));
     assert!(rendered.contains("\"definitionProvider\":true"));
     assert!(rendered.contains("\"documentSymbolProvider\":true"));
@@ -167,7 +170,7 @@ fn lsp_server_initialize_surface_stays_aligned_with_shipped_capabilities() {
     assert!(rendered.contains("\"foldingRangeProvider\":true"));
     assert!(rendered.contains("\"selectionRangeProvider\":true"));
     assert!(rendered.contains("\"inlayHintProvider\":true"));
-    assert!(rendered.contains("\"codeLensProvider\""));
+    assert!(!rendered.contains("\"codeLensProvider\""));
     assert!(rendered.contains("\"resolveProvider\":true"));
     assert!(!rendered.contains("\"rangeFormattingProvider\":true"));
     assert!(!rendered.contains("\"executeCommandProvider\""));
@@ -189,7 +192,9 @@ fn lsp_server_rejects_unimplemented_v1_methods_explicitly() {
         .expect("unimplemented requests should produce a response")
         .expect("unimplemented requests should not be silent");
 
-    let error = response.error.expect("unimplemented requests should carry an error");
+    let error = response
+        .error
+        .expect("unimplemented requests should carry an error");
     assert_eq!(error.code, -32601);
     assert!(error.message.contains("textDocument/rangeFormatting"));
 }
@@ -221,7 +226,10 @@ fn lsp_server_formats_open_documents_with_full_document_edits() {
     assert_eq!(edits.len(), 1);
     assert_eq!(edits[0].range.start.line, 0);
     assert_eq!(edits[0].range.start.character, 0);
-    assert_eq!(edits[0].new_text, "fun[] main(): int = {\n    return 0;\n};\n");
+    assert_eq!(
+        edits[0].new_text,
+        "fun[] main(): int = {\n    return 0;\n};\n"
+    );
 
     let second = server
         .handle_request(JsonRpcRequest {
@@ -435,8 +443,7 @@ fn lsp_server_formatting_does_not_build_semantic_snapshots() {
 
 #[test]
 fn completion_context_detects_type_positions() {
-    let uri =
-        EditorDocumentUri::from_file_path(PathBuf::from("/tmp/type_context.fol")).unwrap();
+    let uri = EditorDocumentUri::from_file_path(PathBuf::from("/tmp/type_context.fol")).unwrap();
     let document = EditorDocument::new(
         uri,
         1,
@@ -499,7 +506,7 @@ fn completion_context_detects_dot_triggers() {
                 character: 12,
             }
         ),
-        CompletionContext::DotTrigger
+        CompletionContext::DotTrigger { receiver: None }
     );
 }
 
@@ -574,11 +581,7 @@ fn lsp_server_tracks_open_change_and_close_document_lifecycle() {
 fn lsp_server_tracks_multiple_open_documents_in_one_session() {
     let (root, uri) = sample_package_root("multi_lifecycle");
     let second_path = root.join("src/extra.fol");
-    fs::write(
-        &second_path,
-        "fun[] extra(): int = {\n    return 9;\n};\n",
-    )
-    .unwrap();
+    fs::write(&second_path, "fun[] extra(): int = {\n    return 9;\n};\n").unwrap();
     let second_uri = format!("file://{}", second_path.display());
     let mut server = EditorLspServer::new(EditorConfig::default());
 
@@ -726,7 +729,10 @@ fn lsp_server_keeps_active_fol_model_in_semantic_snapshots() {
     fs::remove_dir_all(root).ok();
 }
 
-fn assert_semantic_model_via_hover(build_model: &str, expected: fol_typecheck::TypecheckCapabilityModel) {
+fn assert_semantic_model_via_hover(
+    build_model: &str,
+    expected: fol_typecheck::TypecheckCapabilityModel,
+) {
     let (root, uri) = sample_package_root(&format!("semantic_model_hover_{build_model}"));
     let text = "fun[] main(): int = {\n    var value: int = 7;\n    return value;\n};\n";
     fs::write(
@@ -912,6 +918,88 @@ fn lsp_server_keeps_model_context_isolated_across_mixed_workspace_packages() {
             .expect("hover should cache a semantic snapshot");
         assert_eq!(snapshot.snapshot.active_fol_model, Some(expected));
     }
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_routes_mixed_artifact_helper_diagnostics_by_scope() {
+    let root = temp_root("mixed_artifact_helper_diagnostics");
+    let core = root.join("core");
+    let memo = root.join("memo");
+    fs::create_dir_all(&core).unwrap();
+    fs::create_dir_all(&memo).unwrap();
+    fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"sample\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    graph.add_exe({ name = \"core\", root = \"core/main.fol\", fol_model = \"core\" });\n",
+            "    graph.add_exe({ name = \"memo\", root = \"memo/main.fol\", fol_model = \"memo\" });\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        core.join("main.fol"),
+        "fun[] core_root(): int = { return 1; };\n",
+    )
+    .unwrap();
+    fs::write(memo.join("main.fol"), "fun[] broken(: int = {\n").unwrap();
+
+    let core_helper = core.join("helper.fol");
+    let core_text = "fun[] core_helper(): str = { return \"heap\"; };\n";
+    fs::write(&core_helper, core_text).unwrap();
+    let core_uri = format!("file://{}", core_helper.display());
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let core_diagnostics = open_document(&mut server, core_uri.clone(), core_text);
+    assert_eq!(core_diagnostics.len(), 1);
+    assert!(core_diagnostics[0]
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("str requires heap support")));
+    assert!(
+        core_diagnostics[0]
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "P1001"),
+        "the sibling memo parse error leaked into core diagnostics: {:?}",
+        core_diagnostics[0].diagnostics
+    );
+    let core_snapshot = server
+        .session
+        .semantic_snapshots
+        .get(&core_uri)
+        .expect("opening the core helper should cache its semantic snapshot");
+    assert_eq!(
+        core_snapshot.snapshot.active_fol_model,
+        Some(fol_typecheck::TypecheckCapabilityModel::Core)
+    );
+
+    fs::write(
+        memo.join("main.fol"),
+        "fun[] memo_root(): str = { return \"memo\"; };\n",
+    )
+    .unwrap();
+    let memo_helper = memo.join("helper.fol");
+    let memo_text = "fun[] memo_helper(): str = { return \"heap\"; };\n";
+    fs::write(&memo_helper, memo_text).unwrap();
+    let memo_uri = format!("file://{}", memo_helper.display());
+    let memo_diagnostics = open_document(&mut server, memo_uri.clone(), memo_text);
+    assert_eq!(memo_diagnostics.len(), 1);
+    assert!(memo_diagnostics[0].diagnostics.is_empty());
+    let memo_snapshot = server
+        .session
+        .semantic_snapshots
+        .get(&memo_uri)
+        .expect("opening the memo helper should cache its semantic snapshot");
+    assert_eq!(
+        memo_snapshot.snapshot.active_fol_model,
+        Some(fol_typecheck::TypecheckCapabilityModel::Memo)
+    );
+    assert!(memo_snapshot.snapshot.typed_workspace.is_some());
 
     fs::remove_dir_all(root).ok();
 }
@@ -1114,7 +1202,10 @@ fn lsp_server_shares_one_analysis_between_diagnostics_and_semantics() {
     assert_eq!(analyze_document_semantics_call_count(), 1);
     // Diagnostics and semantic requests share one cached analysis per
     // document version.
-    assert!(server.session.diagnostic_snapshots.contains_key(uri.as_str()));
+    assert!(server
+        .session
+        .diagnostic_snapshots
+        .contains_key(uri.as_str()));
     assert!(server.session.semantic_snapshots.contains_key(uri.as_str()));
     assert_eq!(
         analysis_stage_counts(),
@@ -1464,8 +1555,7 @@ fn lsp_server_handles_mixed_request_sequences_without_leaking_snapshots() {
         })
         .unwrap()
         .unwrap();
-    let _formatting: Vec<LspTextEdit> =
-        serde_json::from_value(formatting.result.unwrap()).unwrap();
+    let _formatting: Vec<LspTextEdit> = serde_json::from_value(formatting.result.unwrap()).unwrap();
     assert_eq!(analyze_document_semantics_call_count(), 1);
 
     let rename = server
@@ -1697,9 +1787,16 @@ fn lsp_server_package_load_failures_stop_before_resolution_and_typecheck() {
     reset_analyze_document_semantics_call_count();
     reset_analyze_document_diagnostics_call_count();
     reset_analysis_stage_counts();
-    let diagnostics = open_document(&mut server, uri, text);
+    let diagnostics = open_document(&mut server, uri.clone(), text);
 
-    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics.len(), 2);
+    assert!(diagnostics
+        .iter()
+        .find(|published| published.uri == uri)
+        .is_some_and(|published| published.diagnostics.is_empty()));
+    assert!(diagnostics.iter().any(|published| {
+        published.uri.ends_with("/src/broken.fol") && !published.diagnostics.is_empty()
+    }));
     assert_eq!(analyze_document_diagnostics_call_count(), 1);
     assert_eq!(analyze_document_semantics_call_count(), 1);
     assert_eq!(
@@ -1827,7 +1924,10 @@ fn lsp_server_drops_semantic_snapshots_when_documents_close_and_reopen() {
     assert_eq!(analyze_document_semantics_call_count(), 1);
     // Diagnostics and semantic requests share one cached analysis per
     // document version.
-    assert!(server.session.diagnostic_snapshots.contains_key(uri.as_str()));
+    assert!(server
+        .session
+        .diagnostic_snapshots
+        .contains_key(uri.as_str()));
     assert!(server.session.semantic_snapshots.contains_key(uri.as_str()));
 
     let closed = server
@@ -1846,7 +1946,10 @@ fn lsp_server_drops_semantic_snapshots_when_documents_close_and_reopen() {
         })
         .unwrap();
     assert_eq!(closed.len(), 1);
-    assert!(!server.session.diagnostic_snapshots.contains_key(uri.as_str()));
+    assert!(!server
+        .session
+        .diagnostic_snapshots
+        .contains_key(uri.as_str()));
     assert!(!server.session.semantic_snapshots.contains_key(uri.as_str()));
 
     let _reopened = open_document(&mut server, uri.clone(), text);
@@ -1856,7 +1959,10 @@ fn lsp_server_drops_semantic_snapshots_when_documents_close_and_reopen() {
     assert_eq!(analyze_document_semantics_call_count(), 2);
     // Diagnostics and semantic requests share one cached analysis per
     // document version.
-    assert!(server.session.diagnostic_snapshots.contains_key(uri.as_str()));
+    assert!(server
+        .session
+        .diagnostic_snapshots
+        .contains_key(uri.as_str()));
     assert!(server.session.semantic_snapshots.contains_key(uri.as_str()));
 
     fs::remove_dir_all(root).ok();
@@ -2174,8 +2280,7 @@ fn lsp_server_serves_semantic_requests_from_incrementally_updated_text() {
         })
         .unwrap()
         .unwrap();
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     assert!(completion.items.iter().any(|item| item.label == "helper"));
 
     let definition = server
@@ -2316,8 +2421,7 @@ fn lsp_server_invalidates_stale_snapshots_after_symbol_boundary_edits() {
         })
         .unwrap()
         .unwrap();
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     let labels = completion
         .items
         .iter()
@@ -2527,8 +2631,7 @@ fn lsp_server_returns_safe_empty_results_for_incomplete_calls() {
         })
         .unwrap()
         .unwrap();
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     // Inside the broken call, signature help is safely unavailable (asserted
     // above). Completion still stays authoritative: among resolver-backed
     // (non-keyword) items it only surfaces the real in-scope `helper` routine
@@ -2571,8 +2674,7 @@ fn lsp_server_recovers_semantic_results_after_incomplete_call_becomes_valid() {
         })
         .unwrap()
         .unwrap();
-    let before: Option<LspSignatureHelp> =
-        serde_json::from_value(before.result.unwrap()).unwrap();
+    let before: Option<LspSignatureHelp> = serde_json::from_value(before.result.unwrap()).unwrap();
     assert!(before.is_none());
 
     let recovered = "fun[] helper(left: int): int = {\n    return left;\n};\n\nfun[] main(): int = {\n    return helper(7);\n};\n";
@@ -2616,8 +2718,7 @@ fn lsp_server_recovers_semantic_results_after_incomplete_call_becomes_valid() {
         })
         .unwrap()
         .unwrap();
-    let after: Option<LspSignatureHelp> =
-        serde_json::from_value(after.result.unwrap()).unwrap();
+    let after: Option<LspSignatureHelp> = serde_json::from_value(after.result.unwrap()).unwrap();
     let after = after.expect("signature help should recover once the call becomes valid");
     assert_eq!(after.signatures[0].label, "helper(int): int");
 
@@ -2688,7 +2789,10 @@ fn lsp_server_recovers_navigation_after_partial_declaration_becomes_valid() {
         .unwrap();
     let after: Vec<super::super::LspDocumentSymbol> =
         serde_json::from_value(after.result.unwrap()).unwrap();
-    let names = after.iter().map(|symbol| symbol.name.as_str()).collect::<Vec<_>>();
+    let names = after
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect::<Vec<_>>();
     assert!(names.contains(&"helper"));
     assert!(names.contains(&"main"));
 
@@ -2699,8 +2803,11 @@ fn lsp_server_recovers_navigation_after_partial_declaration_becomes_valid() {
 fn lsp_server_surfaces_parser_diagnostics_from_open_documents() {
     let (root, uri) = sample_package_root("parser_diag");
     let mut server = EditorLspServer::new(EditorConfig::default());
-    let diagnostics =
-        open_document(&mut server, uri, "fun[] main(: int = {\n    return 0;\n};\n");
+    let diagnostics = open_document(
+        &mut server,
+        uri,
+        "fun[] main(: int = {\n    return 0;\n};\n",
+    );
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].diagnostics[0].code, "P1001");
@@ -2713,8 +2820,11 @@ fn lsp_server_surfaces_package_loading_diagnostics_from_open_documents() {
     let (root, uri) = sample_package_root("package_diag");
     fs::remove_file(root.join("build.fol")).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
-    let diagnostics =
-        open_document(&mut server, uri, "fun[] main(): int = {\n    return 0;\n};\n");
+    let diagnostics = open_document(
+        &mut server,
+        uri,
+        "fun[] main(): int = {\n    return 0;\n};\n",
+    );
 
     assert_eq!(diagnostics.len(), 1);
     // Without build.fol the package loader no longer produces K1001;
@@ -2746,21 +2856,28 @@ fn lsp_server_filters_build_file_diagnostics_out_of_source_buffers() {
     let root = temp_root("build_diag_filter");
     let src = root.join("src");
     fs::create_dir_all(&src).unwrap();
-    fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-    fs::write(
-        root.join("build.fol"),
-        "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
-    )
-    .unwrap();
+    let build_file = root.join("build.fol");
+    let broken_build = "pro[] build(: non = {\n    return;\n};\n";
+    fs::write(&build_file, broken_build).unwrap();
     let file = src.join("main.fol");
     fs::write(&file, "fun[] main(): int = {\n    return 0;\n};\n").unwrap();
     let uri = format!("file://{}", file.display());
     let text = fs::read_to_string(&file).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
-    let diagnostics = open_document(&mut server, uri, &text);
+    let diagnostics = open_document(&mut server, uri.clone(), &text);
 
     assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].uri, uri);
     assert!(diagnostics[0].diagnostics.is_empty());
+
+    let build_uri = format!("file://{}", build_file.display());
+    let build_diagnostics = open_document(&mut server, build_uri.clone(), broken_build);
+    assert_eq!(build_diagnostics.len(), 1);
+    assert_eq!(build_diagnostics[0].uri, build_uri);
+    assert!(build_diagnostics[0]
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "P1001"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -2974,20 +3091,14 @@ fn lsp_diagnostics_include_code_in_message() {
 }
 
 #[test]
-fn lsp_diagnostics_deduplicated_by_line_and_code() {
+fn lsp_diagnostics_deduplicate_only_exact_wire_duplicates() {
     use crate::dedup_lsp_diagnostics;
     use crate::{LspDiagnostic, LspDiagnosticSeverity, LspPosition, LspRange};
 
     let make = |line: u32, code: &str, msg: &str| LspDiagnostic {
         range: LspRange {
-            start: LspPosition {
-                line,
-                character: 0,
-            },
-            end: LspPosition {
-                line,
-                character: 1,
-            },
+            start: LspPosition { line, character: 0 },
+            end: LspPosition { line, character: 1 },
         },
         severity: LspDiagnosticSeverity::Error,
         code: code.to_string(),
@@ -2996,23 +3107,26 @@ fn lsp_diagnostics_deduplicated_by_line_and_code() {
         related_information: Vec::new(),
     };
 
+    let first = make(0, "P1001", "first");
     let diagnostics = vec![
-        make(0, "P1001", "first"),
+        first.clone(),
+        first,
         make(0, "P1001", "second cascade"),
-        make(0, "P1001", "third cascade"),
         make(1, "P1001", "different line"),
         make(0, "R1003", "different code same line"),
     ];
 
     let deduped = dedup_lsp_diagnostics(diagnostics);
 
-    // line 0, P1001: only the first is kept
+    // The exact duplicate is removed, but a distinct message sharing its line
+    // and code remains visible.
     let line0_p1001: Vec<_> = deduped
         .iter()
         .filter(|d| d.range.start.line == 0 && d.code == "P1001")
         .collect();
-    assert_eq!(line0_p1001.len(), 1);
+    assert_eq!(line0_p1001.len(), 2);
     assert_eq!(line0_p1001[0].message, "first");
+    assert_eq!(line0_p1001[1].message, "second cascade");
 
     // line 1, P1001: kept (different line)
     assert!(deduped
@@ -3024,11 +3138,11 @@ fn lsp_diagnostics_deduplicated_by_line_and_code() {
         .iter()
         .any(|d| d.range.start.line == 0 && d.code == "R1003"));
 
-    assert_eq!(deduped.len(), 3);
+    assert_eq!(deduped.len(), 4);
 }
 
 #[test]
-fn lsp_parse_cascade_yields_at_most_one_diagnostic_per_line_per_code() {
+fn lsp_parse_cascade_yields_no_exact_wire_duplicates() {
     let (root, uri) = sample_package_root("cascade_dedup");
     // Intentionally broken syntax that can produce multiple parse errors on the same line
     let broken = "fun[] main(a b c d e f: int = {\n    return 0;\n};\n";
@@ -3036,17 +3150,16 @@ fn lsp_parse_cascade_yields_at_most_one_diagnostic_per_line_per_code() {
     let diagnostics = open_document(&mut server, uri, broken);
 
     let diags = &diagnostics[0].diagnostics;
-    // Collect (line, code) pairs and verify uniqueness
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = Vec::new();
     for d in diags {
-        let key = (d.range.start.line, d.code.clone());
         assert!(
-            seen.insert(key.clone()),
-            "duplicate diagnostic on line {} with code {}: {}",
+            !seen.contains(d),
+            "exact duplicate diagnostic on line {} with code {}: {}",
             d.range.start.line,
             d.code,
             d.message,
         );
+        seen.push(d.clone());
     }
 
     fs::remove_dir_all(root).ok();

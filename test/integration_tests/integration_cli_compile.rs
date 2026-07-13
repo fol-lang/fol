@@ -589,6 +589,32 @@ fn test_cli_rejects_unquoted_std_import_targets_with_parser_guidance() {
 }
 
 #[test]
+fn test_cli_rejects_removed_std_import_source_kind() {
+    use std::fs;
+
+    let temp_root = unique_temp_root("cli_removed_std_import_source_kind");
+    fs::create_dir_all(&temp_root).expect("Should create removed-source-kind fixture root");
+    fs::write(
+        temp_root.join("main.fol"),
+        "use std: std = {\"std\"};\nfun[] main(): int = { return 0; };\n",
+    )
+    .expect("Should write removed-source-kind fixture");
+
+    let output = run_fol(&[temp_root
+        .to_str()
+        .expect("Temporary fixture path should be valid UTF-8")]);
+
+    assert!(
+        !output.status.success(),
+        "the removed public std source kind must not parse: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
 fn test_examples_and_docs_keep_quoted_import_targets_only() {
     let offenders = collect_unquoted_use_target_lines(
         &[

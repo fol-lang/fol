@@ -1,3 +1,7 @@
+use crate::tree_sitter::{
+    execute_fol_tree_sitter_parse, execute_fol_tree_sitter_query, fol_tree_sitter_showcase_fixture,
+    TreeSitterParseResult, TreeSitterQueryCapture, TreeSitterSyntaxIssue,
+};
 use crate::{
     fol_tree_sitter_config, fol_tree_sitter_corpus, fol_tree_sitter_grammar,
     fol_tree_sitter_highlights_query, fol_tree_sitter_query_snapshots,
@@ -8,7 +12,10 @@ use crate::{
     LspSemanticTokens, LspSemanticTokensParams, LspTextDocumentIdentifier, LspTextDocumentItem,
     LspWorkspaceEdit,
 };
-use std::path::Path;
+use std::collections::BTreeSet;
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditorCommandSummary {
@@ -35,27 +42,14 @@ impl EditorCommandSummary {
 pub fn editor_lsp_entrypoint() -> EditorResult<EditorCommandSummary> {
     Ok(EditorCommandSummary::new(
         "lsp",
-        "ready to serve diagnostics, hover, definition, formatting, code actions, signature help, references, rename, semantic tokens, symbols, and completion through `fol tool lsp`",
+        "ready to serve compiler-backed diagnostics, hover, definition, type definition, implementation, document highlights, references, prepare rename, rename, semantic tokens, document and workspace symbols, completion, signature help, hints, formatting, code actions, folding, and selection through `fol tool lsp`",
     )
     .with_detail("transport=stdio")
-    .with_detail("features=diagnostics,hover,definition,formatting,codeAction,signatureHelp,references,rename,semanticTokens,symbols,completion"))
+    .with_detail("features=diagnostics,hover,definition,typeDefinition,implementation,documentHighlight,formatting,codeAction,signatureHelp,references,prepareRename,rename,semanticTokens,documentSymbols,workspaceSymbols,completion,inlayHint,foldingRange,selectionRange"))
 }
 
 fn source_line_count(source: &str) -> usize {
     source.lines().count()
-}
-
-fn sorted_query_captures(query: &str) -> Vec<String> {
-    let mut captures = query
-        .split(|ch: char| ch.is_whitespace() || matches!(ch, ')' | '(' | '[' | ']'))
-        .filter_map(|part| part.strip_prefix('@'))
-        .map(|capture| capture.trim_end_matches(|ch: char| ch == ')' || ch == ']'))
-        .filter(|capture| !capture.is_empty())
-        .map(|capture| capture.to_string())
-        .collect::<Vec<_>>();
-    captures.sort();
-    captures.dedup();
-    captures
 }
 
 fn compiler_import_kinds_csv() -> String {
@@ -76,21 +70,137 @@ fn semantic_token_legend_csv() -> String {
     crate::lsp::semantic_token_type_names().join(",")
 }
 
-pub fn editor_parse_file(path: &Path) -> EditorResult<EditorCommandSummary> {
-    let source = std::fs::read_to_string(path).map_err(|error| {
+fn read_editor_tool_source(path: &Path) -> EditorResult<String> {
+    std::fs::read_to_string(path).map_err(|error| {
         EditorError::new(
             EditorErrorKind::InvalidDocumentPath,
             format!("failed to read '{}': {error}", path.display()),
         )
+    })
+}
+
+fn open_semantic_tool_document(
+    server: &mut EditorLspServer,
+    uri: &EditorDocumentUri,
+    source: &str,
+) -> EditorResult<()> {
+    let published = server.handle_notification(JsonRpcNotification {
+        jsonrpc: "2.0".to_string(),
+        method: "textDocument/didOpen".to_string(),
+        params: Some(
+            serde_json::to_value(LspDidOpenTextDocumentParams {
+                text_document: LspTextDocumentItem {
+                    uri: uri.as_str().to_string(),
+                    language_id: "fol".to_string(),
+                    version: 1,
+                    text: source.to_string(),
+                },
+            })
+            .expect("didOpen params should serialize"),
+        ),
     })?;
-    Ok(EditorCommandSummary::new(
+    let diagnostics = published
+        .iter()
+        .flat_map(|publication| publication.diagnostics.iter())
+        .collect::<Vec<_>>();
+    if diagnostics.is_empty() {
+        return Ok(());
+    }
+
+    let rendered = diagnostics
+        .iter()
+        .map(|diagnostic| format!("[{}] {}", diagnostic.code, diagnostic.message))
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(EditorError::new(
+        EditorErrorKind::InvalidInput,
+        format!(
+            "semantic analysis reported {} diagnostic(s) for '{}': {rendered}",
+            diagnostics.len(),
+            uri.as_str()
+        ),
+    ))
+}
+
+fn tree_sitter_command_error(operation: &str, error: String) -> EditorError {
+    EditorError::new(
+        EditorErrorKind::Internal,
+        format!("tree-sitter {operation} failed: {error}"),
+    )
+}
+
+fn escaped_tool_text(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t")
+}
+
+fn syntax_issue_detail(label: &str, issue: &TreeSitterSyntaxIssue) -> String {
+    format!(
+        "{label}={}@{}:{}-{}:{}:{}",
+        issue.kind,
+        issue.start_row,
+        issue.start_column,
+        issue.end_row,
+        issue.end_column,
+        escaped_tool_text(&issue.text)
+    )
+}
+
+fn capture_detail(label: &str, capture: &TreeSitterQueryCapture) -> String {
+    format!(
+        "{label}={}@{}:{}-{}:{}:{}",
+        capture.name,
+        capture.start_row,
+        capture.start_column,
+        capture.end_row,
+        capture.end_column,
+        escaped_tool_text(&capture.text)
+    )
+}
+
+fn with_tree_sitter_parse_details(
+    mut summary: EditorCommandSummary,
+    parse: &TreeSitterParseResult,
+) -> EditorCommandSummary {
+    summary = summary
+        .with_detail(format!(
+            "parse_status={}",
+            if parse.has_error() { "ERROR" } else { "ok" }
+        ))
+        .with_detail(format!("root_kind={}", parse.root_kind))
+        .with_detail(format!("node_count={}", parse.node_count))
+        .with_detail(format!("named_node_count={}", parse.named_node_count))
+        .with_detail(format!("error_count={}", parse.errors.len()))
+        .with_detail(format!("missing_count={}", parse.missing.len()));
+    for issue in &parse.errors {
+        summary = summary.with_detail(syntax_issue_detail("error", issue));
+    }
+    for issue in &parse.missing {
+        summary = summary.with_detail(syntax_issue_detail("missing", issue));
+    }
+    summary
+}
+
+pub fn editor_parse_file(path: &Path) -> EditorResult<EditorCommandSummary> {
+    let source = read_editor_tool_source(path)?;
+    let parse = execute_fol_tree_sitter_parse(&source)
+        .map_err(|error| tree_sitter_command_error("parse", error))?;
+    let summary = EditorCommandSummary::new(
         "parse",
-        format!("loaded {} bytes for tree-sitter parsing", source.len()),
+        format!(
+            "tree-sitter parsed {} named nodes with {} ERROR and {} missing nodes",
+            parse.named_node_count,
+            parse.errors.len(),
+            parse.missing.len()
+        ),
     )
     .with_detail(format!("path={}", path.display()))
     .with_detail(format!("lines={}", source_line_count(&source)))
-    .with_detail(format!("bytes={}", source.len()))
-    .with_detail(format!("grammar_bytes={}", fol_tree_sitter_grammar().len())))
+    .with_detail(format!("bytes={}", source.len()));
+    Ok(with_tree_sitter_parse_details(summary, &parse)
+        .with_detail(format!("syntax_tree={}", parse.syntax_tree)))
 }
 
 pub fn editor_format_file(path: &Path) -> EditorResult<EditorCommandSummary> {
@@ -111,55 +221,82 @@ pub fn editor_format_file(path: &Path) -> EditorResult<EditorCommandSummary> {
 }
 
 pub fn editor_highlight_file(path: &Path) -> EditorResult<EditorCommandSummary> {
-    let source = std::fs::read_to_string(path).map_err(|error| {
-        EditorError::new(
-            EditorErrorKind::InvalidDocumentPath,
-            format!("failed to read '{}': {error}", path.display()),
-        )
-    })?;
+    let source = read_editor_tool_source(path)?;
     let query = fol_tree_sitter_highlights_query();
-    let captures = sorted_query_captures(query);
-    Ok(EditorCommandSummary::new(
+    let result = execute_fol_tree_sitter_query(&source, query)
+        .map_err(|error| tree_sitter_command_error("highlight query", error))?;
+    let capture_kinds = result
+        .captures
+        .iter()
+        .map(|capture| capture.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut summary = EditorCommandSummary::new(
         "highlight",
-        format!("highlight query ready with {} captures", captures.len()),
-    )
-    .with_detail(format!("path={}", path.display()))
-    .with_detail(format!("lines={}", source_line_count(&source)))
-    .with_detail(format!("query_bytes={}", query.len()))
-    .with_detail(format!("capture_count={}", captures.len()))
-    .with_detail(format!("captures={}", captures.join(",")))
-    .with_detail(format!("import_kinds={}", compiler_import_kinds_csv()))
-    .with_detail(format!(
-        "intrinsic_names={}",
-        compiler_dot_intrinsic_names_csv()
-    )))
-}
-
-pub fn editor_symbols_file(path: &Path) -> EditorResult<EditorCommandSummary> {
-    let source = std::fs::read_to_string(path).map_err(|error| {
-        EditorError::new(
-            EditorErrorKind::InvalidDocumentPath,
-            format!("failed to read '{}': {error}", path.display()),
-        )
-    })?;
-    let symbol_count = source.matches("fun ").count()
-        + source.matches("log ").count()
-        + source.matches("typ ").count()
-        + source.matches("ali ").count();
-    Ok(EditorCommandSummary::new(
-        "symbols",
         format!(
-            "symbol query ready with {} bytes",
-            fol_tree_sitter_symbols_query().len()
+            "tree-sitter highlight query matched {} captures",
+            result.captures.len()
         ),
     )
     .with_detail(format!("path={}", path.display()))
     .with_detail(format!("lines={}", source_line_count(&source)))
-    .with_detail(format!("symbol_candidates={symbol_count}"))
+    .with_detail(format!("query_bytes={}", query.len()))
+    .with_detail(format!("capture_count={}", result.captures.len()))
     .with_detail(format!(
-        "query_snapshots={}",
-        fol_tree_sitter_query_snapshots().len()
-    )))
+        "capture_kinds={}",
+        capture_kinds.into_iter().collect::<Vec<_>>().join(",")
+    ))
+    .with_detail(format!("import_kinds={}", compiler_import_kinds_csv()))
+    .with_detail(format!(
+        "intrinsic_names={}",
+        compiler_dot_intrinsic_names_csv()
+    ));
+    summary = with_tree_sitter_parse_details(summary, &result.parse);
+    for capture in &result.captures {
+        summary = summary.with_detail(capture_detail("capture", capture));
+    }
+    Ok(summary)
+}
+
+pub fn editor_symbols_file(path: &Path) -> EditorResult<EditorCommandSummary> {
+    let source = read_editor_tool_source(path)?;
+    let query = fol_tree_sitter_symbols_query();
+    let result = execute_fol_tree_sitter_query(&source, query)
+        .map_err(|error| tree_sitter_command_error("symbol query", error))?;
+    let scope_count = result
+        .captures
+        .iter()
+        .filter(|capture| capture.name == "symbol.scope")
+        .count();
+    let symbols = result
+        .captures
+        .iter()
+        .filter(|capture| capture.name != "symbol.scope")
+        .collect::<Vec<_>>();
+    let symbol_kinds = symbols
+        .iter()
+        .map(|capture| capture.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut summary = EditorCommandSummary::new(
+        "symbols",
+        format!(
+            "tree-sitter symbol query matched {} symbols in {scope_count} scopes",
+            symbols.len()
+        ),
+    )
+    .with_detail(format!("path={}", path.display()))
+    .with_detail(format!("lines={}", source_line_count(&source)))
+    .with_detail(format!("query_bytes={}", query.len()))
+    .with_detail(format!("symbol_count={}", symbols.len()))
+    .with_detail(format!("scope_count={scope_count}"))
+    .with_detail(format!(
+        "symbol_kinds={}",
+        symbol_kinds.into_iter().collect::<Vec<_>>().join(",")
+    ));
+    summary = with_tree_sitter_parse_details(summary, &result.parse);
+    for symbol in symbols {
+        summary = summary.with_detail(capture_detail("symbol", symbol));
+    }
+    Ok(summary)
 }
 
 pub fn editor_semantic_tokens_file(path: &Path) -> EditorResult<EditorCommandSummary> {
@@ -177,21 +314,7 @@ pub fn editor_semantic_tokens_file(path: &Path) -> EditorResult<EditorCommandSum
     })?;
     let uri = EditorDocumentUri::from_file_path(canonical.clone())?;
     let mut server = EditorLspServer::new(EditorConfig::default());
-    server.handle_notification(JsonRpcNotification {
-        jsonrpc: "2.0".to_string(),
-        method: "textDocument/didOpen".to_string(),
-        params: Some(
-            serde_json::to_value(LspDidOpenTextDocumentParams {
-                text_document: LspTextDocumentItem {
-                    uri: uri.as_str().to_string(),
-                    language_id: "fol".to_string(),
-                    version: 1,
-                    text: source.clone(),
-                },
-            })
-            .expect("didOpen params should serialize"),
-        ),
-    })?;
+    open_semantic_tool_document(&mut server, &uri, &source)?;
     let response = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -246,21 +369,7 @@ pub fn editor_references_file(
     })?;
     let uri = EditorDocumentUri::from_file_path(canonical.clone())?;
     let mut server = EditorLspServer::new(EditorConfig::default());
-    server.handle_notification(JsonRpcNotification {
-        jsonrpc: "2.0".to_string(),
-        method: "textDocument/didOpen".to_string(),
-        params: Some(
-            serde_json::to_value(LspDidOpenTextDocumentParams {
-                text_document: LspTextDocumentItem {
-                    uri: uri.as_str().to_string(),
-                    language_id: "fol".to_string(),
-                    version: 1,
-                    text: source.clone(),
-                },
-            })
-            .expect("didOpen params should serialize"),
-        ),
-    })?;
+    open_semantic_tool_document(&mut server, &uri, &source)?;
     let response = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -322,21 +431,7 @@ pub fn editor_rename_file(
     })?;
     let uri = EditorDocumentUri::from_file_path(canonical.clone())?;
     let mut server = EditorLspServer::new(EditorConfig::default());
-    server.handle_notification(JsonRpcNotification {
-        jsonrpc: "2.0".to_string(),
-        method: "textDocument/didOpen".to_string(),
-        params: Some(
-            serde_json::to_value(LspDidOpenTextDocumentParams {
-                text_document: LspTextDocumentItem {
-                    uri: uri.as_str().to_string(),
-                    language_id: "fol".to_string(),
-                    version: 1,
-                    text: source.clone(),
-                },
-            })
-            .expect("didOpen params should serialize"),
-        ),
-    })?;
+    open_semantic_tool_document(&mut server, &uri, &source)?;
     let response = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -451,76 +546,91 @@ pub fn editor_completion_file(
 }
 
 pub fn editor_tree_generate_bundle(path: &Path) -> EditorResult<EditorCommandSummary> {
-    if path.exists() && !path.is_dir() {
+    editor_tree_generate_bundle_with(path, run_tree_sitter_generate, |_| Ok(()))
+}
+
+fn editor_tree_generate_bundle_with<Generate, BeforeCommit>(
+    path: &Path,
+    generate: Generate,
+    mut before_commit: BeforeCommit,
+) -> EditorResult<EditorCommandSummary>
+where
+    Generate: FnOnce(&Path) -> EditorResult<()>,
+    BeforeCommit: FnMut(&Path) -> EditorResult<()>,
+{
+    let (destination, updated_existing_root) = checked_tree_bundle_destination(path)?;
+    let previously_generated_files = read_generated_tree_bundle_manifest(&destination)?;
+    let generated_files = generated_tree_bundle_files();
+    validate_tree_bundle_targets(&destination, &previously_generated_files, &generated_files)?;
+
+    // Parser generation happens in a sibling staging directory. A missing or
+    // failing external CLI therefore cannot partially rewrite the live bundle.
+    let mut staging = TreeBundleStaging::create(&destination)?;
+    populate_staged_tree_bundle(staging.path())?;
+    generate(staging.path())?;
+
+    let staged_parser = staging.path().join("src/parser.c");
+    let parser_metadata = std::fs::symlink_metadata(&staged_parser).map_err(|error| {
+        EditorError::new(
+            EditorErrorKind::Internal,
+            format!(
+                "tree-sitter reported success but did not produce '{}': {error}",
+                staged_parser.display()
+            ),
+        )
+        .with_note("the staged generated bundle is incomplete")
+        .with_note("the destination bundle was not changed")
+    })?;
+    if parser_metadata.file_type().is_symlink() || !parser_metadata.is_file() {
         return Err(EditorError::new(
-            EditorErrorKind::InvalidDocumentPath,
-            format!("tree output root '{}' is not a directory", path.display()),
-        ));
-    }
-
-    let cleaned_existing_root = if path.is_dir() {
-        std::fs::remove_dir_all(path).map_err(|error| {
-            EditorError::new(
-                EditorErrorKind::Internal,
-                format!(
-                    "failed to clear existing tree output root '{}': {error}",
-                    path.display()
-                ),
-            )
-        })?;
-        true
-    } else {
-        false
-    };
-
-    let queries_root = path.join("queries").join("fol");
-    let corpus_root = path.join("test").join("corpus");
-    std::fs::create_dir_all(&queries_root).map_err(|error| {
-        EditorError::new(
             EditorErrorKind::Internal,
             format!(
-                "failed to create query root '{}': {error}",
-                queries_root.display()
+                "tree-sitter reported success but did not produce a regular parser file at '{}'",
+                staged_parser.display()
             ),
         )
-    })?;
-    std::fs::create_dir_all(&corpus_root).map_err(|error| {
-        EditorError::new(
-            EditorErrorKind::Internal,
-            format!(
-                "failed to create corpus root '{}': {error}",
-                corpus_root.display()
-            ),
-        )
-    })?;
-
-    write_bundle_file(&path.join("grammar.js"), fol_tree_sitter_grammar())?;
-    for snapshot in fol_tree_sitter_query_snapshots() {
-        write_bundle_file(
-            &queries_root.join(format!("{}.scm", snapshot.name)),
-            snapshot.query,
-        )?;
+        .with_note("the staged generated bundle is incomplete")
+        .with_note("the destination bundle was not changed"));
     }
-    write_bundle_file(&path.join("package.json"), TREE_SITTER_PACKAGE_JSON)?;
-    write_bundle_file(&path.join("tree-sitter.json"), fol_tree_sitter_config())?;
 
-    for case in fol_tree_sitter_corpus() {
-        write_bundle_file(&corpus_root.join(format!("{}.txt", case.name)), case.source)?;
-    }
+    write_generated_tree_bundle_manifest(staging.path(), &generated_files)?;
+    commit_staged_tree_bundle(
+        &destination,
+        &mut staging,
+        updated_existing_root,
+        &previously_generated_files,
+        &generated_files,
+        &mut before_commit,
+    )?;
 
     let mut summary = EditorCommandSummary::new(
         "tree generate",
         format!("tree-sitter bundle ready at {}", path.display()),
     )
     .with_detail(format!("root={}", path.display()))
-    .with_detail(format!("cleaned_existing_root={cleaned_existing_root}"))
+    .with_detail(format!("updated_existing_root={updated_existing_root}"))
     .with_detail(format!(
         "query_files={}",
         fol_tree_sitter_query_snapshots().len()
     ))
     .with_detail(format!("corpus_files={}", fol_tree_sitter_corpus().len()))
+    .with_detail("fixture_files=1")
     .with_detail(format!("grammar_bytes={}", fol_tree_sitter_grammar().len()));
 
+    summary = summary
+        .with_detail("parser_generated=true")
+        .with_detail(format!("parser={}", path.join("src/parser.c").display()))
+        .with_detail("tree_sitter_runtime=native")
+        .with_detail(format!("generated_files={}", generated_files.len()))
+        .with_detail(format!(
+            "manifest={}",
+            path.join(TREE_SITTER_BUNDLE_MANIFEST).display()
+        ));
+
+    Ok(summary)
+}
+
+fn run_tree_sitter_generate(path: &Path) -> EditorResult<()> {
     match std::process::Command::new("tree-sitter")
         .arg("generate")
         .arg("--js-runtime")
@@ -528,54 +638,41 @@ pub fn editor_tree_generate_bundle(path: &Path) -> EditorResult<EditorCommandSum
         .current_dir(path)
         .status()
     {
-        Ok(status) if status.success() => {
-            let parser_path = path.join("src").join("parser.c");
-            if parser_path.is_file() {
-                summary = summary
-                    .with_detail("parser_generated=true")
-                    .with_detail(format!("parser={}", parser_path.display()))
-                    .with_detail("tree_sitter_runtime=native");
-            } else {
-                return Err(EditorError::new(
-                    EditorErrorKind::Internal,
-                    format!(
-                        "tree-sitter reported success but did not produce '{}'",
-                        parser_path.display()
-                    ),
-                )
-                .with_note("the generated bundle is incomplete")
-                .with_note("check the tree-sitter CLI version and grammar assets"));
-            }
-        }
-        Ok(status) => {
-            return Err(EditorError::new(
-                EditorErrorKind::Internal,
-                format!("tree-sitter parser generation failed with status {status}"),
-            )
-            .with_note("`fol tool tree generate` requires a working `tree-sitter` CLI")
-            .with_note("this command uses `tree-sitter generate --js-runtime native`")
-            .with_note("fix the grammar or your local tree-sitter install, then try again"));
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(EditorError::new(
-                EditorErrorKind::Internal,
-                "failed to run `tree-sitter generate --js-runtime native`",
-            )
-            .with_note("install the `tree-sitter` CLI and retry")
-            .with_note("no Node.js runtime is required for this command"));
-        }
-        Err(error) => {
-            return Err(EditorError::new(
-                EditorErrorKind::Internal,
-                format!("failed to run tree-sitter parser generation: {error}"),
-            )
-            .with_note("the bundle files were written, but parser generation did not complete")
-            .with_note("no Node.js runtime is required for this command"));
-        }
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(EditorError::new(
+            EditorErrorKind::Internal,
+            format!("tree-sitter parser generation failed with status {status}"),
+        )
+        .with_note("`fol tool tree generate` requires a working `tree-sitter` CLI")
+        .with_note("this command uses `tree-sitter generate --js-runtime native`")
+        .with_note("the destination bundle was not changed")
+        .with_note("fix the grammar or your local tree-sitter install, then try again")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(EditorError::new(
+            EditorErrorKind::Internal,
+            "failed to run `tree-sitter generate --js-runtime native`",
+        )
+        .with_note("install the `tree-sitter` CLI and retry")
+        .with_note("no Node.js runtime is required for this command")
+        .with_note("the destination bundle was not changed")),
+        Err(error) => Err(EditorError::new(
+            EditorErrorKind::Internal,
+            format!("failed to run tree-sitter parser generation: {error}"),
+        )
+        .with_note("the staged parser generation did not complete")
+        .with_note("no Node.js runtime is required for this command")
+        .with_note("the destination bundle was not changed")),
     }
-
-    Ok(summary)
 }
+
+const TREE_SITTER_BUNDLE_MANIFEST: &str = ".fol-tree-generated";
+const TREE_SITTER_CLI_GENERATED_FILES: &[&str] = &[
+    "src/grammar.json",
+    "src/node-types.json",
+    "src/parser.c",
+    "src/tree_sitter/alloc.h",
+    "src/tree_sitter/array.h",
+    "src/tree_sitter/parser.h",
+];
 
 const TREE_SITTER_PACKAGE_JSON: &str = r#"{
   "name": "tree-sitter-fol",
@@ -591,7 +688,747 @@ const TREE_SITTER_PACKAGE_JSON: &str = r#"{
 }
 "#;
 
-fn write_bundle_file(path: &Path, contents: &str) -> EditorResult<()> {
+fn generated_tree_bundle_files() -> BTreeSet<String> {
+    let mut files = TREE_SITTER_CLI_GENERATED_FILES
+        .iter()
+        .map(|path| (*path).to_string())
+        .collect::<BTreeSet<_>>();
+    files.extend(
+        ["grammar.js", "package.json", "tree-sitter.json"]
+            .into_iter()
+            .map(str::to_string),
+    );
+    files.extend(
+        fol_tree_sitter_query_snapshots()
+            .iter()
+            .map(|snapshot| format!("queries/fol/{}.scm", snapshot.name)),
+    );
+    files.extend(
+        fol_tree_sitter_corpus()
+            .iter()
+            .map(|case| format!("test/corpus/{}.txt", case.name)),
+    );
+    files.insert("test/fixtures/showcase.fol".to_string());
+    files
+}
+
+static TREE_BUNDLE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+struct TreeBundleStaging {
+    path: PathBuf,
+    remove_on_drop: bool,
+}
+
+impl TreeBundleStaging {
+    fn create(destination: &Path) -> EditorResult<Self> {
+        let mut staging_parent = destination.parent().ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::InvalidDocumentPath,
+                format!(
+                    "tree output root '{}' has no parent directory",
+                    destination.display()
+                ),
+            )
+        })?;
+        while !staging_parent.exists() {
+            staging_parent = staging_parent.parent().ok_or_else(|| {
+                EditorError::new(
+                    EditorErrorKind::InvalidDocumentPath,
+                    format!(
+                        "tree output root '{}' has no existing ancestor",
+                        destination.display()
+                    ),
+                )
+            })?;
+        }
+        ensure_no_symlink_components(staging_parent)?;
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        for _ in 0..128 {
+            let counter = TREE_BUNDLE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let candidate = staging_parent.join(format!(
+                ".fol-tree-stage-{}-{timestamp}-{counter}",
+                std::process::id()
+            ));
+            match std::fs::create_dir(&candidate) {
+                Ok(()) => {
+                    return Ok(Self {
+                        path: candidate,
+                        remove_on_drop: true,
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(EditorError::new(
+                        EditorErrorKind::Internal,
+                        format!(
+                            "failed to create tree bundle staging directory '{}': {error}",
+                            candidate.display()
+                        ),
+                    ));
+                }
+            }
+        }
+
+        Err(EditorError::new(
+            EditorErrorKind::Internal,
+            format!(
+                "failed to reserve a tree bundle staging directory under '{}'",
+                staging_parent.display()
+            ),
+        ))
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn keep(&mut self) {
+        self.remove_on_drop = false;
+    }
+}
+
+impl Drop for TreeBundleStaging {
+    fn drop(&mut self) {
+        if self.remove_on_drop {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BundleFileSnapshot {
+    path: PathBuf,
+    contents: Option<Vec<u8>>,
+    permissions: Option<std::fs::Permissions>,
+}
+
+fn checked_tree_bundle_destination(path: &Path) -> EditorResult<(PathBuf, bool)> {
+    if path.as_os_str().is_empty() {
+        return Err(EditorError::new(
+            EditorErrorKind::InvalidDocumentPath,
+            "tree output root cannot be empty",
+        ));
+    }
+    let destination = normalized_absolute_path(path)?;
+    if destination.parent().is_none() {
+        return Err(EditorError::new(
+            EditorErrorKind::InvalidDocumentPath,
+            format!(
+                "tree output root '{}' cannot be a filesystem root",
+                path.display()
+            ),
+        ));
+    }
+    ensure_no_symlink_components(&destination)?;
+
+    match std::fs::symlink_metadata(&destination) {
+        Ok(metadata) if metadata.is_dir() => Ok((destination, true)),
+        Ok(_) => Err(EditorError::new(
+            EditorErrorKind::InvalidDocumentPath,
+            format!("tree output root '{}' is not a directory", path.display()),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((destination, false)),
+        Err(error) => Err(EditorError::new(
+            EditorErrorKind::InvalidDocumentPath,
+            format!(
+                "failed to inspect tree output root '{}': {error}",
+                path.display()
+            ),
+        )),
+    }
+}
+
+fn normalized_absolute_path(path: &Path) -> EditorResult<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| {
+                EditorError::new(
+                    EditorErrorKind::Internal,
+                    format!("failed to resolve the current directory: {error}"),
+                )
+            })?
+            .join(path)
+    };
+
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    return Err(EditorError::new(
+                        EditorErrorKind::InvalidDocumentPath,
+                        format!(
+                            "tree output root '{}' escapes the filesystem root",
+                            path.display()
+                        ),
+                    ));
+                }
+                normalized.pop();
+            }
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    Ok(normalized)
+}
+
+fn ensure_no_symlink_components(path: &Path) -> EditorResult<()> {
+    let mut current = PathBuf::new();
+    let mut components = path.components().peekable();
+    while let Some(component) = components.next() {
+        current.push(component.as_os_str());
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    format!(
+                        "tree bundle path '{}' contains symlink component '{}'",
+                        path.display(),
+                        current.display()
+                    ),
+                )
+                .with_note("refusing to follow links while generating managed bundle assets"));
+            }
+            Ok(metadata) if components.peek().is_some() && !metadata.is_dir() => {
+                return Err(EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    format!(
+                        "tree bundle path '{}' crosses non-directory component '{}'",
+                        path.display(),
+                        current.display()
+                    ),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(EditorError::new(
+                    EditorErrorKind::Internal,
+                    format!(
+                        "failed to inspect tree bundle path component '{}': {error}",
+                        current.display()
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_bundle_file_target(path: &Path) -> EditorResult<()> {
+    ensure_no_symlink_components(path)?;
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(_) => Err(EditorError::new(
+            EditorErrorKind::InvalidInput,
+            format!(
+                "tree bundle managed path '{}' is not a regular file",
+                path.display()
+            ),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(EditorError::new(
+            EditorErrorKind::Internal,
+            format!(
+                "failed to inspect tree bundle managed path '{}': {error}",
+                path.display()
+            ),
+        )),
+    }
+}
+
+fn validate_tree_bundle_targets(
+    destination: &Path,
+    previous_files: &BTreeSet<String>,
+    generated_files: &BTreeSet<String>,
+) -> EditorResult<()> {
+    validate_bundle_file_target(&destination.join(TREE_SITTER_BUNDLE_MANIFEST))?;
+    for relative in previous_files.union(generated_files) {
+        validate_bundle_file_target(&destination.join(relative))?;
+    }
+    Ok(())
+}
+
+fn populate_staged_tree_bundle(path: &Path) -> EditorResult<()> {
+    let queries_root = path.join("queries/fol");
+    let corpus_root = path.join("test/corpus");
+    let fixtures_root = path.join("test/fixtures");
+
+    write_staged_bundle_file(&path.join("grammar.js"), fol_tree_sitter_grammar())?;
+    for snapshot in fol_tree_sitter_query_snapshots() {
+        write_staged_bundle_file(
+            &queries_root.join(format!("{}.scm", snapshot.name)),
+            snapshot.query,
+        )?;
+    }
+    write_staged_bundle_file(&path.join("package.json"), TREE_SITTER_PACKAGE_JSON)?;
+    write_staged_bundle_file(&path.join("tree-sitter.json"), fol_tree_sitter_config())?;
+    for case in fol_tree_sitter_corpus() {
+        write_staged_bundle_file(&corpus_root.join(format!("{}.txt", case.name)), case.source)?;
+    }
+    write_staged_bundle_file(
+        &fixtures_root.join("showcase.fol"),
+        fol_tree_sitter_showcase_fixture(),
+    )
+}
+
+fn read_generated_tree_bundle_manifest(path: &Path) -> EditorResult<BTreeSet<String>> {
+    let manifest = path.join(TREE_SITTER_BUNDLE_MANIFEST);
+    validate_bundle_file_target(&manifest)?;
+    let contents = match std::fs::read_to_string(&manifest) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        Err(error) => {
+            return Err(EditorError::new(
+                EditorErrorKind::Internal,
+                format!("failed to read '{}': {error}", manifest.display()),
+            ));
+        }
+    };
+
+    let mut files = BTreeSet::new();
+    for relative in contents.lines().filter(|line| !line.is_empty()) {
+        let relative_path = Path::new(relative);
+        let is_safe = relative != TREE_SITTER_BUNDLE_MANIFEST
+            && relative_path
+                .components()
+                .all(|component| matches!(component, Component::Normal(_)));
+        if !is_safe {
+            return Err(EditorError::new(
+                EditorErrorKind::InvalidInput,
+                format!(
+                    "tree bundle manifest '{}' contains unsafe path '{relative}'",
+                    manifest.display()
+                ),
+            )
+            .with_note("refusing to remove files outside the generated bundle inventory"));
+        }
+        files.insert(relative.to_string());
+    }
+    Ok(files)
+}
+
+fn commit_staged_tree_bundle<BeforeCommit>(
+    destination: &Path,
+    staging: &mut TreeBundleStaging,
+    updated_existing_root: bool,
+    previous_files: &BTreeSet<String>,
+    generated_files: &BTreeSet<String>,
+    before_commit: &mut BeforeCommit,
+) -> EditorResult<()>
+where
+    BeforeCommit: FnMut(&Path) -> EditorResult<()>,
+{
+    validate_tree_bundle_targets(destination, previous_files, generated_files)?;
+
+    if !updated_existing_root {
+        before_commit(destination)?;
+        let mut created_directories = Vec::new();
+        let parent = destination
+            .parent()
+            .expect("destination parent was validated");
+        if let Err(error) = create_directory_path(parent, &mut created_directories) {
+            remove_created_directories(&created_directories);
+            return Err(error);
+        }
+        if let Err(error) = ensure_no_symlink_components(destination) {
+            remove_created_directories(&created_directories);
+            return Err(error);
+        }
+        match std::fs::rename(staging.path(), destination) {
+            Ok(()) => {
+                staging.keep();
+                return Ok(());
+            }
+            Err(error) => {
+                remove_created_directories(&created_directories);
+                return Err(EditorError::new(
+                    EditorErrorKind::Internal,
+                    format!(
+                        "failed to install staged tree bundle at '{}': {error}",
+                        destination.display()
+                    ),
+                ));
+            }
+        }
+    }
+
+    install_staged_tree_bundle_into_existing(
+        destination,
+        staging.path(),
+        previous_files,
+        generated_files,
+        before_commit,
+    )
+}
+
+fn install_staged_tree_bundle_into_existing<BeforeCommit>(
+    destination: &Path,
+    staging: &Path,
+    previous_files: &BTreeSet<String>,
+    generated_files: &BTreeSet<String>,
+    before_commit: &mut BeforeCommit,
+) -> EditorResult<()>
+where
+    BeforeCommit: FnMut(&Path) -> EditorResult<()>,
+{
+    let staged_files = generated_files
+        .iter()
+        .map(|relative| {
+            let staged = staging.join(relative);
+            validate_bundle_file_target(&staged)?;
+            let contents = std::fs::read(&staged).map_err(|error| {
+                EditorError::new(
+                    EditorErrorKind::Internal,
+                    format!(
+                        "failed to read staged asset '{}': {error}",
+                        staged.display()
+                    ),
+                )
+            })?;
+            Ok((relative.clone(), contents))
+        })
+        .collect::<EditorResult<Vec<_>>>()?;
+    let staged_manifest =
+        std::fs::read(staging.join(TREE_SITTER_BUNDLE_MANIFEST)).map_err(|error| {
+            EditorError::new(
+                EditorErrorKind::Internal,
+                format!("failed to read staged tree bundle manifest: {error}"),
+            )
+        })?;
+
+    let mut affected_files = previous_files
+        .union(generated_files)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    affected_files.insert(TREE_SITTER_BUNDLE_MANIFEST.to_string());
+    let snapshots = affected_files
+        .iter()
+        .map(|relative| capture_bundle_file_snapshot(&destination.join(relative)))
+        .collect::<EditorResult<Vec<_>>>()?;
+
+    let mut created_directories = Vec::new();
+    let commit_result = (|| {
+        for (relative, contents) in &staged_files {
+            let target = destination.join(relative);
+            before_commit(&target)?;
+            replace_bundle_file(&target, contents, &mut created_directories)?;
+        }
+
+        for relative in previous_files.difference(generated_files) {
+            let retired = destination.join(relative);
+            before_commit(&retired)?;
+            validate_bundle_file_target(&retired)?;
+            match std::fs::remove_file(&retired) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(EditorError::new(
+                        EditorErrorKind::Internal,
+                        format!(
+                            "failed to remove retired generated asset '{}': {error}",
+                            retired.display()
+                        ),
+                    ));
+                }
+            }
+        }
+
+        let manifest = destination.join(TREE_SITTER_BUNDLE_MANIFEST);
+        before_commit(&manifest)?;
+        replace_bundle_file(&manifest, &staged_manifest, &mut created_directories)
+    })();
+
+    if let Err(mut error) = commit_result {
+        match restore_bundle_file_snapshots(&snapshots, &created_directories) {
+            Ok(()) => error
+                .notes
+                .push("the destination bundle was restored after commit failed".to_string()),
+            Err(rollback_error) => error.notes.push(format!(
+                "tree bundle rollback also failed: {rollback_error}"
+            )),
+        }
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn capture_bundle_file_snapshot(path: &Path) -> EditorResult<BundleFileSnapshot> {
+    validate_bundle_file_target(path)?;
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            let contents = std::fs::read(path).map_err(|error| {
+                EditorError::new(
+                    EditorErrorKind::Internal,
+                    format!(
+                        "failed to snapshot bundle asset '{}': {error}",
+                        path.display()
+                    ),
+                )
+            })?;
+            Ok(BundleFileSnapshot {
+                path: path.to_path_buf(),
+                contents: Some(contents),
+                permissions: Some(metadata.permissions()),
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BundleFileSnapshot {
+            path: path.to_path_buf(),
+            contents: None,
+            permissions: None,
+        }),
+        Err(error) => Err(EditorError::new(
+            EditorErrorKind::Internal,
+            format!(
+                "failed to snapshot bundle asset '{}': {error}",
+                path.display()
+            ),
+        )),
+    }
+}
+
+fn replace_bundle_file(
+    path: &Path,
+    contents: &[u8],
+    created_directories: &mut Vec<PathBuf>,
+) -> EditorResult<()> {
+    ensure_no_symlink_components(path)?;
+    let parent = path.parent().ok_or_else(|| {
+        EditorError::new(
+            EditorErrorKind::InvalidInput,
+            format!("tree bundle file '{}' has no parent", path.display()),
+        )
+    })?;
+    create_directory_path(parent, created_directories)?;
+    ensure_no_symlink_components(path)?;
+
+    let mut temporary = None;
+    for _ in 0..128 {
+        let counter = TREE_BUNDLE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(
+            ".fol-tree-install-{}-{counter}",
+            std::process::id()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(mut file) => {
+                file.write_all(contents).map_err(|error| {
+                    let _ = std::fs::remove_file(&candidate);
+                    EditorError::new(
+                        EditorErrorKind::Internal,
+                        format!(
+                            "failed to write staged replacement for '{}': {error}",
+                            path.display()
+                        ),
+                    )
+                })?;
+                temporary = Some(candidate);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(EditorError::new(
+                    EditorErrorKind::Internal,
+                    format!(
+                        "failed to create staged replacement for '{}': {error}",
+                        path.display()
+                    ),
+                ));
+            }
+        }
+    }
+    let temporary = temporary.ok_or_else(|| {
+        EditorError::new(
+            EditorErrorKind::Internal,
+            format!(
+                "failed to reserve a staged replacement for '{}'",
+                path.display()
+            ),
+        )
+    })?;
+
+    #[cfg(windows)]
+    if path.exists() {
+        if let Err(error) = std::fs::remove_file(path) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(EditorError::new(
+                EditorErrorKind::Internal,
+                format!(
+                    "failed to replace bundle asset '{}': {error}",
+                    path.display()
+                ),
+            ));
+        }
+    }
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(EditorError::new(
+            EditorErrorKind::Internal,
+            format!(
+                "failed to replace bundle asset '{}': {error}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn create_directory_path(path: &Path, created: &mut Vec<PathBuf>) -> EditorResult<()> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    format!(
+                        "refusing to create tree bundle directory through symlink '{}'",
+                        current.display()
+                    ),
+                ));
+            }
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    format!(
+                        "tree bundle directory component '{}' is not a directory",
+                        current.display()
+                    ),
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::create_dir(&current).map_err(|error| {
+                    EditorError::new(
+                        EditorErrorKind::Internal,
+                        format!(
+                            "failed to create tree bundle directory '{}': {error}",
+                            current.display()
+                        ),
+                    )
+                })?;
+                created.push(current.clone());
+            }
+            Err(error) => {
+                return Err(EditorError::new(
+                    EditorErrorKind::Internal,
+                    format!(
+                        "failed to inspect tree bundle directory '{}': {error}",
+                        current.display()
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn restore_bundle_file_snapshots(
+    snapshots: &[BundleFileSnapshot],
+    created_directories: &[PathBuf],
+) -> Result<(), String> {
+    let mut rollback_errors = Vec::new();
+    let mut rollback_directories = Vec::new();
+
+    for snapshot in snapshots.iter().rev() {
+        match &snapshot.contents {
+            Some(contents) => {
+                if let Err(error) =
+                    replace_bundle_file(&snapshot.path, contents, &mut rollback_directories)
+                {
+                    rollback_errors.push(error.to_string());
+                    continue;
+                }
+                if let Some(permissions) = &snapshot.permissions {
+                    if let Err(error) =
+                        std::fs::set_permissions(&snapshot.path, permissions.clone())
+                    {
+                        rollback_errors.push(format!(
+                            "failed to restore permissions for '{}': {error}",
+                            snapshot.path.display()
+                        ));
+                    }
+                }
+            }
+            None => match std::fs::symlink_metadata(&snapshot.path) {
+                Ok(metadata) if metadata.is_file() || metadata.file_type().is_symlink() => {
+                    if let Err(error) = std::fs::remove_file(&snapshot.path) {
+                        rollback_errors.push(format!(
+                            "failed to remove newly installed asset '{}': {error}",
+                            snapshot.path.display()
+                        ));
+                    }
+                }
+                Ok(_) => rollback_errors.push(format!(
+                    "newly installed asset '{}' is no longer a file",
+                    snapshot.path.display()
+                )),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => rollback_errors.push(format!(
+                    "failed to inspect newly installed asset '{}': {error}",
+                    snapshot.path.display()
+                )),
+            },
+        }
+    }
+
+    remove_created_directories_collect(created_directories, &mut rollback_errors);
+    remove_created_directories_collect(&rollback_directories, &mut rollback_errors);
+    if rollback_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(rollback_errors.join("; "))
+    }
+}
+
+fn remove_created_directories(created_directories: &[PathBuf]) {
+    for directory in created_directories.iter().rev() {
+        let _ = std::fs::remove_dir(directory);
+    }
+}
+
+fn remove_created_directories_collect(created_directories: &[PathBuf], errors: &mut Vec<String>) {
+    for directory in created_directories.iter().rev() {
+        match std::fs::remove_dir(directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => errors.push(format!(
+                "failed to remove transaction directory '{}': {error}",
+                directory.display()
+            )),
+        }
+    }
+}
+
+fn write_generated_tree_bundle_manifest(
+    path: &Path,
+    generated_files: &BTreeSet<String>,
+) -> EditorResult<()> {
+    let mut contents = generated_files
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    contents.push('\n');
+    write_staged_bundle_file(&path.join(TREE_SITTER_BUNDLE_MANIFEST), &contents)
+}
+
+fn write_staged_bundle_file(path: &Path, contents: &str) -> EditorResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| {
             EditorError::new(
@@ -615,16 +1452,50 @@ mod tests {
         compiler_dot_intrinsic_names_csv, compiler_import_kinds_csv, editor_format_file,
         editor_highlight_file, editor_lsp_entrypoint, editor_parse_file, editor_references_file,
         editor_rename_file, editor_semantic_tokens_file, editor_symbols_file,
-        editor_tree_generate_bundle, semantic_token_legend_csv, sorted_query_captures,
+        editor_tree_generate_bundle, editor_tree_generate_bundle_with, fol_tree_sitter_corpus,
+        fol_tree_sitter_showcase_fixture, generated_tree_bundle_files, semantic_token_legend_csv,
+        TREE_SITTER_BUNDLE_MANIFEST, TREE_SITTER_CLI_GENERATED_FILES,
     };
-    use crate::{fol_tree_sitter_grammar, fol_tree_sitter_query_snapshots, LspPosition};
+    use crate::{
+        fol_tree_sitter_grammar, fol_tree_sitter_query_snapshots, EditorError, EditorErrorKind,
+        EditorResult, LspPosition,
+    };
+    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
+
+    mod v3_example_inventory {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../test/v3_example_inventory.rs"
+        ));
+    }
 
     fn repo_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../..")
             .canonicalize()
             .expect("repo root should resolve")
+    }
+
+    fn tree_bundle_test_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "fol_editor_tree_bundle_{label}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ))
+    }
+
+    fn seed_staged_parser_assets(staging: &Path) -> EditorResult<()> {
+        let checked_in = repo_root().join("lang/tooling/fol-editor/tree-sitter");
+        for relative in TREE_SITTER_CLI_GENERATED_FILES {
+            let destination = staging.join(relative);
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            std::fs::copy(checked_in.join(relative), destination).unwrap();
+        }
+        Ok(())
     }
 
     /// Builds a self-contained temp package whose entry file contains a
@@ -664,6 +1535,24 @@ mod tests {
         )
     }
 
+    fn numeric_detail(summary: &super::EditorCommandSummary, key: &str) -> usize {
+        summary
+            .details
+            .iter()
+            .find_map(|detail| detail.strip_prefix(key))
+            .unwrap_or_else(|| panic!("missing command detail '{key}'"))
+            .parse::<usize>()
+            .unwrap_or_else(|error| panic!("invalid numeric command detail '{key}': {error}"))
+    }
+
+    fn has_capture_text(summary: &super::EditorCommandSummary, text: &str) -> bool {
+        let suffix = format!(":{text}");
+        summary
+            .details
+            .iter()
+            .any(|detail| detail.starts_with("capture=") && detail.ends_with(&suffix))
+    }
+
     #[test]
     fn lsp_entrypoint_summary_is_stable() {
         let summary = editor_lsp_entrypoint().unwrap();
@@ -674,6 +1563,8 @@ mod tests {
         assert!(summary.summary.contains("references"));
         assert!(summary.summary.contains("rename"));
         assert!(summary.summary.contains("semantic tokens"));
+        assert!(summary.summary.contains("folding"));
+        assert!(summary.summary.contains("selection"));
         assert!(summary
             .details
             .iter()
@@ -682,7 +1573,7 @@ mod tests {
             .details
             .iter()
             .any(|detail| detail
-                == "features=diagnostics,hover,definition,formatting,codeAction,signatureHelp,references,rename,semanticTokens,symbols,completion"));
+                == "features=diagnostics,hover,definition,typeDefinition,implementation,documentHighlight,formatting,codeAction,signatureHelp,references,prepareRename,rename,semanticTokens,documentSymbols,workspaceSymbols,completion,inlayHint,foldingRange,selectionRange"));
     }
 
     #[test]
@@ -729,6 +1620,15 @@ mod tests {
             .any(|detail| detail == "style=hybrid-line"));
         assert!(parse.details.iter().any(|detail| detail.contains("path=")));
         assert!(parse.details.iter().any(|detail| detail.contains("lines=")));
+        assert!(parse
+            .details
+            .iter()
+            .any(|detail| detail == "parse_status=ok"));
+        assert!(parse.details.iter().any(|detail| detail == "error_count=0"));
+        assert!(parse
+            .details
+            .iter()
+            .any(|detail| detail.starts_with("syntax_tree=(source_file")));
         assert!(highlight
             .details
             .iter()
@@ -736,7 +1636,7 @@ mod tests {
         assert!(highlight
             .details
             .iter()
-            .any(|detail| detail.contains("captures=")));
+            .any(|detail| detail.starts_with("capture=")));
         assert!(highlight
             .details
             .iter()
@@ -747,7 +1647,11 @@ mod tests {
         assert!(symbols
             .details
             .iter()
-            .any(|detail| detail.contains("symbol_candidates=")));
+            .any(|detail| detail.starts_with("symbol_count=")));
+        assert!(symbols
+            .details
+            .iter()
+            .any(|detail| detail.starts_with("symbol=")));
         assert!(semantic_tokens
             .details
             .iter()
@@ -766,6 +1670,52 @@ mod tests {
             .any(|detail| detail.contains("edit_count=")));
 
         std::fs::remove_dir_all(format_root).ok();
+    }
+
+    #[test]
+    fn hosted_v3_semantic_commands_resolve_declared_bundled_std() {
+        let path = repo_root().join("examples/proc_spawn_m1/src/main.fol");
+        let semantic_tokens = editor_semantic_tokens_file(&path).unwrap();
+        let references = editor_references_file(
+            &path,
+            LspPosition {
+                line: 8,
+                character: 8,
+            },
+            true,
+        )
+        .unwrap();
+        let rename = editor_rename_file(
+            &path,
+            LspPosition {
+                line: 8,
+                character: 8,
+            },
+            "task",
+        )
+        .unwrap();
+
+        assert!(numeric_detail(&semantic_tokens, "token_count=") > 0);
+        assert_eq!(numeric_detail(&references, "reference_count="), 2);
+        assert_eq!(numeric_detail(&rename, "edit_count="), 2);
+    }
+
+    #[test]
+    fn semantic_commands_reject_documents_with_did_open_diagnostics() {
+        let (path, position) = rename_probe_package("diagnostic_rejection");
+        std::fs::write(&path, "fun[] main(: int = {\n    return missing;\n};\n").unwrap();
+
+        for error in [
+            editor_semantic_tokens_file(&path).unwrap_err(),
+            editor_references_file(&path, position, true).unwrap_err(),
+            editor_rename_file(&path, position, "renamed").unwrap_err(),
+        ] {
+            assert_eq!(error.kind, EditorErrorKind::InvalidInput);
+            assert!(error.message.contains("semantic analysis reported"));
+            assert!(error.message.contains("[P1001]"));
+        }
+
+        std::fs::remove_dir_all(path.parent().and_then(Path::parent).unwrap()).ok();
     }
 
     #[test]
@@ -801,8 +1751,6 @@ mod tests {
         let (rename_path, rename_position) = rename_probe_package("real_fixtures");
         let rename = editor_rename_file(&rename_path, rename_position, "count").unwrap();
         std::fs::remove_dir_all(rename_path.parent().and_then(Path::parent).unwrap()).ok();
-        let highlight_captures = sorted_query_captures(crate::fol_tree_sitter_highlights_query());
-
         let showcase_text = std::fs::read_to_string(&showcase).unwrap();
         let showcase_lines = showcase_text.lines().count();
         let showcase_bytes = showcase_text.len();
@@ -819,51 +1767,71 @@ mod tests {
             ]
         );
         assert_eq!(parse.command, "parse");
-        assert_eq!(
-            parse.details,
-            vec![
-                format!("path={}", showcase.display()),
-                format!("lines={showcase_lines}"),
-                format!("bytes={showcase_bytes}"),
-                format!("grammar_bytes={}", fol_tree_sitter_grammar().len()),
-            ]
-        );
+        assert_eq!(parse.details[0], format!("path={}", showcase.display()));
+        assert_eq!(parse.details[1], format!("lines={showcase_lines}"));
+        assert_eq!(parse.details[2], format!("bytes={showcase_bytes}"));
+        assert!(parse
+            .details
+            .iter()
+            .any(|detail| detail == "parse_status=ok"));
+        assert!(parse.details.iter().any(|detail| detail == "error_count=0"));
+        assert!(parse
+            .details
+            .iter()
+            .any(|detail| detail.starts_with("syntax_tree=(source_file")));
         assert_eq!(highlight.command, "highlight");
+        assert_eq!(highlight.details[0], format!("path={}", showcase.display()));
+        assert_eq!(highlight.details[1], format!("lines={showcase_lines}"));
         assert_eq!(
-            highlight.details,
-            vec![
-                format!("path={}", showcase.display()),
-                format!("lines={showcase_lines}"),
-                format!(
-                    "query_bytes={}",
-                    crate::fol_tree_sitter_highlights_query().len()
-                ),
-                format!("capture_count={}", highlight_captures.len()),
-                format!("captures={}", highlight_captures.join(",")),
-                format!("import_kinds={}", compiler_import_kinds_csv()),
-                format!("intrinsic_names={}", compiler_dot_intrinsic_names_csv()),
-            ]
+            highlight.details[2],
+            format!(
+                "query_bytes={}",
+                crate::fol_tree_sitter_highlights_query().len()
+            )
         );
+        let capture_count = highlight.details[3]
+            .strip_prefix("capture_count=")
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        assert!(capture_count > 0);
+        assert!(highlight
+            .details
+            .iter()
+            .any(|detail| detail == "parse_status=ok"));
+        assert!(highlight
+            .details
+            .iter()
+            .any(|detail| detail.starts_with("capture=")));
+        assert!(highlight
+            .details
+            .iter()
+            .any(|detail| detail == &format!("import_kinds={}", compiler_import_kinds_csv())));
+        assert!(highlight.details.iter().any(|detail| {
+            detail == &format!("intrinsic_names={}", compiler_dot_intrinsic_names_csv())
+        }));
         let package_text = std::fs::read_to_string(&package).unwrap();
         let package_lines = package_text.lines().count();
-        let package_symbol_candidates = package_text.matches("fun ").count()
-            + package_text.matches("log ").count()
-            + package_text.matches("typ ").count()
-            + package_text.matches("ali ").count();
 
         assert_eq!(symbols.command, "symbols");
-        assert_eq!(
-            symbols.details,
-            vec![
-                format!("path={}", package.display()),
-                format!("lines={package_lines}"),
-                format!("symbol_candidates={package_symbol_candidates}"),
-                format!(
-                    "query_snapshots={}",
-                    fol_tree_sitter_query_snapshots().len()
-                ),
-            ]
-        );
+        assert_eq!(symbols.details[0], format!("path={}", package.display()));
+        assert_eq!(symbols.details[1], format!("lines={package_lines}"));
+        let symbol_count = symbols
+            .details
+            .iter()
+            .find_map(|detail| detail.strip_prefix("symbol_count="))
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        assert!(symbol_count > 0);
+        assert!(symbols
+            .details
+            .iter()
+            .any(|detail| detail == "parse_status=ok"));
+        assert!(symbols
+            .details
+            .iter()
+            .any(|detail| detail.starts_with("symbol=")));
         assert_eq!(semantic_tokens.command, "semantic-tokens");
         assert_eq!(
             semantic_tokens.details[0],
@@ -925,6 +1893,152 @@ mod tests {
     }
 
     #[test]
+    fn v3_tool_commands_execute_every_canonical_positive_example() {
+        let root = repo_root();
+        v3_example_inventory::assert_checked_in_example_directories(&root);
+
+        for example in v3_example_inventory::positive_example_paths() {
+            let relative = format!("{example}/src/main.fol");
+            let path = root.join(&relative);
+            let parse = editor_parse_file(&path)
+                .unwrap_or_else(|error| panic!("parse command failed for {relative}: {error}"));
+            let highlight = editor_highlight_file(&path)
+                .unwrap_or_else(|error| panic!("highlight command failed for {relative}: {error}"));
+            let symbols = editor_symbols_file(&path)
+                .unwrap_or_else(|error| panic!("symbols command failed for {relative}: {error}"));
+
+            assert!(
+                parse
+                    .details
+                    .iter()
+                    .any(|detail| detail == "parse_status=ok"),
+                "canonical V3 example did not parse cleanly: {relative}\n{:#?}",
+                parse.details
+            );
+            assert!(
+                parse
+                    .details
+                    .iter()
+                    .any(|detail| detail.starts_with("syntax_tree=(source_file")),
+                "parse command did not return the real syntax tree for {relative}"
+            );
+            assert_eq!(numeric_detail(&parse, "error_count="), 0, "{relative}");
+            assert_eq!(numeric_detail(&parse, "missing_count="), 0, "{relative}");
+
+            assert!(
+                numeric_detail(&highlight, "capture_count=") > 0,
+                "highlight query returned no captures for {relative}"
+            );
+            assert!(
+                highlight
+                    .details
+                    .iter()
+                    .any(|detail| detail.starts_with("capture=")),
+                "highlight command returned only query metadata for {relative}"
+            );
+            assert!(
+                numeric_detail(&symbols, "symbol_count=") > 0,
+                "symbol query returned no symbols for {relative}"
+            );
+            assert!(
+                symbols
+                    .details
+                    .iter()
+                    .any(|detail| detail.starts_with("symbol=symbol.function@")
+                        && detail.ends_with(":main")),
+                "symbol query did not return the main routine for {relative}\n{:#?}",
+                symbols.details
+            );
+        }
+    }
+
+    #[test]
+    fn removed_select_call_form_reports_a_real_tree_sitter_error() {
+        let path = repo_root().join("examples/fail_proc_select_old_form_m3/src/main.fol");
+        let parse = editor_parse_file(&path).expect("error-tolerant parse command should succeed");
+
+        assert!(parse
+            .details
+            .iter()
+            .any(|detail| detail == "parse_status=ERROR"));
+        assert!(numeric_detail(&parse, "error_count=") > 0);
+        assert!(parse
+            .details
+            .iter()
+            .any(|detail| detail.starts_with("error=ERROR@")));
+        assert!(parse
+            .details
+            .iter()
+            .any(|detail| detail.contains("syntax_tree=") && detail.contains("(ERROR)")));
+    }
+
+    #[test]
+    fn public_tree_commands_accept_compiler_comment_and_raw_quote_boundaries() {
+        let root = std::env::temp_dir().join(format!(
+            "fol_editor_tree_lexical_boundaries_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("lexical.fol");
+        std::fs::write(
+            &path,
+            concat!(
+                "/* block comment with [>] { }\nsecond line */\n",
+                "` backtick comment with dfr {\n",
+                "edf { counter[mux] } } `\n",
+                "`[doc] documentation with #view\n",
+                "and !view`\n",
+                "fun[] main(): str = {\n",
+                "    var raw: str = 'raw [>] text\nwith braces { }';\n",
+                "    var empty: str = '';\n",
+                "    var character: chr = 'z';\n",
+                "    return raw;\n",
+                "};\n",
+            ),
+        )
+        .unwrap();
+
+        let parse = editor_parse_file(&path).expect("public parse command should succeed");
+        assert!(parse
+            .details
+            .iter()
+            .any(|detail| detail == "parse_status=ok"));
+        assert_eq!(numeric_detail(&parse, "error_count="), 0);
+        assert_eq!(numeric_detail(&parse, "missing_count="), 0);
+        assert!(parse.details.iter().any(|detail| {
+            detail.starts_with("syntax_tree=")
+                && detail.contains("(doc_comment)")
+                && detail.contains("(raw_string_literal)")
+                && detail.contains("(char_literal)")
+        }));
+
+        let highlight =
+            editor_highlight_file(&path).expect("public highlight command should succeed");
+        for capture in ["capture=comment@", "capture=comment.documentation@"] {
+            assert!(
+                highlight
+                    .details
+                    .iter()
+                    .any(|detail| detail.starts_with(capture)),
+                "public highlight command lost '{capture}': {:#?}",
+                highlight.details
+            );
+        }
+        assert!(has_capture_text(&highlight, "''"));
+        assert!(has_capture_text(&highlight, "'z'"));
+        assert!(highlight.details.iter().any(|detail| {
+            detail.starts_with("capture=string@")
+                && detail.ends_with(":'raw [>] text\\nwith braces { }'")
+        }));
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn command_summary_metadata_helpers_stay_in_sync_with_compiler_facts() {
         let expected_import_kinds = fol_typecheck::editor_source_kind_names().join(",");
         assert_eq!(compiler_import_kinds_csv(), expected_import_kinds);
@@ -964,10 +2078,19 @@ mod tests {
         assert!(root.join("queries/fol/locals.scm").is_file());
         assert!(root.join("queries/fol/symbols.scm").is_file());
         assert!(root.join("test/corpus/declarations.txt").is_file());
+        assert!(root.join("test/fixtures/showcase.fol").is_file());
         assert!(summary
             .details
             .iter()
             .any(|detail| detail.contains("query_files=3")));
+        assert!(summary
+            .details
+            .iter()
+            .any(|detail| detail == "corpus_files=9"));
+        assert!(summary
+            .details
+            .iter()
+            .any(|detail| detail == "fixture_files=1"));
         assert!(summary
             .details
             .iter()
@@ -1032,6 +2155,19 @@ mod tests {
                 snapshot.query
             );
         }
+        for case in fol_tree_sitter_corpus() {
+            assert_eq!(
+                std::fs::read_to_string(
+                    root.join("test/corpus").join(format!("{}.txt", case.name))
+                )
+                .unwrap(),
+                case.source
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.join("test/fixtures/showcase.fol")).unwrap(),
+            fol_tree_sitter_showcase_fixture()
+        );
 
         std::fs::remove_dir_all(root).ok();
     }
@@ -1075,7 +2211,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_generate_bundle_clears_existing_output_roots() {
+    fn tree_generate_bundle_cleans_only_manifest_owned_files() {
         let root = std::env::temp_dir().join(format!(
             "fol_editor_tree_bundle_stale_{}_{}",
             std::process::id(),
@@ -1084,18 +2220,302 @@ mod tests {
                 .expect("system time should be after epoch")
                 .as_nanos()
         ));
-        let stale_file = root.join("queries/fol/stale.scm");
-        std::fs::create_dir_all(stale_file.parent().unwrap()).unwrap();
-        std::fs::write(&stale_file, "(broken)").unwrap();
+        let unmanaged_file = root.join("editor-notes.txt");
+        let unmanaged_query = root.join("queries/fol/custom.scm");
+        let retired_query = root.join("queries/fol/retired.scm");
+        std::fs::create_dir_all(unmanaged_query.parent().unwrap()).unwrap();
+        std::fs::write(&unmanaged_file, "keep this").unwrap();
+        std::fs::write(&unmanaged_query, "(identifier) @custom").unwrap();
+        std::fs::write(&retired_query, "(identifier) @retired").unwrap();
+        std::fs::write(
+            root.join(TREE_SITTER_BUNDLE_MANIFEST),
+            "queries/fol/retired.scm\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("grammar.js"), "stale grammar").unwrap();
 
         let summary = editor_tree_generate_bundle(&root).unwrap();
 
-        assert!(!stale_file.exists());
+        assert_eq!(
+            std::fs::read_to_string(&unmanaged_file).unwrap(),
+            "keep this"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&unmanaged_query).unwrap(),
+            "(identifier) @custom"
+        );
+        assert!(!retired_query.exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
+            fol_tree_sitter_grammar()
+        );
+        let manifest = std::fs::read_to_string(root.join(TREE_SITTER_BUNDLE_MANIFEST)).unwrap();
+        assert_eq!(
+            manifest.lines().collect::<BTreeSet<_>>(),
+            generated_tree_bundle_files()
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+        );
         assert!(summary
             .details
             .iter()
-            .any(|detail| detail == "cleaned_existing_root=true"));
+            .any(|detail| detail == "updated_existing_root=true"));
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tree_generate_bundle_rejects_unsafe_manifest_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "fol_editor_tree_bundle_unsafe_manifest_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        let outside = root.with_extension("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&outside, "keep this").unwrap();
+        std::fs::write(
+            root.join(TREE_SITTER_BUNDLE_MANIFEST),
+            format!("../{}\n", outside.file_name().unwrap().to_string_lossy()),
+        )
+        .unwrap();
+
+        let error = editor_tree_generate_bundle(&root).unwrap_err();
+
+        assert_eq!(error.kind, EditorErrorKind::InvalidInput);
+        assert!(error.message.contains("unsafe path"));
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep this");
+        assert!(!root.join("grammar.js").exists());
+
+        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_file(outside).ok();
+    }
+
+    #[test]
+    fn tree_generate_bundle_generator_failure_leaves_destination_unchanged() {
+        let root = tree_bundle_test_root("failed_generator");
+        let retired = root.join("legacy/retired.scm");
+        std::fs::create_dir_all(retired.parent().unwrap()).unwrap();
+        std::fs::write(root.join("grammar.js"), "old grammar").unwrap();
+        std::fs::write(&retired, "old retired query").unwrap();
+        std::fs::write(root.join("editor-notes.txt"), "user owned").unwrap();
+        std::fs::write(
+            root.join(TREE_SITTER_BUNDLE_MANIFEST),
+            "legacy/retired.scm\n",
+        )
+        .unwrap();
+
+        let error = editor_tree_generate_bundle_with(
+            &root,
+            |_| {
+                Err(EditorError::new(
+                    EditorErrorKind::Internal,
+                    "forced parser generation failure",
+                ))
+            },
+            |_| Ok(()),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.message, "forced parser generation failure");
+        assert_eq!(
+            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
+            "old grammar"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&retired).unwrap(),
+            "old retired query"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("editor-notes.txt")).unwrap(),
+            "user owned"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(TREE_SITTER_BUNDLE_MANIFEST)).unwrap(),
+            "legacy/retired.scm\n"
+        );
+        assert!(!root.join("package.json").exists());
+        assert!(!root.join("queries").exists());
+        assert!(!root.join("src").exists());
+        assert!(!root.join("test").exists());
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tree_generate_bundle_missing_staged_parser_leaves_destination_unchanged() {
+        let root = tree_bundle_test_root("missing_staged_parser");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("grammar.js"), "old grammar").unwrap();
+        std::fs::write(root.join(TREE_SITTER_BUNDLE_MANIFEST), "grammar.js\n").unwrap();
+
+        let error = editor_tree_generate_bundle_with(&root, |_| Ok(()), |_| Ok(())).unwrap_err();
+
+        assert!(error.message.contains("did not produce"));
+        assert!(error
+            .notes
+            .iter()
+            .any(|note| note == "the destination bundle was not changed"));
+        assert_eq!(
+            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
+            "old grammar"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(TREE_SITTER_BUNDLE_MANIFEST)).unwrap(),
+            "grammar.js\n"
+        );
+        assert!(!root.join("package.json").exists());
+        assert!(!root.join("queries").exists());
+        assert!(!root.join("src").exists());
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tree_generate_bundle_commit_failure_rolls_back_every_managed_asset() {
+        let root = tree_bundle_test_root("failed_commit");
+        let retired = root.join("legacy/retired.scm");
+        std::fs::create_dir_all(retired.parent().unwrap()).unwrap();
+        std::fs::write(root.join("grammar.js"), "old grammar").unwrap();
+        std::fs::write(&retired, "old retired query").unwrap();
+        std::fs::write(root.join("editor-notes.txt"), "user owned").unwrap();
+        std::fs::write(
+            root.join(TREE_SITTER_BUNDLE_MANIFEST),
+            "legacy/retired.scm\n",
+        )
+        .unwrap();
+
+        let error = editor_tree_generate_bundle_with(&root, seed_staged_parser_assets, |target| {
+            if target.ends_with(TREE_SITTER_BUNDLE_MANIFEST) {
+                Err(EditorError::new(
+                    EditorErrorKind::Internal,
+                    "forced manifest commit failure",
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+
+        assert_eq!(error.message, "forced manifest commit failure");
+        assert!(error
+            .notes
+            .iter()
+            .any(|note| note.contains("destination bundle was restored")));
+        assert_eq!(
+            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
+            "old grammar"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&retired).unwrap(),
+            "old retired query"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("editor-notes.txt")).unwrap(),
+            "user owned"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(TREE_SITTER_BUNDLE_MANIFEST)).unwrap(),
+            "legacy/retired.scm\n"
+        );
+        assert!(!root.join("package.json").exists());
+        assert!(!root.join("queries").exists());
+        assert!(!root.join("src").exists());
+        assert!(!root.join("test").exists());
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tree_generate_bundle_failure_does_not_create_missing_destination_parents() {
+        let base = tree_bundle_test_root("missing_parent");
+        let root = base.join("missing/target");
+        std::fs::create_dir_all(&base).unwrap();
+
+        editor_tree_generate_bundle_with(
+            &root,
+            |_| {
+                Err(EditorError::new(
+                    EditorErrorKind::Internal,
+                    "forced parser generation failure",
+                ))
+            },
+            |_| Ok(()),
+        )
+        .unwrap_err();
+
+        assert!(!base.join("missing").exists());
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tree_generate_bundle_rejects_root_and_managed_file_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let base = tree_bundle_test_root("symlink_roots");
+        let actual_root = base.join("actual");
+        let linked_root = base.join("linked");
+        let outside = base.join("outside.txt");
+        std::fs::create_dir_all(&actual_root).unwrap();
+        std::fs::write(&outside, "outside sentinel").unwrap();
+        symlink(&actual_root, &linked_root).unwrap();
+
+        let root_error = editor_tree_generate_bundle(&linked_root).unwrap_err();
+        assert_eq!(root_error.kind, EditorErrorKind::InvalidInput);
+        assert!(root_error.message.contains("symlink component"));
+
+        symlink(&outside, actual_root.join("grammar.js")).unwrap();
+        let file_error = editor_tree_generate_bundle(&actual_root).unwrap_err();
+        assert_eq!(file_error.kind, EditorErrorKind::InvalidInput);
+        assert!(file_error.message.contains("symlink component"));
+        assert_eq!(
+            std::fs::read_to_string(&outside).unwrap(),
+            "outside sentinel"
+        );
+
+        std::fs::remove_file(linked_root).ok();
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tree_generate_bundle_rejects_intermediate_and_retired_symlink_paths() {
+        use std::os::unix::fs::symlink;
+
+        let base = tree_bundle_test_root("symlink_components");
+        let outside = base.join("outside");
+        let generated_root = base.join("generated-root");
+        let retired_root = base.join("retired-root");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(&generated_root).unwrap();
+        std::fs::create_dir_all(&retired_root).unwrap();
+
+        symlink(&outside, generated_root.join("queries")).unwrap();
+        let generated_error = editor_tree_generate_bundle(&generated_root).unwrap_err();
+        assert_eq!(generated_error.kind, EditorErrorKind::InvalidInput);
+        assert!(generated_error.message.contains("symlink component"));
+        assert!(!outside.join("fol/highlights.scm").exists());
+
+        std::fs::write(outside.join("retired.scm"), "outside retired sentinel").unwrap();
+        symlink(&outside, retired_root.join("legacy")).unwrap();
+        std::fs::write(
+            retired_root.join(TREE_SITTER_BUNDLE_MANIFEST),
+            "legacy/retired.scm\n",
+        )
+        .unwrap();
+        let retired_error = editor_tree_generate_bundle(&retired_root).unwrap_err();
+        assert_eq!(retired_error.kind, EditorErrorKind::InvalidInput);
+        assert!(retired_error.message.contains("symlink component"));
+        assert_eq!(
+            std::fs::read_to_string(outside.join("retired.scm")).unwrap(),
+            "outside retired sentinel"
+        );
+
+        std::fs::remove_dir_all(base).ok();
     }
 }

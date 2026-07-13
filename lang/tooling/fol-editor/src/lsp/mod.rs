@@ -9,16 +9,16 @@ pub use transport::run_lsp_stdio;
 pub(crate) use transport::run_lsp_stdio_with_io;
 pub use types::{
     EditorCompletionItem, JsonRpcError, JsonRpcId, JsonRpcNotification, JsonRpcRequest,
-    JsonRpcResponse, LspCodeAction, LspCodeActionContext, LspCodeActionParams, LspCodeLens,
-    LspCodeLensOptions, LspCodeLensParams, LspCompletionContext, LspCompletionItem,
-    LspCompletionList, LspCompletionOptions, LspCompletionParams, LspDefinitionParams,
-    LspDidChangeTextDocumentParams, LspDidCloseTextDocumentParams, LspDidOpenTextDocumentParams,
-    LspDocumentFormattingParams, LspDocumentHighlight, LspDocumentSymbol, LspDocumentSymbolParams,
-    LspFoldingRange, LspFoldingRangeParams, LspHover, LspHoverParams, LspInitializeParams,
-    LspInitializeResult, LspInlayHint, LspInlayHintParams, LspParameterInformation,
-    LspPrepareRenameResult, LspPublishDiagnosticsParams, LspReferenceContext, LspReferenceParams,
-    LspRenameOptions, LspRenameParams, LspSelectionRange, LspSelectionRangeParams,
-    LspSemanticTokens, LspSemanticTokensLegend, LspSemanticTokensOptions, LspSemanticTokensParams,
+    JsonRpcResponse, LspCodeAction, LspCodeActionContext, LspCodeActionParams,
+    LspCompletionContext, LspCompletionItem, LspCompletionList, LspCompletionOptions,
+    LspCompletionParams, LspDefinitionParams, LspDidChangeTextDocumentParams,
+    LspDidCloseTextDocumentParams, LspDidOpenTextDocumentParams, LspDocumentFormattingParams,
+    LspDocumentHighlight, LspDocumentSymbol, LspDocumentSymbolParams, LspFoldingRange,
+    LspFoldingRangeParams, LspHover, LspHoverParams, LspInitializeParams, LspInitializeResult,
+    LspInlayHint, LspInlayHintParams, LspParameterInformation, LspPrepareRenameResult,
+    LspPublishDiagnosticsParams, LspReferenceContext, LspReferenceParams, LspRenameOptions,
+    LspRenameParams, LspSelectionRange, LspSelectionRangeParams, LspSemanticTokens,
+    LspSemanticTokensLegend, LspSemanticTokensOptions, LspSemanticTokensParams,
     LspServerCapabilities, LspServerInfo, LspSignatureHelp, LspSignatureHelpOptions,
     LspSignatureHelpParams, LspSignatureInformation, LspTextDocumentContentChangeEvent,
     LspTextDocumentIdentifier, LspTextDocumentItem, LspTextDocumentSyncOptions, LspTextEdit,
@@ -74,6 +74,58 @@ fn identifier_positions_before(line: &str, before: usize) -> Vec<u32> {
     positions
 }
 
+fn bracket_role_operand(
+    line: &str,
+    role_span: &(usize, usize, String),
+    require_trailing_colon: bool,
+) -> Option<(u32, String)> {
+    let chars = line.chars().collect::<Vec<_>>();
+    let (role_start, role_end, _) = role_span;
+
+    let mut cursor = *role_start;
+    while cursor > 0 && chars[cursor - 1].is_whitespace() {
+        cursor -= 1;
+    }
+    if cursor == 0 || chars[cursor - 1] != '[' {
+        return None;
+    }
+    let open_bracket = cursor - 1;
+
+    cursor = *role_end;
+    while cursor < chars.len() && chars[cursor].is_whitespace() {
+        cursor += 1;
+    }
+    if cursor >= chars.len() || chars[cursor] != ']' {
+        return None;
+    }
+    cursor += 1;
+    if require_trailing_colon {
+        while cursor < chars.len() && chars[cursor].is_whitespace() {
+            cursor += 1;
+        }
+        if cursor >= chars.len() || chars[cursor] != ':' {
+            return None;
+        }
+    }
+
+    cursor = open_bracket;
+    while cursor > 0 && chars[cursor - 1].is_whitespace() {
+        cursor -= 1;
+    }
+    let operand_end = cursor;
+    while cursor > 0 && (chars[cursor - 1].is_alphanumeric() || chars[cursor - 1] == '_') {
+        cursor -= 1;
+    }
+    if cursor == operand_end || !(chars[cursor].is_alphabetic() || chars[cursor] == '_') {
+        return None;
+    }
+
+    Some((
+        cursor as u32,
+        chars[cursor..operand_end].iter().collect::<String>(),
+    ))
+}
+
 fn identifier_position_after(line: &str, after: usize) -> Option<u32> {
     let chars = line.chars().collect::<Vec<_>>();
     let mut cursor = after.min(chars.len());
@@ -82,9 +134,150 @@ fn identifier_position_after(line: &str, after: usize) -> Option<u32> {
     }
     (cursor < chars.len()).then_some(cursor as u32)
 }
+
+fn scalar_position_for_document(
+    document: &EditorDocument,
+    position: LspPosition,
+) -> EditorResult<LspPosition> {
+    crate::positions::utf16_position_to_scalar_tolerant(&document.text, position).ok_or_else(|| {
+        EditorError::new(
+            EditorErrorKind::InvalidInput,
+            format!(
+                "invalid UTF-16 position {}:{} for '{}'",
+                position.line,
+                position.character,
+                document.uri.as_str()
+            ),
+        )
+    })
+}
+
+fn scalar_range_for_document(document: &EditorDocument, range: LspRange) -> EditorResult<LspRange> {
+    crate::positions::utf16_range_to_scalar_tolerant(&document.text, range).ok_or_else(|| {
+        EditorError::new(
+            EditorErrorKind::InvalidInput,
+            format!("invalid UTF-16 range for '{}'", document.uri.as_str()),
+        )
+    })
+}
+
+fn canonical_file_uri(uri: &str) -> Option<EditorDocumentUri> {
+    EditorDocumentUri::parse(uri).ok().or_else(|| {
+        uri.strip_prefix("file://")
+            .map(std::path::PathBuf::from)
+            .and_then(|path| EditorDocumentUri::from_file_path(path).ok())
+    })
+}
+
+fn source_text_for_uri<'a>(
+    session: &'a EditorSession,
+    uri: &EditorDocumentUri,
+) -> Option<std::borrow::Cow<'a, str>> {
+    if let Some(document) = session.documents.get(uri) {
+        return Some(std::borrow::Cow::Borrowed(&document.text));
+    }
+    std::fs::read_to_string(uri.to_file_path().ok()?)
+        .ok()
+        .map(std::borrow::Cow::Owned)
+}
+
+fn location_to_utf16(session: &EditorSession, location: &mut LspLocation) {
+    let Some(uri) = canonical_file_uri(&location.uri) else {
+        return;
+    };
+    if let Some(text) = source_text_for_uri(session, &uri) {
+        if let Some(range) = crate::positions::scalar_range_to_utf16(&text, location.range) {
+            location.range = range;
+        }
+    }
+    location.uri = uri.as_str().to_string();
+}
+
+fn diagnostic_to_utf16(
+    session: &EditorSession,
+    current_document: &EditorDocument,
+    diagnostic: &mut crate::LspDiagnostic,
+) {
+    if let Some(range) =
+        crate::positions::scalar_range_to_utf16(&current_document.text, diagnostic.range)
+    {
+        diagnostic.range = range;
+    }
+    for related in &mut diagnostic.related_information {
+        location_to_utf16(session, &mut related.location);
+    }
+}
+
+fn diagnostic_to_utf16_for_uri(
+    session: &EditorSession,
+    uri: &str,
+    diagnostic: &mut crate::LspDiagnostic,
+) {
+    if let Ok(uri) = EditorDocumentUri::parse(uri) {
+        if let Some(text) = source_text_for_uri(session, &uri) {
+            if let Some(range) = crate::positions::scalar_range_to_utf16(&text, diagnostic.range) {
+                diagnostic.range = range;
+            }
+        }
+    }
+    for related in &mut diagnostic.related_information {
+        location_to_utf16(session, &mut related.location);
+    }
+}
+
+fn diagnostic_to_scalar(current_document: &EditorDocument, diagnostic: &mut crate::LspDiagnostic) {
+    if let Some(range) =
+        crate::positions::utf16_range_to_scalar_tolerant(&current_document.text, diagnostic.range)
+    {
+        diagnostic.range = range;
+    }
+}
+
+fn workspace_edit_to_utf16(session: &EditorSession, edit: &mut LspWorkspaceEdit) {
+    let changes = std::mem::take(&mut edit.changes);
+    for (raw_uri, mut edits) in changes {
+        let Some(uri) = canonical_file_uri(&raw_uri) else {
+            edit.changes.insert(raw_uri, edits);
+            continue;
+        };
+        if let Some(text) = source_text_for_uri(session, &uri) {
+            for edit in &mut edits {
+                if let Some(range) = crate::positions::scalar_range_to_utf16(&text, edit.range) {
+                    edit.range = range;
+                }
+            }
+        }
+        edit.changes
+            .entry(uri.as_str().to_string())
+            .or_default()
+            .append(&mut edits);
+    }
+}
+
+fn document_symbol_to_utf16(text: &str, symbol: &mut LspDocumentSymbol) {
+    if let Some(range) = crate::positions::scalar_range_to_utf16(text, symbol.range) {
+        symbol.range = range;
+    }
+    if let Some(range) = crate::positions::scalar_range_to_utf16(text, symbol.selection_range) {
+        symbol.selection_range = range;
+    }
+    for child in &mut symbol.children {
+        document_symbol_to_utf16(text, child);
+    }
+}
+
+fn selection_range_to_utf16(text: &str, selection: &mut LspSelectionRange) {
+    if let Some(range) = crate::positions::scalar_range_to_utf16(text, selection.range) {
+        selection.range = range;
+    }
+    if let Some(parent) = selection.parent.as_mut() {
+        selection_range_to_utf16(text, parent);
+    }
+}
+
 use crate::workspace::discover_workspace_roots;
 use analysis::analyze_document_semantics;
-use completion_helpers::completion_context_with_lsp;
+use completion_helpers::{completion_context_with_lsp, completion_cursor_is_protected};
 use std::fs;
 use std::sync::Arc;
 use transport::from_params;
@@ -95,12 +288,21 @@ pub(crate) fn semantic_token_type_names() -> &'static [&'static str] {
 
 pub struct EditorLspServer {
     pub session: EditorSession,
+    /// Last per-URI diagnostic groups contributed by each open document's
+    /// compiler analysis. Keeping ownership lets a change/close publish empty
+    /// groups for stale dependency diagnostics without clearing a URI that is
+    /// still diagnosed by another open document.
+    published_diagnostics_by_document: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, Vec<crate::LspDiagnostic>>,
+    >,
 }
 
 impl EditorLspServer {
     pub fn new(config: EditorConfig) -> Self {
         Self {
             session: EditorSession::new(config),
+            published_diagnostics_by_document: std::collections::BTreeMap::new(),
         }
     }
 
@@ -115,6 +317,7 @@ impl EditorLspServer {
                 result: Some(
                     serde_json::to_value(LspInitializeResult {
                         capabilities: LspServerCapabilities {
+                            position_encoding: "utf-16".to_string(),
                             text_document_sync: LspTextDocumentSyncOptions {
                                 open_close: true,
                                 change: if self.session.config.full_document_sync {
@@ -156,9 +359,6 @@ impl EditorLspServer {
                             folding_range_provider: Some(true),
                             selection_range_provider: Some(true),
                             inlay_hint_provider: Some(true),
-                            code_lens_provider: Some(LspCodeLensOptions {
-                                resolve_provider: false,
-                            }),
                         },
                         server_info: LspServerInfo {
                             name: "fol-editor".to_string(),
@@ -417,17 +617,6 @@ impl EditorLspServer {
                     error: None,
                 }))
             }
-            "textDocument/codeLens" => {
-                let params: LspCodeLensParams = from_params(request.params)?;
-                let result =
-                    self.code_lenses(&EditorDocumentUri::parse(&params.text_document.uri)?)?;
-                Ok(Some(JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id: request.id,
-                    result: Some(serialize_result(&result)?),
-                    error: None,
-                }))
-            }
             _ => Ok(Some(JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id: request.id,
@@ -444,7 +633,6 @@ impl EditorLspServer {
         &mut self,
         notification: JsonRpcNotification,
     ) -> EditorResult<Vec<LspPublishDiagnosticsParams>> {
-        use crate::LspPublishDiagnosticsParams;
         match notification.method.as_str() {
             "initialized" => Ok(Vec::new()),
             "exit" => {
@@ -466,8 +654,7 @@ impl EditorLspServer {
                 self.session.documents.open(document);
                 self.session.diagnostic_snapshots.remove(uri.as_str());
                 self.session.semantic_snapshots.remove(uri.as_str());
-                let diagnostics = self.publish_diagnostics(&uri)?;
-                Ok(vec![diagnostics])
+                self.publish_analysis_diagnostics(&uri)
             }
             "textDocument/didChange" => {
                 let params: LspDidChangeTextDocumentParams = from_params(notification.params)?;
@@ -496,8 +683,7 @@ impl EditorLspServer {
                 }
                 self.session.diagnostic_snapshots.remove(uri.as_str());
                 self.session.semantic_snapshots.remove(uri.as_str());
-                let diagnostics = self.publish_diagnostics(&uri)?;
-                Ok(vec![diagnostics])
+                self.publish_analysis_diagnostics(&uri)
             }
             "textDocument/didClose" => {
                 let params: LspDidCloseTextDocumentParams = from_params(notification.params)?;
@@ -506,10 +692,7 @@ impl EditorLspServer {
                 self.session.mappings.remove(uri.as_str());
                 self.session.diagnostic_snapshots.remove(uri.as_str());
                 self.session.semantic_snapshots.remove(uri.as_str());
-                Ok(vec![LspPublishDiagnosticsParams {
-                    uri: uri.as_str().to_string(),
-                    diagnostics: Vec::new(),
-                }])
+                Ok(self.remove_analysis_diagnostic_publications(&uri))
             }
             _ => Ok(Vec::new()),
         }
@@ -527,12 +710,88 @@ impl EditorLspServer {
         })
     }
 
+    fn publish_analysis_diagnostics(
+        &mut self,
+        uri: &EditorDocumentUri,
+    ) -> EditorResult<Vec<LspPublishDiagnosticsParams>> {
+        let document = self.open_document(uri)?.clone();
+        let current_diagnostics = dedup_lsp_diagnostics(self.diagnostic_snapshot(uri, &document)?);
+        let snapshot = self.semantic_snapshot(uri, &document)?;
+        let mut by_uri = snapshot.diagnostics_by_source_uri();
+        by_uri.insert(uri.as_str().to_string(), current_diagnostics);
+
+        for (target_uri, diagnostics) in &mut by_uri {
+            if target_uri != uri.as_str() {
+                for diagnostic in diagnostics.iter_mut() {
+                    diagnostic_to_utf16_for_uri(&self.session, target_uri, diagnostic);
+                }
+                *diagnostics = dedup_lsp_diagnostics(std::mem::take(diagnostics));
+            }
+        }
+
+        let owner = uri.as_str().to_string();
+        let previous = self
+            .published_diagnostics_by_document
+            .insert(owner.clone(), by_uri);
+        let mut affected = previous
+            .into_iter()
+            .flat_map(|groups| groups.into_keys())
+            .collect::<std::collections::BTreeSet<_>>();
+        if let Some(groups) = self.published_diagnostics_by_document.get(&owner) {
+            affected.extend(groups.keys().cloned());
+        }
+        affected.insert(owner.clone());
+
+        Ok(self.aggregate_diagnostic_publications(&owner, affected))
+    }
+
+    fn remove_analysis_diagnostic_publications(
+        &mut self,
+        uri: &EditorDocumentUri,
+    ) -> Vec<LspPublishDiagnosticsParams> {
+        let owner = uri.as_str().to_string();
+        let mut affected = self
+            .published_diagnostics_by_document
+            .remove(&owner)
+            .into_iter()
+            .flat_map(|groups| groups.into_keys())
+            .collect::<std::collections::BTreeSet<_>>();
+        affected.insert(owner.clone());
+        self.aggregate_diagnostic_publications(&owner, affected)
+    }
+
+    fn aggregate_diagnostic_publications(
+        &self,
+        primary_uri: &str,
+        affected: std::collections::BTreeSet<String>,
+    ) -> Vec<LspPublishDiagnosticsParams> {
+        let mut ordered = affected.into_iter().collect::<Vec<_>>();
+        ordered.sort_by_key(|uri| (uri != primary_uri, uri.clone()));
+
+        ordered
+            .into_iter()
+            .map(|target_uri| {
+                let diagnostics = self
+                    .published_diagnostics_by_document
+                    .values()
+                    .filter_map(|groups| groups.get(&target_uri))
+                    .flat_map(|diagnostics| diagnostics.iter().cloned())
+                    .collect::<Vec<_>>();
+                LspPublishDiagnosticsParams {
+                    uri: target_uri,
+                    diagnostics: dedup_lsp_diagnostics(diagnostics),
+                }
+            })
+            .collect()
+    }
+
     pub fn hover(
         &mut self,
         uri: &EditorDocumentUri,
         position: LspPosition,
     ) -> EditorResult<Option<LspHover>> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
         let mut hit = snapshot
             .reference_at(position)
@@ -544,40 +803,32 @@ impl EditorLspServer {
                     .and_then(|symbol_id| snapshot.hover_for_symbol(symbol_id, position, None))
             });
         let current_line = document.text.lines().nth(position.line as usize);
+        let raw_fallback_allowed =
+            !crate::source_scan::position_is_protected(&document.text, position);
         let word_span =
             current_line.and_then(|line| word_span_at_position(line, position.character));
         let word_at_position = word_span.as_ref().map(|(_, _, word)| word.clone());
-        if hit.is_none() && word_at_position.as_deref() == Some("edf") {
+        if hit.is_none() && raw_fallback_allowed && word_at_position.as_deref() == Some("edf") {
             hit = Some(LspHover {
                 contents: "edf: error-only defer (runs on recoverable error exit only)".to_string(),
                 range: None,
             });
         }
-        if hit.is_none() && word_at_position.as_deref() == Some("mux") {
+        if hit.is_none() && raw_fallback_allowed && word_at_position.as_deref() == Some("mux") {
             hit = current_line
                 .zip(word_span.as_ref())
-                .and_then(|(line, (start, _, _))| {
-                    identifier_positions_before(line, *start)
-                        .into_iter()
-                        .find_map(|character| {
-                            snapshot.hover_for_mutex_binding(
-                                LspPosition {
-                                    line: position.line,
-                                    character,
-                                },
-                                word_span_at_position(line, character)?.2.as_str(),
-                            )
-                        })
-                })
-                .or_else(|| {
-                    Some(LspHover {
-                        contents: "[mux]: mutex-guarded shared value (auto-unlock at scope end)"
-                            .to_string(),
-                        range: None,
-                    })
+                .and_then(|(line, role_span)| {
+                    let (character, operand) = bracket_role_operand(line, role_span, true)?;
+                    snapshot.hover_for_mutex_binding(
+                        LspPosition {
+                            line: position.line,
+                            character,
+                        },
+                        &operand,
+                    )
                 });
         }
-        if hit.is_none() && word_at_position.as_deref() == Some("async") {
+        if hit.is_none() && raw_fallback_allowed && word_at_position.as_deref() == Some("async") {
             hit = current_line
                 .zip(word_span.as_ref())
                 .and_then(|(line, (start, _, _))| {
@@ -602,7 +853,7 @@ impl EditorLspServer {
                     })
                 });
         }
-        if hit.is_none() && word_at_position.as_deref() == Some("await") {
+        if hit.is_none() && raw_fallback_allowed && word_at_position.as_deref() == Some("await") {
             hit = current_line
                 .zip(word_span.as_ref())
                 .and_then(|(line, (start, _, _))| {
@@ -636,38 +887,28 @@ impl EditorLspServer {
                     position.character >= start && position.character <= end
                 })
             });
-        if hit.is_none() && spawn_marker_at_position {
+        if hit.is_none() && raw_fallback_allowed && spawn_marker_at_position {
             hit = Some(LspHover {
                 contents: "[>]: spawns a task (joined at process exit)".to_string(),
                 range: None,
             });
         }
-        if hit.is_none() && matches!(word_at_position.as_deref(), Some("tx" | "rx")) {
+        if hit.is_none()
+            && raw_fallback_allowed
+            && matches!(word_at_position.as_deref(), Some("tx" | "rx"))
+        {
             let endpoint = word_at_position.as_deref().unwrap_or_default();
             hit = current_line
                 .zip(word_span.as_ref())
-                .and_then(|(line, (start, _, _))| {
-                    identifier_positions_before(line, *start)
-                        .into_iter()
-                        .find_map(|character| {
-                            snapshot.hover_for_channel_endpoint(
-                                LspPosition {
-                                    line: position.line,
-                                    character,
-                                },
-                                endpoint,
-                            )
-                        })
-                })
-                .or_else(|| {
-                    Some(LspHover {
-                        contents: if endpoint == "tx" {
-                            "c[tx]: non-blocking send".to_string()
-                        } else {
-                            "c[rx]: blocking receive; iteration continues until closed".to_string()
+                .and_then(|(line, role_span)| {
+                    let (character, _) = bracket_role_operand(line, role_span, false)?;
+                    snapshot.hover_for_channel_endpoint(
+                        LspPosition {
+                            line: position.line,
+                            character,
                         },
-                        range: None,
-                    })
+                        endpoint,
+                    )
                 });
         }
         let deref_at_position = current_line.is_some_and(|line| {
@@ -675,7 +916,7 @@ impl EditorLspServer {
                 .nth(position.character as usize)
                 .is_some_and(|character| character == '*')
         });
-        if hit.is_none() && deref_at_position {
+        if hit.is_none() && raw_fallback_allowed && deref_at_position {
             hit = current_line
                 .and_then(|line| identifier_position_after(line, position.character as usize + 1))
                 .and_then(|character| {
@@ -701,11 +942,17 @@ impl EditorLspServer {
                     .ends_with('@')
             })
             .unwrap_or(false);
-        if owned_type_site {
+        if raw_fallback_allowed && owned_type_site {
             if let Some(hover) = hit.as_mut() {
                 hover
                     .contents
                     .push_str(" (owned heap type; allocation requires memo+)");
+            }
+        }
+        if let Some(range) = hit.as_mut().and_then(|hover| hover.range.as_mut()) {
+            if let Some(converted) = crate::positions::scalar_range_to_utf16(&document.text, *range)
+            {
+                *range = converted;
             }
         }
         Ok(hit)
@@ -717,8 +964,9 @@ impl EditorLspServer {
         position: LspPosition,
     ) -> EditorResult<Option<LspLocation>> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot
+        let mut location = snapshot
             .reference_at(position)
             .as_ref()
             .and_then(|reference| snapshot.definition_for_reference(reference))
@@ -726,7 +974,11 @@ impl EditorLspServer {
                 snapshot
                     .method_target_symbol_at(position)
                     .and_then(|symbol_id| snapshot.definition_for_symbol(symbol_id))
-            }))
+            });
+        if let Some(location) = location.as_mut() {
+            location_to_utf16(&self.session, location);
+        }
+        Ok(location)
     }
 
     pub fn signature_help(
@@ -735,6 +987,7 @@ impl EditorLspServer {
         position: LspPosition,
     ) -> EditorResult<Option<LspSignatureHelp>> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
         Ok(snapshot.signature_help(&document, position))
     }
@@ -746,8 +999,20 @@ impl EditorLspServer {
         diagnostics: &[crate::LspDiagnostic],
     ) -> EditorResult<Vec<LspCodeAction>> {
         let document = self.open_document(uri)?.clone();
+        let range = scalar_range_for_document(&document, range)?;
+        let mut diagnostics = diagnostics.to_vec();
+        for diagnostic in &mut diagnostics {
+            diagnostic_to_scalar(&document, diagnostic);
+        }
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.code_actions(uri.as_str(), range, diagnostics))
+        let mut actions = snapshot.code_actions(uri.as_str(), range, &diagnostics);
+        for action in &mut actions {
+            for diagnostic in &mut action.diagnostics {
+                diagnostic_to_utf16(&self.session, &document, diagnostic);
+            }
+            workspace_edit_to_utf16(&self.session, &mut action.edit);
+        }
+        Ok(actions)
     }
 
     pub fn format_document(
@@ -764,7 +1029,11 @@ impl EditorLspServer {
     ) -> EditorResult<Vec<LspDocumentSymbol>> {
         let document = self.open_document(uri)?.clone();
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.document_symbols_for_current_path())
+        let mut symbols = snapshot.document_symbols_for_current_path();
+        for symbol in &mut symbols {
+            document_symbol_to_utf16(&document.text, symbol);
+        }
+        Ok(symbols)
     }
 
     pub fn references(
@@ -774,12 +1043,17 @@ impl EditorLspServer {
         include_declaration: bool,
     ) -> EditorResult<Vec<LspLocation>> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot
+        let mut locations = snapshot
             .reference_at(position)
             .as_ref()
             .map(|reference| snapshot.references_for_reference(reference, include_declaration))
-            .unwrap_or_default())
+            .unwrap_or_default();
+        for location in &mut locations {
+            location_to_utf16(&self.session, location);
+        }
+        Ok(locations)
     }
 
     pub fn rename(
@@ -789,6 +1063,7 @@ impl EditorLspServer {
         new_name: &str,
     ) -> EditorResult<LspWorkspaceEdit> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
         let reference = snapshot.reference_at(position).ok_or_else(|| {
             EditorError::new(
@@ -799,7 +1074,9 @@ impl EditorLspServer {
                 ),
             )
         })?;
-        snapshot.rename_for_reference(&reference, new_name)
+        let mut edit = snapshot.rename_for_reference(&reference, new_name)?;
+        workspace_edit_to_utf16(&self.session, &mut edit);
+        Ok(edit)
     }
 
     pub fn workspace_symbols(&mut self, query: &str) -> EditorResult<Vec<LspWorkspaceSymbol>> {
@@ -809,14 +1086,14 @@ impl EditorLspServer {
 
         for (uri, document) in workspace_documents {
             let snapshot = self.semantic_snapshot(&uri, &document)?;
-            for symbol in snapshot.workspace_symbols(query) {
+            for mut symbol in snapshot.workspace_symbols(query) {
+                location_to_utf16(&self.session, &mut symbol.location);
                 // A workspace symbol is uniquely identified by its kind and
                 // source location. The container name is derived from the
                 // per-request analysis overlay root, so it varies between the
                 // separate document analyses that surface the same declaration;
                 // excluding it keeps the same symbol from appearing twice.
                 let key = (
-                    symbol.name.clone(),
                     symbol.kind,
                     symbol.location.uri.clone(),
                     symbol.location.range.start.line,
@@ -894,6 +1171,13 @@ impl EditorLspServer {
         context: Option<&LspCompletionContext>,
     ) -> EditorResult<LspCompletionList> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
+        if completion_cursor_is_protected(&document, position) {
+            return Ok(LspCompletionList {
+                is_incomplete: false,
+                items: Vec::new(),
+            });
+        }
         let completion_context = completion_context_with_lsp(&document, position, context);
         let snapshot = self.semantic_snapshot(uri, &document)?;
         Ok(LspCompletionList {
@@ -921,8 +1205,13 @@ impl EditorLspServer {
         position: LspPosition,
     ) -> EditorResult<Option<LspLocation>> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.type_definition_at(position))
+        let mut location = snapshot.type_definition_at(position);
+        if let Some(location) = location.as_mut() {
+            location_to_utf16(&self.session, location);
+        }
+        Ok(location)
     }
 
     pub fn implementation(
@@ -931,8 +1220,13 @@ impl EditorLspServer {
         position: LspPosition,
     ) -> EditorResult<Vec<LspLocation>> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.implementations_at(position))
+        let mut locations = snapshot.implementations_at(position);
+        for location in &mut locations {
+            location_to_utf16(&self.session, location);
+        }
+        Ok(locations)
     }
 
     pub fn document_highlights(
@@ -941,8 +1235,17 @@ impl EditorLspServer {
         position: LspPosition,
     ) -> EditorResult<Vec<LspDocumentHighlight>> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.document_highlights_at(position))
+        let mut highlights = snapshot.document_highlights_at(position);
+        for highlight in &mut highlights {
+            if let Some(range) =
+                crate::positions::scalar_range_to_utf16(&document.text, highlight.range)
+            {
+                highlight.range = range;
+            }
+        }
+        Ok(highlights)
     }
 
     pub fn prepare_rename(
@@ -951,8 +1254,17 @@ impl EditorLspServer {
         position: LspPosition,
     ) -> EditorResult<Option<LspPrepareRenameResult>> {
         let document = self.open_document(uri)?.clone();
+        let position = scalar_position_for_document(&document, position)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.prepare_rename_at(position))
+        let mut result = snapshot.prepare_rename_at(position);
+        if let Some(result) = result.as_mut() {
+            if let Some(range) =
+                crate::positions::scalar_range_to_utf16(&document.text, result.range)
+            {
+                result.range = range;
+            }
+        }
+        Ok(result)
     }
 
     pub fn folding_ranges(
@@ -970,8 +1282,17 @@ impl EditorLspServer {
         positions: &[LspPosition],
     ) -> EditorResult<Vec<LspSelectionRange>> {
         let document = self.open_document(uri)?.clone();
+        let positions = positions
+            .iter()
+            .copied()
+            .map(|position| scalar_position_for_document(&document, position))
+            .collect::<EditorResult<Vec<_>>>()?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.selection_ranges(&document, positions))
+        let mut selections = snapshot.selection_ranges(&document, &positions);
+        for selection in &mut selections {
+            selection_range_to_utf16(&document.text, selection);
+        }
+        Ok(selections)
     }
 
     pub fn inlay_hints(
@@ -980,21 +1301,26 @@ impl EditorLspServer {
         range: LspRange,
     ) -> EditorResult<Vec<LspInlayHint>> {
         let document = self.open_document(uri)?.clone();
+        let range = scalar_range_for_document(&document, range)?;
         let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.inlay_hints(&document, range))
-    }
-
-    pub fn code_lenses(&mut self, uri: &EditorDocumentUri) -> EditorResult<Vec<LspCodeLens>> {
-        let document = self.open_document(uri)?.clone();
-        let snapshot = self.semantic_snapshot(uri, &document)?;
-        Ok(snapshot.code_lenses(&document))
+        let mut hints = snapshot.inlay_hints(&document, range);
+        for hint in &mut hints {
+            if let Some(position) =
+                crate::positions::scalar_position_to_utf16(&document.text, hint.position)
+            {
+                hint.position = position;
+            }
+        }
+        Ok(hints)
     }
 
     pub fn semantic_tokens(&mut self, uri: &EditorDocumentUri) -> EditorResult<LspSemanticTokens> {
         let document = self.open_document(uri)?.clone();
         let snapshot = self.semantic_snapshot(uri, &document)?;
+        let data = snapshot.semantic_tokens_for_current_path();
         Ok(LspSemanticTokens {
-            data: snapshot.semantic_tokens_for_current_path(),
+            data: crate::positions::scalar_semantic_tokens_to_utf16(&document.text, &data)
+                .unwrap_or(data),
         })
     }
 
@@ -1083,7 +1409,10 @@ impl EditorLspServer {
         // once and reuse it for both.
         analysis::note_diagnostic_snapshot_build();
         let snapshot = self.semantic_snapshot(uri, document)?;
-        let diagnostics = snapshot.diagnostics.clone();
+        let mut diagnostics = snapshot.diagnostics.clone();
+        for diagnostic in &mut diagnostics {
+            diagnostic_to_utf16(&self.session, document, diagnostic);
+        }
         self.session.diagnostic_snapshots.insert(
             uri.as_str().to_string(),
             analysis::CachedDiagnosticSnapshot {

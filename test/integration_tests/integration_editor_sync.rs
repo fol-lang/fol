@@ -29,20 +29,6 @@ fn copied_example_root(example_path: &str) -> std::path::PathBuf {
     copy_dir_all(&source, &target);
     std::fs::create_dir_all(target.join(".git"))
         .expect("copied editor example workspace marker should be creatable");
-    let build_source = std::fs::read_to_string(target.join("build.fol")).unwrap_or_default();
-    if build_source.contains("source = \"internal\"")
-        && build_source.contains("target = \"standard\"")
-    {
-        let bundled_std_root =
-            fol_package::available_bundled_std_root().expect("bundled std root should exist");
-        let std_alias_root = target.join(".fol/pkg/std");
-        copy_dir_all(&bundled_std_root, &std_alias_root);
-        std::fs::write(
-            target.join("fol.work.yaml"),
-            "package_store_root: .fol/pkg\n",
-        )
-        .expect("should write workspace package-store override");
-    }
     target
 }
 

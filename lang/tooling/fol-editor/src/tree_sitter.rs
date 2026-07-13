@@ -1,4 +1,5 @@
 use std::sync::OnceLock;
+use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator, Tree};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TreeSitterCorpusCase {
@@ -6,10 +7,72 @@ pub struct TreeSitterCorpusCase {
     pub source: &'static str,
 }
 
+impl TreeSitterCorpusCase {
+    /// Return only the FOL program from this complete Tree-sitter corpus case.
+    ///
+    /// `source` intentionally stores the full `===` / `---` corpus fixture so
+    /// bundle generation can preserve the checked-in expected syntax tree.
+    pub fn program_source(&self) -> Option<&'static str> {
+        let body = self
+            .source
+            .splitn(3, "==================")
+            .nth(2)?
+            .trim_start_matches(|character| character == '\r' || character == '\n');
+        let (program, _) = body.split_once("\n---\n")?;
+        Some(program.trim_end_matches(|character| character == '\r' || character == '\n'))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TreeSitterQuerySnapshot {
     pub name: &'static str,
     pub query: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TreeSitterSyntaxIssue {
+    pub kind: String,
+    pub start_row: usize,
+    pub start_column: usize,
+    pub end_row: usize,
+    pub end_column: usize,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TreeSitterParseResult {
+    pub root_kind: String,
+    pub syntax_tree: String,
+    pub node_count: usize,
+    pub named_node_count: usize,
+    pub errors: Vec<TreeSitterSyntaxIssue>,
+    pub missing: Vec<TreeSitterSyntaxIssue>,
+}
+
+impl TreeSitterParseResult {
+    pub fn has_error(&self) -> bool {
+        !self.errors.is_empty() || !self.missing.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TreeSitterQueryCapture {
+    pub name: String,
+    pub start_row: usize,
+    pub start_column: usize,
+    pub end_row: usize,
+    pub end_column: usize,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TreeSitterQueryResult {
+    pub parse: TreeSitterParseResult,
+    pub captures: Vec<TreeSitterQueryCapture>,
+}
+
+unsafe extern "C" {
+    fn tree_sitter_fol() -> *const tree_sitter::ffi::TSLanguage;
 }
 
 const GRAMMAR_SOURCE: &str = include_str!("../tree-sitter/grammar.js");
@@ -22,7 +85,15 @@ const SYMBOLS_QUERY: &str = include_str!("../queries/fol/symbols.scm");
 const CORPUS_DECLARATIONS: &str = include_str!("../tree-sitter/test/corpus/declarations.txt");
 const CORPUS_EXPRESSIONS: &str = include_str!("../tree-sitter/test/corpus/expressions.txt");
 const CORPUS_RECOVERABLE: &str = include_str!("../tree-sitter/test/corpus/recoverable.txt");
-const CORPUS_SHOWCASE: &str =
+const CORPUS_V3_OWNERSHIP: &str = include_str!("../tree-sitter/test/corpus/v3_ownership.txt");
+const CORPUS_V3_POINTERS: &str = include_str!("../tree-sitter/test/corpus/v3_pointers.txt");
+const CORPUS_V3_CHANNELS_SELECT_MUTEX: &str =
+    include_str!("../tree-sitter/test/corpus/v3_channels_select_mutex.txt");
+const CORPUS_V3_EVENTUALS: &str = include_str!("../tree-sitter/test/corpus/v3_eventuals.txt");
+const CORPUS_V3_DEFERRED: &str = include_str!("../tree-sitter/test/corpus/v3_deferred.txt");
+const CORPUS_V3_LEXICAL_BOUNDARIES: &str =
+    include_str!("../tree-sitter/test/corpus/v3_lexical_boundaries.txt");
+const SHOWCASE_FIXTURE: &str =
     include_str!("../../../../test/apps/showcases/full_v1_showcase/app/main.fol");
 static GENERATED_HIGHLIGHTS_QUERY: OnceLock<String> = OnceLock::new();
 static QUERY_SNAPSHOTS: OnceLock<[TreeSitterQuerySnapshot; 3]> = OnceLock::new();
@@ -49,6 +120,10 @@ pub fn fol_tree_sitter_symbols_query() -> &'static str {
     SYMBOLS_QUERY
 }
 
+pub(crate) fn fol_tree_sitter_showcase_fixture() -> &'static str {
+    SHOWCASE_FIXTURE
+}
+
 pub fn fol_tree_sitter_corpus() -> &'static [TreeSitterCorpusCase] {
     &[
         TreeSitterCorpusCase {
@@ -64,8 +139,28 @@ pub fn fol_tree_sitter_corpus() -> &'static [TreeSitterCorpusCase] {
             source: CORPUS_RECOVERABLE,
         },
         TreeSitterCorpusCase {
-            name: "showcase",
-            source: CORPUS_SHOWCASE,
+            name: "v3_ownership",
+            source: CORPUS_V3_OWNERSHIP,
+        },
+        TreeSitterCorpusCase {
+            name: "v3_pointers",
+            source: CORPUS_V3_POINTERS,
+        },
+        TreeSitterCorpusCase {
+            name: "v3_channels_select_mutex",
+            source: CORPUS_V3_CHANNELS_SELECT_MUTEX,
+        },
+        TreeSitterCorpusCase {
+            name: "v3_eventuals",
+            source: CORPUS_V3_EVENTUALS,
+        },
+        TreeSitterCorpusCase {
+            name: "v3_deferred",
+            source: CORPUS_V3_DEFERRED,
+        },
+        TreeSitterCorpusCase {
+            name: "v3_lexical_boundaries",
+            source: CORPUS_V3_LEXICAL_BOUNDARIES,
         },
     ]
 }
@@ -143,13 +238,125 @@ fn render_shell_type_lines() -> String {
         .join("\n")
 }
 
+pub(crate) fn execute_fol_tree_sitter_parse(source: &str) -> Result<TreeSitterParseResult, String> {
+    let language = fol_tree_sitter_language()?;
+    let tree = parse_fol_source(source, &language)?;
+    Ok(inspect_tree(&tree, source))
+}
+
+pub(crate) fn execute_fol_tree_sitter_query(
+    source: &str,
+    query_source: &str,
+) -> Result<TreeSitterQueryResult, String> {
+    let language = fol_tree_sitter_language()?;
+    let tree = parse_fol_source(source, &language)?;
+    let parse = inspect_tree(&tree, source);
+    let query = Query::new(&language, query_source)
+        .map_err(|error| format!("failed to compile FOL tree-sitter query: {error}"))?;
+    let capture_names = query.capture_names();
+    let mut cursor = QueryCursor::new();
+    let mut query_captures = cursor.captures(&query, tree.root_node(), source.as_bytes());
+    let mut captures = Vec::new();
+
+    while let Some((query_match, capture_index)) = query_captures.next() {
+        let capture = query_match.captures[*capture_index];
+        let node = capture.node;
+        let start = node.start_position();
+        let end = node.end_position();
+        captures.push(TreeSitterQueryCapture {
+            name: capture_names[capture.index as usize].to_string(),
+            start_row: start.row,
+            start_column: start.column,
+            end_row: end.row,
+            end_column: end.column,
+            text: node
+                .utf8_text(source.as_bytes())
+                .unwrap_or_default()
+                .to_string(),
+        });
+    }
+
+    Ok(TreeSitterQueryResult { parse, captures })
+}
+
+fn fol_tree_sitter_language() -> Result<Language, String> {
+    let pointer = unsafe { tree_sitter_fol() };
+    if pointer.is_null() {
+        return Err("generated FOL tree-sitter language returned a null pointer".to_string());
+    }
+    Ok(unsafe { Language::from_raw(pointer) })
+}
+
+fn parse_fol_source(source: &str, language: &Language) -> Result<Tree, String> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(language)
+        .map_err(|error| format!("failed to load generated FOL tree-sitter parser: {error}"))?;
+    parser
+        .parse(source, None)
+        .ok_or_else(|| "FOL tree-sitter parse was cancelled".to_string())
+}
+
+fn inspect_tree(tree: &Tree, source: &str) -> TreeSitterParseResult {
+    let root = tree.root_node();
+    let mut stack = vec![root];
+    let mut node_count = 0usize;
+    let mut named_node_count = 0usize;
+    let mut errors = Vec::new();
+    let mut missing = Vec::new();
+
+    while let Some(node) = stack.pop() {
+        node_count += 1;
+        named_node_count += usize::from(node.is_named());
+        if node.is_error() {
+            errors.push(syntax_issue(node, source, "ERROR"));
+        }
+        if node.is_missing() {
+            missing.push(syntax_issue(
+                node,
+                source,
+                &format!("MISSING {}", node.kind()),
+            ));
+        }
+
+        let mut cursor = node.walk();
+        let children = node.children(&mut cursor).collect::<Vec<_>>();
+        stack.extend(children.into_iter().rev());
+    }
+
+    TreeSitterParseResult {
+        root_kind: root.kind().to_string(),
+        syntax_tree: root.to_sexp(),
+        node_count,
+        named_node_count,
+        errors,
+        missing,
+    }
+}
+
+fn syntax_issue(node: tree_sitter::Node<'_>, source: &str, kind: &str) -> TreeSitterSyntaxIssue {
+    let start = node.start_position();
+    let end = node.end_position();
+    TreeSitterSyntaxIssue {
+        kind: kind.to_string(),
+        start_row: start.row,
+        start_column: start.column,
+        end_row: end.row,
+        end_column: end.column,
+        text: node
+            .utf8_text(source.as_bytes())
+            .unwrap_or_default()
+            .to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        fol_tree_sitter_config, fol_tree_sitter_corpus, fol_tree_sitter_grammar,
-        fol_tree_sitter_highlights_query, fol_tree_sitter_locals_query,
-        fol_tree_sitter_query_snapshots, fol_tree_sitter_symbols_query,
-        CHECKED_IN_HIGHLIGHTS_QUERY, HIGHLIGHTS_QUERY_BASE,
+        execute_fol_tree_sitter_parse, execute_fol_tree_sitter_query, fol_tree_sitter_config,
+        fol_tree_sitter_corpus, fol_tree_sitter_grammar, fol_tree_sitter_highlights_query,
+        fol_tree_sitter_locals_query, fol_tree_sitter_query_snapshots,
+        fol_tree_sitter_symbols_query, CHECKED_IN_HIGHLIGHTS_QUERY, HIGHLIGHTS_QUERY_BASE,
     };
     use fol_lexer::token::buildin::{
         CONTROL_KEYWORDS, DECLARATION_KEYWORDS, DIAGNOSTIC_KEYWORDS, LITERAL_KEYWORDS,
@@ -196,7 +403,7 @@ mod tests {
         source_path: &Path,
     ) -> std::process::Output {
         let cache_root = tree_sitter_cache_root("query");
-        Command::new("tree-sitter")
+        let output = Command::new("tree-sitter")
             .env("XDG_CACHE_HOME", &cache_root)
             .arg("query")
             .arg("--grammar-path")
@@ -204,7 +411,9 @@ mod tests {
             .arg(query_path)
             .arg(source_path)
             .output()
-            .expect("tree-sitter query should run")
+            .expect("tree-sitter query should run");
+        std::fs::remove_dir_all(cache_root).ok();
+        output
     }
 
     fn run_tree_sitter_parse(
@@ -236,6 +445,15 @@ mod tests {
             .args(source_paths)
             .output()
             .expect("tree-sitter multi-file parse should run")
+    }
+
+    fn run_tree_sitter_test(bundle_root: &Path, cache_root: &Path) -> std::process::Output {
+        Command::new("tree-sitter")
+            .env("XDG_CACHE_HOME", cache_root)
+            .arg("test")
+            .current_dir(bundle_root)
+            .output()
+            .expect("tree-sitter corpus test should run")
     }
 
     fn collect_fol_sources(root: &Path, sources: &mut BTreeSet<PathBuf>) {
@@ -531,7 +749,7 @@ mod tests {
 
         assert_eq!(
             all_keywords.len(),
-            54,
+            53,
             "compiler keyword inventory changed; update editor summary coverage"
         );
 
@@ -570,6 +788,7 @@ mod tests {
             "(use_decl \"use\" @keyword.import)",
             "(var_decl \"var\" @keyword)",
             "(var_decl \"@var\" @keyword)",
+            "(var_decl \"~var\" @keyword)",
             "(con_decl \"con\" @keyword)",
             "(lab_decl \"lab\" @keyword)",
             "(fun_decl \"fun\" @keyword.function)",
@@ -639,15 +858,12 @@ mod tests {
             "(shell_type \"opt\" @type.builtin)",
             "(record_type) @type.builtin",
             "(entry_type) @type.builtin",
-            "(typed_binding type: (type_expr (identifier) @type.builtin)",
-            "(param type: (type_expr (identifier) @type.builtin)",
-            "(return_type (type_expr (identifier) @type.builtin)",
-            "(typed_binding type: (type_expr (identifier) @type)",
-            "(param type: (type_expr (identifier) @type)",
-            "(return_type (type_expr (identifier) @type)",
-            "(typed_binding type: (type_expr (qualified_path) @type))",
-            "(param type: (type_expr (qualified_path) @type))",
-            "(return_type (type_expr (qualified_path) @type))",
+            "(generic_type_expr base: (identifier) @type.builtin",
+            "(generic_type_expr base: (identifier) @type",
+            "(generic_type_expr base: (qualified_path) @type)",
+            "(type_expr (identifier) @type.builtin",
+            "(type_expr (identifier) @type",
+            "(type_expr (qualified_path) @type)",
             "(error_type \"/\" @operator)",
             "(record_field (typed_binding name: (identifier) @property))",
             "(var_decl (typed_binding name: (identifier) @constant)",
@@ -822,9 +1038,110 @@ mod tests {
     }
 
     #[test]
-    fn corpus_smoke_cases_cover_real_v1_surfaces() {
+    fn native_parser_and_highlights_match_compiler_lexical_boundaries() {
+        let source = concat!(
+            "/* block comment with [>] { chn[int] }\n",
+            "   and a second line */\n",
+            "` ordinary backtick comment with dfr {\n",
+            "  edf { counter[mux] } } `\n",
+            "`[doc] documentation with #view\n",
+            "and !view on another line`\n",
+            "`[trace] not a documentation comment`\n",
+            "fun[] lexical(): str = {\n",
+            "    var raw: str = 'raw [>] text\n",
+            "with braces { }';\n",
+            "    var empty: str = '';\n",
+            "    var character: chr = 'z';\n",
+            "    return raw;\n",
+            "};\n",
+        );
+
+        let parse =
+            execute_fol_tree_sitter_parse(source).expect("native generated parser should load");
+        assert!(
+            !parse.has_error(),
+            "compiler-valid comments/raw quotes should parse without recovery: {parse:#?}"
+        );
+        for node in [
+            "(comment)",
+            "(doc_comment)",
+            "(raw_string_literal)",
+            "(char_literal)",
+        ] {
+            assert!(
+                parse.syntax_tree.contains(node),
+                "native syntax tree lost lexical node '{node}': {}",
+                parse.syntax_tree
+            );
+        }
+
+        let highlighted = execute_fol_tree_sitter_query(source, fol_tree_sitter_highlights_query())
+            .expect("checked-in highlight query should execute");
+        assert!(!highlighted.parse.has_error());
+        for (capture, text) in [
+            ("comment", "/* block comment"),
+            ("comment", "` ordinary backtick"),
+            ("comment.documentation", "`[doc] documentation"),
+            ("comment", "`[trace] not a documentation"),
+            ("string", "'raw [>] text"),
+            ("string", "''"),
+            ("character", "'z'"),
+        ] {
+            assert!(
+                highlighted.captures.iter().any(|candidate| {
+                    candidate.name == capture && candidate.text.starts_with(text)
+                }),
+                "highlight query lost @{capture} for '{text}': {:#?}",
+                highlighted.captures
+            );
+        }
+        assert!(
+            highlighted.captures.iter().all(|candidate| {
+                candidate.name != "comment.documentation" || !candidate.text.starts_with("`[trace]")
+            }),
+            "only the compiler's exact `[doc]` prefix may receive documentation highlighting"
+        );
+    }
+
+    #[test]
+    fn native_parser_rejects_the_removed_std_import_source_kind() {
+        for source in [
+            "use shared: loc = {\"../shared\"};\n",
+            "use std: pkg = {\"std\"};\n",
+        ] {
+            let parse =
+                execute_fol_tree_sitter_parse(source).expect("native generated parser should load");
+            assert!(
+                !parse.has_error(),
+                "current public source kind should parse: {source}\n{parse:#?}"
+            );
+        }
+
+        let removed = execute_fol_tree_sitter_parse("use std: std = {\"std\"};\n")
+            .expect("native generated parser should load");
+        assert!(
+            removed.has_error(),
+            "removed public std source kind must produce an ERROR node: {removed:#?}"
+        );
+    }
+
+    #[test]
+    fn corpus_smoke_cases_cover_real_language_surfaces() {
         let corpus = fol_tree_sitter_corpus();
-        assert_eq!(corpus.len(), 4);
+        assert_eq!(corpus.len(), 9);
+        for case in corpus {
+            assert!(
+                case.source.contains("\n---\n"),
+                "tree-sitter corpus '{}' must include an expected syntax tree",
+                case.name
+            );
+            assert!(
+                case.program_source()
+                    .is_some_and(|source| !source.is_empty()),
+                "tree-sitter corpus '{}' must expose a non-empty FOL program",
+                case.name
+            );
+        }
         assert!(corpus
             .iter()
             .any(|case| case.source.contains("use shared: loc")));
@@ -843,7 +1160,112 @@ mod tests {
             .any(|case| case.source.contains("ali IntBox: Box[int]")));
         assert!(corpus
             .iter()
+            .any(|case| case.name == "v3_ownership" && case.source.contains("~var replacement")));
+        assert!(corpus.iter().any(|case| {
+            case.name == "v3_pointers"
+                && case.source.contains("ptr[Box[int]]")
+                && case.source.contains("@arr[models::Node, 1]")
+        }));
+        assert!(corpus.iter().any(|case| {
+            case.name == "v3_channels_select_mutex"
+                && case.source.contains("select {")
+                && case.source.contains("counter[mux]")
+        }));
+        assert!(corpus.iter().any(|case| {
+            case.name == "v3_eventuals"
+                && case.source.contains("[>]work(1)")
+                && case.source.contains("| async")
+                && case.source.contains("| await")
+        }));
+        assert!(corpus.iter().any(|case| {
+            case.name == "v3_deferred"
+                && case.source.contains("dfr {")
+                && case.source.contains("edf {")
+        }));
+        assert!(corpus.iter().any(|case| {
+            case.name == "v3_lexical_boundaries"
+                && case
+                    .source
+                    .contains("/* A slash block comment may span lines")
+                && case
+                    .source
+                    .contains("` A backtick comment may also span lines")
+                && case.source.contains("var raw: str = 'raw text may span")
+        }));
+        assert!(corpus
+            .iter()
             .any(|case| case.source.contains("true") || case.source.contains("false")));
+    }
+
+    #[test]
+    fn dedicated_v3_corpus_sources_parse_without_error_nodes() {
+        let root = build_bundle_root("dedicated_v3_corpus");
+        let cache = tree_sitter_cache_root("dedicated_v3_corpus");
+
+        for name in [
+            "v3_ownership",
+            "v3_pointers",
+            "v3_channels_select_mutex",
+            "v3_eventuals",
+            "v3_deferred",
+            "v3_lexical_boundaries",
+        ] {
+            let case = fol_tree_sitter_corpus()
+                .iter()
+                .find(|case| case.name == name)
+                .unwrap_or_else(|| panic!("missing dedicated V3 corpus '{name}'"));
+            let exported =
+                std::fs::read_to_string(root.join("test/corpus").join(format!("{name}.txt")))
+                    .unwrap_or_else(|error| {
+                        panic!("failed to read exported V3 corpus '{name}': {error}")
+                    });
+            assert_eq!(
+                exported, case.source,
+                "generated tree-sitter bundle should export V3 corpus '{name}' exactly"
+            );
+            let source = case
+                .program_source()
+                .unwrap_or_else(|| panic!("V3 corpus '{name}' should be a complete corpus case"));
+            let path = root.join(format!("{name}.fol"));
+            std::fs::write(&path, source)
+                .unwrap_or_else(|error| panic!("failed to write V3 corpus '{name}': {error}"));
+
+            let output = run_tree_sitter_parse(&root, &cache, &path);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && !stdout.contains("(ERROR"),
+                "dedicated V3 corpus '{name}' should parse without ERROR nodes:\nstdout:\n{}\nstderr:\n{}",
+                stdout,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_dir_all(cache).ok();
+    }
+
+    #[test]
+    fn generated_bundle_executes_real_tree_sitter_corpus_cases() {
+        let root = build_bundle_root("external_corpus");
+        let cache = tree_sitter_cache_root("external_corpus");
+        let output = run_tree_sitter_test(&root, &cache);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let case_count = fol_tree_sitter_corpus().len();
+
+        assert!(
+            output.status.success(),
+            "external tree-sitter corpus test failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(
+            stdout.contains(&format!(
+                "Total parses: {case_count}; successful parses: {case_count}; failed parses: 0;"
+            )),
+            "external tree-sitter corpus test did not execute every registered case:\n{stdout}"
+        );
+
+        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_dir_all(cache).ok();
     }
 
     #[test]
@@ -937,6 +1359,110 @@ mod tests {
             owned_declarations, 2,
             "both owned allocation declarations should capture '@var' as a keyword:\n{stdout}"
         );
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn generated_bundle_highlights_nested_v3_type_operands_and_tilde_var() {
+        let root = build_bundle_root("nested_v3_type_operands");
+        let query = root.join("queries/fol/highlights.scm");
+        let cases = [
+            (
+                "examples/mem_ptr_unique_m3/src/main.fol",
+                "- type.builtin, start: (2, 26), end: (2, 29), text: `int`",
+            ),
+            (
+                "examples/mem_ptr_shared_recursive_m3/src/main.fol",
+                "- type, start: (2, 26), end: (2, 30), text: `Node`",
+            ),
+            (
+                "examples/proc_channel_m2/src/main.fol",
+                "- type.builtin, start: (2, 27), end: (2, 30), text: `int`",
+            ),
+            (
+                "examples/mem_linked_list_m1/src/main.fol",
+                "- type, start: (2, 15), end: (2, 19), text: `Node`",
+            ),
+            (
+                "test/parser/simple_fun_tilde_var.fol",
+                "- keyword, start: (1, 4), end: (1, 8), text: `~var`",
+            ),
+        ];
+
+        for (relative, expected) in cases {
+            let output = run_tree_sitter_query(&root, &query, &repo_root().join(relative));
+            assert!(
+                output.status.success(),
+                "tree-sitter highlight query failed for '{relative}':\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.lines().any(|line| line.contains(expected)),
+                "fixture '{relative}' lost exact nested V3 capture '{expected}':\n{stdout}"
+            );
+        }
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn generated_bundle_highlights_recursive_v3_type_operands_exactly() {
+        let root = build_bundle_root("recursive_v3_type_operands");
+        let source = root.join("recursive_v3_type_operands.fol");
+        std::fs::write(
+            &source,
+            concat!(
+                "typ Box(T): rec = { value: T };\n",
+                "use models: loc = {\"../models\"};\n",
+                "fun[] demo(\n",
+                "    a: ptr[Box[int]],\n",
+                "    b: chn[vec[Node]],\n",
+                "    c: @arr[Node, 1],\n",
+                "    d: ptr[opt[Node]],\n",
+                "    e: ptr[models::Box[int]],\n",
+                "    f: chn[vec[models::Node]],\n",
+                "    g: @arr[models::Node, 1],\n",
+                "    h: ptr[opt[models::Node]]\n",
+                "): int = { return 0; };\n",
+            ),
+        )
+        .expect("recursive V3 type fixture should be writable");
+
+        let output =
+            run_tree_sitter_query(&root, &root.join("queries/fol/highlights.scm"), &source);
+        assert!(
+            output.status.success(),
+            "tree-sitter highlight query failed for recursive V3 types:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let expected = [
+            ("type", 3, 11, 14, "Box"),
+            ("type.builtin", 3, 15, 18, "int"),
+            ("type", 4, 15, 19, "Node"),
+            ("type", 5, 12, 16, "Node"),
+            ("type", 6, 15, 19, "Node"),
+            ("type", 7, 11, 22, "models::Box"),
+            ("type.builtin", 7, 23, 26, "int"),
+            ("type", 8, 15, 27, "models::Node"),
+            ("type", 9, 12, 24, "models::Node"),
+            ("type", 10, 15, 27, "models::Node"),
+        ];
+
+        for (capture, row, start, end, text) in expected {
+            let exact = format!(
+                "- {capture}, start: ({row}, {start}), end: ({row}, {end}), text: `{text}`"
+            );
+            assert_eq!(
+                stdout.lines().filter(|line| line.contains(&exact)).count(),
+                1,
+                "recursive V3 operand should have one exact '{exact}' capture:\n{stdout}"
+            );
+        }
 
         std::fs::remove_dir_all(root).ok();
     }
@@ -1390,13 +1916,16 @@ mod tests {
         for needle in [
             "(use_decl source_kind: (source_kind \"loc\" @keyword.import))",
             "(use_decl source_kind: (source_kind \"pkg\" @keyword.import))",
-            "(use_decl source_kind: (source_kind \"std\" @keyword.import))",
         ] {
             assert!(
                 query.contains(needle),
                 "missing source-kind capture: {needle}"
             );
         }
+        assert!(
+            !query.contains("(source_kind \"std\""),
+            "removed std source kind must not remain in the highlight query"
+        );
 
         let root = build_bundle_root("import_source_kinds");
         let output = run_tree_sitter_query(

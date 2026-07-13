@@ -1,0 +1,100 @@
+use shared: loc = {"../shared"};
+
+fun[] compare_intrinsics(base: int): int = {
+    when(.eq(.eq(base, 7), .eq(.nq(base, 8), .eq(.lt(3, 4), .eq(.gt(4, 3), .eq(.ge(base, 7), .le(3, 3))))))) {
+        case(true) { return 7; }
+        * { return 0; }
+    }
+};
+
+fun[] branch_status(flag: bol): int = {
+    when(okay_status(flag)) {
+        case(Status.OK) { return 11; }
+        case(Status.WARN) { return 13; }
+        * { return 17; }
+    }
+};
+
+fun[] shell_paths(): int = {
+    var label: str = pick_label(true)!;
+    var text: str = shell_error()!;
+    when(.eq(.len(label), .len(text))) {
+        case(true) { return 1; }
+        * { return 2; }
+    }
+};
+
+fun[] container_paths(): int = {
+    var all_names: seq[str] = names();
+    var all_weights: map[str, int] = weights();
+    var all_ids: set[int] = ids();
+    when(.eq(.len(all_ids), 0)) {
+        case(true) { return all_weights["ada"]; }
+        * { return .len(all_names); }
+    }
+};
+
+fun[] recover_paths(flag: bol): int = {
+    when(score_failed(flag)) {
+        case(true) { return safe_score(true); }
+        * { return safe_score(false); }
+    }
+};
+
+fun[] method_paths(): int = {
+    var current: User = lead();
+    return current.tag();
+};
+
+fun[] report_paths(flag: bol): int = {
+    var report = build_report(flag);
+    return report_code(report);
+};
+
+fun[] report_owner_size(flag: bol): int = {
+    var report = build_report(flag);
+    return owner_size(report);
+};
+
+fun[] loop_probe(flag: bol): int = {
+    loop(flag) {
+        break;
+    }
+    return 7;
+};
+
+fun[] final_score(flag: bol): int = {
+    var left: int = compare_intrinsics(safe_score(false));
+    var right: int = branch_status(flag);
+    var shell_value: int = shell_paths();
+    var container_value: int = container_paths();
+    var recover_value: int = recover_paths(flag);
+    var method_value: int = method_paths();
+    var report_value: int = report_paths(flag);
+    var owner_value: int = report_owner_size(flag);
+    var loop_value: int = loop_probe(flag);
+
+    when(.not(false)) {
+        case(true) {
+            when(.gt(left, right)) {
+                case(true) { return .echo(container_value); }
+                * {
+                    when(.gt(report_value, owner_value)) {
+                        case(true) { return .echo(recover_value); }
+                        * {
+                            when(.gt(method_value, shell_value)) {
+                                case(true) { return .echo(loop_value); }
+                                * { return .echo(right); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        * { return .echo(0); }
+    }
+};
+
+fun[] main(): int = {
+    return final_score(false);
+};

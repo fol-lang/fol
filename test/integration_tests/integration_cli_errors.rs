@@ -539,7 +539,7 @@ fn test_cli_json_resolver_errors_keep_notes_for_unsupported_import_kinds() {
     );
     assert_eq!(
         diagnostic["notes"][0],
-        "supported import source kinds are loc, std, and pkg"
+        "supported import source kinds are loc and pkg"
     );
 
     fs::remove_dir_all(&temp_root).ok();

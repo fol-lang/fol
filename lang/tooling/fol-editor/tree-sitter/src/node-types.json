@@ -973,6 +973,10 @@
           "named": true
         },
         {
+          "type": "raw_string_literal",
+          "named": true
+        },
+        {
           "type": "record_literal",
           "named": true
         },
@@ -3602,6 +3606,10 @@
   {
     "type": "raw",
     "named": false
+  },
+  {
+    "type": "raw_string_literal",
+    "named": true
   },
   {
     "type": "record_type",

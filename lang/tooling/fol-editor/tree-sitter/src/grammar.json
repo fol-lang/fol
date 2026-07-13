@@ -848,10 +848,6 @@
         },
         {
           "type": "STRING",
-          "value": "std"
-        },
-        {
-          "type": "STRING",
           "value": "pkg"
         }
       ]
@@ -3666,6 +3662,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "raw_string_literal"
+        },
+        {
+          "type": "SYMBOL",
           "name": "char_literal"
         },
         {
@@ -5011,7 +5011,23 @@
     },
     "char_literal": {
       "type": "PATTERN",
-      "value": "'(\\\\.|[^'\\\\])'"
+      "value": "'[^']'"
+    },
+    "raw_string_literal": {
+      "type": "TOKEN",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "PATTERN",
+            "value": "''"
+          },
+          {
+            "type": "PATTERN",
+            "value": "'[^'][^']+'"
+          }
+        ]
+      }
     },
     "string_literal": {
       "type": "PATTERN",
@@ -5041,11 +5057,15 @@
         "members": [
           {
             "type": "PATTERN",
-            "value": "`[^`\\n]*`"
+            "value": "`[^`]*`"
           },
           {
             "type": "PATTERN",
             "value": "\\/\\/[^\\n]*"
+          },
+          {
+            "type": "PATTERN",
+            "value": "\\/\\*[^*]*\\*+([^/*][^*]*\\*+)*\\/"
           }
         ]
       }
@@ -5053,8 +5073,12 @@
     "doc_comment": {
       "type": "TOKEN",
       "content": {
-        "type": "PATTERN",
-        "value": "`\\[[^`\\n]*\\][^`\\n]*`"
+        "type": "PREC",
+        "value": 1,
+        "content": {
+          "type": "PATTERN",
+          "value": "`\\[doc\\][^`]*`"
+        }
       }
     }
   },

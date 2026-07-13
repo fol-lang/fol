@@ -14,7 +14,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f run r test t tree help h clean docs release
+.PHONY: build b compile c fmt f run r test t tree tree-test help h clean docs release
 
 SHELL := /bin/bash
 
@@ -46,7 +46,15 @@ r: run
 TREE_DIR ?= $(TOP_DIR)/lang/tooling/fol-editor/tree-sitter
 
 tree:
-	@cargo run -- tool tree generate $(TREE_DIR)
+	@cargo run -- tool tree generate "$(TREE_DIR)"
+
+tree-test: tree
+	@set -eu; \
+		cache="$$(mktemp -d "$${TMPDIR:-/tmp}/fol-tree-sitter-test.XXXXXX")"; \
+		trap 'rm -rf "$$cache"' EXIT; \
+		output="$$(cd "$(TREE_DIR)" && XDG_CACHE_HOME="$$cache" tree-sitter test)"; \
+		printf '%s\n' "$$output"; \
+		printf '%s\n' "$$output" | grep -Eq 'Total parses: [1-9][0-9]*; successful parses: [1-9][0-9]*; failed parses: 0;'
 
 
 TEST_ARGS ?=
@@ -67,6 +75,7 @@ help:
 	@echo "  fmt          Format the Rust workspace"
 	@echo "  run          Run the main executable"
 	@echo "  tree         Regenerate the checked-in tree-sitter bundle"
+	@echo "  tree-test    Regenerate and run non-empty tree-sitter corpus tests"
 	@echo "  test         Run tests"
 	@echo "  docs         Build documentation (TYPE=mdbook|doxygen)"
 	@echo "  release      Create a new release (TYPE=patch|minor|major)"

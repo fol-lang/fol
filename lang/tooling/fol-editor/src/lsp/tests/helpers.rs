@@ -16,8 +16,7 @@ pub(super) fn temp_root(label: &str) -> PathBuf {
             .as_nanos()
     ));
     std::fs::create_dir_all(&root).expect("test root should be creatable");
-    std::fs::create_dir_all(root.join(".git"))
-        .expect("test workspace marker should be creatable");
+    std::fs::create_dir_all(root.join(".git")).expect("test workspace marker should be creatable");
     root
 }
 
@@ -121,9 +120,6 @@ pub(super) fn copied_example_package_root(example_path: &str) -> (PathBuf, Strin
     let root = temp_root(&format!("example_copy_{}", example_path.replace('/', "_")));
     copy_dir_all(&source, &root);
     fs::create_dir_all(root.join(".git")).unwrap();
-    let bundled_std_root =
-        fol_package::available_bundled_std_root().expect("bundled std root should exist");
-    copy_dir_all(&bundled_std_root, &root.join(".fol/pkg/std"));
     let uri = format!("file://{}", root.join("src/main.fol").display());
     (root, uri)
 }

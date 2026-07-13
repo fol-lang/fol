@@ -543,10 +543,7 @@ mod integration_tests {
         #[test]
         fn source_kind_names_are_canonical() {
             let kinds = fol_parser::SOURCE_KIND_NAMES;
-            assert_eq!(kinds.len(), 3);
-            assert!(kinds.contains(&"loc"));
-            assert!(kinds.contains(&"std"));
-            assert!(kinds.contains(&"pkg"));
+            assert_eq!(kinds, &["loc", "pkg"]);
         }
 
         #[test]
