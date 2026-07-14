@@ -201,29 +201,41 @@ fn dfr_blocks_reject_nested_return() {
 }
 
 #[test]
-fn dfr_blocks_allow_report_statements_in_error_routines() {
-    let typed = typecheck_fixture_folder(&[(
-        "main.fol",
-        "fun[] main(flag: bol): int / str = {\n\
-             dfr {\n\
-                 when(flag) {\n\
-                     case(true) { report \"cleanup-bad\"; }\n\
-                     * { .echo(1); }\n\
-                 }\n\
-             };\n\
-             return 7;\n\
-         };\n",
-    )]);
+fn dfr_and_edf_blocks_reject_nested_report_statements() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "fun[] main(flag: bol): int / int = {{\n\
+                 {deferred} {{\n\
+                     when(flag) {{\n\
+                         case(true) {{ report 9; }}\n\
+                         * {{ var observed: int = 1; }}\n\
+                     }}\n\
+                 }};\n\
+                 when(flag) {{\n\
+                     case(true) {{ report 1; }}\n\
+                     * {{ return 7; }}\n\
+                 }}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+        let error = errors
+            .iter()
+            .find(|error| {
+                error.kind() == TypecheckErrorKind::InvalidInput
+                    && error
+                        .message()
+                        .contains("report is not allowed inside dfr/edf blocks")
+            })
+            .unwrap_or_else(|| {
+                panic!("{deferred} should reject nested report before lowering: {errors:#?}")
+            });
 
-    let syntax_id = find_named_routine_syntax_id(&typed, "main");
-    assert_eq!(
-        typed
-            .typed_node(syntax_id)
-            .and_then(|node| node.inferred_type)
-            .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int)),
-        "Expected dfr-bearing error routine to keep its declared return type",
-    );
+        assert_eq!(error.to_diagnostic().code.as_str(), "T1001");
+        assert!(
+            error.origin().is_some(),
+            "{deferred} report rejection should retain the report call's source location"
+        );
+    }
 }
 
 #[test]

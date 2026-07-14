@@ -130,6 +130,13 @@ pub(crate) const V3_MEM_M1_FAILURES: &[V3FailureExample] = &[
 
 pub(crate) const V3_MEM_M2_FAILURES: &[V3FailureExample] = &[
     v3_failure!(
+        "examples/fail_mem_deferred_report_m2",
+        "T1001",
+        "report is not allowed inside dfr/edf blocks",
+        false,
+        false
+    ),
+    v3_failure!(
         "examples/fail_mem_owner_while_borrowed_m2",
         "O2001",
         "owner 'owner' is inaccessible while borrowed",

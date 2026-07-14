@@ -312,9 +312,12 @@ static REGISTRY: &[Explanation] = &[
          Why it happens:\n\
          - an expression is malformed for the position it appears in\n\
          - an operand or argument shape does not match what the checker expects\n\
+         - `report` appears inside `dfr` or `edf`, where deferred replay cannot initiate a\n\
+           recoverable error exit\n\
          - a blocking `select {}` has no channel arm and no default arm\n\n\
          How to fix:\n\
          - re-read the reported span and adjust the expression to a valid form\n\
+         - move `report` into ordinary control flow and keep deferred bodies non-terminating\n\
          - add at least one `when channel as binding` arm, or add a default `*` arm, to `select`"
     ),
     explanation!(
@@ -612,6 +615,15 @@ mod tests {
         let explanation = explanation("T1001").expect("T1001 should be registered");
         assert!(explanation.body.contains("blocking `select {}`"));
         assert!(explanation.body.contains("at least one `when channel as binding` arm"));
+    }
+
+    #[test]
+    fn invalid_input_explanation_covers_deferred_report_boundary() {
+        let explanation = explanation("T1001").expect("T1001 should be registered");
+        assert!(explanation.body.contains("`report` appears inside `dfr` or `edf`"));
+        assert!(explanation
+            .body
+            .contains("keep deferred bodies non-terminating"));
     }
 
     #[test]

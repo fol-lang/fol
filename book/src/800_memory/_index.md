@@ -57,6 +57,7 @@ Positive:
 
 Negative:
 
+- `examples/fail_mem_deferred_report_m2`
 - `examples/fail_mem_owner_while_borrowed_m2`
 - `examples/fail_mem_second_mut_borrow_m2`
 - `examples/fail_mem_mut_borrow_immutable_owner_m2`

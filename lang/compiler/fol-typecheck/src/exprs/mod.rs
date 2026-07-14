@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 
 use helpers::{
     binding_kind_for, describe_type, ensure_assignable, ensure_assignable_target, internal_error,
-    node_origin, origin_for, plain_value_expr, unsupported_node_surface,
+    node_origin, origin_for, plain_value_expr, unsupported_node_surface, with_node_origin,
 };
 pub(crate) use helpers::{inline_body_block_scope, loop_body_scope};
 
@@ -1193,6 +1193,14 @@ fn type_node_with_expectation_inner(
             syntax_id,
             ..
         } if name == "report" => {
+            if context.inside_deferred_block {
+                return Err(with_node_origin(
+                    resolved,
+                    node,
+                    TypecheckErrorKind::InvalidInput,
+                    "report is not allowed inside dfr/edf blocks; deferred cleanup cannot initiate a recoverable error exit",
+                ));
+            }
             calls::type_report_call(typed, resolved, context, args, *syntax_id)
         }
         AstNode::FunctionCall {
