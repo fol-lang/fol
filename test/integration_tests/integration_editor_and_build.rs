@@ -7075,7 +7075,7 @@ fn test_cli_code_build_keeps_core_dynamic_len_boundary_diagnostic() {
 
 #[test]
 fn test_cli_code_build_and_run_keep_effective_std_runtime_path() {
-    let temp_root = unique_temp_root("build_std_model_runtime");
+    let temp_root = unique_temp_root("build_effective_std_runtime");
     let root = temp_root.join("demo");
     std::fs::create_dir_all(root.join("src")).expect("should create source root");
     std::fs::write(

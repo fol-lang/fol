@@ -1104,7 +1104,7 @@ fn execute_workspace_build_route_emits_std_runtime_module_imports() {
             run_args: Vec::new(),
         },
     )
-    .expect("std-model routed build should succeed");
+    .expect("hosted-tier routed build should succeed");
 
     let main_rs = emitted_main_rs_from_result(&result);
     assert!(main_rs.contains("use fol_runtime::std as rt_model;"));
