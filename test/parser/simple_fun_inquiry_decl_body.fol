@@ -2,7 +2,7 @@ fun[] inspect(value: int): int = {
     return value;
     where(self) {
         var current: int = value;
-        +let exported: int = current;
+        +var[imu] exported: int = current;
         lab named: int = exported;
     }
 };

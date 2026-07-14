@@ -34,13 +34,6 @@ impl AstParser {
         self.parse_binding_decl(tokens, "var", vec![VarOption::Mutable, VarOption::Normal])
     }
 
-    pub(super) fn parse_let_decl(
-        &self,
-        tokens: &mut fol_lexer::lexer::stage3::Elements,
-    ) -> Result<Vec<AstNode>, ParseError> {
-        self.parse_binding_decl(tokens, "let", vec![VarOption::Immutable, VarOption::Normal])
-    }
-
     pub(super) fn parse_con_decl(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,

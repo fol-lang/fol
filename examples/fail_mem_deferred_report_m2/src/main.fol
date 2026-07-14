@@ -1,0 +1,12 @@
+fun[] main(flag: bol): int / int = {
+    dfr {
+        when(flag) {
+            case(true) { report 9; }
+            * { var observed: int = 1; }
+        }
+    };
+    when(flag) {
+        case(true) { report 1; }
+        * { return 7; }
+    }
+};

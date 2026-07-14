@@ -593,7 +593,9 @@ fn parse_work_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    output.output = Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 "--path" => path = Some(cursor.take_value(&token, "path")?),
                 _ => return Err(ParseError::invalid(format!("unknown flag for work: {key}"))),
             }
@@ -671,7 +673,9 @@ fn parse_pack_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    output.output = Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 _ => return Err(ParseError::invalid(format!("unknown flag for pack: {key}"))),
             }
             continue;
@@ -680,7 +684,7 @@ fn parse_pack_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
     }
 
     let sub = cursor.advance().ok_or_else(|| ParseError::help(pack_help()))?;
-    let sub_output = env_output_args();
+    let sub_output = FrontendOutputArgs::default();
     let subcommand = match sub {
         "fetch" | "f" | "sync" => PackSubcommand::Fetch(parse_fetch_command(cursor, sub_output)?),
         "update" | "u" | "upgrade" => PackSubcommand::Update(parse_update_command(cursor, sub_output)?),
@@ -697,7 +701,10 @@ fn parse_fetch_command(cursor: &mut ArgCursor, output: FrontendOutputArgs) -> Re
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => cmd.output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    cmd.output.output =
+                        Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 "--std-root" => cmd.roots.std_root = Some(cursor.take_value(&token, "std-root")?),
                 "--package-store-root" => cmd.roots.package_store_root = Some(cursor.take_value(&token, "package-store-root")?),
                 "--locked" => cmd.locked = true,
@@ -720,7 +727,10 @@ fn parse_update_command(cursor: &mut ArgCursor, output: FrontendOutputArgs) -> R
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => cmd.output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    cmd.output.output =
+                        Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 "--std-root" => cmd.roots.std_root = Some(cursor.take_value(&token, "std-root")?),
                 "--package-store-root" => cmd.roots.package_store_root = Some(cursor.take_value(&token, "package-store-root")?),
                 "-h" | "--help" => return Err(ParseError::help("Usage: fol pack update".to_string())),
@@ -738,7 +748,7 @@ fn parse_update_command(cursor: &mut ArgCursor, output: FrontendOutputArgs) -> R
 // ---------------------------------------------------------------------------
 
 fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseError> {
-    let mut output = env_output_args();
+    let mut output = FrontendOutputArgs::default();
     let mut profile_args = env_profile_args();
 
     while let Some(token) = cursor.peek() {
@@ -749,7 +759,9 @@ fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    output.output = Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 "--profile" => profile_args.profile = Some(parse_profile(&cursor.take_value(&token, "profile")?)?),
                 "--debug" => profile_args.debug = true,
                 "--release" => profile_args.release = true,
@@ -763,8 +775,9 @@ fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
     check_profile_conflicts(&profile_args)?;
 
     let sub = cursor.advance().ok_or_else(|| ParseError::help(code_help()))?;
-    // Subcommands start with env defaults, not inheriting from group-level flags.
-    let sub_output = env_output_args();
+    // Command-local overrides stay sparse so dispatch can resolve
+    // subcommand > group > root/environment precedence exactly once.
+    let sub_output = FrontendOutputArgs::default();
     let sub_profile = env_profile_args();
     let subcommand = match sub {
         "build" | "b" | "make" => CodeSubcommand::Build(parse_build_command(cursor, sub_output, sub_profile)?),
@@ -845,7 +858,10 @@ fn parse_test_command(cursor: &mut ArgCursor, output: FrontendOutputArgs, profil
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => cmd.output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    cmd.output.output =
+                        Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 "--profile" => cmd.profile.profile = Some(parse_profile(&cursor.take_value(&token, "profile")?)?),
                 "--debug" => cmd.profile.debug = true,
                 "--release" => cmd.profile.release = true,
@@ -910,7 +926,10 @@ fn parse_emit_rust_command(cursor: &mut ArgCursor) -> Result<EmitRustCommand, Pa
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => cmd.output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    cmd.output.output =
+                        Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 "--profile" => cmd.profile.profile = Some(parse_profile(&cursor.take_value(&token, "profile")?)?),
                 "--debug" => cmd.profile.debug = true,
                 "--release" => cmd.profile.release = true,
@@ -938,7 +957,10 @@ fn parse_emit_lowered_command(cursor: &mut ArgCursor) -> Result<EmitLoweredComma
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => cmd.output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    cmd.output.output =
+                        Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 "--profile" => cmd.profile.profile = Some(parse_profile(&cursor.take_value(&token, "profile")?)?),
                 "--debug" => cmd.profile.debug = true,
                 "--release" => cmd.profile.release = true,
@@ -973,7 +995,9 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
-                "--output" => output.output = parse_output_mode(&cursor.take_value(&token, "output")?)?,
+                "--output" => {
+                    output.output = Some(parse_output_mode(&cursor.take_value(&token, "output")?)?)
+                }
                 _ => return Err(ParseError::invalid(format!("unknown flag for tool: {key}"))),
             }
             continue;
@@ -1184,7 +1208,9 @@ fn parse_build_flag(
 ) -> Result<(), ParseError> {
     let (key, _) = split_eq(token);
     match key {
-        "--output" => output.output = parse_output_mode(&cursor.take_value(token, "output")?)?,
+        "--output" => {
+            output.output = Some(parse_output_mode(&cursor.take_value(token, "output")?)?)
+        }
         "--profile" => profile.profile = Some(parse_profile(&cursor.take_value(token, "profile")?)?),
         "--debug" => profile.debug = true,
         "--release" => profile.release = true,
@@ -1268,10 +1294,6 @@ fn env_profile() -> Option<FrontendProfile> {
         Some("debug") => Some(FrontendProfile::Debug),
         _ => None,
     }
-}
-
-fn env_output_args() -> FrontendOutputArgs {
-    FrontendOutputArgs { output: env_output_mode() }
 }
 
 fn env_profile_args() -> FrontendProfileArgs {

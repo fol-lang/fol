@@ -42,8 +42,8 @@
 //! ```
 
 use crate::{
-    memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
     containers::FolArray,
+    memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
     shell::{FolError, FolOption},
 };
 
@@ -172,6 +172,18 @@ impl FolEchoFormat for FolStr {
     }
 }
 
+impl<T: FolEchoFormat + ?Sized> FolEchoFormat for Box<T> {
+    fn fol_echo_format(&self) -> String {
+        render_echo(self.as_ref())
+    }
+}
+
+impl<T: FolEchoFormat + ?Sized> FolEchoFormat for std::rc::Rc<T> {
+    fn fol_echo_format(&self) -> String {
+        render_echo(self.as_ref())
+    }
+}
+
 impl<T: FolEchoFormat, const N: usize> FolEchoFormat for FolArray<T, N> {
     fn fol_echo_format(&self) -> String {
         format!("arr[{}]", join_echo(self.iter().map(render_echo)))
@@ -180,19 +192,28 @@ impl<T: FolEchoFormat, const N: usize> FolEchoFormat for FolArray<T, N> {
 
 impl<T: FolEchoFormat> FolEchoFormat for FolVec<T> {
     fn fol_echo_format(&self) -> String {
-        format!("vec[{}]", join_echo(self.as_slice().iter().map(render_echo)))
+        format!(
+            "vec[{}]",
+            join_echo(self.as_slice().iter().map(render_echo))
+        )
     }
 }
 
 impl<T: FolEchoFormat> FolEchoFormat for FolSeq<T> {
     fn fol_echo_format(&self) -> String {
-        format!("seq[{}]", join_echo(self.as_slice().iter().map(render_echo)))
+        format!(
+            "seq[{}]",
+            join_echo(self.as_slice().iter().map(render_echo))
+        )
     }
 }
 
 impl<T: FolEchoFormat + Ord> FolEchoFormat for FolSet<T> {
     fn fol_echo_format(&self) -> String {
-        format!("set{{{}}}", join_echo(self.as_set().iter().map(render_echo)))
+        format!(
+            "set{{{}}}",
+            join_echo(self.as_set().iter().map(render_echo))
+        )
     }
 }
 
@@ -200,11 +221,11 @@ impl<K: FolEchoFormat + Ord, V: FolEchoFormat> FolEchoFormat for FolMap<K, V> {
     fn fol_echo_format(&self) -> String {
         format!(
             "map{{{}}}",
-            join_echo(
-                self.as_map()
-                    .iter()
-                    .map(|(key, value)| format!("{}: {}", render_echo(key), render_echo(value)))
-            )
+            join_echo(self.as_map().iter().map(|(key, value)| format!(
+                "{}: {}",
+                render_echo(key),
+                render_echo(value)
+            )))
         )
     }
 }

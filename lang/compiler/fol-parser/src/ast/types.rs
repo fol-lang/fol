@@ -69,6 +69,13 @@ impl QualifiedPath {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PointerQualifier {
+    Unique,
+    Shared,
+    Raw,
+}
+
 /// FOL Type system
 #[derive(Debug, Clone, PartialEq)]
 pub enum FolType {
@@ -123,6 +130,9 @@ pub enum FolType {
     Optional {
         inner: Box<FolType>,
     }, // opt[T]
+    Owned {
+        inner: Box<FolType>,
+    }, // @T
     Multiple {
         types: Vec<FolType>,
     }, // mul[T1, T2, ...]
@@ -132,6 +142,7 @@ pub enum FolType {
     Never,
     Any,
     Pointer {
+        qualifier: PointerQualifier,
         target: Box<FolType>,
     },
     Error {
@@ -249,7 +260,7 @@ impl BindingPattern {
 pub struct Parameter {
     pub name: String,
     pub param_type: FolType,
-    pub is_borrowable: bool, // ALL_CAPS names are borrowable
+    pub is_borrowable: bool,
     pub is_mutex: bool,
     /// Declared with the explicit `... T` variadic marker. The parameter's
     /// `param_type` is the collected `seq[T]`; a plain trailing `seq[T]`
@@ -344,10 +355,31 @@ pub enum LoopCondition {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelEndpoint {
     Tx,
     Rx,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutineCapture {
+    pub name: String,
+    pub syntax_id: Option<SyntaxNodeId>,
+    pub endpoint: Option<ChannelEndpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelectArm {
+    pub channel: AstNode,
+    pub binding: String,
+    pub binding_syntax_id: Option<SyntaxNodeId>,
+    pub body: Vec<AstNode>,
+}
+
+impl PartialEq<String> for RoutineCapture {
+    fn eq(&self, other: &String) -> bool {
+        self.endpoint.is_none() && self.name == *other
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

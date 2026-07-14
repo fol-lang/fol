@@ -1,7 +1,7 @@
 fun classify(value: int): int = {
     when(value) {
         is(0) => {
-            let local: int = 0;
+            var[imu] local: int = 0;
             return local;
         }
         has(value) => {

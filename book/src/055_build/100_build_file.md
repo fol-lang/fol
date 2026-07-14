@@ -16,7 +16,11 @@ Rules for `build.fol`:
 - It can define local helper `fun[]`, `pro[]`, and `typ` declarations
 - Those local declarations are not exported to the package
 - It must declare exactly one `pro[] build(): non` entry
-- Additional `use` imports from the FOL stdlib are allowed
+
+The implicit build stdlib is the restricted API used to evaluate `build.fol`.
+It is not the bundled source package named `std`, does not change an artifact's
+`fol_model`, and does not expose hosted language APIs to ordinary package
+sources.
 
 ## Compilation Pipeline
 
@@ -95,6 +99,7 @@ pro[] build(): non = {
     var app = graph.add_exe({
         name = "app",
         root = "src/main.fol",
+        fol_model = "memo",
     });
     graph.install(app);
     graph.add_run(app);
@@ -110,6 +115,17 @@ The public layering is:
   `build.export_step({...})`, and `build.export_output({...})` for the
   dependency-facing build surface this package exposes
 - `build.graph()` for artifact and step graph work
+
+Capability selection and dependency declaration are separate:
+
+- each artifact selects `fol_model = "core"` or `fol_model = "memo"`; omitting
+  the field currently selects the default `memo` model
+- a `memo` source scope that uses hosted names declares bundled `std` with
+  `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
+- `std` is not a valid `fol_model`, and the dependency is not needed merely
+  because an artifact is executable or registered with `graph.add_run`
+- `fol code run` and `fol code test` launch host-compatible artifacts using the
+  evaluated graph; their target check is independent of source API capability
 
 The public surface includes:
 

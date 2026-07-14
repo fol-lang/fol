@@ -1,7 +1,4 @@
-use crate::eval::{
-    BuildEvaluationError, BuildEvaluationErrorKind,
-    BuildEvaluationOperationKind,
-};
+use crate::eval::{BuildEvaluationError, BuildEvaluationErrorKind, BuildEvaluationOperationKind};
 use fol_lexer::lexer::stage3::Elements;
 use fol_parser::ast::{
     AstNode, CallSurface, FolType, LoopCondition, Parameter, ParsedPackage, ParsedTopLevel,
@@ -107,10 +104,12 @@ impl BuildBodyExecutor {
                     AstNode::ProDecl { name, body, .. } if name == "build" => {
                         build_entry = Some(body.clone());
                     }
-                    AstNode::FunDecl { name, params, body, .. }
-                    | AstNode::ProDecl { name, params, body, .. }
-                        if name != "build" =>
-                    {
+                    AstNode::FunDecl {
+                        name, params, body, ..
+                    }
+                    | AstNode::ProDecl {
+                        name, params, body, ..
+                    } if name != "build" => {
                         helpers.insert(
                             name.clone(),
                             HelperRoutine {
@@ -198,7 +197,10 @@ impl BuildBodyExecutor {
                     if !is_valid_identifier(name) {
                         return Err(BuildEvaluationError::new(
                             BuildEvaluationErrorKind::InvalidInput,
-                            format!("invalid variable name '{}': names must match [a-z][a-z0-9_-]*", name),
+                            format!(
+                                "invalid variable name '{}': names must match [a-z][a-z0-9_-]*",
+                                name
+                            ),
                         ));
                     }
                     if self.scope.len() >= MAX_SCOPE_SIZE {
@@ -230,13 +232,19 @@ impl BuildBodyExecutor {
                 Ok(())
             }
 
-            AstNode::When { expr, cases, default } => {
+            AstNode::When {
+                expr,
+                cases,
+                default,
+            } => {
                 self.exec_when(expr, cases, default.as_deref())?;
                 self.last_value = None;
                 Ok(())
             }
 
-            AstNode::Loop { condition, body } => {
+            AstNode::Loop {
+                condition, body, ..
+            } => {
                 self.exec_loop(condition, body)?;
                 self.last_value = None;
                 Ok(())
@@ -346,23 +354,33 @@ impl BuildBodyExecutor {
         step_name: &str,
         depends_on: &[String],
     ) -> Result<(), BuildEvaluationError> {
-        let Some(op) = self.output.operations.iter_mut().rev().find(|op| {
-            match &op.kind {
+        let Some(op) = self
+            .output
+            .operations
+            .iter_mut()
+            .rev()
+            .find(|op| match &op.kind {
                 BuildEvaluationOperationKind::Step(r) => r.name == step_name,
                 BuildEvaluationOperationKind::AddRun(r) => r.name == step_name,
                 BuildEvaluationOperationKind::InstallArtifact(r) => r.name == step_name,
                 _ => false,
-            }
-        }) else {
+            })
+        else {
             return Err(BuildEvaluationError::new(
                 BuildEvaluationErrorKind::InvalidInput,
                 format!("unknown chained step '{step_name}'"),
             ));
         };
         match &mut op.kind {
-            BuildEvaluationOperationKind::Step(r) => r.depends_on.extend(depends_on.iter().cloned()),
-            BuildEvaluationOperationKind::AddRun(r) => r.depends_on.extend(depends_on.iter().cloned()),
-            BuildEvaluationOperationKind::InstallArtifact(r) => r.depends_on.extend(depends_on.iter().cloned()),
+            BuildEvaluationOperationKind::Step(r) => {
+                r.depends_on.extend(depends_on.iter().cloned())
+            }
+            BuildEvaluationOperationKind::AddRun(r) => {
+                r.depends_on.extend(depends_on.iter().cloned())
+            }
+            BuildEvaluationOperationKind::InstallArtifact(r) => {
+                r.depends_on.extend(depends_on.iter().cloned())
+            }
             _ => {}
         }
         Ok(())
@@ -515,12 +533,18 @@ fn validate_node_public_surface(
                 validate_node_public_surface(package, inquiry)?;
             }
         }
-        AstNode::TypeDecl { contracts, type_def, .. } => {
+        AstNode::TypeDecl {
+            contracts,
+            type_def,
+            ..
+        } => {
             for contract in contracts {
                 validate_type_public_surface(package, contract)?;
             }
             match type_def {
-                fol_parser::ast::TypeDefinition::Record { fields, members, .. } => {
+                fol_parser::ast::TypeDefinition::Record {
+                    fields, members, ..
+                } => {
                     for field_type in fields.values() {
                         validate_type_public_surface(package, field_type)?;
                     }
@@ -574,10 +598,23 @@ fn validate_node_public_surface(
         | AstNode::Block {
             statements: body, ..
         }
-        | AstNode::Defer { body, .. }
-        | AstNode::Select { body, .. } => {
+        | AstNode::Dfr { body, .. }
+        | AstNode::Edf { body, .. } => {
             for stmt in body {
                 validate_node_public_surface(package, stmt)?;
+            }
+        }
+        AstNode::Select { arms, default, .. } => {
+            for arm in arms {
+                validate_node_public_surface(package, &arm.channel)?;
+                for stmt in &arm.body {
+                    validate_node_public_surface(package, stmt)?;
+                }
+            }
+            if let Some(default) = default {
+                for stmt in default {
+                    validate_node_public_surface(package, stmt)?;
+                }
             }
         }
         AstNode::FunctionCall { args, .. }
@@ -603,10 +640,16 @@ fn validate_node_public_surface(
             validate_node_public_surface(package, right)?;
         }
         AstNode::UnaryOp { operand, .. }
-        | AstNode::TemplateCall { object: operand, .. }
-        | AstNode::FieldAccess { object: operand, .. }
+        | AstNode::TemplateCall {
+            object: operand, ..
+        }
+        | AstNode::FieldAccess {
+            object: operand, ..
+        }
         | AstNode::AvailabilityAccess { target: operand }
-        | AstNode::ChannelAccess { channel: operand, .. } => {
+        | AstNode::ChannelAccess {
+            channel: operand, ..
+        } => {
             validate_node_public_surface(package, operand)?;
         }
         AstNode::IndexAccess { container, index } => {
@@ -668,7 +711,11 @@ fn validate_node_public_surface(
                 validate_node_public_surface(package, end)?;
             }
         }
-        AstNode::When { expr, cases, default } => {
+        AstNode::When {
+            expr,
+            cases,
+            default,
+        } => {
             validate_node_public_surface(package, expr)?;
             for case in cases {
                 match case {
@@ -680,8 +727,14 @@ fn validate_node_public_surface(
                     }
                     WhenCase::Is { value, body }
                     | WhenCase::In { range: value, body }
-                    | WhenCase::Has { member: value, body }
-                    | WhenCase::On { channel: value, body } => {
+                    | WhenCase::Has {
+                        member: value,
+                        body,
+                    }
+                    | WhenCase::On {
+                        channel: value,
+                        body,
+                    } => {
                         validate_node_public_surface(package, value)?;
                         for stmt in body {
                             validate_node_public_surface(package, stmt)?;
@@ -701,7 +754,9 @@ fn validate_node_public_surface(
                 }
             }
         }
-        AstNode::Loop { condition, body } => {
+        AstNode::Loop {
+            condition, body, ..
+        } => {
             match condition.as_ref() {
                 LoopCondition::Condition(expr) => validate_node_public_surface(package, expr)?,
                 LoopCondition::Iteration {
@@ -778,12 +833,14 @@ fn validate_type_public_surface(
         | FolType::Optional {
             inner: element_type,
         }
+        | FolType::Owned {
+            inner: element_type,
+        }
         | FolType::Pointer {
             target: element_type,
+            ..
         } => validate_type_public_surface(package, element_type)?,
-        FolType::Set { types }
-        | FolType::Multiple { types }
-        | FolType::Union { types } => {
+        FolType::Set { types } | FolType::Multiple { types } | FolType::Union { types } => {
             for member in types {
                 validate_type_public_surface(package, member)?;
             }

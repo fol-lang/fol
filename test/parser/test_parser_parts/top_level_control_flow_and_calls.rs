@@ -91,7 +91,10 @@ fn test_loop_statement_parsing_with_condition_body() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -257,7 +260,10 @@ fn test_loop_iteration_condition_parsing_with_in() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -343,7 +349,10 @@ fn test_loop_iteration_condition_supports_silent_binder() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -388,7 +397,10 @@ fn test_for_statement_parsing_with_condition_body() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -426,7 +438,10 @@ fn test_each_statement_parsing_with_iteration_body() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None

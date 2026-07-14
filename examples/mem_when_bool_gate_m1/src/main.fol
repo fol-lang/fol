@@ -1,0 +1,13 @@
+fun[] main(): int = {
+    var gated: int = 0;
+    when(false) {
+        * { gated = 100; }
+    }
+    when(true) {
+        * { gated = 2; }
+    }
+    when(gated) {
+        case(2) { return 0; }
+        * { panic "boolean gate failed"; }
+    }
+};

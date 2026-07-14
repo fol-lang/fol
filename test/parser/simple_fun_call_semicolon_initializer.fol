@@ -1,4 +1,4 @@
 fun make_value(a: int, b: int): int = {
-    let value = emit(a; b;);
+    var[imu] value = emit(a; b;);
     return value;
 };

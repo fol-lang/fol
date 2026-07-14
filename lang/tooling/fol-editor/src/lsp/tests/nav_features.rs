@@ -1,10 +1,10 @@
-use super::helpers::{open_document, sample_package_root};
 use super::super::{
-    EditorCompletionItem, EditorLspServer, JsonRpcId, JsonRpcRequest, LspCodeLens,
-    LspDefinitionParams, LspDocumentHighlight, LspFoldingRange, LspFoldingRangeParams, LspInlayHint,
-    LspInlayHintParams, LspLocation, LspPosition, LspPrepareRenameResult, LspRange,
-    LspSelectionRange, LspSelectionRangeParams, LspTextDocumentIdentifier,
+    EditorCompletionItem, EditorLspServer, JsonRpcId, JsonRpcRequest, LspDefinitionParams,
+    LspDocumentHighlight, LspFoldingRange, LspFoldingRangeParams, LspInlayHint, LspInlayHintParams,
+    LspLocation, LspPosition, LspPrepareRenameResult, LspRange, LspSelectionRange,
+    LspSelectionRangeParams, LspTextDocumentIdentifier,
 };
+use super::helpers::{hosted_sample_package_root, open_document, sample_package_root};
 use crate::EditorConfig;
 use std::fs;
 
@@ -56,6 +56,61 @@ fn lsp_server_resolves_type_definition_to_the_declaring_type() {
     let location: Option<LspLocation> = serde_json::from_value(value).unwrap();
     let location = location.expect("type definition should resolve to the type decl");
     assert_eq!(location.range.start.line, 0, "should jump to `typ Point`");
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_server_resolves_v3_wrapped_type_definitions() {
+    let source = concat!(
+        "typ Node: rec = {\n",
+        "    value: int\n",
+        "};\n",
+        "\n",
+        "fun[] inspect(borrowed[bor]: Node, pointer: ptr[Node], channel: chn[Node]): int = {\n",
+        "    return borrowed.value;\n",
+        "};\n",
+        "\n",
+        "fun[] main(): int = {\n",
+        "    @var owned: Node = { value = 1 };\n",
+        "    return owned.value;\n",
+        "};\n",
+    );
+    let (root, uri) = hosted_sample_package_root("type_definition_v3_wrappers");
+    fs::write(root.join("src/main.fol"), source).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    let diagnostics = open_document(&mut server, uri.clone(), source);
+    assert!(
+        diagnostics[0].diagnostics.is_empty(),
+        "V3 type-definition fixture should typecheck: {:?}",
+        diagnostics[0].diagnostics
+    );
+
+    for (line, name) in [
+        (5, "borrowed"),
+        (4, "pointer"),
+        (4, "channel"),
+        (10, "owned"),
+    ] {
+        let character = source
+            .lines()
+            .nth(line)
+            .and_then(|source_line| source_line.find(name))
+            .expect("fixture symbol should exist") as u32;
+        let value = position_request(
+            &mut server,
+            &uri,
+            "textDocument/typeDefinition",
+            line as u32,
+            character,
+        );
+        let location: Option<LspLocation> = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            location.map(|location| location.range.start.line),
+            Some(0),
+            "{name} should unwrap to the Node declaration"
+        );
+    }
+
     fs::remove_dir_all(root).ok();
 }
 
@@ -121,8 +176,14 @@ fn lsp_server_offers_type_inlay_hints_only_for_unannotated_bindings() {
                 serde_json::to_value(LspInlayHintParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
                     range: LspRange {
-                        start: LspPosition { line: 0, character: 0 },
-                        end: LspPosition { line: 10, character: 0 },
+                        start: LspPosition {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: LspPosition {
+                            line: 10,
+                            character: 0,
+                        },
                     },
                 })
                 .unwrap(),
@@ -138,37 +199,6 @@ fn lsp_server_offers_type_inlay_hints_only_for_unannotated_bindings() {
     assert_eq!(hints[0].position.line, 2);
     assert_eq!(hints[0].label, ": int");
     assert_eq!(hints[0].kind, Some(1));
-    fs::remove_dir_all(root).ok();
-}
-
-#[test]
-fn lsp_server_offers_a_run_code_lens_above_main() {
-    let (root, uri, mut server) = open(
-        "code_lens",
-        "fun[] helper(): int = {\n    return 1;\n};\n\nfun[] main(): int = {\n    return helper();\n};\n",
-    );
-    let value = server
-        .handle_request(JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: JsonRpcId::Number(1),
-            method: "textDocument/codeLens".to_string(),
-            params: Some(
-                serde_json::to_value(LspFoldingRangeParams {
-                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
-                })
-                .unwrap(),
-            ),
-        })
-        .unwrap()
-        .unwrap()
-        .result
-        .unwrap();
-    let lenses: Vec<LspCodeLens> = serde_json::from_value(value).unwrap();
-    assert_eq!(lenses.len(), 1, "one Run lens above main: {lenses:?}");
-    let command = lenses[0].command.as_ref().expect("lens carries a command");
-    assert!(command.title.contains("Run"));
-    assert_eq!(command.command, "fol.run");
-    assert_eq!(lenses[0].range.start.line, 4, "above `fun[] main`");
     fs::remove_dir_all(root).ok();
 }
 
@@ -202,6 +232,76 @@ fn lsp_server_folds_multiline_brace_blocks() {
 }
 
 #[test]
+fn lsp_server_ignores_comment_braces_for_folding_and_selection() {
+    let source = concat!(
+        "` fake outer { `\n",
+        "fun[] main(): int = {\n",
+        "    // fake } { line pair\n",
+        "    /* fake {\n",
+        "       } block pair */\n",
+        "    return 7;\n",
+        "};\n",
+        "` fake outer } `\n",
+    );
+    let (root, uri, mut server) = open("comment_braces", source);
+    let folding_value = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(1),
+            method: "textDocument/foldingRange".to_string(),
+            params: Some(
+                serde_json::to_value(LspFoldingRangeParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap()
+        .result
+        .unwrap();
+    let folds: Vec<LspFoldingRange> = serde_json::from_value(folding_value).unwrap();
+    assert_eq!(
+        folds.len(),
+        1,
+        "only the routine body should fold: {folds:?}"
+    );
+    assert_eq!((folds[0].start_line, folds[0].end_line), (1, 6));
+
+    let selection_value = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(2),
+            method: "textDocument/selectionRange".to_string(),
+            params: Some(
+                serde_json::to_value(LspSelectionRangeParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    positions: vec![LspPosition {
+                        line: 5,
+                        character: 11,
+                    }],
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap()
+        .result
+        .unwrap();
+    let ranges: Vec<LspSelectionRange> = serde_json::from_value(selection_value).unwrap();
+    let mut chain = Vec::new();
+    let mut current = ranges.first();
+    while let Some(range) = current {
+        chain.push(range.range);
+        current = range.parent.as_deref();
+    }
+    assert_eq!(chain.len(), 3, "word -> routine block -> file: {chain:?}");
+    assert_eq!(chain[1].start.line, 1);
+    assert_eq!(chain[1].end.line, 6);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn lsp_server_expands_selection_from_word_to_block_to_file() {
     let (root, uri, mut server) = open(
         "selection_range",
@@ -215,7 +315,10 @@ fn lsp_server_expands_selection_from_word_to_block_to_file() {
             params: Some(
                 serde_json::to_value(LspSelectionRangeParams {
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
-                    positions: vec![LspPosition { line: 1, character: 11 }],
+                    positions: vec![LspPosition {
+                        line: 1,
+                        character: 11,
+                    }],
                 })
                 .unwrap(),
             ),
@@ -232,7 +335,10 @@ fn lsp_server_expands_selection_from_word_to_block_to_file() {
         depth += 1;
         current = node.parent.as_deref();
     }
-    assert!(depth >= 2, "selection should nest word -> block -> file: depth {depth}");
+    assert!(
+        depth >= 2,
+        "selection should nest word -> block -> file: depth {depth}"
+    );
     fs::remove_dir_all(root).ok();
 }
 

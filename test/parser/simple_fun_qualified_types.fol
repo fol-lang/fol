@@ -1,4 +1,4 @@
 fun convert(input: pkg::Input): pkg::Output / errs::Failure = {
-    let value: pkg::Intermediate = input;
+    var[imu] value: pkg::Intermediate = input;
     return value;
 };

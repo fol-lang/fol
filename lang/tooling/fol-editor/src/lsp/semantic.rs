@@ -1,32 +1,33 @@
 use crate::{
-    diagnostic_to_lsp, location_to_range, EditorDocument, EditorError, EditorErrorKind,
-    EditorResult, LspDiagnostic, LspLocation, LspPosition, LspRange, LspTextEdit,
+    diagnostic_to_lsp, location_to_range, EditorDocument, EditorDocumentUri, EditorError,
+    EditorErrorKind, EditorResult, LspDiagnostic, LspLocation, LspPosition, LspRange, LspTextEdit,
     LspWorkspaceEdit,
 };
 use fol_intrinsics::IntrinsicSurface;
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind, SyntaxNodeId};
 use fol_typecheck::{
     editor_builtin_type_names, editor_container_type_names, editor_implemented_intrinsics,
-    editor_intrinsic_available_in_model, editor_shell_type_names,
-    editor_type_family_available_in_model, EditorTypeFamily, TypecheckCapabilityModel,
+    editor_intrinsic_available_in_model, editor_model_capability,
+    editor_processor_keyword_available_in_model, editor_processor_keyword_infos,
+    editor_shell_type_names, editor_structured_type_infos, editor_type_family_available_in_model,
+    EditorProcessorKeywordContext, EditorTypeFamily, TypecheckCapabilityModel,
 };
 use std::path::Path;
 use std::path::PathBuf;
 
 use super::completion_helpers::{
-    completion_builtin_type_item,
-    completion_intrinsic_item, completion_item_from_symbol, completion_namespace_item,
-    completion_symbol_is_plain_top_level_candidate, completion_symbol_is_root_visible,
-    current_routine_name, dedupe_completion_items, fallback_decl_name,
-    fallback_items_from_package_dir, position_to_offset, render_checked_type, render_symbol_kind,
-    symbol_kind_code, symbol_visibility_matches_namespace_root, mark_fallback_completion_items,
-    CompletionContext,
-    FALLBACK_ALIAS_PREFIXES, FALLBACK_ROUTINE_PREFIXES, FALLBACK_TYPE_PREFIXES,
+    completion_builtin_type_item, completion_intrinsic_item, completion_item_from_symbol,
+    completion_namespace_item, completion_symbol_is_plain_top_level_candidate,
+    completion_symbol_is_root_visible, current_routine_name, dedupe_completion_items,
+    fallback_decl_name, fallback_items_from_package_dir, mark_fallback_completion_items,
+    position_to_offset, render_checked_type, render_symbol_kind, symbol_kind_code,
+    symbol_visibility_matches_namespace_root, CompletionContext, FALLBACK_ALIAS_PREFIXES,
+    FALLBACK_ROUTINE_PREFIXES, FALLBACK_TYPE_PREFIXES,
 };
 use super::types::{
-    EditorCompletionItem, LspCodeLens, LspCommand, LspDocumentHighlight, LspDocumentSymbol,
-    LspFoldingRange, LspHover, LspInlayHint, LspParameterInformation, LspPrepareRenameResult,
-    LspSelectionRange, LspSignatureHelp, LspSignatureInformation, LspWorkspaceSymbol,
+    EditorCompletionItem, LspDocumentHighlight, LspDocumentSymbol, LspFoldingRange, LspHover,
+    LspInlayHint, LspParameterInformation, LspPrepareRenameResult, LspSelectionRange,
+    LspSignatureHelp, LspSignatureInformation, LspWorkspaceSymbol,
 };
 
 const SEMANTIC_TOKEN_TYPES: &[&str] = &["namespace", "type", "function", "parameter", "variable"];
@@ -44,6 +45,8 @@ pub(crate) struct SemanticSnapshot {
     pub(super) source_document_path: PathBuf,
     pub(super) source_package_root: Option<PathBuf>,
     pub(super) active_fol_model: Option<TypecheckCapabilityModel>,
+    pub(super) active_internal_standard_aliases: Vec<String>,
+    pub(super) fol_model_scope_unresolved: bool,
     pub(super) compiler_diagnostics: Vec<fol_diagnostics::Diagnostic>,
     pub(super) diagnostics: Vec<LspDiagnostic>,
     pub(super) resolved_workspace: Option<fol_resolver::ResolvedWorkspace>,
@@ -62,6 +65,77 @@ impl SemanticSnapshot {
             .to_string()
     }
 
+    fn map_analyzed_uri_to_source(&self, uri: &str) -> String {
+        EditorDocumentUri::parse(uri)
+            .and_then(|uri| uri.to_file_path())
+            .map(|path| self.map_analyzed_file_to_source(&path.to_string_lossy()))
+            .map(PathBuf::from)
+            .and_then(EditorDocumentUri::from_file_path)
+            .map(|uri| uri.as_str().to_string())
+            .unwrap_or_else(|_| uri.to_string())
+    }
+
+    /// Group every compiler diagnostic by its real source URI.
+    ///
+    /// Compiler analysis runs in a disposable overlay, while LSP clients must
+    /// receive diagnostics for the original workspace files. Keep the current
+    /// document and imported dependency diagnostics in one compiler-backed
+    /// result, remap the retained overlay paths back to source paths, and let
+    /// the server publish one notification per URI.
+    pub(super) fn diagnostics_by_source_uri(
+        &self,
+    ) -> std::collections::BTreeMap<String, Vec<LspDiagnostic>> {
+        let mut grouped = std::collections::BTreeMap::<String, Vec<LspDiagnostic>>::new();
+
+        for diagnostic in &self.compiler_diagnostics {
+            let Some(file) = diagnostic
+                .primary_location()
+                .and_then(|location| location.file.as_deref())
+                .or_else(|| {
+                    diagnostic
+                        .labels
+                        .first()
+                        .and_then(|label| label.location.file.as_deref())
+                })
+            else {
+                continue;
+            };
+            let source_path = PathBuf::from(self.map_analyzed_file_to_source(file));
+            let Ok(source_uri) = EditorDocumentUri::from_file_path(source_path) else {
+                continue;
+            };
+            let mut converted = diagnostic_to_lsp(diagnostic);
+            for related in &mut converted.related_information {
+                related.location.uri = self.map_analyzed_uri_to_source(&related.location.uri);
+            }
+            grouped
+                .entry(source_uri.as_str().to_string())
+                .or_default()
+                .push(converted);
+        }
+
+        // Diagnostics without a file are deliberately attributed to the open
+        // document by the existing analysis path. Merge that current-document
+        // view as a fallback, then exact-wire deduplication removes any normal
+        // file-backed duplicates already inserted above.
+        if let Ok(current_uri) =
+            EditorDocumentUri::from_file_path(self.source_document_path.clone())
+        {
+            let current = grouped.entry(current_uri.as_str().to_string()).or_default();
+            current.extend(self.diagnostics.iter().cloned().map(|mut diagnostic| {
+                for related in &mut diagnostic.related_information {
+                    related.location.uri = self.map_analyzed_uri_to_source(&related.location.uri);
+                }
+                diagnostic
+            }));
+        }
+
+        for diagnostics in grouped.values_mut() {
+            *diagnostics = crate::dedup_lsp_diagnostics(std::mem::take(diagnostics));
+        }
+        grouped
+    }
+
     pub(super) fn signature_help(
         &self,
         document: &EditorDocument,
@@ -74,7 +148,10 @@ impl SemanticSnapshot {
         let call_site = self.call_site_at_position(program, document, cursor_offset)?;
         let reference = reference_for_syntax_id(program, call_site.callee_syntax_id)?;
         let symbol_id = reference.resolved?;
-        let declared_type = typed_package.program.typed_symbol(symbol_id)?.declared_type?;
+        let declared_type = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
         let signature = match typed_package.program.type_table().get(declared_type) {
             Some(fol_typecheck::CheckedType::Routine(signature)) => signature,
             _ => return None,
@@ -85,19 +162,26 @@ impl SemanticSnapshot {
             .map(|type_id| render_checked_type(typed_package.program.type_table(), *type_id))
             .collect::<Vec<_>>();
         let label = render_signature_label(
-            program.symbol(symbol_id).map(|symbol| symbol.name.as_str()).unwrap_or(&call_site.display_name),
+            program
+                .symbol(symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or(&call_site.display_name),
             &parameters,
-            signature.return_type.map(|type_id| {
-                render_checked_type(typed_package.program.type_table(), type_id)
-            }),
-            signature.error_type.map(|type_id| {
-                render_checked_type(typed_package.program.type_table(), type_id)
-            }),
+            signature
+                .return_type
+                .map(|type_id| render_checked_type(typed_package.program.type_table(), type_id)),
+            signature
+                .error_type
+                .map(|type_id| render_checked_type(typed_package.program.type_table(), type_id)),
         );
         let active_parameter = if parameters.is_empty() {
             None
         } else {
-            Some(call_site.active_parameter.min(parameters.len().saturating_sub(1)) as u32)
+            Some(
+                call_site
+                    .active_parameter
+                    .min(parameters.len().saturating_sub(1)) as u32,
+            )
         };
         Some(LspSignatureHelp {
             signatures: vec![LspSignatureInformation {
@@ -143,10 +227,9 @@ impl SemanticSnapshot {
                 {
                     return None;
                 }
-                let suggestion = diagnostic
-                    .suggestions
-                    .iter()
-                    .find(|suggestion| suggestion.replacement.is_some() && suggestion.location.is_some())?;
+                let suggestion = diagnostic.suggestions.iter().find(|suggestion| {
+                    suggestion.replacement.is_some() && suggestion.location.is_some()
+                })?;
                 let suggestion_location = suggestion.location.as_ref()?;
                 if suggestion_location.file.as_deref()? != path_text {
                     return None;
@@ -156,7 +239,10 @@ impl SemanticSnapshot {
                     uri.to_string(),
                     vec![LspTextEdit {
                         range: location_to_range(suggestion_location),
-                        new_text: suggestion.replacement.clone().expect("replacement checked above"),
+                        new_text: suggestion
+                            .replacement
+                            .clone()
+                            .expect("replacement checked above"),
                     }],
                 );
                 Some(super::types::LspCodeAction {
@@ -182,15 +268,21 @@ impl SemanticSnapshot {
         let mut entries = std::collections::BTreeSet::new();
 
         for symbol in program.all_symbols() {
-            let Some(origin) = symbol.origin.as_ref() else { continue };
-            let Some(file) = origin.file.as_ref() else { continue };
+            let Some(origin) = symbol.origin.as_ref() else {
+                continue;
+            };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
             if file != &path_text {
                 continue;
             }
-            // Parameters borrow the routine header origin, so a symbol-site
-            // token would repaint the routine name; their uses still get
-            // tokens through resolved references below.
-            if matches!(symbol.kind, fol_resolver::SymbolKind::Parameter) {
+            // Explicit parameters carry their own source-name origin and must
+            // be tokenized at the declaration site. Only a receiver routine's
+            // synthesized `self` still borrows the routine header origin; it
+            // has no source token and would otherwise repaint the routine
+            // name as a parameter.
+            if matches!(symbol.kind, fol_resolver::SymbolKind::Parameter) && symbol.name == "self" {
                 continue;
             }
             let Some(token_type) = semantic_token_type_for_symbol_kind(symbol.kind) else {
@@ -215,11 +307,15 @@ impl SemanticSnapshot {
             let Some(token_type) = semantic_token_type_for_symbol_kind(symbol.kind) else {
                 continue;
             };
-            let Some(syntax_id) = reference.anchor() else { continue };
+            let Some(syntax_id) = reference.anchor() else {
+                continue;
+            };
             let Some(origin) = program.syntax_index().origin(syntax_id) else {
                 continue;
             };
-            let Some(file) = origin.file.as_ref() else { continue };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
             if file != &path_text {
                 continue;
             }
@@ -237,7 +333,11 @@ impl SemanticSnapshot {
         let mut previous_start = 0_u32;
         for (index, (line, start, length, token_type, modifiers)) in entries.into_iter().enumerate()
         {
-            let delta_line = if index == 0 { line } else { line - previous_line };
+            let delta_line = if index == 0 {
+                line
+            } else {
+                line - previous_line
+            };
             let delta_start = if index == 0 || delta_line != 0 {
                 start
             } else {
@@ -256,15 +356,20 @@ impl SemanticSnapshot {
         };
         let query = query.trim().to_ascii_lowercase();
         let mut symbols = Vec::new();
+        let bundled_standard_roots = self.bundled_standard_analysis_roots();
 
         for package in resolved.packages() {
-            if !matches!(
+            let package_root = Path::new(&package.prepared.identity.canonical_root);
+            let is_workspace_package = matches!(
                 package.identity.source_kind,
                 fol_resolver::PackageSourceKind::Entry | fol_resolver::PackageSourceKind::Local
-            ) {
+            );
+            let is_declared_bundled_standard = bundled_standard_roots
+                .iter()
+                .any(|root| package_root == root);
+            if !is_workspace_package && !is_declared_bundled_standard {
                 continue;
             }
-            let package_root = Path::new(&package.prepared.identity.canonical_root);
 
             for symbol in package.program.all_symbols() {
                 if !completion_symbol_is_root_visible(&package.program, symbol) {
@@ -286,9 +391,6 @@ impl SemanticSnapshot {
                 let Some(file) = origin.file.as_ref() else {
                     continue;
                 };
-                if !Path::new(file).starts_with(package_root) {
-                    continue;
-                }
                 let Some(source_unit) = package.program.source_units.get(symbol.source_unit) else {
                     continue;
                 };
@@ -297,8 +399,7 @@ impl SemanticSnapshot {
                 }
 
                 let package_root_namespace = source_unit.namespace == package.identity.display_name
-                    || source_unit.namespace
-                        == format!("{}::src", package.identity.display_name);
+                    || source_unit.namespace == format!("{}::src", package.identity.display_name);
                 let qualified_name = if package_root_namespace {
                     symbol.name.clone()
                 } else {
@@ -309,8 +410,10 @@ impl SemanticSnapshot {
                 } else {
                     source_unit.namespace.as_str()
                 };
-                let container_name =
-                    Some(format!("{container_namespace} ({})", package.identity.display_name));
+                let container_name = Some(format!(
+                    "{container_namespace} ({})",
+                    package.identity.display_name
+                ));
                 if !query.is_empty() {
                     let package_name = package.identity.display_name.to_ascii_lowercase();
                     let namespace = source_unit.namespace.to_ascii_lowercase();
@@ -347,7 +450,13 @@ impl SemanticSnapshot {
                 .cmp(&right.name)
                 .then(left.container_name.cmp(&right.container_name))
                 .then(left.location.uri.cmp(&right.location.uri))
-                .then(left.location.range.start.line.cmp(&right.location.range.start.line))
+                .then(
+                    left.location
+                        .range
+                        .start
+                        .line
+                        .cmp(&right.location.range.start.line),
+                )
                 .then(
                     left.location
                         .range
@@ -358,6 +467,18 @@ impl SemanticSnapshot {
         });
         symbols.dedup_by(|left, right| left == right);
         symbols
+    }
+
+    fn bundled_standard_analysis_roots(&self) -> Vec<PathBuf> {
+        let Some(analyzed_package_root) = self.analyzed_package_root.as_ref() else {
+            return Vec::new();
+        };
+
+        self.active_internal_standard_aliases
+            .iter()
+            .map(|alias| analyzed_package_root.join(".fol/pkg").join(alias))
+            .map(|root| root.canonicalize().unwrap_or(root))
+            .collect()
     }
 
     pub(super) fn completion_items(
@@ -372,13 +493,63 @@ impl SemanticSnapshot {
         if self.current_program().is_none() {
             return self.fallback_completion_items(document, position, context);
         }
+        let pipe_stage = context == CompletionContext::PipeStage;
         match context {
-            CompletionContext::Plain => {}
+            CompletionContext::Plain | CompletionContext::PipeStage => {}
             CompletionContext::TypePosition => {
                 let mut items = self.type_surface_completion_items();
                 items.extend(self.visible_named_type_completion_items());
                 return dedupe_completion_items(items);
             }
+            CompletionContext::ParameterOption {
+                allow_borrow,
+                allow_mutex,
+            } => {
+                return self.parameter_option_completion_items(allow_borrow, allow_mutex);
+            }
+            CompletionContext::PointerTypePosition { allow_shared } => {
+                let mut items = self.type_surface_completion_items_for_target(true);
+                items.extend(self.visible_named_type_completion_items());
+                if allow_shared {
+                    items.push(completion_keyword_item("shared"));
+                }
+                return dedupe_completion_items(items);
+            }
+            CompletionContext::ChannelElementTypePosition => {
+                if !self.active_model().supports_processor() {
+                    return Vec::new();
+                }
+                let mut items = self.type_surface_completion_items_for_target(true);
+                items.extend(self.visible_named_type_completion_items());
+                return dedupe_completion_items(items);
+            }
+            CompletionContext::NestedTypePosition { forbid_channel } => {
+                let mut items = self.type_surface_completion_items_for_target(forbid_channel);
+                items.extend(self.visible_named_type_completion_items());
+                return dedupe_completion_items(items);
+            }
+            CompletionContext::OwnedTypePosition { forbid_channel } => {
+                if !editor_model_capability(self.active_model()).heap {
+                    return Vec::new();
+                }
+                let mut items = self.type_surface_completion_items_for_target(forbid_channel);
+                items.extend(self.visible_named_type_completion_items());
+                return dedupe_completion_items(items);
+            }
+            CompletionContext::BracketAccess { receiver } => {
+                if position_is_inside_deferred_block(&document.text, position)
+                    && fallback_visible_binding_kind(&document.text, position, &receiver)
+                        == Some(FallbackBindingKind::Channel)
+                {
+                    return Vec::new();
+                }
+                if let Some(items) =
+                    self.channel_endpoint_completion_items(document, &receiver, position)
+                {
+                    return items;
+                }
+            }
+            CompletionContext::HeapBinding => return self.heap_binding_completion_items(),
             CompletionContext::QualifiedPath { qualifier } => {
                 let items = self.qualified_completion_items(&qualifier);
                 if items.is_empty() {
@@ -386,15 +557,31 @@ impl SemanticSnapshot {
                 }
                 return items;
             }
-            CompletionContext::DotTrigger => return self.dot_intrinsic_fallback_completion_items(),
+            CompletionContext::DotTrigger { receiver } => {
+                if let Some(receiver) = receiver.as_deref() {
+                    if position_is_inside_deferred_block(&document.text, position)
+                        && fallback_visible_binding_kind(&document.text, position, receiver)
+                            == Some(FallbackBindingKind::Mutex)
+                    {
+                        return Vec::new();
+                    }
+                    if let Some(items) = self.mutex_completion_items(document, receiver, position) {
+                        return items;
+                    }
+                }
+                return self.dot_intrinsic_fallback_completion_items();
+            }
         }
         let mut items = self.local_completion_items(position);
         items.extend(self.current_package_top_level_completion_items());
         items.extend(self.import_alias_completion_items(position));
-        items.extend(self.keyword_completion_items());
+        if pipe_stage {
+            items.extend(self.processor_pipe_stage_completion_items());
+        } else {
+            items.extend(self.keyword_completion_items());
+        }
         dedupe_completion_items(items)
     }
-
 
     /// Build-file (`build.fol`) completions come straight from the
     /// compiler-owned build semantic registry instead of an editor-owned
@@ -451,7 +638,8 @@ impl SemanticSnapshot {
         let family = classify_build_receiver(&document.text, receiver)?;
 
         let mut items = Vec::new();
-        let push_family = |target: BuildSemanticTypeFamily, items: &mut Vec<EditorCompletionItem>| {
+        let push_family = |target: BuildSemanticTypeFamily,
+                           items: &mut Vec<EditorCompletionItem>| {
             for signature in fol_package::canonical_build_context_method_signatures()
                 .into_iter()
                 .chain(fol_package::canonical_graph_method_signatures())
@@ -477,8 +665,18 @@ impl SemanticSnapshot {
         position: LspPosition,
         context: CompletionContext,
     ) -> Vec<EditorCompletionItem> {
+        let pipe_stage = context == CompletionContext::PipeStage;
+        let bracket_receiver = match &context {
+            CompletionContext::BracketAccess { receiver } => Some(receiver.clone()),
+            _ => None,
+        };
         match context {
-            CompletionContext::DotTrigger => self.dot_intrinsic_fallback_completion_items(),
+            CompletionContext::DotTrigger { receiver } => receiver
+                .as_deref()
+                .and_then(|receiver| {
+                    self.fallback_mutex_completion_items(document, position, receiver)
+                })
+                .unwrap_or_else(|| self.dot_intrinsic_fallback_completion_items()),
             CompletionContext::QualifiedPath { qualifier } => {
                 self.fallback_qualified_completion_items(&qualifier)
             }
@@ -488,7 +686,54 @@ impl SemanticSnapshot {
                 items.extend(self.fallback_imported_named_type_items(document));
                 dedupe_completion_items(items)
             }
-            CompletionContext::Plain => {
+            CompletionContext::ParameterOption {
+                allow_borrow,
+                allow_mutex,
+            } => self.parameter_option_completion_items(allow_borrow, allow_mutex),
+            CompletionContext::PointerTypePosition { allow_shared } => {
+                let mut items = self.type_surface_completion_items_for_target(true);
+                items.extend(self.fallback_local_named_type_items(document));
+                items.extend(self.fallback_imported_named_type_items(document));
+                if allow_shared {
+                    items.push(completion_keyword_item("shared"));
+                }
+                dedupe_completion_items(items)
+            }
+            CompletionContext::ChannelElementTypePosition => {
+                if !self.active_model().supports_processor() {
+                    return Vec::new();
+                }
+                let mut items = self.type_surface_completion_items_for_target(true);
+                items.extend(self.fallback_local_named_type_items(document));
+                items.extend(self.fallback_imported_named_type_items(document));
+                dedupe_completion_items(items)
+            }
+            CompletionContext::NestedTypePosition { forbid_channel } => {
+                let mut items = self.type_surface_completion_items_for_target(forbid_channel);
+                items.extend(self.fallback_local_named_type_items(document));
+                items.extend(self.fallback_imported_named_type_items(document));
+                dedupe_completion_items(items)
+            }
+            CompletionContext::OwnedTypePosition { forbid_channel } => {
+                if !editor_model_capability(self.active_model()).heap {
+                    return Vec::new();
+                }
+                let mut items = self.type_surface_completion_items_for_target(forbid_channel);
+                items.extend(self.fallback_local_named_type_items(document));
+                items.extend(self.fallback_imported_named_type_items(document));
+                dedupe_completion_items(items)
+            }
+            CompletionContext::HeapBinding => self.heap_binding_completion_items(),
+            CompletionContext::Plain
+            | CompletionContext::PipeStage
+            | CompletionContext::BracketAccess { .. } => {
+                if let Some(receiver) = bracket_receiver.as_deref() {
+                    if let Some(items) = self
+                        .fallback_channel_endpoint_completion_items(document, position, receiver)
+                    {
+                        return items;
+                    }
+                }
                 if position_to_offset(&document.text, position).is_none() {
                     if let Some(line) = document.text.lines().nth(position.line as usize) {
                         if line.contains("::") {
@@ -505,23 +750,210 @@ impl SemanticSnapshot {
                 let mut items = self.fallback_local_scope_items(document, position);
                 items.extend(self.fallback_current_package_top_level_items(document, position));
                 items.extend(self.fallback_import_alias_items(document));
-                items.extend(self.keyword_completion_items());
+                if pipe_stage {
+                    items.extend(self.processor_pipe_stage_completion_items());
+                } else {
+                    items.extend(self.keyword_completion_items());
+                }
                 dedupe_completion_items(items)
             }
         }
     }
 
     fn active_model(&self) -> TypecheckCapabilityModel {
-        self.active_fol_model.unwrap_or_default()
+        if self.fol_model_scope_unresolved {
+            // Mixed packages without one honest artifact scope must not gain
+            // the standalone editor's default hosted capabilities.
+            TypecheckCapabilityModel::Core
+        } else {
+            self.active_fol_model.unwrap_or_default()
+        }
+    }
+
+    fn parameter_option_completion_items(
+        &self,
+        allow_borrow: bool,
+        allow_mutex: bool,
+    ) -> Vec<EditorCompletionItem> {
+        let mut items = Vec::new();
+        if allow_borrow {
+            items.push(completion_keyword_item("bor"));
+        }
+        if allow_mutex && self.active_model().supports_processor() {
+            items.push(completion_keyword_item("mux"));
+        }
+        items
+    }
+
+    fn heap_binding_completion_items(&self) -> Vec<EditorCompletionItem> {
+        editor_model_capability(self.active_model())
+            .heap
+            .then(|| completion_keyword_item("var"))
+            .into_iter()
+            .collect()
+    }
+
+    fn channel_endpoint_completion_items(
+        &self,
+        document: &EditorDocument,
+        receiver: &str,
+        position: LspPosition,
+    ) -> Option<Vec<EditorCompletionItem>> {
+        if !self.active_model().supports_processor() {
+            return None;
+        }
+        let (package, _) = self.current_resolved_package()?;
+        let (program, mut scope_id) = self.scope_at_position(position)?;
+        let receiver_key = fol_types::canonical_identifier_key(receiver);
+        let symbol_id = loop {
+            let named = program.symbols_named_in_scope(scope_id, &receiver_key);
+            if !named.is_empty() {
+                break named
+                    .into_iter()
+                    .find(|symbol| {
+                        matches!(
+                            symbol.kind,
+                            fol_resolver::SymbolKind::ValueBinding
+                                | fol_resolver::SymbolKind::Parameter
+                                | fol_resolver::SymbolKind::Capture
+                        )
+                    })?
+                    .id;
+            }
+            scope_id = program.scope(scope_id)?.parent?;
+        };
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
+        let endpoints: &[&str] = match typed_package.program.type_table().get(type_id)? {
+            fol_typecheck::CheckedType::Channel { .. } => {
+                if position_is_inside_deferred_block(&document.text, position) {
+                    return Some(Vec::new());
+                }
+                if self.analyzed_path.as_deref().is_some_and(|path| {
+                    resolved_channel_receive_precedes(
+                        program,
+                        symbol_id,
+                        path,
+                        &document.text,
+                        position,
+                    )
+                }) {
+                    &["rx"]
+                } else {
+                    &["tx", "rx"]
+                }
+            }
+            fol_typecheck::CheckedType::ChannelSender { .. } => &["tx"],
+            _ => return None,
+        };
+        Some(
+            endpoints
+                .iter()
+                .map(|endpoint| completion_keyword_item(endpoint))
+                .collect(),
+        )
+    }
+
+    fn fallback_channel_endpoint_completion_items(
+        &self,
+        document: &EditorDocument,
+        position: LspPosition,
+        receiver: &str,
+    ) -> Option<Vec<EditorCompletionItem>> {
+        if !self.active_model().supports_processor() {
+            return None;
+        }
+        if fallback_visible_binding_kind(&document.text, position, receiver)
+            != Some(FallbackBindingKind::Channel)
+        {
+            return None;
+        }
+        if position_is_inside_deferred_block(&document.text, position) {
+            return Some(Vec::new());
+        }
+        let endpoints: &[&str] =
+            if direct_channel_receiver_precedes(&document.text, position, receiver) {
+                &["rx"]
+            } else {
+                &["tx", "rx"]
+            };
+        Some(
+            endpoints
+                .iter()
+                .copied()
+                .map(completion_keyword_item)
+                .collect(),
+        )
+    }
+
+    fn mutex_completion_items(
+        &self,
+        document: &EditorDocument,
+        receiver: &str,
+        position: LspPosition,
+    ) -> Option<Vec<EditorCompletionItem>> {
+        if !self.active_model().supports_processor() {
+            return None;
+        }
+        let (package, _) = self.current_resolved_package()?;
+        let (program, mut scope_id) = self.scope_at_position(position)?;
+        let receiver_key = fol_types::canonical_identifier_key(receiver);
+        let symbol_id = loop {
+            let named = program.symbols_named_in_scope(scope_id, &receiver_key);
+            if !named.is_empty() {
+                break named
+                    .into_iter()
+                    .find(|symbol| {
+                        matches!(
+                            symbol.kind,
+                            fol_resolver::SymbolKind::ValueBinding
+                                | fol_resolver::SymbolKind::Parameter
+                                | fol_resolver::SymbolKind::Capture
+                        )
+                    })?
+                    .id;
+            }
+            scope_id = program.scope(scope_id)?.parent?;
+        };
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let symbol = typed_package.program.typed_symbol(symbol_id)?;
+        if !symbol.is_mutex {
+            return None;
+        }
+        if position_is_inside_deferred_block(&document.text, position) {
+            return Some(Vec::new());
+        }
+        Some(mutex_method_completion_items())
+    }
+
+    fn fallback_mutex_completion_items(
+        &self,
+        document: &EditorDocument,
+        position: LspPosition,
+        receiver: &str,
+    ) -> Option<Vec<EditorCompletionItem>> {
+        if !self.active_model().supports_processor() {
+            return None;
+        }
+        if fallback_visible_binding_kind(&document.text, position, receiver)
+            != Some(FallbackBindingKind::Mutex)
+        {
+            return None;
+        }
+        if position_is_inside_deferred_block(&document.text, position) {
+            return Some(Vec::new());
+        }
+        Some(mutex_method_completion_items())
     }
 
     fn type_surface_completion_items(&self) -> Vec<EditorCompletionItem> {
         let model = self.active_model();
         let mut items = editor_builtin_type_names()
             .iter()
-            .filter(|name| {
-                editor_type_family_available_in_model(model, builtin_type_family(name))
-            })
+            .filter(|name| editor_type_family_available_in_model(model, builtin_type_family(name)))
             .map(|name| completion_builtin_type_item(name))
             .collect::<Vec<_>>();
         items.extend(
@@ -535,9 +967,28 @@ impl SemanticSnapshot {
         items.extend(
             editor_shell_type_names()
                 .iter()
-                .filter(|name| editor_type_family_available_in_model(model, shell_type_family(name)))
+                .filter(|name| {
+                    editor_type_family_available_in_model(model, shell_type_family(name))
+                })
                 .map(|name| completion_builtin_type_item(name)),
         );
+        items.extend(
+            editor_structured_type_infos()
+                .iter()
+                .filter(|info| editor_type_family_available_in_model(model, info.family))
+                .map(|info| completion_builtin_type_item(info.name)),
+        );
+        items
+    }
+
+    fn type_surface_completion_items_for_target(
+        &self,
+        forbid_channel: bool,
+    ) -> Vec<EditorCompletionItem> {
+        let mut items = self.type_surface_completion_items();
+        if forbid_channel {
+            items.retain(|item| item.label != "chn");
+        }
         items
     }
 
@@ -637,17 +1088,32 @@ impl SemanticSnapshot {
             CONTROL_KEYWORDS, DECLARATION_KEYWORDS, DIAGNOSTIC_KEYWORDS, LITERAL_KEYWORDS,
         };
         // LSP CompletionItemKind::Keyword == 14.
+        let model = self.active_model();
         DECLARATION_KEYWORDS
             .iter()
             .chain(CONTROL_KEYWORDS.iter())
             .chain(LITERAL_KEYWORDS.iter())
             .chain(DIAGNOSTIC_KEYWORDS.iter())
-            .map(|keyword| EditorCompletionItem {
-                label: (*keyword).to_string(),
-                kind: 14,
-                detail: Some("keyword".to_string()),
-                insert_text: None,
+            .filter(|keyword| {
+                editor_processor_keyword_infos()
+                    .iter()
+                    .find(|info| info.name == **keyword)
+                    .is_none_or(|info| {
+                        info.context == EditorProcessorKeywordContext::Plain
+                            && editor_processor_keyword_available_in_model(model, *info)
+                    })
             })
+            .map(|keyword| completion_keyword_item(keyword))
+            .collect()
+    }
+
+    fn processor_pipe_stage_completion_items(&self) -> Vec<EditorCompletionItem> {
+        let model = self.active_model();
+        editor_processor_keyword_infos()
+            .iter()
+            .filter(|info| info.context == EditorProcessorKeywordContext::PipeStage)
+            .filter(|info| editor_processor_keyword_available_in_model(model, **info))
+            .map(|info| completion_keyword_item(info.name))
             .collect()
     }
 
@@ -683,9 +1149,7 @@ impl SemanticSnapshot {
     }
 
     // COMPILER-BACKED: reads from resolved program namespace/source-unit scopes
-    fn current_package_top_level_completion_items(
-        &self,
-    ) -> Vec<EditorCompletionItem> {
+    fn current_package_top_level_completion_items(&self) -> Vec<EditorCompletionItem> {
         let Some(program) = self.current_program() else {
             return Vec::new();
         };
@@ -753,7 +1217,8 @@ impl SemanticSnapshot {
         position: LspPosition,
     ) -> Vec<EditorCompletionItem> {
         let offset = position_to_offset(&document.text, position).unwrap_or(document.text.len());
-        let before_cursor = &document.text[..offset];
+        let masked_before_cursor = crate::source_scan::mask_non_code(&document.text[..offset]);
+        let before_cursor = masked_before_cursor.as_str();
         let mut items = self.fallback_import_alias_items(document);
         items.extend(self.fallback_current_package_top_level_items(document, position));
 
@@ -779,7 +1244,7 @@ impl SemanticSnapshot {
             }
         }
 
-        for line in document.text.lines() {
+        for line in before_cursor.lines() {
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix("var ") {
                 let name = rest
@@ -810,7 +1275,8 @@ impl SemanticSnapshot {
     ) -> Vec<EditorCompletionItem> {
         let mut items = Vec::new();
         let current_routine = current_routine_name(&document.text, position);
-        for line in document.text.lines() {
+        let masked = crate::source_scan::mask_non_code(&document.text);
+        for line in masked.lines() {
             let trimmed = line.trim();
             if let Some(name) = fallback_decl_name(trimmed, FALLBACK_ROUTINE_PREFIXES) {
                 if current_routine.as_deref() == Some(name.as_str()) {
@@ -848,23 +1314,24 @@ impl SemanticSnapshot {
     ) -> Vec<EditorCompletionItem> {
         mark_fallback_completion_items(
             self.fallback_current_package_top_level_items(
-            document,
-            LspPosition {
-                line: u32::MAX,
-                character: u32::MAX,
-            },
+                document,
+                LspPosition {
+                    line: u32::MAX,
+                    character: u32::MAX,
+                },
+            )
+            .into_iter()
+            .filter(|item| {
+                item.detail.as_deref() == Some("type")
+                    || item.detail.as_deref() == Some("type alias")
+            })
+            .collect(),
         )
-        .into_iter()
-        .filter(|item| {
-            item.detail.as_deref() == Some("type") || item.detail.as_deref() == Some("type alias")
-        })
-        .collect())
     }
 
     // FALLBACK: text-matches `use ` prefix to find import aliases
     fn fallback_import_alias_items(&self, document: &EditorDocument) -> Vec<EditorCompletionItem> {
-        document
-            .text
+        crate::source_scan::mask_non_code(&document.text)
             .lines()
             .filter_map(|line| {
                 let trimmed = line.trim();
@@ -916,12 +1383,20 @@ impl SemanticSnapshot {
         let mut parts = qualifier.split("::");
         let root_alias = parts.next().unwrap_or(qualifier);
         let namespace_suffix = parts.collect::<Vec<_>>().join("/");
-        let rel_path = text.lines().find_map(|line| {
-            let trimmed = line.trim();
-            let rest = trimmed.strip_prefix("use ")?;
-            let (alias, rhs) = rest.split_once(':')?;
-            (alias.trim() == root_alias).then_some(rhs.trim().to_string())
-        });
+        let masked = crate::source_scan::mask_non_code(&text);
+        let rel_path = text
+            .lines()
+            .zip(masked.lines())
+            .find_map(|(source_line, code_line)| {
+                let code_rest = code_line.trim().strip_prefix("use ")?;
+                let (code_alias, _) = code_rest.split_once(':')?;
+                if code_alias.trim() != root_alias {
+                    return None;
+                }
+                let source_rest = source_line.trim().strip_prefix("use ")?;
+                let (_, source_rhs) = source_rest.split_once(':')?;
+                Some(source_rhs.trim().to_string())
+            });
         let Some(rhs) = rel_path else {
             return Vec::new();
         };
@@ -934,7 +1409,12 @@ impl SemanticSnapshot {
         };
         let import_target = &tail[..end];
         let mut target = if rhs.starts_with("pkg") {
-            package_root.join(".fol/pkg").join(import_target)
+            let materialized = package_root.join(".fol/pkg").join(import_target);
+            if materialized.is_dir() {
+                materialized
+            } else {
+                declared_bundled_standard_root(package_root, import_target).unwrap_or(materialized)
+            }
         } else {
             // `loc` targets resolve relative to the importing source file,
             // mirroring the compiler's package loader.
@@ -1033,7 +1513,10 @@ impl SemanticSnapshot {
 
     fn current_resolved_package(
         &self,
-    ) -> Option<(&fol_resolver::ResolvedPackage, &fol_resolver::ResolvedProgram)> {
+    ) -> Option<(
+        &fol_resolver::ResolvedPackage,
+        &fol_resolver::ResolvedProgram,
+    )> {
         let resolved = self.resolved_workspace.as_ref()?;
         let analyzed_path = self.analyzed_path.as_ref()?;
         let path_text = analyzed_path.to_string_lossy();
@@ -1123,37 +1606,181 @@ impl SemanticSnapshot {
         best.map(|(symbol_id, _)| symbol_id)
     }
 
+    fn borrow_is_active_at_position(
+        &self,
+        program: &fol_resolver::ResolvedProgram,
+        typed: &fol_typecheck::TypedProgram,
+        borrow: &fol_typecheck::model::ActiveBorrow,
+        position: LspPosition,
+        position_scope: Option<fol_resolver::ScopeId>,
+    ) -> bool {
+        let Some(analyzed_path) = self.analyzed_path.as_ref() else {
+            return false;
+        };
+        let origin_is_at_or_before = |origin: &fol_parser::ast::SyntaxOrigin| {
+            origin.file.as_deref() == analyzed_path.to_str()
+                && (
+                    origin.line.saturating_sub(1) as u32,
+                    origin.column.saturating_sub(1) as u32,
+                ) <= (position.line, position.character)
+        };
+        if !origin_is_at_or_before(&borrow.origin) {
+            return false;
+        }
+        if typed
+            .returned_borrow_origin(borrow.binding)
+            .is_some_and(origin_is_at_or_before)
+        {
+            return false;
+        }
+
+        let Some(mut scope) = position_scope else {
+            return false;
+        };
+        loop {
+            if scope == borrow.scope {
+                return true;
+            }
+            let Some(parent) = program.scope(scope).and_then(|scope| scope.parent) else {
+                return false;
+            };
+            scope = parent;
+        }
+    }
+
     // COMPILER-BACKED: resolved symbol + typed type (no text fallback)
     pub(super) fn hover_for_symbol(
         &self,
         symbol_id: fol_resolver::SymbolId,
+        position: LspPosition,
+        position_scope: Option<fol_resolver::ScopeId>,
     ) -> Option<LspHover> {
         let (package, program) = self.current_resolved_package()?;
         let symbol = program.symbol(symbol_id)?;
         // Local bindings may not carry a declaration origin yet; hover still
         // has useful kind/name/type content without a highlight range.
         let origin = symbol.origin.as_ref();
-        let type_summary = self
+        let typed_package = self
             .typed_workspace
             .as_ref()
-            .and_then(|typed| typed.package(&package.identity))
+            .and_then(|typed| typed.package(&package.identity));
+        let type_summary = typed_package
             .and_then(|typed_package| typed_package.program.typed_symbol(symbol_id))
             .and_then(|typed_symbol| typed_symbol.declared_type)
             .map(|type_id| {
-                let typed_package = self
-                    .typed_workspace
-                    .as_ref()
-                    .and_then(|typed| typed.package(&package.identity))
+                let typed_package = typed_package
                     .expect("typed package should exist when declared type is available");
                 render_checked_type(typed_package.program.type_table(), type_id)
             })
             .unwrap_or_else(|| "unknown".to_string());
+        let ownership_summary = typed_package
+            .and_then(|typed_package| {
+                let file = self.analyzed_path.as_ref()?.to_str()?;
+                typed_package.program.moved_binding_origin_at(
+                    symbol_id,
+                    file,
+                    position.line as usize + 1,
+                    position.character as usize + 1,
+                )
+            })
+            .map(|origin| {
+                format!(
+                    " (moved; ownership transferred at {}:{})",
+                    origin.line, origin.column
+                )
+            })
+            .unwrap_or_default();
+        let borrow_summary = typed_package
+            .and_then(|typed_package| {
+                typed_package
+                    .program
+                    .borrow_for_binding(symbol_id)
+                    .map(|borrow| {
+                        let owner = program
+                            .symbol(borrow.owner)
+                            .map(|symbol| symbol.name.as_str())
+                            .unwrap_or("owner");
+                        format!(
+                            " ({} borrow of {owner})",
+                            if borrow.mutable { "mutable" } else { "shared" }
+                        )
+                    })
+                    .or_else(|| {
+                        typed_package
+                            .program
+                            .borrows_for_owner(symbol_id)
+                            .find(|borrow| {
+                                self.borrow_is_active_at_position(
+                                    program,
+                                    &typed_package.program,
+                                    borrow,
+                                    position,
+                                    position_scope,
+                                )
+                            })
+                            .map(|borrow| {
+                                let binding = program
+                                    .symbol(borrow.binding)
+                                    .map(|symbol| symbol.name.as_str())
+                                    .unwrap_or("borrow");
+                                format!(
+                                    " (inaccessible while borrow {binding} is active in its lexical scope)"
+                                )
+                            })
+                    })
+            })
+            .unwrap_or_default();
+        let pointer_summary = typed_package
+            .and_then(|typed_package| {
+                let type_id = typed_package.program.typed_symbol(symbol_id)?.declared_type?;
+                let (target, shared, borrowed) =
+                    pointer_type_info(&typed_package.program, type_id)?;
+                let target_name =
+                    render_checked_type(typed_package.program.type_table(), target);
+                let target_moves = fol_typecheck::exprs::bindings::ownership_moves_on_transfer(
+                    &typed_package.program,
+                    target,
+                );
+                Some(if borrowed {
+                    if target_moves {
+                        format!(
+                            " (borrowed pointer; read-only dereference cannot transfer move-only {target_name})"
+                        )
+                    } else {
+                        format!(
+                            " (borrowed pointer; read-only dereference clones {target_name})"
+                        )
+                    }
+                } else if shared {
+                    if target_moves {
+                        format!(
+                            " (shared refcount pointer; read-only dereference cannot transfer move-only {target_name}; reference cycles leak until weak references exist)"
+                        )
+                    } else {
+                        format!(
+                            " (shared refcount pointer; read-only dereference clones {target_name}; reference cycles leak until weak references exist)"
+                        )
+                    }
+                } else if target_moves {
+                    format!(
+                        " (unique pointer; dereference transfers move-only {target_name} and consumes the pointer; construction requires memo+)"
+                    )
+                } else {
+                    format!(
+                        " (unique pointer; dereference reads clone-safe {target_name} without consuming the pointer; construction requires memo+)"
+                    )
+                })
+            })
+            .unwrap_or_default();
         Some(LspHover {
             contents: format!(
-                "{} {}: {}",
+                "{} {}: {}{}{}{}",
                 render_symbol_kind(symbol.kind),
                 symbol.name,
-                type_summary
+                type_summary,
+                ownership_summary,
+                borrow_summary,
+                pointer_summary
             ),
             range: origin.map(|origin| {
                 location_to_range(&fol_diagnostics::DiagnosticLocation {
@@ -1172,8 +1799,181 @@ impl SemanticSnapshot {
     pub(super) fn hover_for_reference(
         &self,
         reference: &fol_resolver::ResolvedReference,
+        position: LspPosition,
     ) -> Option<LspHover> {
-        self.hover_for_symbol(reference.resolved?)
+        self.hover_for_symbol(reference.resolved?, position, Some(reference.scope))
+    }
+
+    // COMPILER-BACKED: the textual layer only locates the operand adjacent to
+    // the pipe keyword; value and error types come from the typed symbol.
+    pub(super) fn hover_for_processor_pipe_stage(
+        &self,
+        operand_position: LspPosition,
+        stage: &str,
+    ) -> Option<LspHover> {
+        let reference = self.reference_at(operand_position)?;
+        let symbol_id = reference.resolved?;
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
+        let table = typed_package.program.type_table();
+
+        let contents = match (stage, table.get(type_id)?) {
+            (
+                "await",
+                fol_typecheck::CheckedType::Eventual {
+                    value_type,
+                    error_type,
+                },
+            ) => {
+                let value = render_checked_type(table, *value_type);
+                match error_type {
+                    Some(error) => format!(
+                        "| await: blocks for `{value}` and preserves recoverable error `{}`; handle it immediately with `||` or `check(...)`",
+                        render_checked_type(table, *error)
+                    ),
+                    None => format!("| await: blocks for `{value}`"),
+                }
+            }
+            ("async", fol_typecheck::CheckedType::Routine(signature)) => {
+                let value = signature
+                    .return_type
+                    .map(|type_id| render_checked_type(table, type_id))
+                    .unwrap_or_else(|| "non".to_string());
+                match signature.error_type {
+                    Some(error) => format!(
+                        "| async: spawns an OS thread; yields an internal eventual of `{value}` with recoverable error `{}`; it must be awaited and handled before lexical fallthrough, break, return, or report, and every continuing branch must preserve or discharge the obligation",
+                        render_checked_type(table, error)
+                    ),
+                    None => format!(
+                        "| async: spawns an OS thread; yields an internal eventual of `{value}`"
+                    ),
+                }
+            }
+            _ => return None,
+        };
+        Some(LspHover {
+            contents,
+            range: None,
+        })
+    }
+
+    // COMPILER-BACKED: endpoint element types come from the resolved channel
+    // binding rather than reparsing its declaration text.
+    pub(super) fn hover_for_channel_endpoint(
+        &self,
+        channel_position: LspPosition,
+        endpoint: &str,
+    ) -> Option<LspHover> {
+        let reference = self.reference_at(channel_position)?;
+        let symbol_id = reference.resolved?;
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
+        let table = typed_package.program.type_table();
+        let element = match table.get(type_id)? {
+            fol_typecheck::CheckedType::Channel { element_type }
+            | fol_typecheck::CheckedType::ChannelSender { element_type } => {
+                render_checked_type(table, *element_type)
+            }
+            _ => return None,
+        };
+        Some(LspHover {
+            contents: if endpoint == "tx" {
+                format!("c[tx]: non-blocking send of `{element}`")
+            } else {
+                format!("c[rx]: blocking receive of `{element}`; iteration continues until closed")
+            },
+            range: None,
+        })
+    }
+
+    // COMPILER-BACKED: parameter declaration sites are not references, so use
+    // the resolver scope chain to find the named symbol and its typed mutex bit.
+    pub(super) fn hover_for_mutex_binding(
+        &self,
+        position: LspPosition,
+        name: &str,
+    ) -> Option<LspHover> {
+        let (program, mut scope_id) = self.scope_at_position(position)?;
+        let key = fol_types::canonical_identifier_key(name);
+        let symbol_id = loop {
+            if let Some(symbol) = program
+                .symbols_named_in_scope(scope_id, &key)
+                .into_iter()
+                .find(|symbol| symbol.kind == fol_resolver::SymbolKind::Parameter)
+            {
+                break symbol.id;
+            }
+            scope_id = program.scope(scope_id)?.parent?;
+        };
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let symbol = typed_package.program.typed_symbol(symbol_id)?;
+        if !symbol.is_mutex {
+            return None;
+        }
+        let guarded =
+            render_checked_type(typed_package.program.type_table(), symbol.declared_type?);
+        Some(LspHover {
+            contents: format!("[mux]: mutex-guarded shared `{guarded}` (auto-unlock at scope end)"),
+            range: None,
+        })
+    }
+
+    // COMPILER-BACKED: dereference hover is derived from the operand's checked
+    // pointer type; the source scan only identifies the adjacent operand.
+    pub(super) fn hover_for_dereference(&self, operand_position: LspPosition) -> Option<LspHover> {
+        let reference = self.reference_at(operand_position)?;
+        let symbol_id = reference.resolved?;
+        let (package, _) = self.current_resolved_package()?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
+        let table = typed_package.program.type_table();
+        let (target, shared, borrowed) = pointer_type_info(&typed_package.program, type_id)?;
+        let target_name = render_checked_type(table, target);
+        let target_moves = fol_typecheck::exprs::bindings::ownership_moves_on_transfer(
+            &typed_package.program,
+            target,
+        );
+        let contents = if borrowed {
+            if target_moves {
+                format!(
+                    "*: read-only borrowed pointer cannot transfer move-only `{target_name}`"
+                )
+            } else {
+                format!(
+                    "*: read-only borrowed pointer clones `{target_name}` without consuming the pointer"
+                )
+            }
+        } else if shared {
+            if target_moves {
+                format!("*: shared pointer cannot transfer move-only `{target_name}`")
+            } else {
+                format!(
+                    "*: read-only shared pointer clones `{target_name}` without consuming the pointer"
+                )
+            }
+        } else if target_moves {
+            format!("*: transfers move-only `{target_name}` and consumes the unique pointer")
+        } else {
+            format!(
+                "*: reads clone-safe `{target_name}` without consuming the unique pointer"
+            )
+        };
+        Some(LspHover {
+            contents,
+            range: None,
+        })
     }
 
     // COMPILER-BACKED: resolved symbol origin (no text fallback)
@@ -1236,12 +2036,19 @@ impl SemanticSnapshot {
             }
         }
 
-        for hit in program.all_references().filter(|hit| hit.resolved == Some(symbol_id)) {
-            let Some(syntax_id) = hit.anchor() else { continue };
+        for hit in program
+            .all_references()
+            .filter(|hit| hit.resolved == Some(symbol_id))
+        {
+            let Some(syntax_id) = hit.anchor() else {
+                continue;
+            };
             let Some(origin) = program.syntax_index().origin(syntax_id) else {
                 continue;
             };
-            let Some(file) = origin.file.as_ref() else { continue };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
             let source_file = self.map_analyzed_file_to_source(file);
             locations.push(LspLocation {
                 uri: format!("file://{source_file}"),
@@ -1270,6 +2077,101 @@ impl SemanticSnapshot {
         new_name: &str,
     ) -> EditorResult<LspWorkspaceEdit> {
         ensure_renameable_identifier(new_name)?;
+        let (program, symbol) = self.validated_rename_target(reference)?;
+        let symbol_id = symbol.id;
+
+        let mut edits = Vec::new();
+        let declaration = symbol.origin.as_ref().ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename target is missing a declaration location",
+            )
+        })?;
+        let declaration_file = declaration.file.as_ref().ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename target is missing a declaration file",
+            )
+        })?;
+        edits.push((
+            self.map_analyzed_file_to_source(declaration_file),
+            LspTextEdit {
+                range: location_to_range(&fol_diagnostics::DiagnosticLocation {
+                    file: Some(self.map_analyzed_file_to_source(declaration_file)),
+                    line: declaration.line,
+                    column: declaration.column,
+                    length: Some(declaration.length),
+                }),
+                new_text: new_name.to_string(),
+            },
+        ));
+
+        for hit in program
+            .all_references()
+            .filter(|hit| hit.resolved == Some(symbol_id))
+        {
+            let Some(syntax_id) = hit.anchor() else {
+                continue;
+            };
+            let Some(origin) = program.syntax_index().origin(syntax_id) else {
+                continue;
+            };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
+            edits.push((
+                self.map_analyzed_file_to_source(file),
+                LspTextEdit {
+                    range: location_to_range(&fol_diagnostics::DiagnosticLocation {
+                        file: Some(self.map_analyzed_file_to_source(file)),
+                        line: origin.line,
+                        column: origin.column,
+                        length: Some(origin.length),
+                    }),
+                    new_text: new_name.to_string(),
+                },
+            ));
+        }
+
+        edits.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.range.start.line.cmp(&right.1.range.start.line))
+                .then(
+                    left.1
+                        .range
+                        .start
+                        .character
+                        .cmp(&right.1.range.start.character),
+                )
+        });
+        edits.dedup_by(|left, right| left == right);
+        let mut changes = std::collections::BTreeMap::new();
+        for (file, edit) in edits {
+            changes
+                .entry(format!("file://{file}"))
+                .or_insert_with(Vec::new)
+                .push(edit);
+        }
+        for edits in changes.values_mut() {
+            edits.sort_by(|left, right| {
+                left.range
+                    .start
+                    .line
+                    .cmp(&right.range.start.line)
+                    .then(left.range.start.character.cmp(&right.range.start.character))
+            });
+        }
+        Ok(LspWorkspaceEdit { changes })
+    }
+
+    fn validated_rename_target<'a>(
+        &'a self,
+        reference: &fol_resolver::ResolvedReference,
+    ) -> EditorResult<(
+        &'a fol_resolver::ResolvedProgram,
+        &'a fol_resolver::ResolvedSymbol,
+    )> {
         self.resolved_workspace.as_ref().ok_or_else(|| {
             EditorError::new(
                 EditorErrorKind::InvalidInput,
@@ -1286,7 +2188,6 @@ impl SemanticSnapshot {
             )
         })?;
         let analyzed_path_text = analyzed_path.to_string_lossy().to_string();
-        let analyzed_package_root = self.analyzed_package_root.as_ref();
 
         let (_, program) = self.current_resolved_package().ok_or_else(|| {
             EditorError::new(
@@ -1301,150 +2202,87 @@ impl SemanticSnapshot {
             ));
         };
 
-            // Parameters now carry their own declaration origin (the parameter
-            // NAME span), so renaming one rewrites the parameter declaration and
-            // its uses rather than the routine header. That makes `Parameter`
-            // safe to rename within the same file.
-            if !matches!(
-                symbol.kind,
-                fol_resolver::SymbolKind::ValueBinding
-                    | fol_resolver::SymbolKind::LabelBinding
-                    | fol_resolver::SymbolKind::DestructureBinding
-                    | fol_resolver::SymbolKind::Parameter
-                    | fol_resolver::SymbolKind::Routine
-                    | fol_resolver::SymbolKind::Type
-                    | fol_resolver::SymbolKind::Alias
-                    | fol_resolver::SymbolKind::Definition
-                    | fol_resolver::SymbolKind::Capture
-                    | fol_resolver::SymbolKind::LoopBinder
-                    | fol_resolver::SymbolKind::RollingBinder
-            ) {
-                return Err(EditorError::new(
+        // Parameters now carry their own declaration origin (the parameter
+        // NAME span), so renaming one rewrites the parameter declaration and
+        // its uses rather than the routine header. That makes `Parameter`
+        // safe to rename within the same file.
+        if !matches!(
+            symbol.kind,
+            fol_resolver::SymbolKind::ValueBinding
+                | fol_resolver::SymbolKind::LabelBinding
+                | fol_resolver::SymbolKind::DestructureBinding
+                | fol_resolver::SymbolKind::Parameter
+                | fol_resolver::SymbolKind::Routine
+                | fol_resolver::SymbolKind::Type
+                | fol_resolver::SymbolKind::Alias
+                | fol_resolver::SymbolKind::Definition
+                | fol_resolver::SymbolKind::Capture
+                | fol_resolver::SymbolKind::LoopBinder
+                | fol_resolver::SymbolKind::RollingBinder
+        ) {
+            return Err(EditorError::new(
                     EditorErrorKind::InvalidInput,
                     format!(
                         "rename currently supports same-file local and current-package top-level symbols only, not {}",
                         render_symbol_kind(symbol.kind)
                     ),
                 ));
-            }
+        }
 
-            let supports_current_package_top_level = matches!(
-                symbol.kind,
-                fol_resolver::SymbolKind::Routine
-                    | fol_resolver::SymbolKind::Type
-                    | fol_resolver::SymbolKind::Alias
-                    | fol_resolver::SymbolKind::Definition
-            );
-            let path_is_in_current_package = |file: &str| {
-                analyzed_package_root
-                    .map(|root| Path::new(file).starts_with(root))
-                    .unwrap_or(false)
-            };
-            let mut edits = Vec::new();
-            let declaration = symbol.origin.as_ref().ok_or_else(|| {
-                EditorError::new(
-                    EditorErrorKind::InvalidInput,
-                    "rename target is missing a declaration location",
-                )
-            })?;
-            let declaration_file = declaration.file.as_ref().ok_or_else(|| {
-                EditorError::new(
-                    EditorErrorKind::InvalidInput,
-                    "rename target is missing a declaration file",
-                )
-            })?;
-            // Build manifests (`build.fol`) declare the build entry graph, not
-            // ordinary renameable source. The build entry routine name is a
-            // fixed contract with the build system, so rename stays outside the
-            // safe boundary for symbols declared in a build file.
-            if Path::new(declaration_file).file_name().and_then(|name| name.to_str())
-                == Some("build.fol")
-            {
-                return Err(EditorError::new(
-                    EditorErrorKind::InvalidInput,
-                    "rename does not support build entry symbols",
-                ));
-            }
-            if declaration_file != &analyzed_path_text
-                && !(supports_current_package_top_level
-                    && path_is_in_current_package(declaration_file))
-            {
-                return Err(EditorError::new(
-                    EditorErrorKind::InvalidInput,
-                    "rename currently refuses multi-package symbols",
-                ));
-            }
-            edits.push((
-                self.map_analyzed_file_to_source(declaration_file),
-                LspTextEdit {
-                    range: location_to_range(&fol_diagnostics::DiagnosticLocation {
-                        file: Some(self.map_analyzed_file_to_source(declaration_file)),
-                        line: declaration.line,
-                        column: declaration.column,
-                        length: Some(declaration.length),
-                    }),
-                    new_text: new_name.to_string(),
-                },
+        let declaration = symbol.origin.as_ref().ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename target is missing a declaration location",
+            )
+        })?;
+        let declaration_file = declaration.file.as_ref().ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename target is missing a declaration file",
+            )
+        })?;
+        // Build manifests (`build.fol`) declare the build entry graph, not
+        // ordinary renameable source. The build entry routine name is a
+        // fixed contract with the build system, so rename stays outside the
+        // safe boundary for symbols declared in a build file.
+        if Path::new(declaration_file)
+            .file_name()
+            .and_then(|name| name.to_str())
+            == Some("build.fol")
+        {
+            return Err(EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename does not support build entry symbols",
             ));
+        }
+        if declaration_file != &analyzed_path_text {
+            return Err(EditorError::new(
+                EditorErrorKind::InvalidInput,
+                "rename currently supports same-file symbols only",
+            ));
+        }
 
-            for hit in program.all_references().filter(|hit| hit.resolved == Some(symbol_id)) {
-                let Some(syntax_id) = hit.anchor() else { continue };
-                let Some(origin) = program.syntax_index().origin(syntax_id) else {
-                    continue;
-                };
-                let Some(file) = origin.file.as_ref() else { continue };
-                if file != &analyzed_path_text
-                    && !(supports_current_package_top_level && path_is_in_current_package(file))
-                {
-                    return Err(EditorError::new(
-                        EditorErrorKind::InvalidInput,
-                        "rename currently refuses multi-package symbols",
-                    ));
-                }
-                edits.push((
-                    self.map_analyzed_file_to_source(file),
-                    LspTextEdit {
-                        range: location_to_range(&fol_diagnostics::DiagnosticLocation {
-                            file: Some(self.map_analyzed_file_to_source(file)),
-                            line: origin.line,
-                            column: origin.column,
-                            length: Some(origin.length),
-                        }),
-                        new_text: new_name.to_string(),
-                    },
+        for hit in program
+            .all_references()
+            .filter(|hit| hit.resolved == Some(symbol_id))
+        {
+            let Some(syntax_id) = hit.anchor() else {
+                continue;
+            };
+            let Some(origin) = program.syntax_index().origin(syntax_id) else {
+                continue;
+            };
+            let Some(file) = origin.file.as_ref() else {
+                continue;
+            };
+            if file != &analyzed_path_text {
+                return Err(EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    "rename currently supports same-file symbols only",
                 ));
             }
-
-            edits.sort_by(|left, right| {
-                left.0
-                    .cmp(&right.0)
-                    .then(left.1.range.start.line.cmp(&right.1.range.start.line))
-                    .then(
-                        left.1
-                            .range
-                            .start
-                            .character
-                            .cmp(&right.1.range.start.character),
-                    )
-            });
-            edits.dedup_by(|left, right| left == right);
-            let mut changes = std::collections::BTreeMap::new();
-            for (file, edit) in edits {
-                changes
-                    .entry(format!("file://{file}"))
-                    .or_insert_with(Vec::new)
-                    .push(edit);
-            }
-            for edits in changes.values_mut() {
-                edits.sort_by(|left, right| {
-                    left.range
-                    .start
-                    .line
-                    .cmp(&right.range.start.line)
-                    .then(left.range.start.character.cmp(&right.range.start.character))
-                });
-            }
-        Ok(LspWorkspaceEdit { changes })
+        }
+        Ok((program, symbol))
     }
 
     // COMPILER-BACKED: resolved symbols by path (no text fallback)
@@ -1533,11 +2371,11 @@ impl SemanticSnapshot {
     pub(super) fn type_definition_at(&self, position: LspPosition) -> Option<LspLocation> {
         let symbol_id = self.symbol_at_position(position)?;
         let (package, _) = self.current_resolved_package()?;
-        let typed_package = self
-            .typed_workspace
-            .as_ref()?
-            .package(&package.identity)?;
-        let type_id = typed_package.program.typed_symbol(symbol_id)?.declared_type?;
+        let typed_package = self.typed_workspace.as_ref()?.package(&package.identity)?;
+        let type_id = typed_package
+            .program
+            .typed_symbol(symbol_id)?
+            .declared_type?;
         let type_symbol = declared_type_symbol(typed_package.program.type_table(), type_id)?;
         self.definition_for_symbol(type_symbol)
     }
@@ -1617,9 +2455,7 @@ impl SemanticSnapshot {
         position: LspPosition,
     ) -> Option<LspPrepareRenameResult> {
         let reference = self.reference_at(position)?;
-        let symbol_id = reference.resolved?;
-        let (_, program) = self.current_resolved_package()?;
-        let symbol = program.symbol(symbol_id)?;
+        let (program, symbol) = self.validated_rename_target(&reference).ok()?;
         let syntax_id = reference.anchor()?;
         let origin = program.syntax_index().origin(syntax_id)?;
         let file = origin.file.as_ref()?;
@@ -1716,7 +2552,9 @@ impl SemanticSnapshot {
             ) {
                 continue;
             }
-            let Some(origin) = &symbol.origin else { continue };
+            let Some(origin) = &symbol.origin else {
+                continue;
+            };
             let Some(file) = &origin.file else { continue };
             if file != &path_text {
                 continue;
@@ -1758,44 +2596,6 @@ impl SemanticSnapshot {
         hints
     }
 
-    // COMPILER-BACKED: a "Run" lens above the package entry point `fun[] main`.
-    pub(super) fn code_lenses(&self, _document: &EditorDocument) -> Vec<LspCodeLens> {
-        let Some((_, program)) = self.current_resolved_package() else {
-            return Vec::new();
-        };
-        let Some(analyzed_path) = self.analyzed_path.as_ref() else {
-            return Vec::new();
-        };
-        let path_text = analyzed_path.to_string_lossy();
-        let mut lenses = Vec::new();
-        for symbol in program.all_symbols() {
-            if symbol.kind != fol_resolver::SymbolKind::Routine || symbol.name != "main" {
-                continue;
-            }
-            let Some(origin) = &symbol.origin else { continue };
-            let Some(file) = &origin.file else { continue };
-            if file != &path_text {
-                continue;
-            }
-            let source_file = self.map_analyzed_file_to_source(file);
-            let range = location_to_range(&fol_diagnostics::DiagnosticLocation {
-                file: Some(source_file.clone()),
-                line: origin.line,
-                column: origin.column,
-                length: Some(origin.length),
-            });
-            lenses.push(LspCodeLens {
-                range,
-                command: Some(LspCommand {
-                    title: "\u{25b6} Run".to_string(),
-                    command: "fol.run".to_string(),
-                    arguments: vec![serde_json::Value::String(source_file)],
-                }),
-            });
-        }
-        lenses
-    }
-
     fn current_source_unit<'a>(
         &self,
         program: &'a fol_resolver::ResolvedProgram,
@@ -1810,7 +2610,10 @@ impl SemanticSnapshot {
 
     fn current_syntax_source_unit(
         &self,
-    ) -> Option<(&fol_resolver::ResolvedProgram, &fol_parser::ast::ParsedSourceUnit)> {
+    ) -> Option<(
+        &fol_resolver::ResolvedProgram,
+        &fol_parser::ast::ParsedSourceUnit,
+    )> {
         let (_, program) = self.current_resolved_package()?;
         let resolved_unit = self.current_source_unit(program)?;
         let syntax_unit = program.syntax().source_units.get(resolved_unit.id.0)?;
@@ -1818,9 +2621,27 @@ impl SemanticSnapshot {
     }
 }
 
+fn declared_bundled_standard_root(package_root: &Path, alias: &str) -> Option<PathBuf> {
+    let metadata =
+        fol_package::parse_package_metadata_from_build(&package_root.join("build.fol")).ok()?;
+    metadata
+        .dependencies
+        .iter()
+        .any(|dependency| {
+            dependency.alias == alias
+                && dependency.source_kind == fol_package::PackageDependencySourceKind::Internal
+                && dependency.target == "standard"
+        })
+        .then(fol_package::available_bundled_std_root)
+        .flatten()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::SemanticSnapshot;
+    use super::{
+        direct_channel_receiver_precedes, direct_endpoint_occurs, fallback_visible_binding_kind,
+        position_is_inside_deferred_block, FallbackBindingKind, SemanticSnapshot,
+    };
     use crate::{EditorDocument, EditorDocumentUri, LspPosition};
     use std::fs;
     use std::path::PathBuf;
@@ -1834,6 +2655,8 @@ mod tests {
             source_document_path: source_path,
             source_package_root: Some(root),
             active_fol_model: None,
+            active_internal_standard_aliases: Vec::new(),
+            fol_model_scope_unresolved: false,
             compiler_diagnostics: Vec::new(),
             diagnostics: Vec::new(),
             resolved_workspace: None,
@@ -1874,13 +2697,15 @@ mod tests {
 
         let items = snapshot.fallback_local_named_type_items(&document);
         assert_eq!(
-            items.iter()
+            items
+                .iter()
                 .find(|item| item.label == "LocalRec")
                 .and_then(|item| item.detail.as_deref()),
             Some("type (fallback)")
         );
         assert_eq!(
-            items.iter()
+            items
+                .iter()
                 .find(|item| item.label == "LocalAlias")
                 .and_then(|item| item.detail.as_deref()),
             Some("type alias (fallback)")
@@ -1918,7 +2743,8 @@ mod tests {
 
         let items = snapshot.fallback_qualified_completion_items("shared");
         assert_eq!(
-            items.iter()
+            items
+                .iter()
                 .find(|item| item.label == "helper")
                 .and_then(|item| item.detail.as_deref()),
             Some("routine (fallback)")
@@ -1960,18 +2786,137 @@ mod tests {
         let items = snapshot.fallback_local_scope_items(
             &document,
             LspPosition {
-                line: 5,
+                line: 6,
                 character: 12,
             },
         );
         assert_eq!(
-            items.iter()
+            items
+                .iter()
                 .find(|item| item.label == "value")
                 .and_then(|item| item.detail.as_deref()),
             Some("binding")
         );
 
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn channel_lifecycle_scanning_ignores_quoted_endpoint_text() {
+        assert!(direct_endpoint_occurs(
+            "var value: int = channel[rx];",
+            "channel",
+            "rx"
+        ));
+        assert!(!direct_endpoint_occurs(
+            "var text: str = \"channel[rx]\";",
+            "channel",
+            "rx"
+        ));
+        assert!(!direct_endpoint_occurs(
+            "var text: str = 'channel[rx]';",
+            "channel",
+            "rx"
+        ));
+        assert!(!direct_endpoint_occurs(
+            "var value: int = other_channel[rx];",
+            "channel",
+            "rx"
+        ));
+        assert!(!direct_endpoint_occurs(
+            "` channel[rx] in a comment `",
+            "channel",
+            "rx"
+        ));
+        assert!(!direct_endpoint_occurs(
+            "/* channel[rx] in a comment */",
+            "channel",
+            "rx"
+        ));
+    }
+
+    #[test]
+    fn channel_lifecycle_scanning_ignores_multiline_comment_endpoints() {
+        let text = concat!(
+            "fun[] main(): int = {\n",
+            "    ` channel[rx]\n",
+            "       still a comment `\n",
+            "    channel[\n",
+        );
+
+        assert!(!direct_channel_receiver_precedes(
+            text,
+            LspPosition {
+                line: 3,
+                character: 12,
+            },
+            "channel"
+        ));
+    }
+
+    #[test]
+    fn fallback_v3_binding_scan_ignores_comment_declarations() {
+        let fake = concat!(
+            "fun[] main(): int = {\n",
+            "    /* var channel: chn[int];\n",
+            "       still a comment */\n",
+            "    channel[\n",
+        );
+        assert_eq!(
+            fallback_visible_binding_kind(
+                fake,
+                LspPosition {
+                    line: 3,
+                    character: 12,
+                },
+                "channel",
+            ),
+            None
+        );
+
+        let real = concat!(
+            "fun[] main(): int = {\n",
+            "    var channel: chn[int];\n",
+            "    channel[\n",
+        );
+        assert_eq!(
+            fallback_visible_binding_kind(
+                real,
+                LspPosition {
+                    line: 2,
+                    character: 12,
+                },
+                "channel",
+            ),
+            Some(FallbackBindingKind::Channel)
+        );
+    }
+
+    #[test]
+    fn deferred_completion_scan_ignores_comment_and_quote_braces() {
+        let fake = concat!(
+            "` dfr {\n",
+            "  still comment } `\n",
+            "fun[] main(): int = {\n",
+            "    var value: str = \"edf { }\";\n",
+            "    value.\n",
+        );
+        assert!(!position_is_inside_deferred_block(
+            fake,
+            LspPosition {
+                line: 4,
+                character: 10,
+            }
+        ));
+
+        let real = concat!("fun[] main(): int = {\n", "    dfr {\n", "        value.\n",);
+        assert!(position_is_inside_deferred_block(
+            real,
+            LspPosition {
+                line: 2,
+                character: 14,
+            }
+        ));
     }
 }
 
@@ -1999,6 +2944,262 @@ fn shell_type_family(name: &str) -> EditorTypeFamily {
         "err" => EditorTypeFamily::ErrorShell,
         _ => EditorTypeFamily::RecordLike,
     }
+}
+
+fn completion_keyword_item(keyword: &str) -> EditorCompletionItem {
+    // LSP CompletionItemKind::Keyword == 14.
+    EditorCompletionItem {
+        label: keyword.to_string(),
+        kind: 14,
+        detail: Some("keyword".to_string()),
+        insert_text: None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FallbackBindingKind {
+    Channel,
+    Mutex,
+    Other,
+}
+
+fn fallback_visible_binding_kind(
+    text: &str,
+    position: LspPosition,
+    receiver: &str,
+) -> Option<FallbackBindingKind> {
+    let offset = position_to_offset(text, position)?;
+    let masked = crate::source_scan::mask_non_code(&text[..offset]);
+    let prefix = current_routine_prefix(&masked);
+    let is_identifier_char = |ch: char| ch.is_alphanumeric() || ch == '_';
+
+    for line in prefix.lines().rev() {
+        for (start, _) in line.rmatch_indices(receiver) {
+            if line[..start]
+                .chars()
+                .next_back()
+                .is_some_and(is_identifier_char)
+            {
+                continue;
+            }
+            let tail = &line[start + receiver.len()..];
+            if tail.chars().next().is_some_and(is_identifier_char) {
+                continue;
+            }
+            let before = &line[..start];
+            let after = tail.trim_start();
+            if after
+                .strip_prefix("[mux]")
+                .map(str::trim_start)
+                .is_some_and(|tail| tail.starts_with(':'))
+            {
+                return Some(FallbackBindingKind::Mutex);
+            }
+            if let Some(type_text) = after.strip_prefix(':').map(str::trim_start) {
+                if type_text
+                    .strip_prefix("chn")
+                    .is_some_and(|tail| tail.trim_start().starts_with('['))
+                {
+                    return Some(FallbackBindingKind::Channel);
+                }
+                return Some(FallbackBindingKind::Other);
+            }
+            let binding_head = before
+                .rsplit([';', '{', '}'])
+                .next()
+                .unwrap_or(before)
+                .trim();
+            if matches!(binding_head, "var" | "lab" | "@var" | "@lab")
+                || binding_head.starts_with("var[") && binding_head.ends_with(']')
+                || binding_head.starts_with("lab[") && binding_head.ends_with(']')
+            {
+                return Some(FallbackBindingKind::Other);
+            }
+        }
+    }
+    None
+}
+
+fn current_routine_prefix(prefix: &str) -> &str {
+    let start = ["fun[", "pro[", "log[", "fun [", "pro [", "log ["]
+        .into_iter()
+        .filter_map(|needle| prefix.rfind(needle))
+        .max()
+        .unwrap_or(0);
+    &prefix[start..]
+}
+
+fn direct_channel_receiver_precedes(text: &str, position: LspPosition, receiver: &str) -> bool {
+    let Some(offset) = position_to_offset(text, position) else {
+        return false;
+    };
+    let masked = crate::source_scan::mask_non_code(&text[..offset]);
+    current_routine_prefix(&masked)
+        .lines()
+        .any(|line| direct_endpoint_occurs_in_code(line, receiver, "rx"))
+}
+
+/// Return whether the exact resolved channel binding has already been used as
+/// a direct receiver before the completion cursor. Matching by `SymbolId`
+/// keeps a receive on an outer same-name binding from consuming the lifecycle
+/// of a shadowing inner channel.
+fn resolved_channel_receive_precedes(
+    program: &fol_resolver::ResolvedProgram,
+    symbol_id: fol_resolver::SymbolId,
+    path: &Path,
+    text: &str,
+    position: LspPosition,
+) -> bool {
+    let path_text = path.to_string_lossy();
+    program
+        .syntax()
+        .source_units
+        .iter()
+        .filter(|unit| unit.path == path_text)
+        .flat_map(|unit| unit.items.iter().map(|item| &item.node))
+        .any(|node| {
+            resolved_channel_receive_in_node_precedes(
+                program, symbol_id, &path_text, text, position, node,
+            )
+        })
+}
+
+fn resolved_channel_receive_in_node_precedes(
+    program: &fol_resolver::ResolvedProgram,
+    symbol_id: fol_resolver::SymbolId,
+    path: &str,
+    text: &str,
+    position: LspPosition,
+    node: &AstNode,
+) -> bool {
+    if let AstNode::ChannelAccess {
+        channel,
+        endpoint: fol_parser::ast::ChannelEndpoint::Rx,
+    } = node
+    {
+        if let Some(syntax_id) = channel.syntax_id() {
+            let resolves_exact_binding = program.all_references().any(|reference| {
+                reference.anchor() == Some(syntax_id) && reference.resolved == Some(symbol_id)
+            });
+            let occurs_before_cursor =
+                program
+                    .syntax_index()
+                    .origin(syntax_id)
+                    .is_some_and(|origin| {
+                        if origin.file.as_deref() != Some(path) {
+                            return false;
+                        }
+                        let line_index = origin.line.saturating_sub(1);
+                        if line_index as u32 > position.line {
+                            return false;
+                        }
+                        let Some(line) = text.lines().nth(line_index) else {
+                            return false;
+                        };
+                        let visible_characters = if line_index as u32 == position.line {
+                            position.character as usize
+                        } else {
+                            line.chars().count()
+                        };
+                        let visible = line.chars().take(visible_characters).collect::<String>();
+                        let masked = crate::source_scan::mask_non_code(&visible);
+                        let start = origin.column.saturating_sub(1);
+                        let tail = masked
+                            .chars()
+                            .skip(start + origin.length)
+                            .collect::<String>();
+                        tail.trim_start()
+                            .strip_prefix('[')
+                            .map(str::trim_start)
+                            .and_then(|tail| tail.strip_prefix("rx"))
+                            .map(str::trim_start)
+                            .is_some_and(|tail| tail.starts_with(']'))
+                    });
+            if resolves_exact_binding && occurs_before_cursor {
+                return true;
+            }
+        }
+    }
+
+    node.children().into_iter().any(|child| {
+        resolved_channel_receive_in_node_precedes(program, symbol_id, path, text, position, child)
+    })
+}
+
+#[cfg(test)]
+fn direct_endpoint_occurs(line: &str, receiver: &str, endpoint: &str) -> bool {
+    let line = crate::source_scan::mask_non_code(line);
+    direct_endpoint_occurs_in_code(&line, receiver, endpoint)
+}
+
+fn direct_endpoint_occurs_in_code(line: &str, receiver: &str, endpoint: &str) -> bool {
+    let is_identifier_char = |ch: char| ch.is_alphanumeric() || ch == '_';
+    line.match_indices(receiver).any(|(start, _)| {
+        if line[..start]
+            .chars()
+            .next_back()
+            .is_some_and(is_identifier_char)
+        {
+            return false;
+        }
+        let tail = &line[start + receiver.len()..];
+        if tail.chars().next().is_some_and(is_identifier_char) {
+            return false;
+        }
+        tail.trim_start()
+            .strip_prefix('[')
+            .map(str::trim_start)
+            .and_then(|tail| tail.strip_prefix(endpoint))
+            .map(str::trim_start)
+            .is_some_and(|tail| tail.starts_with(']'))
+    })
+}
+
+fn position_is_inside_deferred_block(text: &str, position: LspPosition) -> bool {
+    let Some(offset) = position_to_offset(text, position) else {
+        return false;
+    };
+    let mut deferred_stack = Vec::new();
+    let mut last_identifier = String::new();
+    let mut identifier = String::new();
+    let masked = crate::source_scan::mask_non_code(&text[..offset]);
+
+    for ch in masked.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            identifier.push(ch);
+            continue;
+        }
+        if !identifier.is_empty() {
+            last_identifier = std::mem::take(&mut identifier);
+        }
+        match ch {
+            '{' => {
+                let inherited = deferred_stack.last().copied().unwrap_or(false);
+                deferred_stack.push(inherited || matches!(last_identifier.as_str(), "dfr" | "edf"));
+                last_identifier.clear();
+            }
+            '}' => {
+                let _ = deferred_stack.pop();
+                last_identifier.clear();
+            }
+            ';' => last_identifier.clear(),
+            _ => {}
+        }
+    }
+
+    deferred_stack.last().copied().unwrap_or(false)
+}
+
+fn mutex_method_completion_items() -> Vec<EditorCompletionItem> {
+    ["lock", "unlock"]
+        .into_iter()
+        .map(|method| EditorCompletionItem {
+            label: method.to_string(),
+            kind: 2,
+            detail: Some("mutex method".to_string()),
+            insert_text: Some(method.to_string()),
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -2029,7 +3230,9 @@ fn visit_call_sites(
                 choose_better_call_site(best, candidate);
             }
         }
-        AstNode::QualifiedFunctionCall { path: qualified, .. } => {
+        AstNode::QualifiedFunctionCall {
+            path: qualified, ..
+        } => {
             if let Some(syntax_id) = qualified.syntax_id() {
                 if let Some(candidate) = signature_call_site(
                     program,
@@ -2221,7 +3424,6 @@ fn reference_at_position_in_program(
     })
 }
 
-
 /// Applying a rename with an illegal identifier would write syntactically
 /// broken source; validate the new name before producing any edit.
 fn ensure_renameable_identifier(new_name: &str) -> EditorResult<()> {
@@ -2270,7 +3472,6 @@ fn classify_build_receiver(
         let trimmed = line.trim();
         let Some(rest) = trimmed
             .strip_prefix("var ")
-            .or_else(|| trimmed.strip_prefix("let "))
             .or_else(|| trimmed.strip_prefix("con "))
         else {
             continue;
@@ -2309,7 +3510,10 @@ fn classify_build_receiver(
         if value.contains(".add_run(") {
             return Some(Family::RunHandle);
         }
-        if value.contains(".install(") || value.contains(".install_file(") || value.contains(".install_dir(") {
+        if value.contains(".install(")
+            || value.contains(".install_file(")
+            || value.contains(".install_dir(")
+        {
             return Some(Family::InstallHandle);
         }
     }
@@ -2325,10 +3529,7 @@ fn origin_contains(origin: &fol_parser::ast::SyntaxOrigin, line: usize, column: 
 
 /// Heuristic: does the binding whose name ends at `origin` carry an explicit
 /// `: type` annotation? Used to suppress redundant inlay type hints.
-fn binding_has_explicit_annotation(
-    text: &str,
-    origin: &fol_parser::ast::SyntaxOrigin,
-) -> bool {
+fn binding_has_explicit_annotation(text: &str, origin: &fol_parser::ast::SyntaxOrigin) -> bool {
     let Some(line) = text.lines().nth(origin.line.saturating_sub(1)) else {
         return false;
     };
@@ -2373,6 +3574,26 @@ fn keyword_category(keyword: &str) -> Option<&'static str> {
     }
 }
 
+fn pointer_type_info(
+    program: &fol_typecheck::TypedProgram,
+    mut type_id: fol_typecheck::CheckedTypeId,
+) -> Option<(fol_typecheck::CheckedTypeId, bool, bool)> {
+    let mut borrowed = false;
+    loop {
+        match program.type_table().get(type_id)? {
+            fol_typecheck::CheckedType::Owned { inner } => type_id = *inner,
+            fol_typecheck::CheckedType::Borrowed { inner, .. } => {
+                borrowed = true;
+                type_id = *inner;
+            }
+            fol_typecheck::CheckedType::Pointer { target, shared } => {
+                return Some((*target, *shared, borrowed));
+            }
+            _ => return None,
+        }
+    }
+}
+
 /// Resolve a checked type id to the declaring symbol of the named type it
 /// denotes, unwrapping optional/error/container shells (`opt Foo`, `vec[Foo]`).
 /// Returns `None` for anonymous/structural or builtin types.
@@ -2388,54 +3609,47 @@ fn declared_type_symbol(
             Some(*symbol)
         }
         CheckedType::Optional { inner } => declared_type_symbol(table, *inner),
+        CheckedType::Owned { inner } | CheckedType::Borrowed { inner, .. } => {
+            declared_type_symbol(table, *inner)
+        }
+        CheckedType::Pointer { target, .. } => declared_type_symbol(table, *target),
         CheckedType::Error { inner } => inner.and_then(|inner| declared_type_symbol(table, inner)),
         CheckedType::Vector { element_type }
         | CheckedType::Sequence { element_type }
-        | CheckedType::Array { element_type, .. } => declared_type_symbol(table, *element_type),
+        | CheckedType::Array { element_type, .. }
+        | CheckedType::Channel { element_type }
+        | CheckedType::ChannelSender { element_type } => declared_type_symbol(table, *element_type),
+        CheckedType::Eventual { value_type, .. } => declared_type_symbol(table, *value_type),
         _ => None,
     }
 }
 
 /// Scan matched `{ .. }` brace pairs, returning each pair's open and close
-/// positions. Braces inside double-quoted strings are ignored. Used for folding
-/// ranges and syntax-aware selection ranges.
+/// positions. Compiler-recognized comments and quoted forms are excluded by
+/// the shared source scanner. Used for folding and syntax-aware selection.
 fn scan_brace_blocks(text: &str) -> Vec<(LspPosition, LspPosition)> {
     let mut blocks = Vec::new();
     let mut stack: Vec<LspPosition> = Vec::new();
-    let mut line: u32 = 0;
-    let mut character: u32 = 0;
-    let mut in_string = false;
-    let mut escaped = false;
-    for ch in text.chars() {
-        match ch {
-            '\n' => {
-                line += 1;
-                character = 0;
-                in_string = false;
-                escaped = false;
-                continue;
-            }
-            '\\' if in_string => escaped = !escaped,
-            '"' if !escaped => in_string = !in_string,
-            '{' if !in_string => stack.push(LspPosition { line, character }),
-            '}' if !in_string => {
+    for event in crate::source_scan::brace_events(text) {
+        match event.kind {
+            crate::source_scan::BraceKind::Open => stack.push(event.position),
+            crate::source_scan::BraceKind::Close => {
                 if let Some(open) = stack.pop() {
-                    blocks.push((open, LspPosition { line, character }));
+                    blocks.push((open, event.position));
                 }
             }
-            _ => escaped = false,
         }
-        if ch != '\\' {
-            escaped = false;
-        }
-        character += 1;
     }
     blocks
 }
 
 fn document_full_range(text: &str) -> LspRange {
     let last_line = text.lines().count().saturating_sub(1) as u32;
-    let last_len = text.lines().last().map(|line| line.chars().count()).unwrap_or(0) as u32;
+    let last_len = text
+        .lines()
+        .last()
+        .map(|line| line.chars().count())
+        .unwrap_or(0) as u32;
     LspRange {
         start: LspPosition {
             line: 0,
@@ -2449,7 +3663,8 @@ fn document_full_range(text: &str) -> LspRange {
 }
 
 fn range_contains_position(range: &LspRange, position: LspPosition) -> bool {
-    let after_start = (position.line, position.character) >= (range.start.line, range.start.character);
+    let after_start =
+        (position.line, position.character) >= (range.start.line, range.start.character);
     let before_end = (position.line, position.character) <= (range.end.line, range.end.character);
     after_start && before_end
 }
@@ -2510,7 +3725,6 @@ fn build_selection_chain(ranges: &[LspRange]) -> LspSelectionRange {
     })
 }
 
-
 fn offset_for_origin(text: &str, origin: &fol_parser::ast::SyntaxOrigin) -> Option<usize> {
     offset_for_position(
         text,
@@ -2522,25 +3736,7 @@ fn offset_for_origin(text: &str, origin: &fol_parser::ast::SyntaxOrigin) -> Opti
 }
 
 fn offset_for_position(text: &str, position: LspPosition) -> Option<usize> {
-    let mut offset = 0usize;
-    for (line_index, line) in text.split_inclusive('\n').enumerate() {
-        if line_index as u32 == position.line {
-            let line_text = line.strip_suffix('\n').unwrap_or(line);
-            return if position.character as usize <= line_text.len() {
-                Some(offset + position.character as usize)
-            } else if position.character as usize == line.len() {
-                Some(offset + line.len())
-            } else {
-                None
-            };
-        }
-        offset += line.len();
-    }
-    if position.line == text.lines().count() as u32 {
-        Some(text.len())
-    } else {
-        None
-    }
+    crate::positions::scalar_position_to_offset(text, position)
 }
 
 fn find_call_open_paren(text: &str, callee_end: usize) -> Option<usize> {
@@ -2659,8 +3855,7 @@ fn semantic_token_type_for_symbol_kind(kind: fol_resolver::SymbolKind) -> Option
         | fol_resolver::SymbolKind::LoopBinder
         | fol_resolver::SymbolKind::RollingBinder
         | fol_resolver::SymbolKind::Definition => Some(4),
-        fol_resolver::SymbolKind::Segment
-        | fol_resolver::SymbolKind::Standard => None,
+        fol_resolver::SymbolKind::Segment | fol_resolver::SymbolKind::Standard => None,
     }
 }
 
@@ -2703,11 +3898,15 @@ fn syntax_document_symbol_for_node(
     node: &AstNode,
 ) -> Option<LspDocumentSymbol> {
     let (name, kind, syntax_id) = match node {
-        AstNode::FunDecl { name, syntax_id, .. }
-        | AstNode::ProDecl { name, syntax_id, .. }
-        | AstNode::LogDecl { name, syntax_id, .. } => {
-            (name.clone(), 12, (*syntax_id)?)
+        AstNode::FunDecl {
+            name, syntax_id, ..
         }
+        | AstNode::ProDecl {
+            name, syntax_id, ..
+        }
+        | AstNode::LogDecl {
+            name, syntax_id, ..
+        } => (name.clone(), 12, (*syntax_id)?),
         _ => return None,
     };
     let selection_origin = program.syntax_index().origin(syntax_id)?.clone();

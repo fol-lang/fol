@@ -1,0 +1,16 @@
+typ Counter: rec = {
+    value: int,
+};
+
+fun[] inspect(counter[mux]: Counter): int = {
+    counter.lock();
+    dfr {
+        var delayed: int = counter.value;
+    };
+    return 0;
+};
+
+fun[] main(): int = {
+    var counter: Counter = { value = 1 };
+    return inspect(counter);
+};

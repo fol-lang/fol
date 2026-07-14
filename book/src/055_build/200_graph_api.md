@@ -31,7 +31,7 @@ Adds an executable artifact.
 var app = graph.add_exe({
     name     = "app",
     root     = "src/main.fol",
-    fol_model = "memo",   // spell this explicitly for each artifact
+    fol_model = "memo",   // optional; memo is the default
     target   = target,    // optional
     optimize = optimize,  // optional
 });
@@ -42,36 +42,94 @@ Returns an `Artifact` handle.
 Required fields: `name`, `root`.
 Optional fields: `fol_model`, `target`, `optimize`.
 
+An omitted `fol_model` currently defaults to `memo`. Spell `core` explicitly;
+an explicit `memo` remains useful when showing mixed-model intent, but omission
+and `fol_model = "memo"` select the same capability.
+
 `root` is the path to the entry-point `.fol` source file relative to the
 package root.
 
-`fol_model` selects the runtime capability tier for the artifact:
+The resolved root must be a real source file contained by that package. The
+frontend canonicalizes the path before checking containment, so neither `..`
+nor a symlink may make an artifact root escape the package.
+
+For an artifact-targeted build, the directory containing `root` is the source
+scope: FOL recursively parses that directory and checks every source in it
+under the artifact's `fol_model`. A package may declare both `core` and `memo`
+artifacts only when their source scopes are disjoint. The scopes overlap, and
+the graph is rejected, when they are the same directory or one contains the
+other. Put different-model artifacts in sibling directories or separate
+package members; do not put `core.fol` and `memo.fol` beside each other in one
+recursively parsed source directory.
+
+Package-wide commands that require one capability model reject mixed-model
+packages. Use an exact artifact or named build step when targeting one of the
+disjoint scopes.
+
+`fol_model` selects one of the two runtime capability modes for the artifact:
 
 - `core`
-  no heap, no OS/runtime services
+  no heap and no source-level hosted OS/runtime APIs
 - `memo`
-  heap-backed facilities, still no OS/runtime services
-- `std`
-  hosted/runtime services on top of `memo`
+  alloc-like heap-backed facilities, still no source-level hosted OS/runtime
+  APIs
 
-The recommended style is to spell `fol_model` explicitly on every artifact so
-the capability contract is visible in `build.fol`.
+The division deliberately follows Rust's capability shape:
+
+- FOL `core` is analogous to `#![no_std]` with Rust `core`
+- FOL `memo` is analogous to `#![no_std]` with `core` plus `alloc`
+- FOL `memo` plus the bundled `standard` dependency is analogous to hosted
+  Rust `std`
+
+This is a capability analogy. It is independent from the build tool's ability
+to launch a resulting host executable. The current Rust backend is still
+hosted, so FOL `core` is a source/runtime contract and is not yet a claim of
+finished freestanding backend support.
+
+Bundled `std` is not a third `fol_model`. A `memo` artifact reaches the hosted
+API tier only when the package explicitly declares the bundled internal
+dependency:
+
+```fol
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+Source code reaches that dependency through its declared alias, for example
+`use std: pkg = {"std"};`.
 
 The important boundary is semantic and runtime-facing:
 
 - `core` artifacts must not use heap-backed `str`, `vec`, `seq`, `set`, or
   `map`
 - `core` artifacts may still use arrays, records, routines, control flow, and
-  `defer`
-- `memo` artifacts may use heap-backed runtime types but not hosted services
+  `dfr`
+- `memo` artifacts may use heap-backed runtime types but not hosted language
+  APIs
 - bundled `std` wrappers require an explicit internal `standard` dependency
-- hosted `run` / `test` are not tied to bundled std presence
+- hosted wrappers and processor features require `fol_model = "memo"` plus
+  that explicit bundled `std` dependency
+- executable `core` and `memo` artifacts may use `fol code run` and
+  `fol code test` without bundled `std`
+
+| Source requirement | `fol_model` | Bundled `standard` dependency |
+|---|---|---|
+| no heap-backed or hosted language APIs | `core` | no |
+| heap-backed values, no hosted APIs | `memo` | no |
+| shipped hosted or processor APIs | `memo` | yes |
+
+The last row is still a `memo` artifact. `std` is not an accepted `fol_model`
+value.
+
+The frontend invoking a host-compatible artifact, compiler, linker, or system
+tool is build-host behavior. It is not a source-visible hosted capability and
+does not promote an artifact to the bundled-std tier.
 
 Current implementation note:
 
-- `core` already means “no heap and no OS/runtime services” at the language and
-  runtime-contract level
+- `core` already means “no heap and no source-level hosted OS/runtime APIs” at
+  the language and runtime-contract level
 - `core` artifacts are still emitted through the current Rust backend pipeline
+- `core` artifacts can execute through that pipeline without bundled `std`
 - that means `core` is ready for semantic/runtime restriction work now, but it
   should not yet be read as “finished embedded backend support”
 
@@ -81,6 +139,7 @@ Mixed-model example:
 pro[] build(): non = {
     var build = .build();
     build.meta({ name = "workspace_tools", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
     var graph = build.graph();
     var corelib = graph.add_static_lib({
         name = "corelib",
@@ -102,6 +161,13 @@ pro[] build(): non = {
     graph.add_run(tool);
 };
 ```
+
+The separate `core/`, `memo/`, and `app/` directories above are semantic, not
+just organizational: they keep the recursively parsed artifact scopes
+disjoint. Moving those roots into the same directory would make the `core` and
+`memo` contracts overlap and the frontend would reject the targeted build.
+Only a `memo` source scope may import the declared `std` alias. Its presence in
+the package does not make `corelib` a hosted artifact.
 
 ### `graph.add_static_lib`
 
@@ -134,10 +200,19 @@ Returns an `Artifact` handle.
 Adds a test artifact.
 
 ```fol
-var tests = graph.add_test({ name = "tests", root = "src/tests.fol" });
+var tests = graph.add_test({
+    name = "tests",
+    root = "src/tests.fol",
+    fol_model = "core",
+});
 ```
 
 Returns an `Artifact` handle.
+
+The test artifact follows the same capability rules as every other artifact.
+`fol code test` may build and launch this `core` test on a compatible host
+without bundled `std`. Tests that call hosted APIs instead select `memo` and
+declare the bundled dependency for those API calls, not for the test harness.
 
 ### `graph.add_module`
 
@@ -213,6 +288,12 @@ var run = graph.add_run(app);
 ```
 
 Returns a `Run` handle. See [Handle API](./300_handle_api.md) for `Run` methods.
+
+Registration does not alter the artifact's `fol_model` and does not imply a
+bundled `std` dependency. When the step is selected, the frontend verifies that
+the evaluated artifact target is host-compatible and then launches it. A
+foreign target is rejected because there is no configured runner, regardless
+of whether the artifact uses `core`, `memo`, or bundled `std` APIs.
 
 ## Steps
 

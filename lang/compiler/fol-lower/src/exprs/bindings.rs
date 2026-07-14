@@ -1,10 +1,6 @@
 use super::cursor::{LoweredValue, RoutineCursor, WorkspaceDeclIndex};
 use super::expressions::lower_expression_expected;
-use crate::{
-    control::LoweredInstrKind,
-    ids::LoweredTypeId,
-    LoweringError, LoweringErrorKind,
-};
+use crate::{control::LoweredInstrKind, ids::LoweredTypeId, LoweringError, LoweringErrorKind};
 use fol_parser::ast::AstNode;
 use fol_resolver::{PackageIdentity, ScopeId, SourceUnitId, SymbolKind};
 use std::collections::BTreeMap;
@@ -18,20 +14,21 @@ pub(crate) fn lower_local_binding(
     cursor: &mut RoutineCursor<'_>,
     source_unit_id: SourceUnitId,
     scope_id: ScopeId,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
     name: &str,
     kind: SymbolKind,
     value: Option<&AstNode>,
 ) -> Result<Option<LoweredValue>, LoweringError> {
-    let Some(symbol_id) = crate::decls::find_symbol_in_scope_or_descendants(
+    let Some(symbol_id) = crate::decls::find_symbol_for_declaration(
         &typed_package.program,
         source_unit_id,
-        scope_id,
         kind,
         name,
+        syntax_id,
     ) else {
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            format!("binding '{name}' does not retain an exact lowering symbol in scope"),
+            format!("binding '{name}' does not retain its exact syntax-anchored lowering symbol"),
         ));
     };
     let type_id = typed_package
@@ -47,6 +44,15 @@ pub(crate) fn lower_local_binding(
         })?;
     let local_id = cursor.allocate_local(type_id, Some(name.to_string()));
     cursor.routine.local_symbols.insert(symbol_id, local_id);
+    if type_table.moves_on_transfer(type_id) {
+        // A binding can be moved on one continuing branch and reinitialized
+        // on another. Typecheck conservatively records the merged binding as
+        // moved so later reads are rejected, but the reinitialized branch
+        // still owns a value that must be released at lexical exit. Backend
+        // moves leave the named slot holding its default sentinel, so one
+        // unconditional lexical drop is valid on both paths.
+        cursor.register_lexical_drop(local_id)?;
+    }
 
     if let Some(value) = value {
         let lowered_value = lower_expression_expected(

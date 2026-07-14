@@ -1,0 +1,10 @@
+fun[] main(): int = {
+    dfr {
+        when(true) {
+            case(true) {
+                return 1;
+            }
+        }
+    };
+    return 7;
+};

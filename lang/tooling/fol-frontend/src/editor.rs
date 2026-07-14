@@ -48,12 +48,9 @@ pub fn editor_completion_command(
     line: u32,
     character: u32,
 ) -> FrontendResult<FrontendCommandResult> {
-    fol_editor::editor_completion_file(
-        Path::new(path),
-        fol_editor::LspPosition { line, character },
-    )
-    .map(editor_summary_to_result)
-    .map_err(lower_editor_error)
+    fol_editor::editor_completion_file(Path::new(path), fol_editor::LspPosition { line, character })
+        .map(editor_summary_to_result)
+        .map_err(lower_editor_error)
 }
 
 pub fn editor_format_command(path: &str) -> FrontendResult<FrontendCommandResult> {
@@ -126,8 +123,8 @@ pub fn editor_tree_generate_command(path: &str) -> FrontendResult<FrontendComman
 mod tests {
     use super::{
         editor_format_command, editor_highlight_command, editor_lsp_command, editor_parse_command,
-        editor_symbols_command, editor_references_command, editor_rename_command,
-        editor_semantic_tokens_command, editor_tree_generate_command,
+        editor_references_command, editor_rename_command, editor_semantic_tokens_command,
+        editor_symbols_command, editor_tree_generate_command,
     };
     use crate::{FrontendConfig, FrontendErrorKind};
     use std::path::{Path, PathBuf};
@@ -221,19 +218,22 @@ mod tests {
 
         assert_eq!(parse.command, "parse");
         assert!(parse.summary.contains("record_flow/main.fol"));
-        assert!(parse.summary.contains("grammar_bytes="));
+        assert!(parse.summary.contains("parse_status=ok"));
+        assert!(parse.summary.contains("syntax_tree=(source_file"));
+        assert!(parse.summary.contains("error_count=0"));
         assert!(parse.summary.contains("lines="));
     }
 
     #[test]
     fn editor_highlight_command_keeps_public_summary_shape() {
         let path = editor_fixture_path();
-        let highlight =
-            editor_highlight_command(&path).expect("highlight command should succeed");
+        let highlight = editor_highlight_command(&path).expect("highlight command should succeed");
 
         assert_eq!(highlight.command, "highlight");
         assert!(highlight.summary.contains("capture_count="));
-        assert!(highlight.summary.contains("captures="));
+        assert!(highlight.summary.contains("capture="));
+        assert!(highlight.summary.contains("capture_kinds="));
+        assert!(highlight.summary.contains("parse_status=ok"));
         assert!(highlight.summary.contains("intrinsic_names="));
     }
 
@@ -243,8 +243,9 @@ mod tests {
         let symbols = editor_symbols_command(&path).expect("symbols command should succeed");
 
         assert_eq!(symbols.command, "symbols");
-        assert!(symbols.summary.contains("symbol_candidates="));
-        assert!(symbols.summary.contains("query_snapshots="));
+        assert!(symbols.summary.contains("symbol_count="));
+        assert!(symbols.summary.contains("scope_count="));
+        assert!(symbols.summary.contains("symbol=symbol."));
     }
 
     #[test]
@@ -291,8 +292,8 @@ mod tests {
         )
         .expect("should write rename fixture entry");
         let path = root.join("src/main.fol").to_string_lossy().to_string();
-        let rename = editor_rename_command(&path, 5, 11, "count")
-            .expect("rename command should succeed");
+        let rename =
+            editor_rename_command(&path, 5, 11, "count").expect("rename command should succeed");
 
         assert_eq!(rename.command, "rename");
         assert!(rename.summary.contains("edit_count="));
@@ -305,8 +306,8 @@ mod tests {
     #[test]
     fn editor_semantic_tokens_command_keeps_public_summary_shape() {
         let path = editor_fixture_path();
-        let semantic_tokens = editor_semantic_tokens_command(&path)
-            .expect("semantic-tokens command should succeed");
+        let semantic_tokens =
+            editor_semantic_tokens_command(&path).expect("semantic-tokens command should succeed");
 
         assert_eq!(semantic_tokens.command, "semantic-tokens");
         assert!(semantic_tokens.summary.contains("token_count="));
@@ -330,10 +331,8 @@ mod tests {
 
     #[test]
     fn editor_file_commands_wrap_missing_path_failures_as_frontend_errors() {
-        let error = editor_parse_command(
-            "test/apps/fixtures/record_flow/missing.fol",
-        )
-        .expect_err("missing files should fail");
+        let error = editor_parse_command("test/apps/fixtures/record_flow/missing.fol")
+            .expect_err("missing files should fail");
 
         assert_eq!(error.kind(), FrontendErrorKind::CommandFailed);
         assert!(error.message().contains("failed to read"));

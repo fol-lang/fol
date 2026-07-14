@@ -1,16 +1,19 @@
 use super::bindings::lower_local_binding;
 use super::calls::{
-    lower_keyword_intrinsic_statement, lower_statement_free_call, resolve_method_target,
+    lower_keyword_intrinsic_statement, lower_spawn_call, lower_statement_free_call,
+    resolve_method_target,
 };
 use super::cursor::{DeferScopeKind, LoweredValue, RoutineCursor, WorkspaceDeclIndex};
-use super::expressions::{lower_expression, lower_expression_expected};
-use super::flow::{lower_loop_statement, lower_when_statement, when_always_terminates};
-use crate::{
-    ids::{LoweredTypeId},
-    LoweredPackage, LoweredRoutine, LoweringError, LoweringErrorKind,
+use super::expressions::{
+    direct_local_identifier_value, lower_channel_send, lower_expression, lower_expression_expected,
+    lower_invoke,
 };
+use super::flow::{
+    lower_loop_statement, lower_when_statement, when_always_terminates, when_has_statement_branch,
+};
+use crate::{ids::LoweredTypeId, LoweredPackage, LoweredRoutine, LoweringError, LoweringErrorKind};
 use fol_intrinsics::{select_intrinsic, IntrinsicSurface};
-use fol_parser::ast::AstNode;
+use fol_parser::ast::{AstNode, BinaryOperator, ChannelEndpoint};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolKind};
 use std::collections::BTreeMap;
 
@@ -46,26 +49,7 @@ pub(crate) fn lower_routine_bodies(
                 vec![&item.node]
             };
             for member in member_iter {
-            let (name, syntax_id, body) = match member {
-                AstNode::FunDecl {
-                    name,
-                    syntax_id,
-                    body,
-                    ..
-                }
-                | AstNode::ProDecl {
-                    name,
-                    syntax_id,
-                    body,
-                    ..
-                }
-                | AstNode::LogDecl {
-                    name,
-                    syntax_id,
-                    body,
-                    ..
-                } => (name.as_str(), *syntax_id, body.as_slice()),
-                AstNode::Commented { node, .. } => match node.as_ref() {
+                let (name, syntax_id, body) = match member {
                     AstNode::FunDecl {
                         name,
                         syntax_id,
@@ -84,74 +68,93 @@ pub(crate) fn lower_routine_bodies(
                         body,
                         ..
                     } => (name.as_str(), *syntax_id, body.as_slice()),
+                    AstNode::Commented { node, .. } => match node.as_ref() {
+                        AstNode::FunDecl {
+                            name,
+                            syntax_id,
+                            body,
+                            ..
+                        }
+                        | AstNode::ProDecl {
+                            name,
+                            syntax_id,
+                            body,
+                            ..
+                        }
+                        | AstNode::LogDecl {
+                            name,
+                            syntax_id,
+                            body,
+                            ..
+                        } => (name.as_str(), *syntax_id, body.as_slice()),
+                        _ => continue,
+                    },
                     _ => continue,
-                },
-                _ => continue,
-            };
-            if body.is_empty() {
-                // Signature-only members (e.g., bare protocol standard
-                // requirements with no default body) have nothing to
-                // lower into a routine body.
-                continue;
-            }
-            let Some(symbol_id) = crate::decls::find_routine_symbol_for_item(
-                &typed_package.program,
-                source_unit_id,
-                name,
-                syntax_id,
-            ) else {
-                errors.push(LoweringError::with_kind(
-                    LoweringErrorKind::InvalidInput,
-                    format!("routine '{name}' does not retain a local lowering symbol"),
-                ));
-                continue;
-            };
-            let Some(scope_id) = syntax_id
-                .and_then(|syntax_id| typed_package.program.resolved().scope_for_syntax(syntax_id))
-            else {
-                errors.push(LoweringError::with_kind(
-                    LoweringErrorKind::InvalidInput,
-                    format!("routine '{name}' does not retain typed scope information"),
-                ));
-                continue;
-            };
-            let Some(routine_id) =
-                lowered_package
-                    .routine_decls
-                    .iter()
-                    .find_map(|(routine_id, routine)| {
-                        (routine.symbol_id == Some(symbol_id)).then_some(*routine_id)
-                    })
-            else {
-                errors.push(LoweringError::with_kind(
-                    LoweringErrorKind::InvalidInput,
-                    format!("routine '{name}' does not map to a lowered routine shell"),
-                ));
-                continue;
-            };
-            let Some(routine) = lowered_package.routine_decls.get_mut(&routine_id) else {
-                continue;
-            };
-            match lower_body_nodes(
-                typed_package,
-                type_table,
-                &lowered_package.checked_type_map,
-                lowered_package.identity.clone(),
-                decl_index,
-                routine,
-                source_unit_id,
-                scope_id,
-                body,
-                next_routine_index,
-            ) {
-                Ok(anonymous_routines) => {
-                    for anon in anonymous_routines {
-                        lowered_package.routines.push(anon.id);
-                        lowered_package.routine_decls.insert(anon.id, anon);
-                    }
+                };
+                if body.is_empty() {
+                    // Signature-only members (e.g., bare protocol standard
+                    // requirements with no default body) have nothing to
+                    // lower into a routine body.
+                    continue;
                 }
-                Err(error) => errors.push(error),
-            }
+                let Some(symbol_id) = crate::decls::find_routine_symbol_for_item(
+                    &typed_package.program,
+                    source_unit_id,
+                    name,
+                    syntax_id,
+                ) else {
+                    errors.push(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("routine '{name}' does not retain a local lowering symbol"),
+                    ));
+                    continue;
+                };
+                let Some(scope_id) = syntax_id.and_then(|syntax_id| {
+                    typed_package.program.resolved().scope_for_syntax(syntax_id)
+                }) else {
+                    errors.push(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("routine '{name}' does not retain typed scope information"),
+                    ));
+                    continue;
+                };
+                let Some(routine_id) =
+                    lowered_package
+                        .routine_decls
+                        .iter()
+                        .find_map(|(routine_id, routine)| {
+                            (routine.symbol_id == Some(symbol_id)).then_some(*routine_id)
+                        })
+                else {
+                    errors.push(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("routine '{name}' does not map to a lowered routine shell"),
+                    ));
+                    continue;
+                };
+                let Some(routine) = lowered_package.routine_decls.get_mut(&routine_id) else {
+                    continue;
+                };
+                match lower_body_nodes(
+                    typed_package,
+                    type_table,
+                    &lowered_package.checked_type_map,
+                    lowered_package.identity.clone(),
+                    decl_index,
+                    routine,
+                    source_unit_id,
+                    scope_id,
+                    body,
+                    next_routine_index,
+                ) {
+                    Ok(anonymous_routines) => {
+                        for anon in anonymous_routines {
+                            lowered_package.routines.push(anon.id);
+                            lowered_package.routine_decls.insert(anon.id, anon);
+                        }
+                    }
+                    Err(error) => errors.push(error),
+                }
             }
         }
     }
@@ -235,7 +238,7 @@ pub(crate) fn lower_body_sequence(
         let deferred = cursor.pop_defer_scope().ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                "active defer scope disappeared before body finished lowering",
+                "active dfr scope disappeared before body finished lowering",
             )
         })?;
         if !cursor.current_block_terminated()? {
@@ -247,11 +250,40 @@ pub(crate) fn lower_body_sequence(
                 decl_index,
                 cursor,
                 deferred.entries,
+                false,
             )?;
+            lower_mutex_unlocks(cursor, deferred.mutex_guards)?;
+            lower_lexical_drops(cursor, deferred.lexical_drops)?;
         }
     }
 
     Ok(final_value)
+}
+
+fn lower_lexical_drops(
+    cursor: &mut RoutineCursor<'_>,
+    locals: Vec<crate::LoweredLocalId>,
+) -> Result<(), LoweringError> {
+    if cursor.current_block_terminated()? {
+        return Ok(());
+    }
+    for local in locals.into_iter().rev() {
+        cursor.push_instr(None, crate::LoweredInstrKind::DropLocal { local })?;
+    }
+    Ok(())
+}
+
+fn lower_mutex_unlocks(
+    cursor: &mut RoutineCursor<'_>,
+    mutexes: Vec<crate::LoweredLocalId>,
+) -> Result<(), LoweringError> {
+    if cursor.current_block_terminated()? {
+        return Ok(());
+    }
+    for mutex in mutexes.into_iter().rev() {
+        cursor.push_instr(None, crate::LoweredInstrKind::MutexUnlock { mutex })?;
+    }
+    Ok(())
 }
 
 fn lower_deferred_entries(
@@ -262,8 +294,13 @@ fn lower_deferred_entries(
     decl_index: &WorkspaceDeclIndex,
     cursor: &mut RoutineCursor<'_>,
     entries: Vec<super::cursor::DeferredBody>,
+    error_exit: bool,
 ) -> Result<(), LoweringError> {
-    for deferred in entries.into_iter().rev() {
+    for deferred in entries
+        .into_iter()
+        .rev()
+        .filter(|deferred| error_exit || !deferred.error_only)
+    {
         let _ = lower_body_sequence(
             typed_package,
             type_table,
@@ -326,8 +363,9 @@ fn lower_all_active_defers(
     current_identity: &PackageIdentity,
     decl_index: &WorkspaceDeclIndex,
     cursor: &mut RoutineCursor<'_>,
+    error_exit: bool,
 ) -> Result<(), LoweringError> {
-    while let Some(scope) = cursor.pop_defer_scope() {
+    for scope in cursor.defer_scopes_snapshot().into_iter().rev() {
         lower_deferred_entries(
             typed_package,
             type_table,
@@ -336,10 +374,13 @@ fn lower_all_active_defers(
             decl_index,
             cursor,
             scope.entries,
+            error_exit,
         )?;
         if cursor.current_block_terminated()? {
             break;
         }
+        lower_mutex_unlocks(cursor, scope.mutex_guards)?;
+        lower_lexical_drops(cursor, scope.lexical_drops)?;
     }
     Ok(())
 }
@@ -355,13 +396,8 @@ fn lower_defers_until_loop_exit(
     let Some(loop_depth) = cursor.nearest_loop_defer_depth() else {
         return Ok(());
     };
-    while cursor.defer_scope_depth() > loop_depth {
-        let scope = cursor.pop_defer_scope().ok_or_else(|| {
-            LoweringError::with_kind(
-                LoweringErrorKind::InvalidInput,
-                "defer scope stack underflow while lowering break",
-            )
-        })?;
+    let scopes = cursor.defer_scopes_snapshot();
+    for scope in scopes.into_iter().skip(loop_depth).rev() {
         lower_deferred_entries(
             typed_package,
             type_table,
@@ -370,10 +406,13 @@ fn lower_defers_until_loop_exit(
             decl_index,
             cursor,
             scope.entries,
+            false,
         )?;
         if cursor.current_block_terminated()? {
             return Ok(());
         }
+        lower_mutex_unlocks(cursor, scope.mutex_guards)?;
+        lower_lexical_drops(cursor, scope.lexical_drops)?;
     }
     Ok(())
 }
@@ -394,6 +433,7 @@ pub(crate) fn lower_report_terminator(
         current_identity,
         decl_index,
         cursor,
+        true,
     )?;
     cursor.terminate_current_block(crate::LoweredTerminator::Report { value: lowered })?;
     Ok(())
@@ -415,6 +455,7 @@ pub(crate) fn lower_panic_terminator(
         current_identity,
         decl_index,
         cursor,
+        false,
     )?;
     cursor.terminate_current_block(crate::LoweredTerminator::Panic { value: lowered })?;
     Ok(())
@@ -444,7 +485,68 @@ pub(crate) fn lower_body_node(
             scope_id,
             node,
         ),
-        AstNode::VarDecl { name, value, .. } => lower_local_binding(
+        AstNode::VarDecl {
+            syntax_id,
+            name,
+            value,
+            ..
+        } => {
+            let _ = lower_local_binding(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                *syntax_id,
+                name,
+                SymbolKind::ValueBinding,
+                value.as_deref(),
+            )?;
+            Ok(None)
+        }
+        AstNode::LabDecl {
+            syntax_id,
+            name,
+            value,
+            ..
+        } => {
+            let _ = lower_local_binding(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                *syntax_id,
+                name,
+                SymbolKind::LabelBinding,
+                value.as_deref(),
+            )?;
+            Ok(None)
+        }
+        AstNode::Assignment { .. } => {
+            // Assignments are statement-only. `lower_expression` performs the
+            // store, but its internal value temporary must not escape as the
+            // value of an enclosing block or `when` arm.
+            let _ = lower_expression(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                node,
+            )?;
+            Ok(None)
+        }
+        AstNode::Invoke { callee, args } => lower_invoke(
             typed_package,
             type_table,
             checked_type_map,
@@ -453,23 +555,53 @@ pub(crate) fn lower_body_node(
             cursor,
             source_unit_id,
             scope_id,
-            name,
-            SymbolKind::ValueBinding,
-            value.as_deref(),
+            callee,
+            args,
         ),
-        AstNode::LabDecl { name, value, .. } => lower_local_binding(
-            typed_package,
-            type_table,
-            checked_type_map,
-            current_identity,
-            decl_index,
-            cursor,
-            source_unit_id,
-            scope_id,
-            name,
-            SymbolKind::LabelBinding,
-            value.as_deref(),
-        ),
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::GiveBack,
+            operand,
+        } => {
+            let AstNode::Identifier {
+                syntax_id: Some(syntax_id),
+                name,
+            } = operand.as_ref()
+            else {
+                return Err(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "give-back requires a borrow binding identifier",
+                ));
+            };
+            let symbol = typed_package
+                .program
+                .resolved()
+                .references
+                .iter()
+                .find(|reference| {
+                    reference.syntax_id == Some(*syntax_id)
+                        && reference.kind == ReferenceKind::Identifier
+                })
+                .and_then(|reference| reference.resolved)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("give-back target '{name}' does not resolve"),
+                    )
+                })?;
+            let borrow = cursor
+                .routine
+                .local_symbols
+                .get(&symbol)
+                .copied()
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("give-back target '{name}' is not a lowered local"),
+                    )
+                })?;
+            cursor.push_instr(None, crate::LoweredInstrKind::GiveBackBorrow { borrow })?;
+            Ok(None)
+        }
         AstNode::Return { value } => match value.as_deref() {
             Some(value) => {
                 let lowered = lower_expression_expected(
@@ -491,6 +623,7 @@ pub(crate) fn lower_body_node(
                     current_identity,
                     decl_index,
                     cursor,
+                    false,
                 )?;
                 cursor.terminate_current_block(crate::LoweredTerminator::Return {
                     value: Some(lowered.local_id),
@@ -505,6 +638,7 @@ pub(crate) fn lower_body_node(
                     current_identity,
                     decl_index,
                     cursor,
+                    false,
                 )?;
                 cursor.terminate_current_block(crate::LoweredTerminator::Return { value: None })?;
                 Ok(None)
@@ -531,10 +665,7 @@ pub(crate) fn lower_body_node(
                 _ => {
                     return Err(LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
-                        format!(
-                            "report expects exactly 1 value, got {}",
-                            args.len()
-                        ),
+                        format!("report expects exactly 1 value, got {}", args.len()),
                     ))
                 }
             };
@@ -565,6 +696,64 @@ pub(crate) fn lower_body_node(
                 source_unit_id,
                 scope_id,
                 node,
+            )?;
+            Ok(None)
+        }
+        AstNode::Spawn { task } => {
+            lower_spawn_call(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                task,
+            )?;
+            Ok(None)
+        }
+        AstNode::Select { arms, default, .. } => {
+            super::flow::lower_select_statement(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                arms,
+                default.as_deref(),
+            )?;
+            Ok(None)
+        }
+        AstNode::BinaryOp {
+            op: BinaryOperator::Pipe,
+            left,
+            right,
+        } if matches!(
+            right.as_ref(),
+            AstNode::ChannelAccess {
+                endpoint: ChannelEndpoint::Tx,
+                ..
+            }
+        ) =>
+        {
+            let AstNode::ChannelAccess { channel, .. } = right.as_ref() else {
+                unreachable!("channel-send guard preserves the endpoint shape")
+            };
+            lower_channel_send(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                left,
+                channel,
             )?;
             Ok(None)
         }
@@ -623,7 +812,11 @@ pub(crate) fn lower_body_node(
             expr,
             cases,
             default,
-        } if default.is_none() || when_always_terminates(cases, default.as_deref()) => {
+        } if cases.is_empty()
+            || default.is_none()
+            || when_has_statement_branch(typed_package, cases, default.as_deref())
+            || when_always_terminates(cases, default.as_deref()) =>
+        {
             lower_when_statement(
                 typed_package,
                 type_table,
@@ -639,7 +832,11 @@ pub(crate) fn lower_body_node(
             )?;
             Ok(None)
         }
-        AstNode::Loop { condition, body } => {
+        AstNode::Loop {
+            syntax_id,
+            condition,
+            body,
+        } => {
             lower_loop_statement(
                 typed_package,
                 type_table,
@@ -649,6 +846,7 @@ pub(crate) fn lower_body_node(
                 cursor,
                 source_unit_id,
                 scope_id,
+                *syntax_id,
                 condition,
                 body,
             )?;
@@ -676,10 +874,12 @@ pub(crate) fn lower_body_node(
         // Routine-local imports bind an alias during resolution; they have
         // no runtime effect, so lowering skips them.
         AstNode::UseDecl { .. } => Ok(None),
-        AstNode::Defer { syntax_id, body } => {
+        AstNode::Dfr { syntax_id, body } | AstNode::Edf { syntax_id, body } => {
+            let error_only = matches!(node, AstNode::Edf { .. });
+            let construct = if error_only { "edf block" } else { "dfr block" };
             let deferred_scope_id =
-                nested_scope_for_syntax(typed_package, *syntax_id, scope_id, "defer block")?;
-            cursor.register_defer(source_unit_id, deferred_scope_id, body)?;
+                nested_scope_for_syntax(typed_package, *syntax_id, scope_id, construct)?;
+            cursor.register_defer(source_unit_id, deferred_scope_id, body, error_only)?;
             Ok(None)
         }
         AstNode::Block {
@@ -708,6 +908,39 @@ pub(crate) fn lower_body_node(
             method,
             args,
         } => {
+            let mutex = (method == "lock" || method == "unlock")
+                .then(|| direct_local_identifier_value(typed_package, cursor, object))
+                .flatten()
+                .filter(|value| cursor.routine.mutex_params.contains(&value.local_id));
+            if let Some(mutex) = mutex {
+                if !args.is_empty() {
+                    return Err(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("mutex .{method}() does not accept arguments"),
+                    ));
+                }
+                if method == "lock" {
+                    cursor.register_mutex_guard(mutex.local_id)?;
+                } else if !cursor.release_mutex_guard(mutex.local_id) {
+                    return Err(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "mutex .unlock() requires a guard acquired in the current lexical scope",
+                    ));
+                }
+                cursor.push_instr(
+                    None,
+                    if method == "lock" {
+                        crate::control::LoweredInstrKind::MutexLock {
+                            mutex: mutex.local_id,
+                        }
+                    } else {
+                        crate::control::LoweredInstrKind::MutexUnlock {
+                            mutex: mutex.local_id,
+                        }
+                    },
+                )?;
+                return Ok(None);
+            }
             let receiver = lower_expression(
                 typed_package,
                 type_table,
@@ -748,7 +981,8 @@ pub(crate) fn lower_body_node(
                     )?;
                     lowered_args.push(value.local_id);
                 }
-                let result_local = result_type.map(|result_type| cursor.allocate_local(result_type, None));
+                let result_local =
+                    result_type.map(|result_type| cursor.allocate_local(result_type, None));
                 cursor.push_instr(
                     result_local,
                     crate::control::LoweredInstrKind::ConstraintCall {
@@ -757,13 +991,15 @@ pub(crate) fn lower_body_node(
                         error_type,
                     },
                 )?;
-                return Ok(result_local.zip(result_type).map(|(local_id, type_id)| LoweredValue {
-                    local_id,
-                    type_id,
-                    recoverable_error_type: error_type,
-                }));
+                return Ok(result_local
+                    .zip(result_type)
+                    .map(|(local_id, type_id)| LoweredValue {
+                        local_id,
+                        type_id,
+                        recoverable_error_type: error_type,
+                    }));
             }
-            let callee = resolve_method_target(
+            let (callee_identity, callee) = resolve_method_target(
                 typed_package,
                 checked_type_map,
                 current_identity,
@@ -772,7 +1008,8 @@ pub(crate) fn lower_body_node(
                 receiver.type_id,
                 *syntax_id,
             )?;
-            let typed_node = syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+            let typed_node =
+                syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
             let result_type = typed_node
                 .and_then(|node| node.inferred_type)
                 .and_then(|checked_type| checked_type_map.get(&checked_type).copied());
@@ -781,7 +1018,7 @@ pub(crate) fn lower_body_node(
                 .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
             let mut lowered_args = vec![receiver.local_id];
             let param_types = decl_index
-                .routine_param_types(callee)
+                .routine_param_types(&callee_identity, callee)
                 .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
@@ -790,7 +1027,7 @@ pub(crate) fn lower_body_node(
                 })?
                 .to_vec();
             let param_names = decl_index
-                .routine_param_names(callee)
+                .routine_param_names(&callee_identity, callee)
                 .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
@@ -798,7 +1035,7 @@ pub(crate) fn lower_body_node(
                     )
                 })?;
             let param_defaults = decl_index
-                .routine_param_defaults(callee)
+                .routine_param_defaults(&callee_identity, callee)
                 .cloned()
                 .ok_or_else(|| {
                     LoweringError::with_kind(
@@ -810,7 +1047,9 @@ pub(crate) fn lower_body_node(
                 args,
                 param_names.get(1..).unwrap_or(&[]),
                 param_defaults.defaults.get(1..).unwrap_or(&[]),
-                param_defaults.variadic_index.map(|index| index.saturating_sub(1)),
+                param_defaults
+                    .variadic_index
+                    .map(|index| index.saturating_sub(1)),
                 method,
             )?;
             lowered_args.extend(
@@ -840,6 +1079,7 @@ pub(crate) fn lower_body_node(
                                     checked_type_map,
                                     decl_index,
                                     cursor,
+                                    &callee_identity,
                                     callee,
                                     param_index + 1,
                                     expected,

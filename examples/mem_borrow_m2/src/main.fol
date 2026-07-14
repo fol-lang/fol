@@ -1,0 +1,13 @@
+typ Item: rec = {
+    value: int,
+};
+
+fun[] main(): int = {
+    var owner: Item = { value = 7 };
+    var[mut] seen: int = 0;
+    {
+        var[bor] view: Item = owner;
+        seen = view.value;
+    };
+    return owner.value + seen;
+};

@@ -1,6 +1,6 @@
 fun parse_msg(): int / str = {
     {
-        let msg = "ok";
+        var[imu] msg = "ok";
         report(msg);
     }
 };

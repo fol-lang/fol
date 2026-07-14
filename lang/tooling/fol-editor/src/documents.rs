@@ -1,6 +1,5 @@
 use crate::{
-    EditorDocumentPath, EditorDocumentUri, EditorError, EditorErrorKind, EditorResult, LspPosition,
-    LspRange,
+    EditorDocumentPath, EditorDocumentUri, EditorError, EditorErrorKind, EditorResult, LspRange,
 };
 use std::collections::BTreeMap;
 
@@ -65,24 +64,30 @@ impl EditorDocumentStore {
                 format!("document '{}' is not open", uri.as_str()),
             )
         })?;
-        let start = position_to_offset(&document.text, range.start).ok_or_else(|| {
-            EditorError::new(
-                EditorErrorKind::InvalidInput,
-                format!(
-                    "invalid incremental change start {}:{} for '{}'",
-                    range.start.line, range.start.character, uri.as_str()
-                ),
-            )
-        })?;
-        let end = position_to_offset(&document.text, range.end).ok_or_else(|| {
-            EditorError::new(
-                EditorErrorKind::InvalidInput,
-                format!(
-                    "invalid incremental change end {}:{} for '{}'",
-                    range.end.line, range.end.character, uri.as_str()
-                ),
-            )
-        })?;
+        let start = crate::positions::utf16_position_to_offset(&document.text, range.start)
+            .ok_or_else(|| {
+                EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    format!(
+                        "invalid incremental change start {}:{} for '{}'",
+                        range.start.line,
+                        range.start.character,
+                        uri.as_str()
+                    ),
+                )
+            })?;
+        let end = crate::positions::utf16_position_to_offset(&document.text, range.end)
+            .ok_or_else(|| {
+                EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    format!(
+                        "invalid incremental change end {}:{} for '{}'",
+                        range.end.line,
+                        range.end.character,
+                        uri.as_str()
+                    ),
+                )
+            })?;
         if end < start {
             return Err(EditorError::new(
                 EditorErrorKind::InvalidInput,
@@ -107,7 +112,9 @@ impl EditorDocumentStore {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &EditorDocument)> {
-        self.documents.iter().map(|(uri, document)| (uri.as_str(), document))
+        self.documents
+            .iter()
+            .map(|(uri, document)| (uri.as_str(), document))
     }
 
     pub fn len(&self) -> usize {
@@ -117,27 +124,6 @@ impl EditorDocumentStore {
     pub fn is_empty(&self) -> bool {
         self.documents.is_empty()
     }
-}
-
-fn position_to_offset(text: &str, position: LspPosition) -> Option<usize> {
-    let mut line = 0u32;
-    let mut character = 0u32;
-    for (offset, ch) in text.char_indices() {
-        if line == position.line && character == position.character {
-            return Some(offset);
-        }
-        if ch == '\n' {
-            line += 1;
-            character = 0;
-            if line == position.line && position.character == 0 {
-                return Some(offset + ch.len_utf8());
-            }
-        } else if line == position.line {
-            character += 1;
-        }
-    }
-
-    (line == position.line && character == position.character).then_some(text.len())
 }
 
 #[cfg(test)]
@@ -178,7 +164,12 @@ mod tests {
     #[test]
     fn document_store_applies_incremental_insertions() {
         let uri = EditorDocumentUri::from_file_path(PathBuf::from("/tmp/demo.fol")).unwrap();
-        let document = EditorDocument::new(uri.clone(), 1, "fun[] main(): int = {\n    return 0;\n};\n".to_string()).unwrap();
+        let document = EditorDocument::new(
+            uri.clone(),
+            1,
+            "fun[] main(): int = {\n    return 0;\n};\n".to_string(),
+        )
+        .unwrap();
         let mut store = EditorDocumentStore::default();
 
         store.open(document);
@@ -202,7 +193,66 @@ mod tests {
 
         let current = store.get(&uri).unwrap();
         assert_eq!(current.version, 2);
-        assert_eq!(current.text, "fun[] main(): int = {\n    return value + 0;\n};\n");
+        assert_eq!(
+            current.text,
+            "fun[] main(): int = {\n    return value + 0;\n};\n"
+        );
+    }
+
+    #[test]
+    fn document_store_applies_incremental_changes_at_utf16_positions() {
+        let uri = EditorDocumentUri::from_file_path(PathBuf::from("/tmp/astral.fol")).unwrap();
+        let document = EditorDocument::new(uri.clone(), 1, "a😀b".to_string()).unwrap();
+        let mut store = EditorDocumentStore::default();
+        store.open(document);
+
+        store
+            .apply_incremental_change(
+                &uri,
+                2,
+                LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        character: 3,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        character: 4,
+                    },
+                },
+                "c".to_string(),
+            )
+            .unwrap();
+
+        assert_eq!(store.get(&uri).unwrap().text, "a😀c");
+    }
+
+    #[test]
+    fn document_store_rejects_positions_inside_surrogate_pairs() {
+        let uri = EditorDocumentUri::from_file_path(PathBuf::from("/tmp/astral.fol")).unwrap();
+        let document = EditorDocument::new(uri.clone(), 1, "😀".to_string()).unwrap();
+        let mut store = EditorDocumentStore::default();
+        store.open(document);
+
+        let error = store
+            .apply_incremental_change(
+                &uri,
+                2,
+                LspRange {
+                    start: LspPosition {
+                        line: 0,
+                        character: 1,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        character: 1,
+                    },
+                },
+                "x".to_string(),
+            )
+            .unwrap_err();
+
+        assert_eq!(error.kind, EditorErrorKind::InvalidInput);
     }
 
     #[test]
@@ -244,7 +294,8 @@ mod tests {
     #[test]
     fn document_store_rejects_invalid_incremental_ranges() {
         let uri = EditorDocumentUri::from_file_path(PathBuf::from("/tmp/demo.fol")).unwrap();
-        let document = EditorDocument::new(uri.clone(), 1, "fun[] main(): int = 0\n".to_string()).unwrap();
+        let document =
+            EditorDocument::new(uri.clone(), 1, "fun[] main(): int = 0\n".to_string()).unwrap();
         let mut store = EditorDocumentStore::default();
 
         store.open(document);

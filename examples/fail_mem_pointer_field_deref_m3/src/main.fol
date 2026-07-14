@@ -1,0 +1,13 @@
+typ Holder: rec = {
+    link: ptr[int],
+};
+
+fun[] inspect(holder: Holder): int = {
+    return *holder.link;
+};
+
+fun[] main(): int = {
+    var value: int = 7;
+    var holder: Holder = { link = &value };
+    return inspect(holder);
+};

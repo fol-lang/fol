@@ -7,9 +7,7 @@ Current boundary:
   surface
 - everything below describes intended design, not current behavior
 
-Alternatives are used when we want to simplify code. For example, define an alternative, so whenever you write `+var` it is the same as `var[+]`.
-```
-def '+var': alt = 'var[+]'
-def '~var': alt = 'var[~]'
-def '.pointer_content': alt = '.pointer_value'
-```
+Alternatives are intended to provide shorter source spellings. They will not
+alias or override the compiler-owned memory sigils. The exact future grammar
+and supported replacement targets remain open until the meta family is
+implemented.

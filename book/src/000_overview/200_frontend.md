@@ -41,7 +41,8 @@ It already covers:
 - git-backed dependency fetching and materialization
 - `fol.lock` writing, locked fetches, offline warm-cache fetches, and update flows
 - workspace dependency/status reporting
-- full `V1` build/run/test orchestration
+- build/run/test orchestration for shipped `V1`, the bounded `V2` subset, and
+  the shipped `V3` surfaces
 - routed workspace `build/run/test/check` entry through `build.fol`
 - emitted Rust and lowered IR output
 - editor-tooling entrypoints for parse, highlight, symbols, and LSP startup

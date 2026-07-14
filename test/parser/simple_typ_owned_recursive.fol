@@ -1,0 +1,4 @@
+typ Node: rec = {
+    value: int,
+    next: opt @Node,
+};

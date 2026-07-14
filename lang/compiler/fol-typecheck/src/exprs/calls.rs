@@ -3,22 +3,22 @@ use crate::{
     TypecheckError, TypecheckErrorKind, TypedProgram,
 };
 use fol_intrinsics::{
-    boolean_operand_contract, comparison_operand_contract, query_operand_contract, select_intrinsic,
-    wrong_arity_message, wrong_type_family_message, BooleanOperandContract,
+    boolean_operand_contract, comparison_operand_contract, query_operand_contract,
+    select_intrinsic, wrong_arity_message, wrong_type_family_message, BooleanOperandContract,
     ComparisonOperandContract, IntrinsicSelectionErrorKind, IntrinsicSurface, QueryOperandContract,
 };
 use fol_parser::ast::{AstNode, QualifiedPath, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{ReferenceId, ReferenceKind, ResolvedProgram, SymbolId, SymbolKind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::helpers::{
     apparent_type_id, describe_type, ensure_assignable, internal_error, is_error_shell_type,
     merge_recoverable_effects, node_origin, observe_context, origin_for, plain_value_expr,
-    reject_recoverable_error_shell_conversion,
+    reject_recoverable_error_shell_conversion, strip_comments, unsupported_node_surface,
 };
-use super::{TypeContext, TypedExpr};
-use super::type_node_with_expectation;
 use super::type_node;
+use super::type_node_with_expectation;
+use super::{TypeContext, TypedExpr};
 
 pub(crate) fn type_function_call(
     typed: &mut TypedProgram,
@@ -66,6 +66,7 @@ pub(crate) fn type_function_call(
         origin_for(resolved, syntax_id),
         true,
         true,
+        context.processor_task_call == Some(syntax_id),
     )?;
     let call_effect = merge_recoverable_effects(
         typed,
@@ -78,6 +79,10 @@ pub(crate) fn type_function_call(
                 .map(|error_type| RecoverableCallEffect { error_type }),
         ],
     )?;
+    // Keep the post-inference signature at the call site. Processor-boundary
+    // validation runs after ordinary call typing and must inspect the concrete
+    // parameter types, including parameters supplied by omitted defaults.
+    typed.record_call_signature(syntax_id, signature.clone());
     let return_type = signature.return_type;
     if let Some(return_type) = return_type {
         let typed_reference = typed
@@ -392,7 +397,28 @@ fn type_query_intrinsic(
         });
     }
 
-    let core_dynamic_length_query = typed.capability_model() == crate::TypecheckCapabilityModel::Core
+    if super::bindings::ownership_moves_on_transfer(typed, operand_type)
+        && matches!(strip_comments(&args[0]), AstNode::FieldAccess { .. })
+    {
+        return Err(node_origin(resolved, &args[0]).map_or_else(
+            || {
+                TypecheckError::new(
+                    TypecheckErrorKind::Ownership,
+                    "'.len(...)' through a move-only field projection is not supported in V3; length observation must not partially move its receiver",
+                )
+            },
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::Ownership,
+                    "'.len(...)' through a move-only field projection is not supported in V3; length observation must not partially move its receiver",
+                    origin,
+                )
+            },
+        ));
+    }
+
+    let core_dynamic_length_query = typed.capability_model()
+        == crate::TypecheckCapabilityModel::Core
         && matches!(
             typed.type_table().get(operand_apparent),
             Some(CheckedType::Builtin(crate::BuiltinType::Str))
@@ -403,7 +429,7 @@ fn type_query_intrinsic(
         );
     if core_dynamic_length_query {
         let message = format!(
-            "'.len(...)' over heap-backed strings and containers requires 'fol_model = memo' or 'std'; current artifact model is '{}'",
+            "'.len(...)' over heap-backed strings and containers requires 'fol_model = memo'; current artifact model is '{}'",
             typed.capability_model().as_str()
         );
         return Err(match origin {
@@ -465,6 +491,7 @@ fn type_echo_intrinsic(
     )?;
     let operand_type = operand_expr.required_value("intrinsic operand does not have a type")?;
 
+    super::bindings::track_value_transfer(typed, resolved, context, Some(&args[0]), operand_type)?;
     typed.record_node_type(syntax_id, context.source_unit_id, operand_type)?;
     Ok(TypedExpr::value(operand_type).with_optional_effect(operand_expr.recoverable_effect))
 }
@@ -506,11 +533,15 @@ pub(crate) fn type_report_call(
         ));
     }
 
+    let report_context = TypeContext {
+        repeating_loop_scope: None,
+        ..context
+    };
     let report_raw =
-        type_node_with_expectation(typed, resolved, context, &args[0], Some(expected))?;
+        type_node_with_expectation(typed, resolved, report_context, &args[0], Some(expected))?;
     let actual = plain_value_expr(
         typed,
-        context,
+        report_context,
         report_raw,
         node_origin(resolved, &args[0]),
         "report expression",
@@ -528,7 +559,23 @@ pub(crate) fn type_report_call(
             }),
         )
     })?;
-    ensure_assignable(typed, expected, actual, "report".to_string(), origin)?;
+    ensure_assignable(
+        typed,
+        expected,
+        actual,
+        "report".to_string(),
+        origin.clone(),
+    )?;
+    // Reporting exits the routine through its error path, transferring the
+    // reported value just like a return transfers its result.
+    super::bindings::track_value_transfer(typed, resolved, report_context, Some(&args[0]), actual)?;
+    super::helpers::reject_all_recoverable_eventuals(
+        typed,
+        resolved,
+        context.scope_id,
+        origin,
+        "reporting from the routine",
+    )?;
     Ok(TypedExpr::value(typed.builtin_types().never))
 }
 
@@ -612,9 +659,9 @@ fn type_check_call(
             .transpose()?
             .unwrap_or(false)
         {
-            "check(...) inspects routine call results with '/ ErrorType', not err[...] shell values in V1"
+            "check(...) inspects recoverable '/ ErrorType' expressions (direct calls or awaited recoverable eventuals), not err[...] shell values"
         } else {
-            "check(...) requires a routine call result with '/ ErrorType' in V1"
+            "check(...) requires a recoverable expression with '/ ErrorType' (a direct call or awaited recoverable eventual)"
         };
         return Err(node_origin(resolved, &args[0]).map_or_else(
             || TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
@@ -670,6 +717,7 @@ pub(crate) fn type_qualified_function_call(
         origin_for(resolved, syntax_id),
         true,
         true,
+        context.processor_task_call == Some(syntax_id),
     )?;
     let call_effect = merge_recoverable_effects(
         typed,
@@ -682,6 +730,10 @@ pub(crate) fn type_qualified_function_call(
                 .map(|error_type| RecoverableCallEffect { error_type }),
         ],
     )?;
+    // Keep qualified calls on the same processor-boundary path as plain
+    // calls. In particular, omitted defaults must be validated against the
+    // concrete post-inference parameter types before spawn/async lowering.
+    typed.record_call_signature(syntax_id, signature.clone());
     if let Some(return_type) = signature.return_type {
         let typed_reference = typed
             .typed_reference_mut(reference_id)
@@ -706,6 +758,96 @@ pub(crate) fn type_method_call(
     method: &str,
     args: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
+    let mutex_receiver = (method == "lock" || method == "unlock")
+        .then(|| {
+            let AstNode::Identifier {
+                name,
+                syntax_id: Some(syntax_id),
+            } = strip_comments(object)
+            else {
+                return None;
+            };
+            let mutex_symbol = resolved
+                .references
+                .iter()
+                .find(|reference| {
+                    reference.syntax_id == Some(*syntax_id)
+                        && reference.kind == ReferenceKind::Identifier
+                })
+                .and_then(|reference| reference.resolved)?;
+            typed
+                .typed_symbol(mutex_symbol)
+                .is_some_and(|symbol| symbol.is_mutex)
+                .then_some((name.as_str(), mutex_symbol))
+        })
+        .flatten();
+    if let Some((name, mutex_symbol)) = mutex_receiver {
+        if context.inside_deferred_block {
+            return Err(unsupported_node_surface(
+                resolved,
+                node,
+                format!(
+                    "mutex .{method}() is not allowed inside dfr/edf in V3; delayed mutex guard effects are not modeled"
+                ),
+            ));
+        }
+        if !typed.capability_model().supports_processor() {
+            return Err(unsupported_node_surface(
+                resolved,
+                node,
+                "mutex operations require hosted std support; declare the bundled internal standard dependency",
+            ));
+        }
+        if !args.is_empty() {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!("mutex .{method}() does not accept arguments"),
+            ));
+        }
+        let _ = type_node(
+            typed,
+            resolved,
+            TypeContext {
+                allow_mutex_handle: true,
+                ..context
+            },
+            object,
+        )?;
+        let origin = node_origin(resolved, node)
+            .or_else(|| node_origin(resolved, object))
+            .ok_or_else(|| internal_error("mutex operation lost its syntax origin", None))?;
+        if method == "lock" {
+            let guard = crate::ActiveMutexGuard {
+                scope: context.scope_id,
+                origin: origin.clone(),
+            };
+            if let Some(active) = typed.register_mutex_guard(mutex_symbol, guard) {
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::InvalidInput,
+                    format!("mutex parameter '{name}' is already locked"),
+                    origin,
+                )
+                .with_related_origin(active.origin, "mutex lock acquired here"));
+            }
+        } else if typed
+            .release_mutex_guard(mutex_symbol, context.scope_id)
+            .is_none()
+        {
+            let message = if typed.active_mutex_guard(mutex_symbol).is_some() {
+                format!(
+                    "mutex parameter '{name}' must be unlocked in the lexical scope that acquired it"
+                )
+            } else {
+                format!("mutex parameter '{name}' is not locked")
+            };
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                message,
+                origin,
+            ));
+        }
+        return Ok(TypedExpr::none());
+    }
     let receiver_raw = type_node(typed, resolved, context, object)?;
     let receiver_expr = plain_value_expr(
         typed,
@@ -718,13 +860,12 @@ pub(crate) fn type_method_call(
         "method receiver for '{method}' does not have a type"
     ))?;
     let origin = node_origin(resolved, node).or_else(|| node_origin(resolved, object));
-    let signature = routine_signature_for_method(
-        typed,
-        method,
-        object_type,
-        origin.clone(),
-        node.syntax_id(),
-    )?;
+    let signature =
+        routine_signature_for_method(typed, method, object_type, origin.clone(), node.syntax_id())?;
+    // Method syntax is value-receiver sugar: the receiver is the first value
+    // passed to the routine. Record that transfer before checking the explicit
+    // arguments so the same move-only binding cannot be used twice in one call.
+    super::bindings::track_value_transfer(typed, resolved, context, Some(object), object_type)?;
     let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,
@@ -735,6 +876,7 @@ pub(crate) fn type_method_call(
         origin.clone(),
         true,
         true,
+        false,
     )?;
     let merged = merge_recoverable_effects(
         typed,
@@ -817,7 +959,28 @@ fn routine_signature_for_symbol(
     use crate::CheckedType;
     let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
     match typed.type_table().get(type_id) {
-        Some(CheckedType::Routine(signature)) => Ok(signature.clone()),
+        Some(CheckedType::Routine(signature)) => {
+            let mut signature = signature.clone();
+            signature.param_defaults = typed
+                .typed_symbol(symbol_id)
+                .map(|symbol| symbol.param_defaults.clone())
+                .ok_or_else(|| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::SymbolTableCorrupted,
+                        format!(
+                            "routine symbol {} lost its declaration-owned defaults",
+                            symbol_id.0
+                        ),
+                        origin.clone().unwrap_or(SyntaxOrigin {
+                            file: None,
+                            line: 1,
+                            column: 1,
+                            length: 1,
+                        }),
+                    )
+                })?;
+            Ok(signature)
+        }
         _ => Err(TypecheckError::with_origin(
             TypecheckErrorKind::InvalidInput,
             format!("resolved routine symbol {} is not callable", symbol_id.0),
@@ -875,12 +1038,8 @@ fn routine_signature_for_method(
         // concrete object type. If it unifies, bind the routine generics and
         // monomorphize the signature here so downstream argument checking
         // sees a fully-concrete signature.
-        let signature = routine_signature_for_symbol(
-            typed,
-            typed.resolved(),
-            symbol_id,
-            origin.clone(),
-        )?;
+        let signature =
+            routine_signature_for_symbol(typed, typed.resolved(), symbol_id, origin.clone())?;
         if signature.generic_params.is_empty() {
             continue;
         }
@@ -979,6 +1138,7 @@ fn routine_signature_for_method(
                         param_names,
                         param_defaults,
                         variadic_index: None,
+                        mutex_params: BTreeSet::new(),
                         params,
                         return_type,
                         error_type,
@@ -996,9 +1156,7 @@ fn routine_signature_for_method(
     // default body. We only look for defaults when no direct receiver
     // routine was found, so explicit conformer overrides always win.
     if matches.is_empty() {
-        if let Some(type_symbol_id) =
-            crate::decls::conformance_subject_symbol(typed, object_type)
-        {
+        if let Some(type_symbol_id) = crate::decls::conformance_subject_symbol(typed, object_type) {
             if let Some(conformance) = typed.typed_conformance(type_symbol_id).cloned() {
                 for standard_symbol_id in conformance.standard_symbol_ids {
                     let Some(standard) = typed.typed_standard(standard_symbol_id).cloned() else {
@@ -1024,6 +1182,7 @@ fn routine_signature_for_method(
                             param_names,
                             param_defaults,
                             variadic_index: None,
+                            mutex_params: BTreeSet::new(),
                             params: requirement.params.clone(),
                             return_type: requirement.return_type,
                             error_type: requirement.error_type,
@@ -1081,6 +1240,7 @@ pub(crate) fn check_call_arguments(
     origin: Option<SyntaxOrigin>,
     allow_named: bool,
     allow_defaults: bool,
+    processor_task_target: bool,
 ) -> Result<(RoutineType, Option<RecoverableCallEffect>), TypecheckError> {
     let ordered_args = bind_call_arguments(
         signature,
@@ -1090,18 +1250,57 @@ pub(crate) fn check_call_arguments(
         allow_named,
         allow_defaults,
     )?;
+    validate_deferred_mutex_argument_forwarding(
+        typed,
+        resolved,
+        context,
+        signature,
+        &ordered_args,
+        callee,
+    )?;
+    validate_mutex_argument_forwarding(
+        typed,
+        resolved,
+        signature,
+        &ordered_args,
+        callee,
+        origin.clone(),
+        processor_task_target,
+    )?;
+    validate_call_site_borrows(
+        typed,
+        resolved,
+        signature,
+        &ordered_args,
+        callee,
+        origin.clone(),
+    )?;
 
     let mut generic_bindings = BTreeMap::new();
     let mut arg_effects = Vec::new();
-    for (expected, arg) in signature.params.iter().zip(ordered_args.iter()) {
+    for (param_index, (expected, arg)) in
+        signature.params.iter().zip(ordered_args.iter()).enumerate()
+    {
         match arg {
             BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
                 let contains_generics =
                     crate::decls::checked_type_contains_generic_param(typed, *expected);
+                let forwards_mutex_handle = signature.mutex_params.contains(&param_index)
+                    && argument_is_direct_mutex_handle(typed, resolved, arg);
+                let argument_context = TypeContext {
+                    allow_mutex_handle: forwards_mutex_handle,
+                    ..context
+                };
                 let actual_expr = if contains_generics {
-                    type_node(typed, resolved, context, arg)
+                    type_node(typed, resolved, argument_context, arg)
                 } else {
-                    type_node_with_expectation(typed, resolved, context, arg, Some(*expected))
+                    type_node_with_expectation(
+                        typed,
+                        resolved,
+                        argument_context,
+                        arg,
+                        Some(*expected),
+                    )
                 }
                 .map_err(|error| {
                     origin
@@ -1128,6 +1327,15 @@ pub(crate) fn check_call_arguments(
                 let actual = actual_expr
                     .required_value(format!("argument for '{callee}' does not have a type"))?;
                 arg_effects.push(actual_expr.recoverable_effect);
+                validate_eventual_call_argument(
+                    typed,
+                    resolved,
+                    arg,
+                    actual,
+                    contains_generics,
+                    callee,
+                    origin.clone(),
+                )?;
                 if contains_generics {
                     infer_generic_bindings_from_argument(
                         typed,
@@ -1146,6 +1354,39 @@ pub(crate) fn check_call_arguments(
                         origin.clone(),
                     )?;
                 }
+                let extracts_sender = matches!(
+                    (
+                        typed.type_table().get(*expected),
+                        typed.type_table().get(actual),
+                    ),
+                    (
+                        Some(CheckedType::ChannelSender {
+                            element_type: expected,
+                        }),
+                        Some(CheckedType::Channel {
+                            element_type: actual,
+                        }),
+                    ) if expected == actual
+                );
+                let preserves_borrow = matches!(
+                    (
+                        typed.type_table().get(*expected),
+                        typed.type_table().get(actual),
+                    ),
+                    (
+                        Some(CheckedType::Borrowed { .. }),
+                        Some(CheckedType::Borrowed { .. }),
+                    )
+                );
+                if !extracts_sender && !forwards_mutex_handle && !preserves_borrow {
+                    super::bindings::track_value_transfer(
+                        typed,
+                        resolved,
+                        context,
+                        Some(arg),
+                        actual,
+                    )?;
+                }
             }
             BoundCallArg::VariadicPack(args) => {
                 let element_type = match typed.type_table().get(*expected) {
@@ -1153,9 +1394,7 @@ pub(crate) fn check_call_arguments(
                     _ => {
                         return Err(TypecheckError::new(
                             TypecheckErrorKind::Internal,
-                            format!(
-                                "variadic call to '{callee}' lost its sequence parameter type"
-                            ),
+                            format!("variadic call to '{callee}' lost its sequence parameter type"),
                         ))
                     }
                 };
@@ -1165,7 +1404,13 @@ pub(crate) fn check_call_arguments(
                     let actual_expr = if contains_generics {
                         type_node(typed, resolved, context, arg)
                     } else {
-                        type_node_with_expectation(typed, resolved, context, arg, Some(element_type))
+                        type_node_with_expectation(
+                            typed,
+                            resolved,
+                            context,
+                            arg,
+                            Some(element_type),
+                        )
                     }
                     .map_err(|error| {
                         origin
@@ -1193,6 +1438,15 @@ pub(crate) fn check_call_arguments(
                         "variadic argument for '{callee}' does not have a type"
                     ))?;
                     arg_effects.push(actual_expr.recoverable_effect);
+                    validate_eventual_call_argument(
+                        typed,
+                        resolved,
+                        arg,
+                        actual,
+                        contains_generics,
+                        callee,
+                        origin.clone(),
+                    )?;
                     if contains_generics {
                         infer_generic_bindings_from_argument(
                             typed,
@@ -1211,6 +1465,13 @@ pub(crate) fn check_call_arguments(
                             origin.clone(),
                         )?;
                     }
+                    super::bindings::track_value_transfer(
+                        typed,
+                        resolved,
+                        context,
+                        Some(arg),
+                        actual,
+                    )?;
                 }
             }
             BoundCallArg::Default => {}
@@ -1223,6 +1484,345 @@ pub(crate) fn check_call_arguments(
         instantiated,
         merge_recoverable_effects(typed, origin, "call arguments", arg_effects)?,
     ))
+}
+
+fn validate_eventual_call_argument(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+    actual: CheckedTypeId,
+    generic_parameter: bool,
+    callee: &str,
+    call_origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let origin = node_origin(resolved, arg).or(call_origin);
+    super::bindings::reject_nested_eventual_value(
+        typed,
+        actual,
+        origin.clone(),
+        format!("argument to '{callee}'"),
+    )?;
+    if generic_parameter
+        && matches!(
+            typed.type_table().get(actual),
+            Some(CheckedType::Eventual { .. })
+        )
+    {
+        let message = format!(
+            "call to '{callee}' cannot pass an internal eventual through a generic parameter in V3; await it before the call"
+        );
+        return Err(match origin {
+            Some(origin) => {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin)
+            }
+            None => TypecheckError::new(TypecheckErrorKind::Ownership, message),
+        });
+    }
+    Ok(())
+}
+
+fn validate_call_site_borrows(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    signature: &RoutineType,
+    args: &[BoundCallArg<'_>],
+    callee: &str,
+    call_origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let mut transient_sources = vec![None; args.len()];
+
+    for (index, (expected, bound)) in signature.params.iter().zip(args.iter()).enumerate() {
+        let Some(CheckedType::Borrowed { mutable, .. }) = typed.type_table().get(*expected) else {
+            continue;
+        };
+        let Some(arg) = explicit_bound_arg(bound) else {
+            continue;
+        };
+        if let Some(owner) = borrow_from_owner(resolved, arg) {
+            let borrow_origin = node_origin(resolved, arg)
+                .or_else(|| call_origin.clone())
+                .unwrap_or(SyntaxOrigin {
+                    file: None,
+                    line: 1,
+                    column: 1,
+                    length: 1,
+                });
+            if let Some(conflict) = typed.active_borrow_for_owner(owner) {
+                if *mutable || conflict.mutable {
+                    return Err(TypecheckError::with_origin(
+                        TypecheckErrorKind::BorrowConflict,
+                        format!(
+                            "call to '{callee}' borrows an owner that already has an incompatible active borrow"
+                        ),
+                        borrow_origin,
+                    )
+                    .with_related_origin(conflict.origin.clone(), "conflicting borrow created here"));
+                }
+            }
+            transient_sources[index] = Some((owner, borrow_origin, *mutable));
+            continue;
+        }
+        if argument_is_borrow_binding(typed, resolved, arg) {
+            continue;
+        }
+        return Err(node_origin(resolved, arg).or(call_origin.clone()).map_or_else(
+            || {
+                TypecheckError::new(
+                    TypecheckErrorKind::BorrowConflict,
+                    format!(
+                        "call to '{callee}' must pass '#owner' or an existing borrow binding to a [bor] parameter"
+                    ),
+                )
+            },
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::BorrowConflict,
+                    format!(
+                        "call to '{callee}' must pass '#owner' or an existing borrow binding to a [bor] parameter"
+                    ),
+                    origin,
+                )
+            },
+        ));
+    }
+
+    for (borrow_index, source) in transient_sources.iter().enumerate() {
+        let Some((owner, borrow_origin, _mutable)) = source else {
+            continue;
+        };
+        for (arg_index, bound) in args.iter().enumerate() {
+            if arg_index == borrow_index
+                || transient_sources[arg_index]
+                    .as_ref()
+                    .is_some_and(|(other_owner, _, _)| other_owner == owner)
+            {
+                continue;
+            }
+            if bound_arg_references_symbol(resolved, bound, *owner) {
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::BorrowConflict,
+                    format!(
+                        "call to '{callee}' accesses an owner in another argument while it is borrowed for a [bor] parameter"
+                    ),
+                    node_origin_for_bound_arg(resolved, bound)
+                        .or_else(|| call_origin.clone())
+                        .unwrap_or_else(|| borrow_origin.clone()),
+                )
+                .with_related_origin(borrow_origin.clone(), "call-site borrow created here"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_deferred_mutex_argument_forwarding(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    signature: &RoutineType,
+    args: &[BoundCallArg<'_>],
+    callee: &str,
+) -> Result<(), TypecheckError> {
+    if !context.inside_deferred_block {
+        return Ok(());
+    }
+
+    for param_index in &signature.mutex_params {
+        let Some(arg) = args.get(*param_index).and_then(explicit_bound_arg) else {
+            continue;
+        };
+        if argument_is_direct_mutex_handle(typed, resolved, arg) {
+            return Err(unsupported_node_surface(
+                resolved,
+                arg,
+                format!(
+                    "mutex handles cannot be forwarded to [mux] parameter {param_index} of '{callee}' inside dfr/edf in V3; delayed mutex guard effects are not modeled"
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_mutex_argument_forwarding(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    signature: &RoutineType,
+    args: &[BoundCallArg<'_>],
+    callee: &str,
+    call_origin: Option<SyntaxOrigin>,
+    processor_task_target: bool,
+) -> Result<(), TypecheckError> {
+    let mut forwarded = BTreeMap::new();
+
+    for param_index in &signature.mutex_params {
+        let Some(arg) = args.get(*param_index).and_then(explicit_bound_arg) else {
+            continue;
+        };
+        let Some(symbol) = direct_mutex_handle_symbol(typed, resolved, arg) else {
+            continue;
+        };
+        let name = resolved
+            .symbol(symbol)
+            .map(|symbol| symbol.name.as_str())
+            .unwrap_or("<unknown>");
+        let argument_origin = node_origin(resolved, arg)
+            .or_else(|| call_origin.clone())
+            .unwrap_or(SyntaxOrigin {
+                file: None,
+                line: 1,
+                column: 1,
+                length: 1,
+            });
+
+        if let Some((first_param, first_origin)) = forwarded.insert(
+            symbol,
+            (*param_index, argument_origin.clone()),
+        ) {
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "call to '{callee}' cannot forward mutex handle '{name}' to both [mux] parameter {first_param} and [mux] parameter {param_index}; aliased mutex parameters can self-deadlock"
+                ),
+                argument_origin,
+            )
+            .with_related_origin(first_origin, "same mutex handle first forwarded here"));
+        }
+
+        if !processor_task_target {
+            if let Some(active) = typed.active_mutex_guard(symbol) {
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "call to '{callee}' cannot synchronously forward mutex handle '{name}' while its lock is active; unlock it before the call"
+                    ),
+                    argument_origin,
+                )
+                .with_related_origin(active.origin.clone(), "mutex lock acquired here"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn explicit_bound_arg<'a>(arg: &'a BoundCallArg<'a>) -> Option<&'a AstNode> {
+    match arg {
+        BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => Some(arg),
+        BoundCallArg::Default | BoundCallArg::VariadicPack(_) => None,
+    }
+}
+
+fn borrow_from_owner(resolved: &ResolvedProgram, arg: &AstNode) -> Option<SymbolId> {
+    matches!(
+        strip_comments(arg),
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::BorrowFrom,
+            ..
+        }
+    )
+    .then(|| super::bindings::borrow_source_symbol(resolved, strip_comments(arg)))?
+}
+
+fn argument_is_borrow_binding(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+) -> bool {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = strip_comments(arg)
+    else {
+        return false;
+    };
+    resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+        .and_then(|symbol| typed.typed_symbol(symbol))
+        .and_then(|symbol| symbol.declared_type)
+        .and_then(|type_id| typed.type_table().get(type_id))
+        .is_some_and(|typ| matches!(typ, CheckedType::Borrowed { .. }))
+}
+
+fn argument_is_direct_mutex_handle(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+) -> bool {
+    direct_mutex_handle_symbol(typed, resolved, arg).is_some()
+}
+
+fn direct_mutex_handle_symbol(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+) -> Option<SymbolId> {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = strip_comments(arg)
+    else {
+        return None;
+    };
+    resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+        .filter(|symbol| {
+            typed
+                .typed_symbol(*symbol)
+                .is_some_and(|symbol| symbol.is_mutex)
+        })
+}
+
+fn bound_arg_references_symbol(
+    resolved: &ResolvedProgram,
+    arg: &BoundCallArg<'_>,
+    symbol: SymbolId,
+) -> bool {
+    match arg {
+        BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
+            node_references_symbol(resolved, arg, symbol)
+        }
+        BoundCallArg::VariadicPack(args) => args
+            .iter()
+            .any(|arg| node_references_symbol(resolved, arg, symbol)),
+        BoundCallArg::Default => false,
+    }
+}
+
+fn node_references_symbol(resolved: &ResolvedProgram, node: &AstNode, symbol: SymbolId) -> bool {
+    let mut syntax_ids = BTreeSet::new();
+    super::helpers::collect_syntax_ids(node, &mut syntax_ids);
+    resolved.references.iter().any(|reference| {
+        reference.resolved == Some(symbol)
+            && reference
+                .syntax_id
+                .is_some_and(|syntax_id| syntax_ids.contains(&syntax_id))
+    })
+}
+
+fn node_origin_for_bound_arg(
+    resolved: &ResolvedProgram,
+    arg: &BoundCallArg<'_>,
+) -> Option<SyntaxOrigin> {
+    match arg {
+        BoundCallArg::Explicit(arg) | BoundCallArg::VariadicUnpack(arg) => {
+            node_origin(resolved, arg)
+        }
+        BoundCallArg::VariadicPack(args) => args.iter().find_map(|arg| node_origin(resolved, arg)),
+        BoundCallArg::Default => None,
+    }
 }
 
 fn infer_generic_bindings_from_argument(
@@ -1273,7 +1873,10 @@ fn infer_generic_bindings_from_argument(
     let expected = apparent_type_id(typed, expected)?;
     let actual_apparent = apparent_type_id(typed, actual)?;
 
-    match (typed.type_table().get(expected), typed.type_table().get(actual_apparent)) {
+    match (
+        typed.type_table().get(expected),
+        typed.type_table().get(actual_apparent),
+    ) {
         (
             Some(CheckedType::Declared {
                 symbol,
@@ -1509,11 +2112,9 @@ fn instantiate_signature_with_explicit_type_args(
             type_args.len()
         );
         return Err(match origin {
-            Some(origin) => TypecheckError::with_origin(
-                TypecheckErrorKind::InvalidInput,
-                message,
-                origin,
-            ),
+            Some(origin) => {
+                TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+            }
             None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
         });
     }
@@ -1563,6 +2164,7 @@ fn instantiate_generic_signature(
         param_names: signature.param_names.clone(),
         param_defaults: signature.param_defaults.clone(),
         variadic_index: signature.variadic_index,
+        mutex_params: signature.mutex_params.clone(),
         params,
         return_type,
         error_type,
@@ -1577,7 +2179,10 @@ fn substitute_generic_type(
     origin: Option<SyntaxOrigin>,
 ) -> Result<CheckedTypeId, TypecheckError> {
     let Some(checked) = typed.type_table().get(type_id).cloned() else {
-        return Err(internal_error("generic substitution lost a checked type", origin));
+        return Err(internal_error(
+            "generic substitution lost a checked type",
+            origin,
+        ));
     };
 
     match checked {
@@ -1743,14 +2348,14 @@ fn substitute_generic_type(
     }
 }
 
-enum BoundCallArg<'a> {
+pub(super) enum BoundCallArg<'a> {
     Explicit(&'a AstNode),
     Default,
     VariadicPack(Vec<&'a AstNode>),
     VariadicUnpack(&'a AstNode),
 }
 
-fn bind_call_arguments<'a>(
+pub(super) fn bind_call_arguments<'a>(
     signature: &RoutineType,
     args: &'a [AstNode],
     callee: &str,
@@ -1762,7 +2367,12 @@ fn bind_call_arguments<'a>(
         .iter()
         .any(|arg| matches!(arg, AstNode::NamedArgument { .. }));
     if signature.params.len() != args.len() && !has_named_args && !allow_defaults {
-        return Err(call_arity_error(signature.params.len(), args.len(), callee, origin));
+        return Err(call_arity_error(
+            signature.params.len(),
+            args.len(),
+            callee,
+            origin,
+        ));
     }
     if args.len() < signature.params.len()
         && !has_named_args
@@ -1773,7 +2383,12 @@ fn bind_call_arguments<'a>(
             .skip(args.len())
             .any(Option::is_none)
     {
-        return Err(call_arity_error(signature.params.len(), args.len(), callee, origin));
+        return Err(call_arity_error(
+            signature.params.len(),
+            args.len(),
+            callee,
+            origin,
+        ));
     }
 
     let mut ordered_args = vec![None; signature.params.len()];
@@ -1798,7 +2413,8 @@ fn bind_call_arguments<'a>(
                     ));
                 }
                 seen_named = true;
-                let Some(index) = signature.param_names.iter().position(|param| param == name) else {
+                let Some(index) = signature.param_names.iter().position(|param| param == name)
+                else {
                     return Err(TypecheckError::with_origin(
                         TypecheckErrorKind::InvalidInput,
                         format!("call to '{callee}' does not have a parameter named '{name}'"),
@@ -1872,7 +2488,12 @@ fn bind_call_arguments<'a>(
                     continue;
                 }
                 if next_positional >= ordered_args.len() {
-                    return Err(call_arity_error(signature.params.len(), args.len(), callee, origin));
+                    return Err(call_arity_error(
+                        signature.params.len(),
+                        args.len(),
+                        callee,
+                        origin,
+                    ));
                 }
                 ordered_args[next_positional] = Some(arg);
                 next_positional += 1;
@@ -1901,7 +2522,9 @@ fn bind_call_arguments<'a>(
             None if variadic_index == Some(index) => {
                 bound_args.push(BoundCallArg::VariadicPack(Vec::new()));
             }
-            None if allow_defaults && matches!(signature.param_defaults.get(index), Some(Some(_))) => {
+            None if allow_defaults
+                && matches!(signature.param_defaults.get(index), Some(Some(_))) =>
+            {
                 bound_args.push(BoundCallArg::Default);
             }
             None => {
@@ -1965,28 +2588,42 @@ pub(crate) fn type_for_reference(
         )
     })?;
     let symbol_id = reference.resolved.ok_or_else(|| {
-            TypecheckError::with_origin(
-                TypecheckErrorKind::InvalidInput,
-                "resolved reference lost its target symbol",
+        TypecheckError::with_origin(
+            TypecheckErrorKind::InvalidInput,
+            "resolved reference lost its target symbol",
+            origin.clone().unwrap_or(SyntaxOrigin {
+                file: None,
+                line: 1,
+                column: 1,
+                length: 1,
+            }),
+        )
+    })?;
+    let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
+    if let Some(CheckedType::Routine(signature)) = typed.type_table().get(type_id) {
+        let symbol_name = resolved
+            .symbol(symbol_id)
+            .map(|symbol| symbol.name.as_str())
+            .unwrap_or("<routine>");
+        if !signature.generic_params.is_empty() {
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "generic routine '{symbol_name}' cannot be used as a plain routine value in V2 Milestone 1; call it directly instead"
+                ),
                 origin.clone().unwrap_or(SyntaxOrigin {
                     file: None,
                     line: 1,
                     column: 1,
                     length: 1,
                 }),
-            )
-        })?;
-    let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
-    if let Some(CheckedType::Routine(signature)) = typed.type_table().get(type_id) {
-        if !signature.generic_params.is_empty() {
-            let symbol_name = resolved
-                .symbol(symbol_id)
-                .map(|symbol| symbol.name.as_str())
-                .unwrap_or("<generic-routine>");
+            ));
+        }
+        if !signature.mutex_params.is_empty() {
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::Unsupported,
                 format!(
-                    "generic routine '{symbol_name}' cannot be used as a plain routine value in V2 Milestone 1; call it directly instead"
+                    "routine '{symbol_name}' with [mux] parameters cannot be used as a plain routine value in V3; call it directly instead"
                 ),
                 origin.clone().unwrap_or(SyntaxOrigin {
                     file: None,

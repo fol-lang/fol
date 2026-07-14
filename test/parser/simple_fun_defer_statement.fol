@@ -1,6 +1,0 @@
-fun[] main(): int = {
-    defer {
-        .echo(1);
-    };
-    return 7;
-};

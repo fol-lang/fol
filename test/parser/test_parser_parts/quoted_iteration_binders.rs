@@ -16,7 +16,9 @@ fn test_each_iteration_accepts_quoted_binder() {
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Loop { condition, body }
+                    AstNode::Loop {
+                        condition, body, ..
+                    }
                     if matches!(
                         condition.as_ref(),
                         fol_parser::ast::LoopCondition::Iteration { var, condition: Some(_), .. }

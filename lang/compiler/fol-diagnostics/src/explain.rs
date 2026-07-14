@@ -24,6 +24,7 @@
 /// - `P` — parser (syntax)
 /// - `R` — resolver (names/imports)
 /// - `T` — typechecker (types/capabilities)
+/// - `O` — ownership and borrowing
 /// - `L` — lowering (typed program -> IR)
 /// - `K` — package / build-graph model
 /// - `F` — frontend / build configuration
@@ -41,6 +42,10 @@ pub fn family_for_code(code: &str) -> (&'static str, &'static str) {
         Some(b'T') => (
             "TYPES",
             "a type or capability mismatch — the values do not fit the expected types",
+        ),
+        Some(b'O') => (
+            "OWNERSHIP",
+            "an ownership or borrowing violation — a value is not accessible in this state",
         ),
         Some(b'L') => (
             "LOWERING",
@@ -104,11 +109,57 @@ macro_rules! explanation {
 /// - `P*`  — `fol-parser` (`ParseErrorKind`)
 /// - `R*`  — `fol-resolver` (`ResolverErrorKind`)
 /// - `T*`  — `fol-typecheck` (`TypecheckErrorKind`)
+/// - `O*`  — `fol-typecheck` ownership and lexical-borrow checks
 /// - `L*`  — `fol-lower` (`LoweringErrorKind`)
 /// - `K10*` — `fol-package` (`PackageErrorKind`)
 /// - `K11*` — `fol-build` (`BuildEvaluationErrorKind`)
 /// - `F*`  — `fol-frontend` (`FrontendErrorKind`)
 static REGISTRY: &[Explanation] = &[
+    explanation!(
+        "O1001",
+        "ownership violation",
+        "A value was used after its ownership moved, or while ownership rules made it inaccessible.\n\n\
+         V3 clone-safe values clone when transferred. Heap-owned values, unique pointers, and\n\
+         aggregates containing unique ownership move, including when a value-producing expression\n\
+         is evaluated and its result is discarded.\n\n\
+         This code also covers ownership boundaries that cannot be represented safely yet:\n\
+         - dereferencing a unique pointer clones a clone-safe pointee, but transfers a move-only\n\
+           pointee and consumes that pointer; shared and borrowed pointer dereferences are\n\
+           read-only and therefore require clone-safe pointees\n\
+         - dereferencing a unique pointer reached through a field would partially observe a\n\
+           move-only place, so it requires place-aware projection IR\n\
+         - a moved whole binding may be reinitialized in ordinary control flow, but not inside\n\
+           `dfr` or `edf`, where the assignment is delayed until scope exit\n\
+         - borrowed values, `ptr[shared, T]` (`Rc`), and unresolved generic values cannot cross\n\
+           a spawn or async OS-thread boundary\n\
+         - channel endpoint acquisition cannot be delayed inside `dfr` or `edf`, and the receiver\n\
+           lifecycle must remain attached to its direct owning binding\n\
+         - eventuals are move-only: assignment transfers them, await consumes them once, and V3\n\
+           does not carry them through composites or generic parameters\n\n\
+         Use the value before moving it, borrow it when borrowing is appropriate, or assign a\n\
+         fresh value to a mutable whole binding in ordinary control flow. Restructure task,\n\
+         channel, eventual, or deferred code so ownership crosses only a supported boundary."
+    ),
+    explanation!(
+        "O2001",
+        "owner accessed while borrowed",
+        "A lexical borrow is still active, so the owner is inaccessible. Let the borrow scope end or return the borrower early with `!binding`."
+    ),
+    explanation!(
+        "O2002",
+        "conflicting borrow",
+        "A mutable borrow is exclusive. Return the active borrower or enter a later lexical scope before borrowing the same owner again."
+    ),
+    explanation!(
+        "O2003",
+        "mutable borrow of immutable owner",
+        "A mutable borrow requires an owner declared with `var[mut]` and a borrower declared with `var[mut, bor]`."
+    ),
+    explanation!(
+        "O2004",
+        "returned borrow reused",
+        "The borrow was returned with `!binding`; the borrower is no longer accessible after give-back."
+    ),
     // ── Parser (fol-parser :: ParseErrorKind) ──────────────────────────
     explanation!(
         "P1001",
@@ -178,23 +229,26 @@ static REGISTRY: &[Explanation] = &[
         "The resolver received input it cannot accept. This is most often an\n\
          import-target problem discovered while binding names.\n\n\
          Why it happens:\n\
-         - a `std`/`pkg` import target does not exist on disk\n\
+         - a `pkg` import target or declared bundled-std package does not exist on disk\n\
          - a formal package root was imported with `loc` instead of `pkg`\n\
          - a required std or package-store root was not provided\n\n\
          How to fix:\n\
          - check the import source and target path\n\
          - import formal packages with `pkg`, plain folders with `loc`\n\
-         - pass `--std-root <DIR>` / `--package-store-root <DIR>` when required, or\n\
-           run `fol pack fetch` to materialize declared dependencies"
+         - declare bundled std through `build.add_dep(...)`; use `--std-root <DIR>` only\n\
+           for an explicit development override\n\
+         - pass `--package-store-root <DIR>` when required, or run `fol pack fetch`\n\
+           to materialize declared external dependencies"
     ),
     explanation!(
         "R1002",
         "unsupported import or construct",
         "The resolver hit an import source kind or construct it does not support.\n\n\
          Why it happens:\n\
-         - an import uses a source kind other than `loc`, `std`, or `pkg`\n\n\
+         - an import uses a source kind other than `loc` or `pkg`\n\n\
          How to fix:\n\
-         - use one of the supported import source kinds: `loc`, `std`, `pkg`"
+         - use one of the supported import source kinds: `loc`, `pkg`\n\
+         - reach bundled std through a declared internal dependency and a quoted `pkg` import"
     ),
     explanation!(
         "R1003",
@@ -257,24 +311,52 @@ static REGISTRY: &[Explanation] = &[
          expression or declaration.\n\n\
          Why it happens:\n\
          - an expression is malformed for the position it appears in\n\
-         - an operand or argument shape does not match what the checker expects\n\n\
+         - an operand or argument shape does not match what the checker expects\n\
+         - `report` appears inside `dfr` or `edf`, where deferred replay cannot initiate a\n\
+           recoverable error exit\n\
+         - a `/ ErrorType` call or awaited result is discarded instead of handled with\n\
+           `check(...)` or `||`\n\
+         - a recoverable eventual is discarded, left live at lexical fallthrough, `break`,\n\
+           `return`, or `report`, or overwritten before its error is handled\n\
+         - a blocking `select {}` has no channel arm and no default arm\n\n\
          How to fix:\n\
-         - re-read the reported span and adjust the expression to a valid form"
+         - re-read the reported span and adjust the expression to a valid form\n\
+         - move `report` into ordinary control flow and keep deferred bodies non-terminating\n\
+         - bind recoverable async work; transferring it carries the obligation to the destination\n\
+         - await it exactly once and handle the result immediately with `check(...)` or `||`\n\
+           before final discard, overwrite, lexical fallthrough, `break`, `return`, or `report`\n\
+         - add at least one `when channel as binding` arm, or add a default `*` arm, to `select`"
     ),
     explanation!(
         "T1002",
         "unsupported construct or capability",
         "A construct is not supported under the current capability model, or is\n\
-         not implemented by the typechecker yet.\n\n\
+         outside an implemented language boundary.\n\n\
          Why it happens:\n\
          - a heap-backed value (`str`, `vec[...]`, `seq[...]`, `set[...]`,\n\
            `map[...]`) is used under `fol_model = core`\n\
-         - `.echo(...)` is used without the bundled hosted `std` dependency\n\
-         - a feature is planned for a later release (e.g. borrowing bindings)\n\n\
+         - `.echo(...)` or any processor surface (spawn, channels, `select`, `[mux]`,\n\
+           async, or await) is used without the bundled hosted `std` dependency\n\
+         - spawn or async is given a stored routine value or routine parameter instead of a\n\
+           direct named routine call, or a bare spawn could discard a recoverable error\n\
+         - an inner routine implicitly captures an outer local instead of receiving it through\n\
+           an explicit parameter or supported explicit capture surface\n\
+         - `edf` tries to access or await eventual state even though error-only cleanup does not\n\
+           run on successful exits and therefore cannot discharge a normal-path obligation\n\
+         - a channel is placed in an unsupported composite/projected/top-level shape instead\n\
+           of a direct routine-owned binding with one receiver lifecycle\n\
+         - a `dfr` or `edf` body accesses a mutex field, calls `.lock()` / `.unlock()`, or\n\
+           forwards the handle to another `[mux]` routine; V3 guard effects are immediate\n\
+         - a feature is outside the current release boundary (for example raw\n\
+           pointers or explicit deallocation at the V4/FFI boundary)\n\n\
          How to fix:\n\
-         - move to `fol_model = memo` for heap-backed values, or add bundled `std`\n\
-           for hosted facilities like `.echo(...)`\n\
-         - otherwise use a currently supported construct"
+         - move to `fol_model = memo` for heap-backed values; for hosted facilities and\n\
+           the processor surface, also declare bundled `std` on that memo artifact\n\
+         - call a named routine directly for spawn/async, keep channels in direct routine-local\n\
+           bindings, pass outer values to nested routines explicitly, and perform mutex guard or\n\
+           eventual work in ordinary control flow; explicit channel sender-endpoint captures may\n\
+           instead use the zero-parameter anonymous spawn form\n\
+         - otherwise use a construct inside the currently shipped V1/V2/V3 boundary"
     ),
     explanation!(
         "T1003",
@@ -521,6 +603,87 @@ mod tests {
     }
 
     #[test]
+    fn ownership_explanation_covers_v3_resource_boundaries() {
+        let explanation = explanation("O1001").expect("O1001 should be registered");
+        assert!(explanation.body.contains("result is discarded"));
+        assert!(explanation.body.contains("clone-safe values clone"));
+        assert!(explanation
+            .body
+            .contains("aggregates containing unique ownership move"));
+        assert!(explanation.body.contains("reinitialize"));
+        assert!(explanation.body.contains("place-aware projection IR"));
+        assert!(explanation.body.contains("transfers a move-only"));
+        assert!(explanation.body.contains("shared and borrowed pointer"));
+        assert!(explanation
+            .body
+            .contains("spawn or async OS-thread boundary"));
+        assert!(explanation.body.contains("channel endpoint acquisition"));
+        assert!(explanation.body.contains("eventuals are move-only"));
+        assert!(explanation.body.contains("`dfr` or `edf`"));
+    }
+
+    #[test]
+    fn invalid_input_explanation_covers_empty_blocking_select() {
+        let explanation = explanation("T1001").expect("T1001 should be registered");
+        assert!(explanation.body.contains("blocking `select {}`"));
+        assert!(explanation.body.contains("at least one `when channel as binding` arm"));
+    }
+
+    #[test]
+    fn invalid_input_explanation_covers_deferred_report_boundary() {
+        let explanation = explanation("T1001").expect("T1001 should be registered");
+        assert!(explanation.body.contains("`report` appears inside `dfr` or `edf`"));
+        assert!(explanation
+            .body
+            .contains("keep deferred bodies non-terminating"));
+    }
+
+    #[test]
+    fn invalid_input_explanation_covers_recoverable_eventual_obligations() {
+        let explanation = explanation("T1001").expect("T1001 should be registered");
+        assert!(explanation
+            .body
+            .contains("recoverable eventual is discarded"));
+        assert!(explanation.body.contains("left live at lexical fallthrough"));
+        assert!(explanation.body.contains("`break`"));
+        assert!(explanation.body.contains("`return`"));
+        assert!(explanation.body.contains("`report`"));
+        assert!(explanation.body.contains("overwritten"));
+        assert!(explanation
+            .body
+            .contains("transferring it carries the obligation"));
+        assert!(explanation.body.contains("await it exactly once"));
+        assert!(explanation.body.contains("`check(...)` or `||`"));
+    }
+
+    #[test]
+    fn unsupported_explanation_covers_v3_processor_boundaries() {
+        let explanation = explanation("T1002").expect("T1002 should be registered");
+        assert!(explanation.body.contains("any processor surface"));
+        assert!(explanation.body.contains("direct named routine call"));
+        assert!(explanation.body.contains("anonymous spawn form"));
+        assert!(explanation.body.contains("one receiver lifecycle"));
+        assert!(explanation.body.contains("forwards the handle"));
+        assert!(explanation.body.contains("implicitly captures an outer local"));
+        assert!(explanation
+            .body
+            .contains("cannot discharge a normal-path obligation"));
+        assert!(explanation.body.contains("V4/FFI boundary"));
+    }
+
+    #[test]
+    fn import_explanations_use_only_current_public_source_kinds() {
+        let missing = explanation("R1001").expect("R1001 should be registered");
+        assert!(missing.body.contains("declared bundled-std package"));
+        assert!(!missing.body.contains("`std`/`pkg`"));
+
+        let unsupported = explanation("R1002").expect("R1002 should be registered");
+        assert!(unsupported.body.contains("other than `loc` or `pkg`"));
+        assert!(unsupported.body.contains("quoted `pkg` import"));
+        assert!(!unsupported.body.contains("`loc`, `std`"));
+    }
+
+    #[test]
     fn lookup_is_case_insensitive() {
         let upper = explanation("T1003").expect("T1003 should resolve");
         let lower = explanation("t1003").expect("t1003 should resolve");
@@ -545,6 +708,7 @@ mod tests {
         assert_eq!(family_for_code("P1001").0, "PARSER");
         assert_eq!(family_for_code("R1003").0, "NAMES");
         assert_eq!(family_for_code("T1003").0, "TYPES");
+        assert_eq!(family_for_code("O1001").0, "OWNERSHIP");
         assert_eq!(family_for_code("L1001").0, "LOWERING");
         assert_eq!(family_for_code("K1001").0, "PACKAGE");
         assert_eq!(family_for_code("K1101").0, "PACKAGE");
@@ -561,7 +725,10 @@ mod tests {
             assert_eq!(code, code.to_ascii_uppercase(), "code must be uppercase");
             assert!(seen.insert(code), "duplicate registered code: {code}");
         }
-        assert!(seen.len() >= 30, "registry should cover the real code surface");
+        assert!(
+            seen.len() >= 30,
+            "registry should cover the real code surface"
+        );
     }
 
     #[test]

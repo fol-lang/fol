@@ -1,0 +1,6 @@
+fun[] main(): int = {
+    var[mut] owner: int = 7;
+    var[mut, bor] first: int = owner;
+    var[mut, bor] second: int = owner;
+    return 0;
+};

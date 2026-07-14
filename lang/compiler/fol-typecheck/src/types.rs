@@ -1,7 +1,7 @@
 use fol_parser::ast::AstNode;
 use std::{
     cmp::Ordering,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     hash::{Hash, Hasher},
 };
 
@@ -59,6 +59,10 @@ pub struct RoutineType {
     pub param_names: Vec<String>,
     pub param_defaults: Vec<Option<AstNode>>,
     pub variadic_index: Option<usize>,
+    /// Parameter positions that carry a mutex handle instead of an ordinary
+    /// by-value argument. Keeping this in the signature preserves the
+    /// capability across package mounts.
+    pub mutex_params: BTreeSet<usize>,
     pub params: Vec<CheckedTypeId>,
     pub return_type: Option<CheckedTypeId>,
     pub error_type: Option<CheckedTypeId>,
@@ -66,12 +70,12 @@ pub struct RoutineType {
 
 impl RoutineType {
     /// Which parameters carry a default. Part of the routine's callable
-    /// identity together with `param_names`: named-argument binding and
-    /// default filling both read the interned signature, so two routines
-    /// that differ only in parameter names or defaultedness must not
-    /// collapse to one interned type. The default *expressions* are not
-    /// hashable (`AstNode` is `PartialEq`-only), but the defaultedness
-    /// pattern is what call-arity binding depends on.
+    /// identity together with `param_names`, so routines that differ only in
+    /// parameter names or defaultedness must not collapse to one interned
+    /// type. Concrete default ASTs are declaration-owned on `TypedSymbol` and
+    /// are overlaid before named-call binding/lowering; equal callable shapes
+    /// may legitimately carry different expressions. The default expressions
+    /// are also not hashable (`AstNode` is `PartialEq`-only).
     fn default_flags(&self) -> Vec<bool> {
         self.param_defaults
             .iter()
@@ -85,6 +89,7 @@ impl PartialEq for RoutineType {
         self.generic_params == other.generic_params
             && self.generic_constraints == other.generic_constraints
             && self.variadic_index == other.variadic_index
+            && self.mutex_params == other.mutex_params
             && self.default_flags() == other.default_flags()
             && self.param_names == other.param_names
             && self.params == other.params
@@ -107,6 +112,7 @@ impl Ord for RoutineType {
             &self.generic_params,
             &self.generic_constraints,
             self.variadic_index,
+            &self.mutex_params,
             self.default_flags(),
             &self.param_names,
             &self.params,
@@ -117,6 +123,7 @@ impl Ord for RoutineType {
                 &other.generic_params,
                 &other.generic_constraints,
                 other.variadic_index,
+                &other.mutex_params,
                 other.default_flags(),
                 &other.param_names,
                 &other.params,
@@ -131,6 +138,7 @@ impl Hash for RoutineType {
         self.generic_params.hash(state);
         self.generic_constraints.hash(state);
         self.variadic_index.hash(state);
+        self.mutex_params.hash(state);
         self.default_flags().hash(state);
         self.param_names.hash(state);
         self.params.hash(state);
@@ -172,8 +180,29 @@ pub enum CheckedType {
         key_type: CheckedTypeId,
         value_type: CheckedTypeId,
     },
+    Channel {
+        element_type: CheckedTypeId,
+    },
+    ChannelSender {
+        element_type: CheckedTypeId,
+    },
+    Eventual {
+        value_type: CheckedTypeId,
+        error_type: Option<CheckedTypeId>,
+    },
     Optional {
         inner: CheckedTypeId,
+    },
+    Owned {
+        inner: CheckedTypeId,
+    },
+    Borrowed {
+        inner: CheckedTypeId,
+        mutable: bool,
+    },
+    Pointer {
+        target: CheckedTypeId,
+        shared: bool,
     },
     Error {
         inner: Option<CheckedTypeId>,
@@ -241,8 +270,42 @@ impl TypeTable {
                     format!("{name}[{rendered}]")
                 }
             }
+            Some(CheckedType::Channel { element_type }) => {
+                format!("chn[{}]", self.render_type(*element_type))
+            }
+            Some(CheckedType::ChannelSender { element_type }) => {
+                format!("chn[{}][tx]", self.render_type(*element_type))
+            }
+            Some(CheckedType::Eventual {
+                value_type,
+                error_type,
+            }) => match error_type {
+                Some(error_type) => format!(
+                    "<eventual {}/{}>",
+                    self.render_type(*value_type),
+                    self.render_type(*error_type)
+                ),
+                None => format!("<eventual {}>", self.render_type(*value_type)),
+            },
             Some(CheckedType::Optional { inner }) => {
                 format!("opt[{}]", self.render_type(*inner))
+            }
+            Some(CheckedType::Owned { inner }) => {
+                format!("@{}", self.render_type(*inner))
+            }
+            Some(CheckedType::Borrowed { inner, mutable }) => {
+                if *mutable {
+                    format!("bor[mut, {}]", self.render_type(*inner))
+                } else {
+                    format!("bor[{}]", self.render_type(*inner))
+                }
+            }
+            Some(CheckedType::Pointer { target, shared }) => {
+                if *shared {
+                    format!("ptr[shared, {}]", self.render_type(*target))
+                } else {
+                    format!("ptr[{}]", self.render_type(*target))
+                }
             }
             Some(CheckedType::Error { inner }) => inner
                 .map(|inner| format!("err[{}]", self.render_type(inner)))
@@ -284,10 +347,7 @@ impl TypeTable {
                     .map(|r| self.render_type(r))
                     .unwrap_or_else(|| "void".to_string());
                 match routine.error_type {
-                    Some(err) => format!(
-                        "fun({params}): {returns} / {}",
-                        self.render_type(err)
-                    ),
+                    Some(err) => format!("fun({params}): {returns} / {}", self.render_type(err)),
                     None => format!("fun({params}): {returns}"),
                 }
             }
@@ -366,6 +426,7 @@ mod tests {
             param_names: vec!["point".to_string(), "count".to_string()],
             param_defaults: vec![None, None],
             variadic_index: None,
+            mutex_params: std::collections::BTreeSet::new(),
             params: vec![declared, int_id],
             return_type: Some(declared),
             error_type: None,
@@ -433,6 +494,7 @@ mod tests {
             param_names: vec!["left".to_string(), "right".to_string()],
             param_defaults: vec![None, None],
             variadic_index: None,
+            mutex_params: std::collections::BTreeSet::new(),
             params: vec![int_id, str_id],
             return_type: Some(int_id),
             error_type: None,

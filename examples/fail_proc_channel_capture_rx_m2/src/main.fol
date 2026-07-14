@@ -1,0 +1,8 @@
+fun[] main(): int = {
+    var channel: chn[int];
+    [>]fun()[channel[tx]] = {
+        var stolen: int = channel[rx];
+        return;
+    };
+    return 0;
+};

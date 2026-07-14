@@ -1,4 +1,7 @@
-//! Heap-enabled, OS-free memo runtime tier surface.
+//! Source/API surface for the public heap-enabled `memo` tier, without hosted
+//! source services. A host-compatible memo binary may still be launched by
+//! the frontend; declaring bundled `standard` separately selects the effective
+//! hosted runtime tier and its source APIs.
 
 pub use crate::abi::{check_recoverable, recoverable_succeeded, FolRecover};
 pub use crate::aggregate::{
@@ -7,7 +10,7 @@ pub use crate::aggregate::{
 };
 pub use crate::builtins::{len, pow, pow_float, FolLength};
 pub use crate::containers::{
-    index_array, index_seq, index_vec, lookup_map, render_array, render_map, render_seq,
+    index_array, index_seq, index_set, index_vec, lookup_map, render_array, render_map, render_seq,
     render_set, render_vec, slice_seq, slice_vec, FolArray,
 };
 pub use crate::shell::{

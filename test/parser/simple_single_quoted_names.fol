@@ -7,5 +7,5 @@ use 'warn': mod = {'std/warn'};
 var 'state': str = ready;
 
 fun demo() = {
-    let 'count': int = 1;
+    var[imu] 'count': int = 1;
 };

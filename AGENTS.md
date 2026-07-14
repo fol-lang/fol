@@ -41,7 +41,8 @@ labels.
 Meaning:
 
 - no heap
-- no hosted OS/runtime services
+- no source-level hosted OS/runtime APIs
+- executable artifacts are allowed
 
 Expected surface:
 
@@ -49,7 +50,7 @@ Expected surface:
 - arrays
 - records and entries
 - ordinary routines and method sugar
-- `defer`
+- `dfr`
 - optional and error shells
 - array `.len(...)`
 
@@ -67,7 +68,8 @@ Forbidden examples:
 Meaning:
 
 - heap-backed runtime facilities
-- still no hosted runtime services
+- still no source-level hosted runtime APIs
+- executable artifacts are allowed
 
 Expected surface:
 
@@ -80,16 +82,30 @@ Expected surface:
 - dynamic/string `.len(...)`
 
 Still forbidden (unless the bundled internal `standard` dependency is
-declared, which upgrades the effective tier to hosted):
+declared, which upgrades the effective API tier to hosted):
 
 - `.echo(...)`
-- host-executed `run` / `test` assumptions
+- processor and other hosted language APIs
 
 Practical rule:
 
 - start with `core`
 - move to `memo` only when heap-backed values are actually needed
 - add bundled `std` only when shipped hosted-library wrappers are actually needed
+
+Execution rule:
+
+- `core` and `memo` executables may be built, run, and tested without bundled
+  `std`
+- bundled `std` gates source-visible hosted APIs; it does not grant permission
+  to execute an artifact
+- cross-target execution still requires an appropriate runner; bundled `std`
+  does not make a foreign target executable on the build host
+- the frontend launching a host-compatible executable, compiler, linker, or
+  other system tool is build-host behavior and is orthogonal to `fol_model`
+- generated recoverable entry wrappers use the shared backend-only
+  `fol_runtime::process` adapter; that adapter is not re-exported as a
+  `core`, `memo`, or `std` source capability
 
 Important:
 
@@ -154,7 +170,7 @@ These crates define executable behavior:
 
 Key current rule:
 
-- `fol-runtime` is one crate with internal `core`, heap, and `std` modules
+- `fol-runtime` is one crate with internal `core`, `memo`, and `std` modules
 - `fol-backend` must emit against the correct runtime tier
 - `fol-build` owns the `build.fol` graph/eval surface
 
@@ -262,7 +278,7 @@ Examples of current V1 material:
 - routines and current call binding
 - method sugar for records
 - recoverable errors
-- narrow `defer`
+- narrow `dfr`
 - current runtime-model split
 - current build system surface
 
@@ -273,13 +289,14 @@ References:
 
 - `book/src/500_items/200_routines/_index.md`
 - `book/src/650_errors/200_recover.md`
-- `book/src/700_sugar/250_defer.md`
+- `book/src/700_sugar/250_dfr.md`
 - `book/src/300_meta/100_buildin.md`
 
 ### `V2`
 
-This is later language expressiveness and contract work, not current compiler
-surface.
+Broader V2 expressiveness and contract work remains later design, but the
+bounded Milestone 1 and Milestone 2 subset listed below is shipped current
+compiler surface.
 
 Examples already marked as V2-oriented in the book:
 
@@ -340,16 +357,46 @@ Current landed subset note:
 
 ### `V3`
 
-This is later systems/runtime work.
+This is the current shipped systems/runtime milestone. It has two complete
+pillars:
 
-Examples already marked as V3-oriented in the book:
+- memory: ownership, lexical borrowing, typed unique/shared pointers, and
+  ownership-aware `dfr` / `edf`
+- processor: OS-thread spawn, channels, `select`, `[mux]`, and internal
+  eventuals through `| async` / `| await`
 
-- ownership
-- borrowing
-- pointers
-- async/eventuals
-- coroutines/channels/mutex-style processor work
-- richer ownership-aware `defer`
+Current deliberate V3 boundaries include:
+
+- dereferencing a unique pointer reached through a record field is rejected
+  until lowering has place-aware projection IR
+- a moved owner cannot be reinitialized inside `dfr` or `edf`, because the
+  delayed assignment has not happened when the deferred body is registered
+- deferred bodies cannot contain `return`, `break`, `report`, or `panic`,
+  because cleanup cannot initiate another exit while an exit is being replayed
+- spawn and async task calls must target direct named routine declarations;
+  stored routine values and routine parameters are indirect and are not task
+  targets, and receiver-method syntax is excluded from the task-target surface
+- nested routine bodies cannot implicitly capture outer locals; values needed by
+  the nested routine must be passed through declared parameters; the only
+  shipped explicit capture form is the channel sender-endpoint form on an
+  anonymous spawn
+- recoverable eventuals must be awaited and handled before fallthrough or before
+  `break`, `return`, or `report` leaves their live scope; at a branch join, all
+  continuing paths must leave a compatible state by preserving the same owner,
+  transferring consistently, or discharging the obligation. Discard, live
+  overwrite, and an exit with a live obligation are rejected
+- `| await` and access to an existing eventual binding are rejected inside
+  `edf`, because error-only cleanup cannot discharge eventual ownership on
+  normal exits
+- deferred bodies cannot access mutex fields, call `.lock()` / `.unlock()`, or
+  forward a mutex handle to another `[mux]` routine
+
+V3 work is incomplete unless the whole shipped surface is synchronized across
+compiler semantics, lowering, runtime/backend, frontend routing, diagnostics,
+formatter and tool commands, LSP, tree-sitter grammar/queries/corpus, examples,
+tests, docs, and the book.
+The editor must reuse compiler truth for semantic behavior, but its explicit
+syntax, completion, token, inventory, and UX mirrors still have to be audited.
 
 References:
 
@@ -357,7 +404,7 @@ References:
 - `book/src/800_memory/200_pointers.md`
 - `book/src/900_processor/100_eventuals.md`
 - `book/src/900_processor/200_corutines.md`
-- `book/src/700_sugar/250_defer.md`
+- `book/src/700_sugar/250_dfr.md`
 
 ### `V4`
 
@@ -377,10 +424,11 @@ References:
 
 When implementing or reviewing a feature:
 
-- confirm whether the book presents it as current V1 or later V2/V3/V4 design
-- if it is later-version material, do not silently implement it as part of V1
-- if V1 is chosen explicitly, update code, tests, docs, editor, and examples
-  together
+- confirm whether the book presents it as current V1, the shipped bounded V2
+  subset, shipped V3, or future V4 design
+- do not silently move a feature into a different version contract
+- for whichever shipped version owns the feature, update code, tests, docs,
+  editor, and examples together
 
 ## Legacy Policy
 

@@ -3,10 +3,321 @@ use crate::{
     TypedProgram,
 };
 use fol_parser::ast::{AstNode, SyntaxNodeId, SyntaxOrigin};
-use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
-use std::collections::{BTreeSet, VecDeque};
+use fol_resolver::{
+    ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind,
+};
+use std::collections::BTreeSet;
 
 use super::{ErrorCallMode, TypeContext, TypedExpr};
+
+pub(crate) fn require_direct_channel_binding(
+    resolved: &ResolvedProgram,
+    reference_scope: ScopeId,
+    channel: &AstNode,
+) -> Result<(), TypecheckError> {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = strip_comments(channel)
+    else {
+        return Err(with_node_origin(
+            resolved,
+            channel,
+            TypecheckErrorKind::Unsupported,
+            "channel endpoint access requires a direct local, parameter, or capture binding in V3; projected fields and container elements are not supported",
+        ));
+    };
+    let Some(symbol) = resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id)
+                && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+        .and_then(|symbol| resolved.symbol(symbol))
+    else {
+        return Err(with_node_origin(
+            resolved,
+            channel,
+            TypecheckErrorKind::Unsupported,
+            "channel endpoint access requires a resolved routine-local binding in V3",
+        ));
+    };
+    let local_kind = matches!(
+        symbol.kind,
+        SymbolKind::ValueBinding
+            | SymbolKind::LabelBinding
+            | SymbolKind::DestructureBinding
+            | SymbolKind::Parameter
+            | SymbolKind::Capture
+            | SymbolKind::LoopBinder
+            | SymbolKind::RollingBinder
+    );
+    let nearest_routine = |mut scope: Option<ScopeId>| {
+        while let Some(scope_id) = scope {
+            let resolved_scope = resolved.scope(scope_id)?;
+            if matches!(resolved_scope.kind, fol_resolver::ScopeKind::Routine) {
+                return Some(scope_id);
+            }
+            scope = resolved_scope.parent;
+        }
+        None
+    };
+    let symbol_routine = nearest_routine(Some(symbol.scope));
+    let reference_routine = nearest_routine(Some(reference_scope));
+    if local_kind && symbol_routine.is_some() && symbol_routine == reference_routine {
+        return Ok(());
+    }
+    Err(with_node_origin(
+        resolved,
+        channel,
+        TypecheckErrorKind::Unsupported,
+        "channel endpoint access requires a direct binding owned by the current routine in V3; outer-routine and global channel values are not supported",
+    ))
+}
+
+pub(crate) fn type_embeds_full_channel(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> bool {
+    fn embeds(
+        typed: &TypedProgram,
+        type_id: CheckedTypeId,
+        root: bool,
+        visiting: &mut BTreeSet<CheckedTypeId>,
+    ) -> bool {
+        if !visiting.insert(type_id) {
+            return false;
+        }
+        let result = if let Some(apparent) = typed.apparent_type_override(type_id) {
+            embeds(typed, apparent, root, visiting)
+        } else {
+            match typed.type_table().get(type_id) {
+                Some(CheckedType::Channel { element_type }) => {
+                    !root || embeds(typed, *element_type, false, visiting)
+                }
+                Some(CheckedType::ChannelSender { element_type }) => {
+                    embeds(typed, *element_type, false, visiting)
+                }
+                Some(CheckedType::Declared { symbol, args, .. }) => {
+                    args.iter()
+                        .any(|arg| embeds(typed, *arg, false, visiting))
+                        || typed
+                            .typed_symbol(*symbol)
+                            .and_then(|symbol| symbol.declared_type)
+                            .is_some_and(|declared| embeds(typed, declared, root, visiting))
+                }
+                Some(CheckedType::Record { fields }) => fields
+                    .values()
+                    .any(|field| embeds(typed, *field, false, visiting)),
+                Some(CheckedType::Entry { variants }) => variants
+                    .values()
+                    .flatten()
+                    .any(|variant| embeds(typed, *variant, false, visiting)),
+                Some(CheckedType::Array { element_type, .. })
+                | Some(CheckedType::Vector { element_type })
+                | Some(CheckedType::Sequence { element_type }) => {
+                    embeds(typed, *element_type, false, visiting)
+                }
+                Some(CheckedType::Set { member_types }) => member_types
+                    .iter()
+                    .any(|member| embeds(typed, *member, false, visiting)),
+                Some(CheckedType::Map {
+                    key_type,
+                    value_type,
+                }) => {
+                    embeds(typed, *key_type, false, visiting)
+                        || embeds(typed, *value_type, false, visiting)
+                }
+                Some(CheckedType::Optional { inner })
+                | Some(CheckedType::Owned { inner })
+                | Some(CheckedType::Borrowed { inner, .. })
+                | Some(CheckedType::Pointer { target: inner, .. }) => {
+                    embeds(typed, *inner, false, visiting)
+                }
+                Some(CheckedType::Error { inner }) => inner
+                    .is_some_and(|inner| embeds(typed, inner, false, visiting)),
+                Some(CheckedType::Eventual {
+                    value_type,
+                    error_type,
+                }) => {
+                    embeds(typed, *value_type, false, visiting)
+                        || error_type
+                            .is_some_and(|error| embeds(typed, error, false, visiting))
+                }
+                Some(CheckedType::Builtin(_))
+                | Some(CheckedType::Routine(_))
+                | None => false,
+            }
+        };
+        visiting.remove(&type_id);
+        result
+    }
+
+    embeds(typed, type_id, true, &mut BTreeSet::new())
+}
+
+pub(crate) fn reject_embedded_full_channel(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    if !type_embeds_full_channel(typed, type_id) {
+        return Ok(());
+    }
+    let message = "full chn[T] values cannot be embedded in aggregate or wrapper types in V3; keep channels as direct routine-local bindings or named-routine parameters";
+    Err(origin.map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+        |origin| TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+    ))
+}
+
+pub(crate) fn type_contains_shared_pointer(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> bool {
+    fn contains(
+        typed: &TypedProgram,
+        type_id: CheckedTypeId,
+        visiting: &mut BTreeSet<CheckedTypeId>,
+    ) -> bool {
+        if !visiting.insert(type_id) {
+            return false;
+        }
+        let result = if let Some(apparent) = typed.apparent_type_override(type_id) {
+            contains(typed, apparent, visiting)
+        } else {
+            match typed.type_table().get(type_id) {
+                Some(CheckedType::Pointer { shared: true, .. }) => true,
+                Some(CheckedType::Pointer { target, .. }) => contains(typed, *target, visiting),
+                Some(CheckedType::Declared { symbol, args, .. }) => {
+                    args.iter().any(|arg| contains(typed, *arg, visiting))
+                        || typed
+                            .typed_symbol(*symbol)
+                            .and_then(|symbol| symbol.declared_type)
+                            .is_some_and(|declared| contains(typed, declared, visiting))
+                }
+                Some(CheckedType::Record { fields }) => fields
+                    .values()
+                    .any(|field| contains(typed, *field, visiting)),
+                Some(CheckedType::Entry { variants }) => variants
+                    .values()
+                    .flatten()
+                    .any(|variant| contains(typed, *variant, visiting)),
+                Some(CheckedType::Array { element_type, .. })
+                | Some(CheckedType::Vector { element_type })
+                | Some(CheckedType::Sequence { element_type })
+                | Some(CheckedType::Channel { element_type })
+                | Some(CheckedType::ChannelSender { element_type }) => {
+                    contains(typed, *element_type, visiting)
+                }
+                Some(CheckedType::Set { member_types }) => member_types
+                    .iter()
+                    .any(|member| contains(typed, *member, visiting)),
+                Some(CheckedType::Map {
+                    key_type,
+                    value_type,
+                }) => {
+                    contains(typed, *key_type, visiting)
+                        || contains(typed, *value_type, visiting)
+                }
+                Some(CheckedType::Optional { inner })
+                | Some(CheckedType::Owned { inner })
+                | Some(CheckedType::Borrowed { inner, .. }) => contains(typed, *inner, visiting),
+                Some(CheckedType::Error { inner }) => {
+                    inner.is_some_and(|inner| contains(typed, inner, visiting))
+                }
+                Some(CheckedType::Eventual {
+                    value_type,
+                    error_type,
+                }) => {
+                    contains(typed, *value_type, visiting)
+                        || error_type.is_some_and(|error| contains(typed, error, visiting))
+                }
+                Some(CheckedType::Builtin(_))
+                | Some(CheckedType::Routine(_))
+                | None => false,
+            }
+        };
+        visiting.remove(&type_id);
+        result
+    }
+
+    contains(typed, type_id, &mut BTreeSet::new())
+}
+
+pub(crate) fn type_contains_borrowed(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    fn contains(
+        typed: &TypedProgram,
+        type_id: CheckedTypeId,
+        visiting: &mut BTreeSet<CheckedTypeId>,
+    ) -> bool {
+        if !visiting.insert(type_id) {
+            return false;
+        }
+        let result = if let Some(apparent) = typed.apparent_type_override(type_id) {
+            contains(typed, apparent, visiting)
+        } else {
+            match typed.type_table().get(type_id) {
+                Some(CheckedType::Borrowed { .. }) => true,
+                Some(CheckedType::Declared { symbol, args, .. }) => {
+                    args.iter().any(|arg| contains(typed, *arg, visiting))
+                        || typed
+                            .typed_symbol(*symbol)
+                            .and_then(|symbol| symbol.declared_type)
+                            .is_some_and(|declared| contains(typed, declared, visiting))
+                }
+                Some(CheckedType::Record { fields }) => fields
+                    .values()
+                    .any(|field| contains(typed, *field, visiting)),
+                Some(CheckedType::Entry { variants }) => variants
+                    .values()
+                    .flatten()
+                    .any(|variant| contains(typed, *variant, visiting)),
+                Some(CheckedType::Array { element_type, .. })
+                | Some(CheckedType::Vector { element_type })
+                | Some(CheckedType::Sequence { element_type })
+                | Some(CheckedType::Channel { element_type })
+                | Some(CheckedType::ChannelSender { element_type }) => {
+                    contains(typed, *element_type, visiting)
+                }
+                Some(CheckedType::Set { member_types }) => member_types
+                    .iter()
+                    .any(|member| contains(typed, *member, visiting)),
+                Some(CheckedType::Map {
+                    key_type,
+                    value_type,
+                }) => {
+                    contains(typed, *key_type, visiting)
+                        || contains(typed, *value_type, visiting)
+                }
+                Some(CheckedType::Optional { inner })
+                | Some(CheckedType::Owned { inner })
+                | Some(CheckedType::Pointer { target: inner, .. }) => {
+                    contains(typed, *inner, visiting)
+                }
+                Some(CheckedType::Error { inner }) => {
+                    inner.is_some_and(|inner| contains(typed, inner, visiting))
+                }
+                Some(CheckedType::Eventual {
+                    value_type,
+                    error_type,
+                }) => {
+                    contains(typed, *value_type, visiting)
+                        || error_type.is_some_and(|error| contains(typed, error, visiting))
+                }
+                Some(CheckedType::Builtin(_))
+                | Some(CheckedType::Routine(_))
+                | None => false,
+            }
+        };
+        visiting.remove(&type_id);
+        result
+    }
+
+    contains(typed, type_id, &mut BTreeSet::new())
+}
 
 pub(crate) fn observe_context(context: TypeContext) -> TypeContext {
     TypeContext {
@@ -24,9 +335,148 @@ pub(crate) fn reject_recoverable_plain_use(
         "{usage} cannot use '/ ErrorType' routine results as plain values in V1; handle them immediately with '||' or check(...), or use err[...] when you need a storable value"
     );
     Err(match origin {
-        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin),
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+        }
         None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
     })
+}
+
+pub(crate) fn is_recoverable_eventual_type(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    matches!(
+        typed.type_table().get(type_id),
+        Some(CheckedType::Eventual {
+            error_type: Some(_),
+            ..
+        })
+    )
+}
+
+pub(crate) fn reject_discarded_recoverable_eventual(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    if !is_recoverable_eventual_type(typed, type_id) {
+        return Ok(());
+    }
+    let message = "discarding a recoverable eventual loses its error; bind it, await it, and handle the result with '||' or check(...)";
+    Err(origin.map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+        |origin| TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin),
+    ))
+}
+
+fn recoverable_eventual_exit_error(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    predicate: impl Fn(&crate::model::RecoverableEventualObligation) -> bool,
+    exit_origin: Option<SyntaxOrigin>,
+    boundary: &str,
+) -> Result<(), TypecheckError> {
+    let outstanding = typed
+        .recoverable_eventual_obligations()
+        .find(|(_, obligation)| predicate(obligation))
+        .map(|(symbol, obligation)| (symbol, obligation.clone()));
+    let Some((symbol, obligation)) = outstanding else {
+        return Ok(());
+    };
+    let name = resolved
+        .symbol(symbol)
+        .map(|symbol| symbol.name.as_str())
+        .unwrap_or("<unknown>");
+    let message = format!(
+        "recoverable eventual binding '{name}' must be awaited and handled with '||' or check(...) before {boundary}"
+    );
+    let primary = exit_origin.clone().or_else(|| obligation.origin.clone());
+    let mut error = primary.map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::InvalidInput, message.clone()),
+        |origin| {
+            TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message.clone(), origin)
+        },
+    );
+    if let (Some(exit_origin), Some(origin)) = (exit_origin.as_ref(), obligation.origin) {
+        if exit_origin != &origin {
+            error = error.with_related_origin(origin, "recoverable eventual created here");
+        }
+    }
+    Err(error)
+}
+
+pub(crate) fn reject_recoverable_eventuals_in_scope(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    scope: ScopeId,
+) -> Result<(), TypecheckError> {
+    recoverable_eventual_exit_error(
+        typed,
+        resolved,
+        |obligation| obligation.owner_scope == scope,
+        None,
+        "leaving its lexical scope",
+    )
+}
+
+pub(crate) fn nearest_routine_scope(
+    resolved: &ResolvedProgram,
+    mut scope: ScopeId,
+) -> Option<ScopeId> {
+    loop {
+        let resolved_scope = resolved.scope(scope)?;
+        if resolved_scope.kind == fol_resolver::ScopeKind::Routine {
+            return Some(scope);
+        }
+        scope = resolved_scope.parent?;
+    }
+}
+
+pub(crate) fn reject_all_recoverable_eventuals(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    current_scope: ScopeId,
+    exit_origin: Option<SyntaxOrigin>,
+    boundary: &str,
+) -> Result<(), TypecheckError> {
+    let current_routine = nearest_routine_scope(resolved, current_scope);
+    recoverable_eventual_exit_error(
+        typed,
+        resolved,
+        |obligation| {
+            nearest_routine_scope(resolved, obligation.owner_scope) == current_routine
+        },
+        exit_origin,
+        boundary,
+    )
+}
+
+pub(crate) fn reject_recoverable_eventuals_leaving_scope(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    ancestor: ScopeId,
+    exit_origin: Option<SyntaxOrigin>,
+    boundary: &str,
+) -> Result<(), TypecheckError> {
+    recoverable_eventual_exit_error(
+        typed,
+        resolved,
+        |obligation| {
+            let mut obligation_scope = obligation.activation_scope;
+            loop {
+                if obligation_scope == ancestor {
+                    break true;
+                }
+                let Some(parent) = resolved
+                    .scope(obligation_scope)
+                    .and_then(|scope| scope.parent)
+                else {
+                    break false;
+                };
+                obligation_scope = parent;
+            }
+        },
+        exit_origin,
+        boundary,
+    )
 }
 
 pub(crate) fn merge_recoverable_effects(
@@ -95,6 +545,9 @@ pub(crate) fn apparent_type_id(
             continue;
         }
         match typed.type_table().get(current) {
+            Some(CheckedType::Owned { inner }) | Some(CheckedType::Borrowed { inner, .. }) => {
+                current = *inner;
+            }
             Some(CheckedType::Declared { symbol, .. }) => {
                 if !seen.insert(*symbol) {
                     return Err(TypecheckError::new(
@@ -118,6 +571,24 @@ pub(crate) fn apparent_type_id(
     }
 }
 
+pub(crate) fn channel_element_type(
+    typed: &TypedProgram,
+    channel_type: CheckedTypeId,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let apparent = apparent_type_id(typed, channel_type)?;
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Channel { element_type })
+        | Some(CheckedType::ChannelSender { element_type }) => Ok(*element_type),
+        _ => Err(TypecheckError::new(
+            TypecheckErrorKind::InvalidInput,
+            format!(
+                "channel endpoint access requires chn[T], got '{}'",
+                describe_type(typed, channel_type)
+            ),
+        )),
+    }
+}
+
 pub(crate) fn expected_nil_shell_type(
     typed: &TypedProgram,
     expected_type: Option<CheckedTypeId>,
@@ -130,6 +601,27 @@ pub(crate) fn expected_nil_shell_type(
         Some(CheckedType::Optional { .. }) | Some(CheckedType::Error { .. }) => Some(expected_type),
         _ => None,
     })
+}
+
+pub(crate) fn channel_receiver_element_type(
+    typed: &TypedProgram,
+    channel_type: CheckedTypeId,
+) -> Result<CheckedTypeId, TypecheckError> {
+    let apparent = apparent_type_id(typed, channel_type)?;
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Channel { element_type }) => Ok(*element_type),
+        Some(CheckedType::ChannelSender { .. }) => Err(TypecheckError::new(
+            TypecheckErrorKind::Ownership,
+            "sender-only channel endpoints cannot receive; keep the single receiver in the owning routine",
+        )),
+        _ => Err(TypecheckError::new(
+            TypecheckErrorKind::InvalidInput,
+            format!(
+                "channel receive requires chn[T], got '{}'",
+                describe_type(typed, channel_type)
+            ),
+        )),
+    }
 }
 
 pub(crate) fn is_error_shell_type(
@@ -179,7 +671,10 @@ pub(crate) fn unwrap_shell_result_type(
     })
 }
 
-pub(crate) fn origin_for(resolved: &ResolvedProgram, syntax_id: SyntaxNodeId) -> Option<SyntaxOrigin> {
+pub(crate) fn origin_for(
+    resolved: &ResolvedProgram,
+    syntax_id: SyntaxNodeId,
+) -> Option<SyntaxOrigin> {
     resolved.syntax_index().origin(syntax_id).cloned()
 }
 
@@ -199,15 +694,13 @@ pub(crate) fn inline_body_block_scope(
         collect_syntax_ids(node, &mut syntax_ids);
     }
 
-    let descends_from_parent = |mut scope_id: ScopeId| -> bool {
+    let direct_child_below_parent = |mut scope_id: ScopeId| -> Option<ScopeId> {
         loop {
-            if scope_id == parent_scope_id {
-                return true;
+            let parent = resolved.scope(scope_id)?.parent?;
+            if parent == parent_scope_id {
+                return Some(scope_id);
             }
-            match resolved.scope(scope_id).and_then(|scope| scope.parent) {
-                Some(parent) => scope_id = parent,
-                None => return false,
-            }
+            scope_id = parent;
         }
     };
 
@@ -228,35 +721,52 @@ pub(crate) fn inline_body_block_scope(
         if symbol.source_unit != source_unit_id {
             continue;
         }
-        let Some(scope) = resolved.scope(symbol.scope) else {
+        let Some(body_scope_id) = direct_child_below_parent(symbol.scope) else {
             continue;
         };
-        if scope.kind == fol_resolver::ScopeKind::Block
-            && symbol.scope != parent_scope_id
-            && descends_from_parent(symbol.scope)
+        if resolved
+            .scope(body_scope_id)
+            .is_some_and(|scope| scope.kind == fol_resolver::ScopeKind::Block)
         {
-            candidate_scopes.insert(symbol.scope);
+            candidate_scopes.insert(body_scope_id);
         }
     }
 
     // A body's own bindings pin its scope even when nothing references them.
+    // Bind through the declaration's exact syntax origin: sibling bodies may
+    // legally declare the same name, so descendant name searches are
+    // inherently ambiguous here.
     for node in body {
-        let (name, kind) = match node {
-            AstNode::VarDecl { name, .. } => (name.as_str(), SymbolKind::ValueBinding),
-            AstNode::LabDecl { name, .. } => (name.as_str(), SymbolKind::LabelBinding),
+        let (name, kind, syntax_id) = match node {
+            AstNode::VarDecl {
+                name, syntax_id, ..
+            } => (name.as_str(), SymbolKind::ValueBinding, *syntax_id),
+            AstNode::LabDecl {
+                name, syntax_id, ..
+            } => (name.as_str(), SymbolKind::LabelBinding, *syntax_id),
             _ => continue,
         };
+        let Some(declaration_origin) =
+            syntax_id.and_then(|syntax_id| resolved.syntax_index().origin(syntax_id))
+        else {
+            continue;
+        };
         for symbol in resolved.symbols.iter() {
-            if symbol.source_unit == source_unit_id
-                && symbol.kind == kind
-                && symbol.name == name
-                && symbol.scope != parent_scope_id
-                && resolved
-                    .scope(symbol.scope)
-                    .is_some_and(|scope| scope.kind == fol_resolver::ScopeKind::Block)
-                && descends_from_parent(symbol.scope)
+            if symbol.source_unit != source_unit_id
+                || symbol.kind != kind
+                || symbol.name != name
+                || symbol.origin.as_ref() != Some(declaration_origin)
             {
-                candidate_scopes.insert(symbol.scope);
+                continue;
+            }
+            let Some(body_scope_id) = direct_child_below_parent(symbol.scope) else {
+                continue;
+            };
+            if resolved
+                .scope(body_scope_id)
+                .is_some_and(|scope| scope.kind == fol_resolver::ScopeKind::Block)
+            {
+                candidate_scopes.insert(body_scope_id);
             }
         }
     }
@@ -264,78 +774,29 @@ pub(crate) fn inline_body_block_scope(
     single_scope(candidate_scopes)
 }
 
-pub(crate) fn loop_binder_scope(
+pub(crate) fn loop_body_scope(
     resolved: &ResolvedProgram,
-    source_unit_id: SourceUnitId,
-    parent_scope_id: ScopeId,
-    binder_name: &str,
-    condition: &Option<Box<AstNode>>,
-    body: &[AstNode],
+    syntax_id: Option<SyntaxNodeId>,
 ) -> Result<ScopeId, TypecheckError> {
-    let mut syntax_ids = BTreeSet::new();
-    if let Some(condition) = condition.as_deref() {
-        collect_syntax_ids(condition, &mut syntax_ids);
-    }
-    for node in body {
-        collect_syntax_ids(node, &mut syntax_ids);
-    }
-
-    let mut referenced_scopes = BTreeSet::new();
-    for reference in resolved.references.iter() {
-        let Some(syntax_id) = reference.syntax_id else {
-            continue;
-        };
-        if !syntax_ids.contains(&syntax_id) {
-            continue;
-        }
-        let Some(symbol_id) = reference.resolved else {
-            continue;
-        };
-        let Some(symbol) = resolved.symbol(symbol_id) else {
-            continue;
-        };
-        if symbol.source_unit == source_unit_id
-            && symbol.kind == SymbolKind::LoopBinder
-            && symbol.name == binder_name
-        {
-            referenced_scopes.insert(symbol.scope);
-        }
-    }
-
-    if let Some(scope_id) = single_scope(referenced_scopes) {
-        return Ok(scope_id);
-    }
-
-    let mut queue = VecDeque::from([parent_scope_id]);
-    let mut matched_scopes = BTreeSet::new();
-    while let Some(scope_id) = queue.pop_front() {
-        for (child_scope_id, child_scope) in resolved.scopes.iter_with_ids() {
-            if child_scope.parent != Some(scope_id)
-                || child_scope.source_unit != Some(source_unit_id)
-            {
-                continue;
-            }
-            queue.push_back(child_scope_id);
-            if child_scope.kind != fol_resolver::ScopeKind::LoopBinder {
-                continue;
-            }
-            if resolved.symbols.iter().any(|symbol| {
-                symbol.source_unit == source_unit_id
-                    && symbol.scope == child_scope_id
-                    && symbol.kind == SymbolKind::LoopBinder
-                    && symbol.name == binder_name
-            }) {
-                matched_scopes.insert(child_scope_id);
-            }
-        }
-    }
-
-    single_scope(matched_scopes).ok_or_else(|| {
-        TypecheckError::new(
-            TypecheckErrorKind::Internal,
-            format!("could not uniquely recover the loop binder scope for '{binder_name}'"),
+    let syntax_id = syntax_id.ok_or_else(|| {
+        internal_error("loop syntax anchor disappeared before typechecking", None)
+    })?;
+    let scope_id = resolved.scope_for_syntax(syntax_id).ok_or_else(|| {
+        internal_error("resolved loop body scope disappeared before typechecking", None)
+    })?;
+    let valid = resolved.scope(scope_id).is_some_and(|scope| {
+        matches!(
+            scope.kind,
+            fol_resolver::ScopeKind::Block | fol_resolver::ScopeKind::LoopBinder
         )
-    })
+    });
+    if !valid {
+        return Err(internal_error(
+            "resolved loop syntax anchor does not point at a loop body scope",
+            None,
+        ));
+    }
+    Ok(scope_id)
 }
 
 fn single_scope(scopes: BTreeSet<ScopeId>) -> Option<ScopeId> {
@@ -489,27 +950,41 @@ pub(crate) fn is_v1_assignable(
     }
 
     Ok(match typed.type_table().get(expected_apparent) {
-        Some(CheckedType::Optional { inner }) if *inner == actual_apparent => true,
-        Some(CheckedType::Error { inner: Some(inner) }) if *inner == actual_apparent => true,
+        Some(CheckedType::ChannelSender {
+            element_type: expected_element,
+        }) => matches!(
+            typed.type_table().get(actual_apparent),
+            Some(CheckedType::Channel {
+                element_type: actual_element,
+            }) if actual_element == expected_element
+        ),
+        Some(CheckedType::Owned { inner }) if *inner == actual_apparent => true,
+        Some(CheckedType::Optional { inner }) => {
+            apparent_type_id(typed, *inner)? == actual_apparent
+        }
+        Some(CheckedType::Error { inner: Some(inner) }) => {
+            apparent_type_id(typed, *inner)? == actual_apparent
+        }
         // Routine values are compatible on their callable SHAPE. Parameter
         // names and defaultedness are per-declaration metadata (they are
         // part of the interned identity so named-argument binding stays
         // correct), but they must not block passing one routine where a
         // same-shaped routine type is expected.
-        Some(CheckedType::Routine(expected_routine)) => match typed
-            .type_table()
-            .get(actual_apparent)
-        {
-            Some(CheckedType::Routine(actual_routine)) => {
-                expected_routine.params == actual_routine.params
-                    && expected_routine.return_type == actual_routine.return_type
-                    && expected_routine.error_type == actual_routine.error_type
-                    && expected_routine.variadic_index == actual_routine.variadic_index
-                    && expected_routine.generic_params == actual_routine.generic_params
-                    && expected_routine.generic_constraints == actual_routine.generic_constraints
+        Some(CheckedType::Routine(expected_routine)) => {
+            match typed.type_table().get(actual_apparent) {
+                Some(CheckedType::Routine(actual_routine)) => {
+                    expected_routine.params == actual_routine.params
+                        && expected_routine.return_type == actual_routine.return_type
+                        && expected_routine.error_type == actual_routine.error_type
+                        && expected_routine.variadic_index == actual_routine.variadic_index
+                        && expected_routine.mutex_params == actual_routine.mutex_params
+                        && expected_routine.generic_params == actual_routine.generic_params
+                        && expected_routine.generic_constraints
+                            == actual_routine.generic_constraints
+                }
+                _ => false,
             }
-            _ => false,
-        },
+        }
         _ => false,
     })
 }
@@ -610,16 +1085,54 @@ pub(crate) fn ensure_assignable_target(
             }
             Ok(())
         }
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::Deref,
+            operand,
+        } => {
+            let name = match strip_comments(operand) {
+                AstNode::Identifier { name, .. } => name.as_str(),
+                _ => {
+                    return Err(TypecheckError::new(
+                        TypecheckErrorKind::InvalidInput,
+                        "dereference assignment requires a pointer binding identifier",
+                    ))
+                }
+            };
+            ensure_binding_reassignable(typed, resolved, source_unit_id, scope_id, name)?;
+            let pointer_type = find_symbol_in_scope_chain(
+                resolved,
+                source_unit_id,
+                scope_id,
+                name,
+                SymbolKind::ValueBinding,
+            )
+            .and_then(|symbol| typed.typed_symbol(symbol))
+            .and_then(|symbol| symbol.declared_type)
+            .and_then(|type_id| typed.type_table().get(type_id));
+            match pointer_type {
+                Some(CheckedType::Pointer { shared: false, .. }) => Ok(()),
+                Some(CheckedType::Pointer { shared: true, .. }) => Err(with_node_origin(
+                    resolved,
+                    target,
+                    TypecheckErrorKind::InvalidInput,
+                    "cannot write through ptr[shared, T]; shared pointers are read-only",
+                )),
+                _ => Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    "dereference assignment requires a pointer binding",
+                )),
+            }
+        }
         _ => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
             "assignment targets must currently be plain identifiers, qualified identifiers, \
-             or a field of a mutable record binding",
+             a field of a mutable record binding, or a unique-pointer dereference",
         )),
     }
 }
 
 /// Reject whole-binding reassignment of immutable value/label bindings
-/// (`con`/`let`/`lab`). Targets that do not resolve to a value/label binding
+/// (`con`/`var[imu]`/`lab`). Targets that do not resolve to a value/label binding
 /// in the scope chain keep the previous permissive behavior.
 fn ensure_binding_reassignable(
     typed: &TypedProgram,
@@ -630,9 +1143,7 @@ fn ensure_binding_reassignable(
 ) -> Result<(), TypecheckError> {
     let known_immutable = [SymbolKind::ValueBinding, SymbolKind::LabelBinding]
         .into_iter()
-        .find_map(|kind| {
-            find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind)
-        })
+        .find_map(|kind| find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind))
         .and_then(|symbol_id| typed.typed_symbol(symbol_id))
         .is_some_and(|symbol| !symbol.is_mutable);
     if known_immutable {
@@ -653,14 +1164,16 @@ fn binding_is_mutable_by_name(
     scope_id: ScopeId,
     name: &str,
 ) -> bool {
-    [SymbolKind::ValueBinding, SymbolKind::LabelBinding]
-        .into_iter()
-        .find_map(|kind| {
-            find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind)
-        })
-        .and_then(|symbol_id| typed.typed_symbol(symbol_id))
-        .map(|symbol| symbol.is_mutable)
-        .unwrap_or(false)
+    [
+        SymbolKind::ValueBinding,
+        SymbolKind::LabelBinding,
+        SymbolKind::Parameter,
+    ]
+    .into_iter()
+    .find_map(|kind| find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind))
+    .and_then(|symbol_id| typed.typed_symbol(symbol_id))
+    .map(|symbol| symbol.is_mutable || symbol.is_mutex)
+    .unwrap_or(false)
 }
 
 pub(crate) fn strip_comments(node: &AstNode) -> &AstNode {

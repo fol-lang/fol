@@ -230,7 +230,12 @@ pub fn synthesize_structural_runtime_type_declarations(
             continue;
         }
 
-        let Some(mut checked_type) = typed_package.program.type_table().get(checked_type_id).cloned() else {
+        let Some(mut checked_type) = typed_package
+            .program
+            .type_table()
+            .get(checked_type_id)
+            .cloned()
+        else {
             errors.push(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
                 format!(
@@ -244,7 +249,9 @@ pub fn synthesize_structural_runtime_type_declarations(
         // its runtime struct is its substituted structural record, reached via
         // the apparent override. Synthesize the decl from that shape.
         if matches!(&checked_type, CheckedType::Declared { args, .. } if !args.is_empty()) {
-            if let Some(apparent_id) = typed_package.program.apparent_type_override(checked_type_id)
+            if let Some(apparent_id) = typed_package
+                .program
+                .apparent_type_override(checked_type_id)
             {
                 if let Some(apparent) = typed_package.program.type_table().get(apparent_id).cloned()
                 {
@@ -467,7 +474,8 @@ fn synthesize_structural_type_decl(
         CheckedType::Record { fields } => {
             let mut lowered_fields = Vec::new();
             for (field_name, field_type) in fields {
-                let lowered_field_type = lowered_package.checked_type_map.get(&field_type).copied()?;
+                let lowered_field_type =
+                    lowered_package.checked_type_map.get(&field_type).copied()?;
                 lowered_fields.push(LoweredFieldLayout {
                     name: field_name,
                     type_id: lowered_field_type,
@@ -528,86 +536,110 @@ fn checked_type_contains_generic_parameter(
     checked_type: &CheckedType,
     program: &fol_typecheck::TypedProgram,
 ) -> bool {
-    match checked_type {
-        CheckedType::Declared {
-            kind: fol_typecheck::DeclaredTypeKind::GenericParameter,
-            ..
-        } => true,
-        CheckedType::Builtin(_) => false,
-        // A generic INSTANTIATION (`Box[int]`, args non-empty) is generic iff
-        // one of its concrete type arguments is — checking the declaration's
-        // template (which always mentions `T`) would wrongly skip every
-        // concrete instance's runtime decl.
-        CheckedType::Declared { args, .. } if !args.is_empty() => args.iter().any(|arg| {
-            program
-                .type_table()
-                .get(*arg)
-                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-        }),
-        CheckedType::Declared { symbol, .. } => program
-            .typed_symbol(*symbol)
-            .and_then(|typed_symbol| typed_symbol.declared_type)
-            .and_then(|type_id| program.type_table().get(type_id))
-            .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program)),
-        CheckedType::Array { element_type, .. }
-        | CheckedType::Vector { element_type }
-        | CheckedType::Sequence { element_type }
-        | CheckedType::Optional { inner: element_type } => program
+    fn contains_type_id(
+        type_id: fol_typecheck::CheckedTypeId,
+        program: &fol_typecheck::TypedProgram,
+        visiting: &mut BTreeSet<fol_typecheck::CheckedTypeId>,
+    ) -> bool {
+        if !visiting.insert(type_id) {
+            return false;
+        }
+        let contains = program
             .type_table()
-            .get(*element_type)
-            .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program)),
-        CheckedType::Set { member_types } => member_types.iter().any(|member| {
-            program
-                .type_table()
-                .get(*member)
-                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-        }),
-        CheckedType::Map {
-            key_type,
-            value_type,
-        } => [key_type, value_type].iter().any(|type_id| {
-            program
-                .type_table()
-                .get(**type_id)
-                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-        }),
-        CheckedType::Error { inner } => inner.is_some_and(|inner| {
-            program
-                .type_table()
-                .get(inner)
-                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-        }),
-        CheckedType::Record { fields } => fields.values().any(|field| {
-            program
-                .type_table()
-                .get(*field)
-                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-        }),
-        CheckedType::Entry { variants } => variants.values().flatten().any(|variant| {
-            program
-                .type_table()
-                .get(*variant)
-                .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-        }),
-        CheckedType::Routine(signature) => {
-            signature.params.iter().any(|param| {
-                program
-                    .type_table()
-                    .get(*param)
-                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-            }) || signature.return_type.is_some_and(|return_type| {
-                program
-                    .type_table()
-                    .get(return_type)
-                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-            }) || signature.error_type.is_some_and(|error_type| {
-                program
-                    .type_table()
-                    .get(error_type)
-                    .is_some_and(|checked| checked_type_contains_generic_parameter(checked, program))
-            })
+            .get(type_id)
+            .is_some_and(|checked| contains(checked, program, visiting));
+        visiting.remove(&type_id);
+        contains
+    }
+
+    fn contains(
+        checked_type: &CheckedType,
+        program: &fol_typecheck::TypedProgram,
+        visiting: &mut BTreeSet<fol_typecheck::CheckedTypeId>,
+    ) -> bool {
+        match checked_type {
+            CheckedType::Declared {
+                kind: fol_typecheck::DeclaredTypeKind::GenericParameter,
+                ..
+            } => true,
+            CheckedType::Builtin(_) => false,
+            // A generic INSTANTIATION (`Box[int]`, args non-empty) is generic iff
+            // one of its concrete type arguments is — checking the declaration's
+            // template (which always mentions `T`) would wrongly skip every
+            // concrete instance's runtime decl.
+            CheckedType::Declared { args, .. } if !args.is_empty() => args
+                .iter()
+                .any(|arg| contains_type_id(*arg, program, visiting)),
+            CheckedType::Declared { symbol, .. } => program
+                .typed_symbol(*symbol)
+                .and_then(|typed_symbol| typed_symbol.declared_type)
+                .is_some_and(|type_id| contains_type_id(type_id, program, visiting)),
+            CheckedType::Array { element_type, .. }
+            | CheckedType::Vector { element_type }
+            | CheckedType::Sequence { element_type }
+            | CheckedType::Channel { element_type }
+            | CheckedType::ChannelSender { element_type }
+            | CheckedType::Optional {
+                inner: element_type,
+            }
+            | CheckedType::Owned {
+                inner: element_type,
+            }
+            | CheckedType::Borrowed {
+                inner: element_type,
+                ..
+            }
+            | CheckedType::Pointer {
+                target: element_type,
+                ..
+            } => contains_type_id(*element_type, program, visiting),
+            CheckedType::Eventual {
+                value_type,
+                error_type,
+            } => {
+                contains_type_id(*value_type, program, visiting)
+                    || error_type
+                        .is_some_and(|error_type| contains_type_id(error_type, program, visiting))
+            }
+            CheckedType::Set { member_types } => member_types
+                .iter()
+                .any(|member| contains_type_id(*member, program, visiting)),
+            CheckedType::Map {
+                key_type,
+                value_type,
+            } => [key_type, value_type]
+                .iter()
+                .any(|type_id| contains_type_id(**type_id, program, visiting)),
+            CheckedType::Error { inner } => {
+                inner.is_some_and(|inner| contains_type_id(inner, program, visiting))
+            }
+            CheckedType::Record { fields } => fields
+                .values()
+                .any(|field| contains_type_id(*field, program, visiting)),
+            CheckedType::Entry { variants } => variants
+                .values()
+                .flatten()
+                .any(|variant| contains_type_id(*variant, program, visiting)),
+            CheckedType::Routine(signature) => {
+                signature
+                    .params
+                    .iter()
+                    .any(|param| contains_type_id(*param, program, visiting))
+                    || signature
+                        .return_type
+                        .is_some_and(|return_type| {
+                            contains_type_id(return_type, program, visiting)
+                        })
+                    || signature
+                        .error_type
+                        .is_some_and(|error_type| {
+                            contains_type_id(error_type, program, visiting)
+                        })
+            }
         }
     }
+
+    contains(checked_type, program, &mut BTreeSet::new())
 }
 
 fn lower_entry_decl(

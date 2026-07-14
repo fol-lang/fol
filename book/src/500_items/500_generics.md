@@ -33,6 +33,15 @@ Current milestone note:
   - `examples/fail_generic_standard_constraint_m1m2`
 - generic routine lowering now succeeds for the shipped Milestone 1 example set
 - generic routine backend execution now works for the shipped positive Milestone 1 examples
+- ownership at a generic call boundary follows the concrete argument: clone-safe
+  arguments remain available to the caller, while owned values and unique
+  pointers move. Inside a routine, an unconstrained generic parameter is
+  conservatively move-only because the routine cannot prove that every future
+  instantiation is clone-safe; forwarding it therefore moves rather than
+  deep-cloning a unique value
+- an unresolved generic parameter cannot cross `[>]` or `| async` until FOL
+  defines a thread-safety and lifetime contract for generics; calls whose
+  arguments infer concrete thread-safe types remain valid
 - receiver-qualified generic routines, matching default arguments, and
   concrete instantiated generic-type receivers and concrete recoverable error
   types are now part of the executable Milestone 1 subset
@@ -56,13 +65,11 @@ Current milestone note:
   examples without claiming broader generic-aware completion than the shipped
   editor currently provides
 - generic error shells remain outside the current shipped Milestone 1 routine subset
-- recursive type definitions are rejected with an honest boundary: a type whose
-  fields refer back to itself — directly (`typ Node(T) = { next: Node[T] }`) or
-  through a container/another type (`typ Tree(T) = { kids: vec[Tree[T]] }`) — has
-  no finite shape in the current structural runtime model, so the checker rejects
-  it (`recursive type '...' is not yet supported`) instead of looping in lowering;
-  recursive/heap-linked data belongs to the later ownership/pointer surface, and
-  `examples/fail_generic_recursive_m1m2` pins the boundary
+- recursive value edges remain rejected because they have no finite inline
+  layout. V3 owned heap recursion is now supported: an edge such as
+  `opt @Node` lowers nominally to `Option<Box<Node>>`. Recursive generic
+  instantiation through an inline container remains outside the shipped generic
+  subset, pinned by `examples/fail_generic_recursive_m1m2`
 - generic types are not part of `V1`; they now belong to the shipped narrow
   full-`V2` contract instead
 - examples here should be read as:

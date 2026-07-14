@@ -44,14 +44,24 @@ pro[] build(): non = {
     var build = .build();
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
-    var app = graph.add_exe({ name = "app", root = "src/main.fol" });
+    var app = graph.add_exe({
+        name = "app",
+        root = "src/main.fol",
+        fol_model = "core",
+    });
     graph.install(app);
     graph.add_run(app);
 }
 ```
 
 This registers package metadata, adds an executable, marks it for installation,
-and binds a default run step.
+and binds a default run step. The artifact uses `core`, so its source has no
+heap-backed or hosted APIs. It can nevertheless be launched with `fol code run`
+on a compatible host; no bundled `std` dependency is needed just to execute it.
+
+`fol_model` is an artifact capability choice. `graph.add_run` and
+`graph.add_test` only register tool actions; they neither widen that capability
+nor require bundled `std`.
 
 ## What `fol-build` Owns
 
@@ -116,15 +126,20 @@ These checked-in example packages exercise the current public build surface:
 
 Runtime-model reminder:
 
-- examples that rely on hosted behavior such as `.echo(...)` or routed
-  execution should spell `fol_model = "memo"`
-- `core` and `memo` examples in the build book should stay free of hosted
-  assumptions
+- examples that rely on hosted language APIs such as `.echo(...)` or V3
+  processor facilities should spell `fol_model = "memo"` and declare bundled
+  `std`
+- `core` and `memo` examples may be executable and use routed `run` / `test`;
+  they should stay free of source-level hosted API assumptions
+- frontend host-tool and artifact launching is separate from language
+  capability tiering
+- the current frontend has no cross-target runner configuration, so routed
+  `run` / `test` reject foreign targets even though those targets may be built
 
 Bundled std reminder:
 
 - `std` ships with FOL under `lang/library/std`
-- hosted packages add bundled std explicitly through:
+- packages using hosted APIs add bundled std explicitly through:
   `.build().add_dep({ alias = "std", source = "internal", target = "standard" })`
-- normal hosted packages should rely on the bundled shipped `std`, not an
+- normal hosted-API packages should rely on the bundled shipped `std`, not an
   external replacement package

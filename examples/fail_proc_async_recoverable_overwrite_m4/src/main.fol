@@ -1,0 +1,15 @@
+use std: pkg = {"std"};
+
+fun[] work(value: int): int / int = {
+    when(value == 0) {
+        case(true) { report 9; }
+        * { return value; }
+    }
+};
+
+fun[] main(): int = {
+    var[mut] pending = work(1) | async;
+    var replacement = work(2) | async;
+    pending = replacement;
+    return (pending | await) || 0;
+};

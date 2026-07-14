@@ -15,7 +15,10 @@ fn test_top_level_each_iteration_supports_typed_binder() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -88,7 +91,10 @@ fn test_top_level_loop_iteration_supports_typed_binder() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -134,7 +140,10 @@ fn test_top_level_for_iteration_supports_typed_binder() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -181,7 +190,9 @@ fn test_top_level_each_iteration_supports_typed_silent_binder() {
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Loop { condition, body }
+                    AstNode::Loop {
+                        condition, body, ..
+                    }
                     if matches!(
                         condition.as_ref(),
                         fol_parser::ast::LoopCondition::Iteration {
@@ -214,7 +225,9 @@ fn test_top_level_loop_iteration_supports_typed_silent_binder() {
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Loop { condition, body }
+                    AstNode::Loop {
+                        condition, body, ..
+                    }
                     if matches!(
                         condition.as_ref(),
                         fol_parser::ast::LoopCondition::Iteration {
@@ -247,7 +260,9 @@ fn test_top_level_for_iteration_supports_typed_silent_binder() {
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Loop { condition, body }
+                    AstNode::Loop {
+                        condition, body, ..
+                    }
                     if matches!(
                         condition.as_ref(),
                         fol_parser::ast::LoopCondition::Iteration {
@@ -307,7 +322,9 @@ fn test_top_level_each_iteration_supports_keyword_typed_binder() {
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Loop { condition, body }
+                    AstNode::Loop {
+                        condition, body, ..
+                    }
                     if matches!(
                         condition.as_ref(),
                         fol_parser::ast::LoopCondition::Iteration {
@@ -340,7 +357,9 @@ fn test_top_level_loop_iteration_supports_keyword_typed_binder() {
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Loop { condition, body }
+                    AstNode::Loop {
+                        condition, body, ..
+                    }
                     if matches!(
                         condition.as_ref(),
                         fol_parser::ast::LoopCondition::Iteration {

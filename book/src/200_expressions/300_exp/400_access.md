@@ -5,9 +5,12 @@ Current boundary:
 - namespace access, receiver-qualified routine access, single-element container
   indexing (`c[i]`), map key access, and record field access are the current
   compiler surface
-- range slicing (`c[1:3]`), reverse slicing (`c[::]`), availability checks
-  (`v:[1]`), in-place assignment (`c[x => Y]`), and the whole axiom (`axi`)
-  access family are later design work, not part of the current compiler surface
+- bounded forward slicing (`c[1:3]`, `c[:3]`, and `c[1:]`) is implemented for
+  `vec[...]` and `seq[...]`; fixed-size array slices still need an explicit
+  runtime-sized result type
+- reverse slicing (`c[::]`), availability checks (`v:[1]`), in-place
+  assignment (`c[x => Y]`), and the whole axiom (`axi`) access family are later
+  design work, not part of the current compiler surface
 - the sections below are marked where they cross that line
 
 There are four access expressions:
@@ -51,9 +54,14 @@ ownership. It is just a shorter way to call a receiver-qualified routine.
 Accessing namespaces is done through the double-colon operator `::`:
 
 ```fol
-use log: pkg = {"std/fmt/log"};
-log::io::console::write_out.echo();
+use std: pkg = {"std"};
+var shown: int = std::fmt::math::answer();
 ```
+
+This particular namespace is part of bundled `std`, so the package must use a
+`memo` artifact and declare the internal `standard` dependency in `build.fol`.
+The `pkg` target is the declared alias (`"std"`); nested namespaces are reached
+with `::`, not by embedding `std/...` in the import target.
 
 
 ## Container Access
@@ -71,6 +79,11 @@ collection[-2]
 ```
 
 Containers can be accessed with a specified range too, by using colon within a square-bracket-enclosed:
+
+The current executable subset applies these forward forms to `vec[...]` and
+`seq[...]`. It creates a new container, so V3 rejects slices whose elements are
+move-only. Fixed-size `arr[...]` slicing and the reverse forms below remain
+design material.
 
 syntax | meaning
 --- | ---

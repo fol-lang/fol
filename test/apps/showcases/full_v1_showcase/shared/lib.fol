@@ -75,6 +75,13 @@ fun[exp] okay_status(flag: bol): Status = {
     }
 };
 
+fun[exp] status_code(flag: bol): int = {
+    when(flag) {
+        case(true) { return Status.OK; }
+        * { return Status.WARN; }
+    }
+};
+
 fun[exp] build_report(flag: bol): models::Report = {
     return models::build_report(flag);
 };

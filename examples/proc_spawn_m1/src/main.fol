@@ -1,0 +1,11 @@
+use std: pkg = {"std"};
+
+fun[] worker(value: int): int = {
+    return value;
+};
+
+fun[] main(): int = {
+    var value: int = 17;
+    [>]std::io::echo_int(worker(value));
+    return value - 17;
+};

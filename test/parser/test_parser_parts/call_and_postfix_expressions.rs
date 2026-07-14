@@ -683,7 +683,10 @@ fn test_top_level_loop_iteration_shape_matches_function_loop_shape() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -728,7 +731,10 @@ fn test_top_level_for_iteration_shape_matches_loop_shape() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -780,7 +786,10 @@ fn test_top_level_each_iteration_shape_matches_loop_shape() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -832,7 +841,10 @@ fn test_top_level_each_iteration_supports_silent_binder() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None

@@ -1,0 +1,199 @@
+==================
+V3 Eventuals
+==================
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+fun[] eventuals(): int = {
+    [>]work(1);
+    var pending = work(41) | async;
+    var value: int = pending | await;
+    return value;
+};
+
+---
+
+(source_file
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (binary_expr
+                (expr_atom
+                  (identifier))
+                (expr
+                  (expr_atom
+                    (integer_literal))))))))))
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (expr
+            (spawn_expr
+              (expr_atom
+                (call_expr
+                  (identifier)
+                  (call_arg
+                    (expr
+                      (expr_atom
+                        (integer_literal)))))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier))
+            (expr
+              (pipe_expr
+                (expr_atom
+                  (call_expr
+                    (identifier)
+                    (call_arg
+                      (expr
+                        (expr_atom
+                          (integer_literal))))))
+                (expr
+                  (expr_atom
+                    (async_expr)))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (pipe_expr
+                (expr_atom
+                  (identifier))
+                (expr
+                  (expr_atom
+                    (await_expr)))))))
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (identifier)))))))))
+
+==================
+V3 Qualified Processor Calls
+==================
+
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+fun[] main(): int = {
+    [>]std::io::echo_int(work(1));
+    var pending = std::fmt::double(work(20)) | async;
+    return pending | await;
+};
+
+---
+
+(source_file
+  (use_decl
+    (identifier)
+    (source_kind)
+    (string_literal))
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (binary_expr
+                (expr_atom
+                  (identifier))
+                (expr
+                  (expr_atom
+                    (integer_literal))))))))))
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (expr
+            (spawn_expr
+              (expr_atom
+                (call_expr
+                  (qualified_path
+                    (identifier)
+                    (identifier)
+                    (identifier))
+                  (call_arg
+                    (expr
+                      (expr_atom
+                        (call_expr
+                          (identifier)
+                          (call_arg
+                            (expr
+                              (expr_atom
+                                (integer_literal)))))))))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier))
+            (expr
+              (pipe_expr
+                (expr_atom
+                  (call_expr
+                    (qualified_path
+                      (identifier)
+                      (identifier)
+                      (identifier))
+                    (call_arg
+                      (expr
+                        (expr_atom
+                          (call_expr
+                            (identifier)
+                            (call_arg
+                              (expr
+                                (expr_atom
+                                  (integer_literal))))))))))
+                (expr
+                  (expr_atom
+                    (async_expr)))))))
+        (stmt
+          (return_stmt
+            (expr
+              (pipe_expr
+                (expr_atom
+                  (identifier))
+                (expr
+                  (expr_atom
+                    (await_expr)))))))))))

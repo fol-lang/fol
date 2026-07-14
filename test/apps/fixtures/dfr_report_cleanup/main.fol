@@ -1,0 +1,13 @@
+fun[] show(value: int): int = {
+    return .echo(value);
+};
+
+fun[] main(): int / str = {
+    dfr {
+        show(1);
+    };
+    when(true) {
+        case(true) { report "main-bad"; }
+        * { return show(7); }
+    };
+};

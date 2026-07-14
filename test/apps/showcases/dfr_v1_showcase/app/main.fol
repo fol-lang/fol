@@ -1,0 +1,30 @@
+fun[] show(value: int): int = {
+    return .echo(value);
+};
+
+fun[] loop_demo(): int = {
+    dfr {
+        show(10);
+    };
+    loop(true) {
+        dfr {
+            show(20);
+        };
+        show(30);
+        break;
+    }
+    return show(40);
+};
+
+fun[] main(): int = {
+    dfr {
+        show(50);
+    };
+    {
+        dfr {
+            show(60);
+        };
+        loop_demo();
+    }
+    return show(70);
+};

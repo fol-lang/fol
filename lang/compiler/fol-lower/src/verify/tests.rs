@@ -357,6 +357,67 @@ fn verifier_rejects_recoverable_helpers_on_non_call_results() {
 }
 
 #[test]
+fn verifier_rejects_reading_move_only_aggregates_out_of_borrows() {
+    let identity = identity("app");
+    let mut type_table = LoweredTypeTable::new();
+    let bool_type = type_table.intern_builtin(LoweredBuiltinType::Bool);
+    let int_type = type_table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_type = type_table.intern(crate::types::LoweredType::Pointer {
+        target: int_type,
+        shared: false,
+    });
+    let record_type = type_table.intern(crate::types::LoweredType::Record {
+        fields: BTreeMap::from([("pointer".to_string(), pointer_type)]),
+    });
+    let borrow_type = type_table.intern(crate::types::LoweredType::Borrowed {
+        inner: record_type,
+        mutable: false,
+    });
+    let recoverable_abi = LoweredRecoverableAbi::v1(bool_type);
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "read", LoweredBlockId(0));
+    routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(borrow_type),
+        name: Some("borrow".to_string()),
+    });
+    routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(record_type),
+        name: Some("result".to_string()),
+    });
+    routine.instructions.push(LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(LoweredLocalId(1)),
+        kind: LoweredInstrKind::ReadBorrow {
+            borrow: LoweredLocalId(0),
+        },
+    });
+    routine.blocks.push(LoweredBlock {
+        id: LoweredBlockId(0),
+        instructions: vec![LoweredInstrId(0)],
+        terminator: Some(LoweredTerminator::Return {
+            value: Some(LoweredLocalId(1)),
+        }),
+    });
+    let mut package = LoweredPackage::new(LoweredPackageId(0), identity.clone());
+    package.routine_decls.insert(LoweredRoutineId(0), routine);
+    let workspace = LoweredWorkspace::new(
+        identity.clone(),
+        BTreeMap::from([(identity, package)]),
+        Vec::new(),
+        type_table,
+        LoweredSourceMap::new(),
+        recoverable_abi,
+    );
+
+    let errors = verify_workspace(&workspace)
+        .expect_err("verifier should reject move-only borrow reads");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("reads a move-only or generic value out of a borrow")));
+}
+
+#[test]
 fn verifier_rejects_generic_parameter_leaked_into_non_generic_routine() {
     // Hardening round 5 P1 safety net: monomorphization must erase generic
     // parameters before backend emission. A routine whose signature declares no

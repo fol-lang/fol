@@ -1,0 +1,5 @@
+fun[] main(): int = {
+    var owner: int = 7;
+    var[bor] view: int = owner;
+    return owner;
+};

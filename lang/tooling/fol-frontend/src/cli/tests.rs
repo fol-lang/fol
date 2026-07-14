@@ -272,7 +272,7 @@ fn editor_subcommands_parse_edge_flags_and_output_modes() {
         references.command,
         Some(FrontendCommand::Tool(ToolCommand {
             output: FrontendOutputArgs {
-                output: OutputMode::Plain,
+                output: Some(OutputMode::Plain),
             },
             command: ToolSubcommand::References(EditorReferenceCommand {
                 path: "demo/main.fol".to_string(),
@@ -286,7 +286,7 @@ fn editor_subcommands_parse_edge_flags_and_output_modes() {
         rename.command,
         Some(FrontendCommand::Tool(ToolCommand {
             output: FrontendOutputArgs {
-                output: OutputMode::Json,
+                output: Some(OutputMode::Json),
             },
             command: ToolSubcommand::Rename(EditorRenameCommand {
                 path: "demo/main.fol".to_string(),
@@ -505,10 +505,49 @@ fn output_flag_parses_global_output_mode() {
         cli.command,
         Some(FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs {
-                output: OutputMode::Json
+                output: Some(OutputMode::Json)
             },
             profile: default_profile_args(),
             command: CodeSubcommand::Build(BuildCommand::default()),
+        }))
+    );
+}
+
+#[test]
+fn root_output_override_is_not_copied_into_command_defaults() {
+    let cli = parse_clean(&["fol", "--output", "json", "code", "check"]);
+
+    assert_eq!(cli.output, OutputMode::Json);
+    assert_eq!(
+        cli.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Check(CheckCommand::default()),
+        }))
+    );
+}
+
+#[test]
+fn command_local_output_overrides_are_retained_explicitly() {
+    let cli = parse_clean(&[
+        "fol", "--output", "json", "code", "--output", "plain", "check", "--output", "human",
+    ]);
+
+    assert_eq!(cli.output, OutputMode::Json);
+    assert_eq!(
+        cli.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: FrontendOutputArgs {
+                output: Some(OutputMode::Plain),
+            },
+            profile: default_profile_args(),
+            command: CodeSubcommand::Check(CheckCommand {
+                output: FrontendOutputArgs {
+                    output: Some(OutputMode::Human),
+                },
+                ..CheckCommand::default()
+            }),
         }))
     );
 }
@@ -556,18 +595,14 @@ fn cli_env_values_feed_output_and_profile_defaults() {
     assert_eq!(
         cli.command,
         Some(FrontendCommand::Code(CodeCommand {
-            output: FrontendOutputArgs {
-                output: OutputMode::Plain
-            },
+            output: default_output_args(),
             profile: FrontendProfileArgs {
                 profile: Some(FrontendProfile::Release),
                 debug: false,
                 release: false,
             },
             command: CodeSubcommand::Build(BuildCommand {
-                output: FrontendOutputArgs {
-                    output: OutputMode::Plain,
-                },
+                output: default_output_args(),
                 profile: FrontendProfileArgs {
                     profile: Some(FrontendProfile::Release),
                     debug: false,
@@ -596,7 +631,7 @@ fn explicit_flags_override_env_values() {
         cli.command,
         Some(FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs {
-                output: OutputMode::Json
+                output: Some(OutputMode::Json)
             },
             profile: FrontendProfileArgs {
                 profile: Some(FrontendProfile::Debug),
@@ -604,9 +639,7 @@ fn explicit_flags_override_env_values() {
                 release: false,
             },
             command: CodeSubcommand::Build(BuildCommand {
-                output: FrontendOutputArgs {
-                    output: OutputMode::Plain,
-                },
+                output: default_output_args(),
                 profile: FrontendProfileArgs {
                     profile: Some(FrontendProfile::Release),
                     debug: false,

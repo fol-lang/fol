@@ -1,0 +1,11 @@
+use std: pkg = {"std"};
+
+fun[] consume(value: int): int = {
+    return std::io::echo_int(value);
+};
+
+fun[] main(): int = {
+    @var owned: int = 29;
+    [>]consume(owned);
+    return 0;
+};

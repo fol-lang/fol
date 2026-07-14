@@ -1,0 +1,6 @@
+fun[] main(): int = {
+    dfr {
+        .echo(1);
+    };
+    return 7;
+};

@@ -1,8 +1,8 @@
 // Negative boundary: a generic type whose field refers back to itself
-// (`kids: vec[Tree[T]]`) has no finite runtime shape in the current structural
-// model. The checker rejects it with an honest "recursive type ... is not yet
-// supported" diagnostic instead of looping in lowering. Recursive/heap-linked
-// data belongs to the later ownership/pointer surface.
+// (`kids: vec[Tree[T]]`) has no finite runtime shape because it embeds the
+// recursive value without indirection. V3 recursive data uses an explicit
+// `@`-owned edge; this inline value-recursive form stays rejected instead of
+// looping in lowering.
 typ Tree(T): rec = {
     value: T,
     kids: vec[Tree[T]]

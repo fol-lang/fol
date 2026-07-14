@@ -15,14 +15,13 @@ pub enum CompletionShellArg {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrontendOutputArgs {
-    pub output: OutputMode,
+    /// Command-local override. `None` preserves the root/global output mode.
+    pub output: Option<OutputMode>,
 }
 
 impl Default for FrontendOutputArgs {
     fn default() -> Self {
-        Self {
-            output: OutputMode::Human,
-        }
+        Self { output: None }
     }
 }
 

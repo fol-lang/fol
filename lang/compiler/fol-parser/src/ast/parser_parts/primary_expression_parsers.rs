@@ -93,7 +93,10 @@ impl AstParser {
         })
     }
 
-    fn lookahead_is_spawn_expression(&self, tokens: &fol_lexer::lexer::stage3::Elements) -> bool {
+    pub(super) fn lookahead_is_spawn_expression(
+        &self,
+        tokens: &fol_lexer::lexer::stage3::Elements,
+    ) -> bool {
         let current = match tokens.curr(false) {
             Ok(token) => token,
             Err(_) => return false,
@@ -102,27 +105,15 @@ impl AstParser {
             return false;
         }
 
-        let mut found = Vec::new();
-        for candidate in tokens.next_vec() {
-            let token = match candidate {
-                Ok(token) => token,
-                Err(_) => continue,
-            };
-            if Self::key_is_soft_ignorable(&token.key()) {
-                continue;
-            }
-            found.push(token.key());
-            if found.len() == 2 {
-                break;
-            }
-        }
-
         matches!(
-            found.as_slice(),
-            [
-                KEYWORD::Symbol(SYMBOL::AngleC),
-                KEYWORD::Symbol(SYMBOL::SquarC)
-            ]
+            (
+                tokens.peek(0, false).map(|token| token.key()),
+                tokens.peek(1, false).map(|token| token.key()),
+            ),
+            (
+                Ok(KEYWORD::Symbol(SYMBOL::AngleC)),
+                Ok(KEYWORD::Symbol(SYMBOL::SquarC)),
+            )
         )
     }
 
@@ -243,10 +234,7 @@ impl AstParser {
             )
         {
             let name = Self::token_to_named_label(&token).ok_or_else(|| {
-                ParseError::from_token(
-                    &token,
-                    "Expected quoted callable name".to_string(),
-                )
+                ParseError::from_token(&token, "Expected quoted callable name".to_string())
             })?;
             let _ = tokens.bump();
             AstNode::Identifier {

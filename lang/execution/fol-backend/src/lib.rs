@@ -1,4 +1,11 @@
-//! Backend foundations for turning lowered `V1` FOL workspaces into runnable artifacts.
+//! Rust backend for turning lowered FOL workspaces into runnable artifacts
+//! across the shipped V1, V2, and V3 language surfaces.
+//!
+//! Runnable output does not imply hosted source capabilities. Public
+//! `fol_model` remains `core` or `memo`; an evaluated bundled `standard`
+//! dependency selects the backend's effective hosted runtime tier. A
+//! host-compatible artifact can run without that dependency, while executing
+//! a cross-target artifact requires an external runner.
 
 mod config;
 mod control;
@@ -38,16 +45,15 @@ pub use config::{
 };
 pub use control::render_terminator;
 pub use emit::{
-    backend_build_paths, build_generated_crate_with_rustc, build_runtime_rlib_with_rustc,
-    emit_backend_artifact, emit_cargo_toml, emit_generated_crate_skeleton,
-    emit_generated_crate_skeleton_for_config, emit_main_rs, emit_main_rs_for_config,
-    emit_namespace_module_shells, emit_namespace_module_shells_for_config,
-    emit_package_module_shells, prepare_backend_build_paths, prepare_backend_runtime_build_dir,
-    prepare_generated_build_dir, summarize_emitted_artifact, write_generated_crate,
-    backend_runtime_build_dir, backend_runtime_manifest_path,
+    backend_build_paths, backend_runtime_build_dir, backend_runtime_manifest_path,
     backend_runtime_manifest_path_with_override, backend_runtime_source_entry,
     backend_runtime_source_entry_with_override, backend_runtime_source_root,
-    backend_runtime_source_root_with_override,
+    backend_runtime_source_root_with_override, build_generated_crate_with_rustc,
+    build_runtime_rlib_with_rustc, emit_backend_artifact, emit_cargo_toml,
+    emit_generated_crate_skeleton, emit_generated_crate_skeleton_for_config, emit_main_rs,
+    emit_main_rs_for_config, emit_namespace_module_shells, emit_namespace_module_shells_for_config,
+    emit_package_module_shells, prepare_backend_build_paths, prepare_backend_runtime_build_dir,
+    prepare_generated_build_dir, summarize_emitted_artifact, write_generated_crate,
 };
 pub use error::{BackendError, BackendErrorKind};
 pub use identity::{stable_workspace_hash, BackendWorkspaceIdentity};
@@ -58,8 +64,7 @@ pub use layout::{
 };
 pub use mangle::{
     escape_rust_field_ident, mangle_global_name, mangle_local_name, mangle_package_module_name,
-    mangle_routine_name,
-    mangle_type_name, sanitize_backend_ident,
+    mangle_routine_name, mangle_type_name, sanitize_backend_ident,
 };
 pub use model::{BackendArtifact, BackendBuildPaths, EmittedRustFile};
 pub use session::BackendSession;

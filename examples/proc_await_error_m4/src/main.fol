@@ -1,0 +1,19 @@
+use std: pkg = {"std"};
+
+fun[] probe(fail: bol): int / int = {
+    when(fail) {
+        case(true) { report 7; }
+        * { return 9; }
+    }
+};
+
+fun[] main(): int = {
+    var checked = probe(true) | async;
+    var failed: bol = check(checked | await);
+    var recovered = probe(true) | async;
+    var value: int = (recovered | await) || 41;
+    when(failed) {
+        case(true) { return std::io::echo_int(value + 1); }
+        * { return 0; }
+    }
+};

@@ -80,11 +80,11 @@ fn builtin_type_tables_install_v1_scalar_types_canonically() {
 }
 
 #[test]
-fn defer_blocks_typecheck_as_scope_exit_statements() {
+fn dfr_blocks_typecheck_as_scope_exit_statements() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun[] main(): int = {\n\
-             defer {\n\
+             dfr {\n\
                  .echo(1);\n\
              };\n\
              return 7;\n\
@@ -98,17 +98,62 @@ fn defer_blocks_typecheck_as_scope_exit_statements() {
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
         Some(&CheckedType::Builtin(BuiltinType::Int)),
-        "Expected defer-bearing routine to keep its declared return type",
+        "Expected dfr-bearing routine to keep its declared return type",
     );
 }
 
 #[test]
-fn defer_blocks_reject_break_in_v1() {
+fn shared_pointer_recursion_typechecks_nominally() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Node: rec = { value: int, next: opt ptr[shared, Node] };\n\
+         fun[] main(): int = { return 0; };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn shared_pointer_write_error_keeps_the_target_origin() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        concat!(
+            "fun[] main(): int = {\n",
+            "    var value: int = 7;\n",
+            "    var pointer: ptr[shared, int] = &value;\n",
+            "    *pointer = 9;\n",
+            "    return *pointer;\n",
+            "};\n",
+        ),
+    )]);
+    let error = errors
+        .iter()
+        .find(|error| {
+            error
+                .message()
+                .contains("cannot write through ptr[shared, T]; shared pointers are read-only")
+        })
+        .expect("shared-pointer write should produce its canonical error");
+
+    assert_eq!(error.kind(), TypecheckErrorKind::InvalidInput);
+    let origin = error
+        .origin()
+        .expect("shared-pointer write error should retain its target origin");
+    assert!(origin
+        .file
+        .as_deref()
+        .is_some_and(|file| file.ends_with("/main.fol")));
+    assert_eq!((origin.line, origin.column, origin.length), (4, 6, 7));
+    assert_eq!(error.to_diagnostic().code.as_str(), "T1001");
+}
+
+#[test]
+fn dfr_blocks_reject_break() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] bad_break(): int = {\n\
              loop(true) {\n\
-                 defer {\n\
+                 dfr {\n\
                      break;\n\
                  };\n\
                  break;\n\
@@ -122,18 +167,18 @@ fn defer_blocks_reject_break_in_v1() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("break is not allowed inside deferred blocks in V1")
+                    .contains("break is not allowed inside dfr/edf blocks")
         }),
         "Expected deferred break rejection, got: {errors:?}"
     );
 }
 
 #[test]
-fn defer_blocks_reject_nested_return_in_v1() {
+fn dfr_blocks_reject_nested_return() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] bad_return(): int = {\n\
-             defer {\n\
+             dfr {\n\
                  when(true) {\n\
                      case(true) {\n\
                          return 1;\n\
@@ -149,36 +194,127 @@ fn defer_blocks_reject_nested_return_in_v1() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("return is not allowed inside deferred blocks in V1")
+                    .contains("return is not allowed inside dfr/edf blocks")
         }),
         "Expected deferred nested return rejection, got: {errors:?}"
     );
 }
 
 #[test]
-fn defer_blocks_allow_report_statements_in_error_routines() {
+fn dfr_and_edf_blocks_reject_nested_report_statements() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "fun[] main(flag: bol): int / int = {{\n\
+                 {deferred} {{\n\
+                     when(flag) {{\n\
+                         case(true) {{ report 9; }}\n\
+                         * {{ var observed: int = 1; }}\n\
+                     }}\n\
+                 }};\n\
+                 when(flag) {{\n\
+                     case(true) {{ report 1; }}\n\
+                     * {{ return 7; }}\n\
+                 }}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+        let error = errors
+            .iter()
+            .find(|error| {
+                error.kind() == TypecheckErrorKind::InvalidInput
+                    && error
+                        .message()
+                        .contains("report is not allowed inside dfr/edf blocks")
+            })
+            .unwrap_or_else(|| {
+                panic!("{deferred} should reject nested report before lowering: {errors:#?}")
+            });
+
+        assert_eq!(error.to_diagnostic().code.as_str(), "T1001");
+        assert!(
+            error.origin().is_some(),
+            "{deferred} report rejection should retain the report call's source location"
+        );
+    }
+}
+
+#[test]
+fn dfr_and_edf_reserve_referenced_move_only_outer_bindings() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "typ Item: rec = {{ value: int }};\n\
+             fun[] main(): int / int = {{\n\
+                 @var owned: Item = {{ value = 7 }};\n\
+                 {deferred} {{ var observed: int = owned.value; }};\n\
+                 @var moved: Item = owned;\n\
+                 return moved.value;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+        let error = errors
+            .iter()
+            .find(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains(
+                        "move-only binding 'owned' cannot be transferred after it is referenced by a dfr/edf body",
+                    )
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "{deferred} must reserve a referenced outer owner until scope exit: {errors:#?}"
+                )
+            });
+        assert_eq!(
+            error.to_diagnostic().labels.len(),
+            2,
+            "the transfer diagnostic should retain the deferred use site"
+        );
+    }
+}
+
+#[test]
+fn moving_an_owner_before_dfr_or_edf_keeps_the_existing_moved_use_diagnostic() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "typ Item: rec = {{ value: int }};\n\
+             fun[] main(): int / int = {{\n\
+                 @var owned: Item = {{ value = 7 }};\n\
+                 @var moved: Item = owned;\n\
+                 {deferred} {{ var observed: int = owned.value; }};\n\
+                 return moved.value;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("use of moved heap-owned binding 'owned'")
+            }),
+            "a move before {deferred} must still be diagnosed at the deferred read: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn deferred_owner_reservations_end_after_the_registration_scope_exits() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "fun[] main(flag: bol): int / str = {\n\
-             defer {\n\
-                 when(flag) {\n\
-                     case(true) { report \"cleanup-bad\"; }\n\
-                     * { .echo(1); }\n\
-                 }\n\
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             @var owned: Item = { value = 7 };\n\
+             {\n\
+                 dfr { var observed: int = owned.value; };\n\
              };\n\
-             return 7;\n\
+             @var moved: Item = owned;\n\
+             return moved.value;\n\
          };\n",
     )]);
 
-    let syntax_id = find_named_routine_syntax_id(&typed, "main");
-    assert_eq!(
-        typed
-            .typed_node(syntax_id)
-            .and_then(|node| node.inferred_type)
-            .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int)),
-        "Expected defer-bearing error routine to keep its declared return type",
-    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
 }
 
 #[test]
@@ -279,6 +415,7 @@ fn semantic_type_table_covers_declared_and_structural_shapes() {
         param_names: vec!["value".to_string()],
         param_defaults: vec![None],
         variadic_index: None,
+        mutex_params: Default::default(),
         params: vec![alias_id],
         return_type: Some(int_id),
         error_type: None,
@@ -345,6 +482,7 @@ fn render_type_handles_routines() {
         param_names: vec!["left".to_string(), "right".to_string()],
         param_defaults: vec![None, None],
         variadic_index: None,
+        mutex_params: Default::default(),
         params: vec![int_id, str_id],
         return_type: Some(int_id),
         error_type: None,
@@ -533,7 +671,7 @@ fn expression_typing_infers_local_binding_types_from_initializers() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun[] demo(): int = {\n\
-             let current = 1;\n\
+             var current = 1;\n\
              return current;\n\
          };\n",
     )]);
@@ -1223,7 +1361,7 @@ fn expression_typing_accepts_unpack_for_variadic_method_calls() {
 }
 
 #[test]
-fn echo_intrinsic_requires_std_fol_model_in_core() {
+fn echo_intrinsic_requires_bundled_std_effective_tier_in_core() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
@@ -1243,7 +1381,1354 @@ fn echo_intrinsic_requires_std_fol_model_in_core() {
 }
 
 #[test]
-fn echo_intrinsic_requires_std_fol_model_in_mem() {
+fn owned_heap_binding_requires_memo_model() {
+    for declaration in [
+        "@var value: int = 1;",
+        "@var value = 1;",
+        "var[new] value = 1;",
+    ] {
+        let source = format!(
+            "fun[] main(): int = {{\n    {declaration}\n    return 0;\n}};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Core,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| error
+                .message()
+                .contains("heap allocation binding requires heap support")),
+            "core must reject heap allocation for '{declaration}': {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn core_pointer_guidance_names_only_the_public_memo_model() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            concat!(
+                "fun[] main(): int = {\n",
+                "    var value: int = 7;\n",
+                "    var pointer: ptr[int] = &value;\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Core,
+        },
+    );
+
+    let error = errors
+        .iter()
+        .find(|error| error.message().contains("pointer construction requires heap support"))
+        .expect("core pointer construction should report its capability guidance");
+    assert!(error.message().contains("choose fol_model = 'memo'"));
+    assert!(!error.message().contains("add bundled std"));
+}
+
+#[test]
+fn optional_and_error_owned_shell_transfers_move_the_source() {
+    for shell in ["opt", "err"] {
+        let source = format!(
+            "typ Item: rec = {{ value: int }};\n\
+             fun[] main(): int = {{\n\
+                 @var seed: Item = {{ value = 7 }};\n\
+                 var first: {shell}[@Item] = seed;\n\
+                 var moved: {shell}[@Item] = first;\n\
+                 var invalid: {shell}[@Item] = first;\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.to_diagnostic().code == DiagnosticCode::new("O1001")
+                    && error
+                        .message()
+                        .contains("use of moved heap-owned binding 'first'")
+            }),
+            "{shell}[@Item] transfer must move its source: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn move_only_shell_unwrap_consumes_the_shell_binding() {
+    for shell in ["opt", "err"] {
+        let source = format!(
+            "fun[] main(): int = {{\n\
+                 var seed: int = 7;\n\
+                 var wrapped: {shell}[ptr[int]] = &seed;\n\
+                 var first: ptr[int] = wrapped!;\n\
+                 var invalid: ptr[int] = wrapped!;\n\
+                 return *first;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("use of moved heap-owned binding 'wrapped'")
+            }),
+            "{shell}[ptr[int]] must be consumed by its first unwrap: {errors:#?}"
+        );
+
+    }
+}
+
+#[test]
+fn returning_from_a_loop_can_consume_inside_the_return_expression() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] take(wrapped: opt[ptr[int]]): ptr[int] = {\n\
+             var seed: int = 0;\n\
+             loop(true) {\n\
+                 return wrapped!;\n\
+             };\n\
+             return &seed;\n\
+         };\n",
+    )]);
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "take"))
+        .is_some());
+}
+
+#[test]
+fn by_value_methods_consume_move_only_receivers() {
+    for (surface, source) in [
+        (
+            "owned receiver",
+            "typ Item: rec = { value: int };\n\
+             fun (@Item)take(): int = { return self.value; };\n\
+             fun[] main(): int = {\n\
+                 @var owner: Item = { value = 7 };\n\
+                 var consumed: int = owner.take();\n\
+                 return owner.value;\n\
+             };\n",
+        ),
+        (
+            "receiver containing a unique pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun (Holder)take(): int = { return *self.pointer; };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holder: Holder = { pointer = &seed };\n\
+                 var consumed: int = holder.take();\n\
+                 return *holder.pointer;\n\
+             };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains("use of moved")
+            }),
+            "{surface} must be unavailable after a method call: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn pointer_construction_consumes_move_only_operands() {
+    for (surface, source) in [
+        (
+            "unique pointer",
+            "fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var pointer: ptr[int] = &seed;\n\
+                 var nested: ptr[ptr[int]] = &pointer;\n\
+                 return *pointer;\n\
+             };\n",
+        ),
+        (
+            "aggregate containing a unique pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holder: Holder = { pointer = &seed };\n\
+                 var nested = &holder;\n\
+                 return *holder.pointer;\n\
+             };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains("use of moved")
+            }),
+            "pointer construction from {surface} must move its operand: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn echo_transfers_move_only_arguments_into_its_result() {
+    let valid = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var pointer: ptr[int] = &seed;\n\
+                 var echoed: ptr[int] = .echo(pointer);\n\
+                 return *echoed;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(valid
+        .typed_node(find_named_routine_syntax_id(&valid, "main"))
+        .is_some());
+
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var pointer: ptr[int] = &seed;\n\
+                 var echoed: ptr[int] = .echo(pointer);\n\
+                 return *pointer;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of moved heap-owned binding 'pointer'")
+    }));
+}
+
+#[test]
+fn move_only_field_transfers_consume_the_whole_base() {
+    for (surface, source) in [
+        (
+            "direct unique field",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holder: Holder = { pointer = &seed };\n\
+                 var extracted: ptr[int] = holder.pointer;\n\
+                 return *extracted;\n\
+             };\n",
+        ),
+        (
+            "field aggregate containing a unique pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             typ Envelope: rec = { holder: Holder };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var envelope: Envelope = { holder = { pointer = &seed } };\n\
+                 var extracted: Holder = envelope.holder;\n\
+                 var extracted_pointer: ptr[int] = extracted.pointer;\n\
+                 return *extracted_pointer;\n\
+             };\n",
+        ),
+    ] {
+        let typed = typecheck_fixture_folder(&[("main.fol", source)]);
+        let main = find_named_routine_syntax_id(&typed, "main");
+        assert!(typed.typed_node(main).is_some(), "{surface} should typecheck");
+    }
+
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Holder: rec = { pointer: ptr[int], value: int };\n\
+         fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var holder: Holder = { pointer = &seed, value = 3 };\n\
+             var extracted: ptr[int] = holder.pointer;\n\
+             return holder.value + *extracted;\n\
+         };\n",
+    )]);
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of moved heap-owned binding 'holder'")
+    }));
+}
+
+#[test]
+fn move_only_index_projections_require_a_partial_move_model() {
+    for (surface, source) in [
+        (
+            "direct unique element",
+            "fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var pointers: arr[ptr[int], 1] = { &seed };\n\
+                 var extracted: ptr[int] = pointers[0];\n\
+                 return *extracted;\n\
+             };\n",
+        ),
+        (
+            "element aggregate containing a unique pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holders: arr[Holder, 1] = { { pointer = &seed } };\n\
+                 var extracted: Holder = holders[0];\n\
+                 return *extracted.pointer;\n\
+             };\n",
+        ),
+        (
+            "move-only field through an indexed aggregate",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holders: arr[Holder, 1] = { { pointer = &seed } };\n\
+                 var extracted: ptr[int] = holders[0].pointer;\n\
+                 return *extracted;\n\
+             };\n",
+        ),
+        (
+            "copy-safe field through a move-only indexed aggregate",
+            "typ Holder: rec = { pointer: ptr[int], value: int };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holders: arr[Holder, 1] = { { pointer = &seed, value = 3 } };\n\
+                 return holders[0].value;\n\
+             };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains("indexed projection")
+                    && error.message().contains("partial moves are not supported")
+            }),
+            "{surface} must be rejected before lowering: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn move_only_index_operands_allow_locals_but_reject_field_projections() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] lookup(values: map[ptr[int], int], query: ptr[int]): int = {\n\
+             return values[query] + *query + .len(values);\n\
+         };\n",
+    )]);
+    let lookup = find_named_routine_syntax_id(&typed, "lookup");
+    assert!(
+        typed.typed_node(lookup).is_some(),
+        "direct move-only lookup operands are borrowed observations"
+    );
+
+    for (surface, source, role) in [
+        (
+            "receiver",
+            "typ Holder: rec = { values: map[ptr[int], int] };\n\
+             fun[] lookup(holder: Holder, query: ptr[int]): int = {\n\
+                 return holder.values[query];\n\
+             };\n",
+            "receiver",
+        ),
+        (
+            "key",
+            "typ Holder: rec = { query: ptr[int] };\n\
+             fun[] lookup(values: map[ptr[int], int], holder: Holder): int = {\n\
+                 return values[holder.query];\n\
+             };\n",
+            "key",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains(&format!("index {role} observation"))
+                    && error.message().contains("must not partially move")
+            }),
+            "move-only index {surface} projections need place-aware observation IR: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn move_only_slice_elements_are_rejected_before_clone_based_lowering() {
+    for (surface, parameter_type, return_type) in [
+        ("vector", "vec[ptr[int]]", "vec[ptr[int]]"),
+        ("sequence", "seq[ptr[int]]", "seq[ptr[int]]"),
+    ] {
+        let source = format!(
+            "fun[] tail(values: {parameter_type}): {return_type} = {{\n\
+                 return values[1:];\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("slices of move-only elements are not supported in V3")
+                    && error.message().contains("clone unique ownership")
+            }),
+            "{surface} slices must reject move-only elements before lowering: {errors:#?}"
+        );
+    }
+
+    for parameter_type in ["arr[int, 2]", "arr[ptr[int], 2]"] {
+        let source = format!(
+            "fun[] tail(values: {parameter_type}): int = {{\n\
+                 return .len(values[1:]);\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("fixed-size array slices are not supported")
+            }),
+            "fixed-size arrays need an explicit runtime-sized slice result contract: {errors:#?}"
+        );
+    }
+
+    for (surface, parameter_type) in [("vector", "vec[int]"), ("sequence", "seq[int]")] {
+        let source = format!(
+            "fun[] tail_len(values: {parameter_type}): int = {{\n\
+                 return .len(values[1:]);\n\
+             }};\n"
+        );
+        let typed = typecheck_fixture_folder(&[("main.fol", source.as_str())]);
+        let tail_len = find_named_routine_syntax_id(&typed, "tail_len");
+        assert!(
+            typed.typed_node(tail_len).is_some(),
+            "{surface} slices of copy-safe elements should remain supported"
+        );
+    }
+}
+
+#[test]
+fn move_only_collection_iteration_requires_a_consuming_iterator_model() {
+    for (surface, parameter_type) in [
+        ("array", "arr[ptr[int], 1]"),
+        ("vector", "vec[ptr[int]]"),
+        ("sequence", "seq[ptr[int]]"),
+    ] {
+        let source = format!(
+            "fun[] first(values: {parameter_type}): int = {{\n\
+                 for (value in values) {{\n\
+                     return *value;\n\
+                 }};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("iteration over a move-only collection is not supported in V3")
+                    && error.message().contains("clone move-only elements")
+            }),
+            "{surface} iteration must not clone move-only elements: {errors:#?}"
+        );
+    }
+
+    for (surface, parameter_type) in [
+        ("array", "arr[int, 1]"),
+        ("vector", "vec[int]"),
+        ("sequence", "seq[int]"),
+    ] {
+        let source = format!(
+            "fun[] first(values: {parameter_type}): int = {{\n\
+                 for (value in values) {{\n\
+                     return value;\n\
+                 }};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let typed = typecheck_fixture_folder(&[("main.fol", source.as_str())]);
+        let first = find_named_routine_syntax_id(&typed, "first");
+        assert!(
+            typed.typed_node(first).is_some(),
+            "{surface} iteration over copy-safe elements should remain supported"
+        );
+    }
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] first(channel: chn[ptr[int]]): int = {\n\
+                 for (value in channel[rx]) {\n\
+                     return *value;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    let first = find_named_routine_syntax_id(&typed, "first");
+    assert!(
+        typed.typed_node(first).is_some(),
+        "channel receiver iteration consumes move-only payloads and must remain supported"
+    );
+}
+
+#[test]
+fn nested_field_access_rejects_move_only_intermediates() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Inner: rec = { pointer: ptr[int], value: int };\n\
+         typ Outer: rec = { inner: Inner };\n\
+         fun[] read(outer: Outer): int = {\n\
+             return outer.inner.value;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("nested field access through a move-only intermediate")
+                && error.message().contains("partial moves are not supported")
+        }),
+        "nested scalar reads must not move a move-only intermediate: {errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Inner: rec = { pointer: ptr[int], value: int };\n\
+         fun[] read(inner: Inner): int = {\n\
+             return inner.value;\n\
+         };\n",
+    )]);
+    let read = find_named_routine_syntax_id(&typed, "read");
+    assert!(
+        typed.typed_node(read).is_some(),
+        "direct copy-safe fields on a move-only record should remain observable"
+    );
+}
+
+#[test]
+fn discarded_move_only_expressions_are_transfers() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] main(): int = {\n\
+             var value: int = 7;\n\
+             var pointer: ptr[int] = &value;\n\
+             pointer;\n\
+             return consume(pointer);\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "discarded move-only values must move exactly as lowering evaluates them: {errors:#?}"
+    );
+
+    let generic_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun duplicate(T)(value: T): T = {\n\
+             value;\n\
+             return value;\n\
+         };\n",
+    )]);
+    assert!(
+        generic_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'value'")
+        }),
+        "discarded generic values must be conservative for move-only instantiations: {generic_errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: int = 7;\n\
+             value;\n\
+             return value;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn dereference_rejects_move_only_field_projections() {
+    for (surface, parameter) in [
+        ("owned record", "holder: Holder"),
+        ("borrowed record", "holder[bor]: Holder"),
+    ] {
+        let source = format!(
+            "typ Holder: rec = {{ link: ptr[int] }};\n\
+             fun[] inspect({parameter}): int = {{\n\
+                 return *holder.link;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("dereferencing through a move-only field projection")
+                    && error
+                        .message()
+                        .contains("pointer observation must not partially move its source")
+            }),
+            "{surface} must not lose a unique field through dereference lowering: {errors:#?}"
+        );
+    }
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Holder: rec = { link: ptr[shared, int] };\n\
+         fun[] inspect(holder[bor]: Holder): int = {\n\
+             return *holder.link;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "inspect"))
+        .is_some());
+}
+
+#[test]
+fn unique_pointer_deref_transfers_move_only_pointees() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var inner: ptr[int] = &seed;\n\
+             var outer: ptr[ptr[int]] = &inner;\n\
+             var extracted: ptr[int] = *outer;\n\
+             return *extracted;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+
+    let moved_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var inner: ptr[int] = &seed;\n\
+             var outer: ptr[ptr[int]] = &inner;\n\
+             var extracted: ptr[int] = *outer;\n\
+             return **outer;\n\
+         };\n",
+    )]);
+    assert!(
+        moved_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'outer'")
+        }),
+        "consuming a move-only pointee must consume its unique pointer: {moved_errors:#?}"
+    );
+}
+
+#[test]
+fn shared_pointer_deref_rejects_move_only_pointees() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var inner: ptr[int] = &seed;\n\
+             var shared: ptr[shared, ptr[int]] = &inner;\n\
+             var invalid: ptr[int] = *shared;\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message().contains(
+                    "cannot move a move-only pointee out of ptr[shared, T]"
+                )
+                && error
+                    .message()
+                    .contains("requires a clone-safe pointee")
+        }),
+        "Rc-backed pointers must not move their pointee: {errors:#?}"
+    );
+}
+
+#[test]
+fn borrowed_pointer_deref_is_read_only() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] read(pointer[bor]: ptr[int]): int = {\n\
+             return *pointer;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var pointer: ptr[int] = &seed;\n\
+             return read(#pointer);\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "read"))
+        .is_some());
+
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] take(pointer[bor]: ptr[ptr[int]]): ptr[int] = {\n\
+             return *pointer;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("cannot move a move-only pointee through a borrowed pointer")
+                && error.message().contains("dereference is read-only")
+        }),
+        "a borrowed pointer must not surrender its move-only pointee: {errors:#?}"
+    );
+}
+
+#[test]
+fn when_cases_require_matching_equality_safe_types() {
+    for (surface, source, expected_type) in [
+        (
+            "unique pointers",
+            "fun[] main(): int = {\n\
+                 var left_value: int = 1;\n\
+                 var right_value: int = 2;\n\
+                 var left: ptr[int] = &left_value;\n\
+                 var right: ptr[int] = &right_value;\n\
+                 when(left) {\n\
+                     case(right) { return 1; }\n\
+                     * { return 0; }\n\
+                 }\n\
+             };\n",
+            "ptr[int]",
+        ),
+        (
+            "records",
+            "typ Item: rec = { value: int };\n\
+             fun[] main(): int = {\n\
+                 var left: Item = { value = 1 };\n\
+                 var right: Item = { value = 2 };\n\
+                 when(left) {\n\
+                     case(right) { return 1; }\n\
+                     * { return 0; }\n\
+                 }\n\
+             };\n",
+            "Item",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::InvalidInput
+                    && error
+                        .message()
+                        .contains("binary operator 'Eq' is not valid")
+                    && error.message().contains(expected_type)
+            }),
+            "when equality must reject {surface}: {errors:#?}"
+        );
+    }
+
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             when(1) {\n\
+                 case(true) { return 1; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("when condition expects 'int' but got 'bol'")
+        }),
+        "when cases must match the selector type: {errors:#?}"
+    );
+}
+
+#[test]
+fn case_less_when_requires_a_boolean_gate() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: int = 1;\n\
+             var pointer: ptr[int] = &value;\n\
+             when(pointer) {\n\
+                 * { return 1; }\n\
+             }\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("case-less when condition expects 'bol' but got 'ptr[int]'")
+        }),
+        "case-less when must not consume an arbitrary move-only selector: {errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var hit: int = 0;\n\
+             when(true) {\n\
+                 * { hit = 1; }\n\
+             }\n\
+             return hit;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn sibling_case_less_when_bodies_use_exact_binding_scopes() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var[mut] total: int = 0;\n\
+             when(true) {\n\
+                 * {\n\
+                     var x: int = 1;\n\
+                     total = total + x;\n\
+                 }\n\
+             }\n\
+             when(true) {\n\
+                 * {\n\
+                     var x: int = 2;\n\
+                     total = total + x;\n\
+                 }\n\
+             }\n\
+             return total - 3;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn len_observes_move_only_locals_but_rejects_field_projections() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Holder: rec = { values: vec[ptr[int]] };\n\
+         fun[] length(holder: Holder): int = {\n\
+             return .len(holder.values);\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("'.len(...)' through a move-only field projection")
+                && error
+                    .message()
+                    .contains("must not partially move its receiver")
+        }),
+        "len through a move-only field projection must be rejected: {errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] length(values: vec[ptr[int]]): int = {\n\
+             return .len(values) + .len(values);\n\
+         };\n",
+    )]);
+    let length = find_named_routine_syntax_id(&typed, "length");
+    assert!(
+        typed.typed_node(length).is_some(),
+        "len should observe a direct move-only local without consuming it"
+    );
+}
+
+#[test]
+fn pointer_deref_accepts_move_only_unique_pointees() {
+    for (surface, source) in [
+        (
+            "unique pointer pointee",
+            "fun[] take(value: ptr[ptr[int]]): ptr[int] = {\n\
+                 return *value;\n\
+             };\n",
+        ),
+        (
+            "aggregate pointee containing a unique pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] take(): Holder = {\n\
+                 var seed: int = 7;\n\
+                 var holder: Holder = { pointer = &seed };\n\
+                 var holder_pointer = &holder;\n\
+                 return *holder_pointer;\n\
+             };\n",
+        ),
+    ] {
+        let typed = typecheck_fixture_folder(&[("main.fol", source)]);
+        assert!(
+            typed
+                .typed_node(find_named_routine_syntax_id(&typed, "take"))
+                .is_some(),
+            "{surface} should transfer out of its unique pointer"
+        );
+    }
+}
+
+#[test]
+fn clone_safe_field_and_index_projections_remain_transferable() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Holder: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             var holder: Holder = { value = 7 };\n\
+             var values: arr[int, 1] = { 3 };\n\
+             var holder_pointer = &holder;\n\
+             var holder_copy = *holder_pointer;\n\
+             var field_copy: int = holder.value;\n\
+             var index_copy: int = values[0];\n\
+             return field_copy + index_copy + holder_copy.value;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn when_results_transfer_move_only_branch_values() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var left_value: int = 7;\n\
+             var right_value: int = 9;\n\
+             var left: ptr[int] = &left_value;\n\
+             var right: ptr[int] = &right_value;\n\
+             var chosen: ptr[int] = when(true) {\n\
+                 is (true) -> left;\n\
+                 * -> right;\n\
+             };\n\
+             return *left + *chosen;\n\
+         };\n",
+    )]);
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of moved heap-owned binding 'left'")
+    }));
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: int = 7;\n\
+             var pointer: ptr[int] = &value;\n\
+             var chosen: ptr[int] = when(true) {\n\
+                 is (true) -> pointer;\n\
+                 * -> pointer;\n\
+             };\n\
+             return *chosen;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] choose(flag: bol): int = {\n\
+             var value: int = 7;\n\
+             var pointer: ptr[int] = &value;\n\
+             when(flag) {\n\
+                 case(true) { return consume(pointer); }\n\
+                 * { 0; }\n\
+             };\n\
+             return *pointer;\n\
+         };\n",
+    )]);
+    let choose = find_named_routine_syntax_id(&typed, "choose");
+    assert!(typed.typed_node(choose).is_some());
+}
+
+#[test]
+fn outer_move_only_bindings_cannot_be_transferred_from_repeating_loops() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             @var owned: Item = { value = 7 };\n\
+             var[mut] keep: bol = true;\n\
+             loop(keep) {\n\
+                 @var moved: Item = owned;\n\
+                 keep = false;\n\
+             };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message().contains(
+                    "move-only binding 'owned' declared outside a repeating loop cannot be transferred",
+                )
+        }),
+        "outer move-only values must not be consumed on a potentially later iteration: {errors:#?}"
+    );
+}
+
+#[test]
+fn outer_move_only_bindings_cannot_move_from_repeated_loop_conditions() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] stop(value: @Item): bol = { return false; };\n\
+         fun[] main(): int = {\n\
+             @var owned: Item = { value = 7 };\n\
+             loop(stop(owned)) { var ignored: int = 0; };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| error.message().contains(
+        "move-only binding 'owned' declared outside a repeating loop cannot be transferred"
+    )));
+}
+
+#[test]
+fn move_only_bindings_created_inside_a_loop_can_move_each_iteration() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             var[mut] keep: bol = true;\n\
+             loop(keep) {\n\
+                 @var owned: Item = { value = 7 };\n\
+                 @var moved: Item = owned;\n\
+                 keep = false;\n\
+             };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn outer_borrows_are_not_released_when_a_nested_loop_scope_ends() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             var owner: Item = { value = 7 };\n\
+             var[bor] view: Item = owner;\n\
+             loop(false) { var ignored: int = 0; };\n\
+             return owner.value;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::OwnerBorrowed
+                && error
+                    .message()
+                    .contains("owner 'owner' is inaccessible while borrowed")
+        }),
+        "leaving a loop body must not release a borrow created outside it: {errors:#?}"
+    );
+}
+
+#[test]
+fn borrows_created_inside_a_loop_end_with_the_loop_body_scope() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             var owner: Item = { value = 7 };\n\
+             loop(false) {\n\
+                 var[bor] view: Item = owner;\n\
+                 var seen: int = view.value;\n\
+             };\n\
+             return owner.value;\n\
+         };\n",
+    )]);
+
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn inferred_borrow_from_binding_keeps_owner_inaccessible() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var owner: int = 7;\n\
+             var view = #owner;\n\
+             return owner;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::OwnerBorrowed
+                && error.to_diagnostic().code == DiagnosticCode::new("O2001")
+                && error
+                    .message()
+                    .contains("owner 'owner' is inaccessible while borrowed")
+        }),
+        "an inferred #owner binding must remain active for its lexical scope: {errors:#?}"
+    );
+}
+
+#[test]
+fn inferred_borrow_from_binding_can_be_given_back() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var owner: int = 7;\n\
+             var view = #owner;\n\
+             !view;\n\
+             return owner;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn borrow_bindings_cannot_be_reborrowed() {
+    for initializer in ["view", "#view"] {
+        let source = format!(
+            "fun[] main(): int = {{\n\
+                 var owner: int = 7;\n\
+                 var[bor] view: int = owner;\n\
+                 var[bor] nested: int = {initializer};\n\
+                 return view;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::BorrowConflict
+                    && error
+                        .message()
+                        .contains("reborrowing a borrow binding is not supported in V3")
+            }),
+            "reborrow initializer '{initializer}' must be rejected: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn borrow_bindings_cannot_borrow_an_owner_after_it_moves() {
+    for initializer in ["owner", "#owner"] {
+        let source = format!(
+            "typ Item: rec = {{ value: int }};\n\
+             fun[] main(): int = {{\n\
+                 @var owner: Item = {{ value = 7 }};\n\
+                 @var moved: Item = owner;\n\
+                 var[bor] view: Item = {initializer};\n\
+                 return moved.value;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("cannot borrow from an owner whose value was already moved")
+            }),
+            "borrow initializer '{initializer}' must reject a moved owner: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn move_only_values_cannot_be_transferred_out_of_borrows() {
+    for (surface, source, binding) in [
+        (
+            "direct pointer",
+            "fun[] steal(value[bor]: ptr[int]): ptr[int] = {\n\
+                 return value;\n\
+             };\n",
+            "value",
+        ),
+        (
+            "record containing a pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] steal(value[bor]: Holder): Holder = {\n\
+                 return value;\n\
+             };\n",
+            "value",
+        ),
+        (
+            "pointer placed in an array",
+            "fun[] steal(value[bor]: ptr[int]): arr[ptr[int], 1] = {\n\
+                 return { value };\n\
+             };\n",
+            "value",
+        ),
+        (
+            "pointer placed in a positional record",
+            "typ Holder: rec = { pointer: ptr[int] };\n\
+             fun[] steal(value[bor]: ptr[int]): Holder = {\n\
+                 return { value };\n\
+             };\n",
+            "value",
+        ),
+        (
+            "borrow passed to an owned parameter",
+            "fun[] consume(value: ptr[int]): int = { return 0; };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var owner: ptr[int] = &seed;\n\
+                 var[bor] view: ptr[int] = owner;\n\
+                 return consume(view);\n\
+             };\n",
+            "view",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains(&format!(
+                        "move-only value cannot be transferred out of borrow binding '{binding}'"
+                    ))
+            }),
+            "{surface} must not clone a unique value through a borrow: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn borrow_parameters_require_explicit_call_site_borrowing() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] inspect(item[bor]: Item): int = { return item.value; };\n\
+         fun[] main(): int = {\n\
+             var owner: Item = { value = 7 };\n\
+             return inspect(owner);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::BorrowConflict
+                && error.message().contains("must pass '#owner'")
+        }),
+        "plain owner arguments must not silently become borrow arguments: {errors:#?}"
+    );
+}
+
+#[test]
+fn call_site_borrow_excludes_owner_access_in_sibling_arguments() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] compare(view[bor]: Item, copy: Item): int = {\n\
+             return view.value + copy.value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var owner: Item = { value = 7 };\n\
+             return compare(#owner, owner);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::BorrowConflict
+                && error
+                    .message()
+                    .contains("accesses an owner in another argument")
+        }),
+        "a call-site borrow must exclude sibling owner access regardless of argument order: {errors:#?}"
+    );
+}
+
+#[test]
+fn compatible_shared_call_borrows_end_when_the_call_returns() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] inspect(item[bor]: Item): int = { return item.value; };\n\
+         fun[] main(): int = {\n\
+             var owner: Item = { value = 7 };\n\
+             {\n\
+                 var[bor] first: Item = owner;\n\
+                 var one: int = inspect(first);\n\
+                 var two: int = inspect(#owner);\n\
+             };\n\
+             return owner.value;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn existing_borrow_of_move_only_value_can_flow_to_borrow_parameter() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] inspect(value[bor]: ptr[int]): int = { return 0; };\n\
+         fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var owner: ptr[int] = &seed;\n\
+             var[bor] view: ptr[int] = owner;\n\
+             var first: int = inspect(view);\n\
+             var second: int = inspect(view);\n\
+             !view;\n\
+             return *owner + first + second;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn echo_intrinsic_requires_bundled_std_effective_tier_in_memo() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
@@ -1263,7 +2748,7 @@ fn echo_intrinsic_requires_std_fol_model_in_mem() {
 }
 
 #[test]
-fn public_runtime_model_matrix_keeps_mem_between_core_and_std() {
+fn typecheck_capability_tiers_keep_memo_between_core_and_hosted_std() {
     let core_errors = typecheck_fixture_folder_errors_with_config(
         &[("main.fol", "fun[] main(): str = {\n    return \"heap\";\n};\n")],
         TypecheckConfig {
@@ -1315,6 +2800,2515 @@ fn public_runtime_model_matrix_keeps_mem_between_core_and_std() {
             .and_then(|type_id| std_typed.type_table().get(type_id)),
         Some(&CheckedType::Builtin(BuiltinType::Int)),
     );
+}
+
+#[test]
+fn unknown_lock_method_is_not_treated_as_a_mutex_operation() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] misuse(value: Counter): non = {\n\
+                 value.lock();\n\
+                 return;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::InvalidInput
+            && error
+                .message()
+                .contains("method 'lock' is not available for the receiver type")
+    }));
+    assert!(errors
+        .iter()
+        .all(|error| !error.message().contains("requires a [mux] parameter")));
+}
+
+#[test]
+fn ordinary_lock_and_unlock_method_names_remain_available() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Gate: rec = { value: int };\n\
+             pro (Gate)lock(): non = { return; };\n\
+             fun (Gate)unlock(): int = { return self.value; };\n\
+             fun[] use(gate: Gate): int = {\n\
+                 gate.lock();\n\
+                 return gate.unlock();\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Core,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "use"))
+        .is_some());
+}
+
+#[test]
+fn mutex_fields_require_an_active_lexical_guard() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] read(counter[mux]: Counter): int = {\n\
+                 return counter.value;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("requires 'counter.lock()' in the current lexical scope")));
+}
+
+#[test]
+fn deferred_blocks_reject_mutex_field_access() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "typ Counter: rec = {{ value: int }};\n\
+             fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+                 counter.lock();\n\
+                 {deferred} {{ var seen: int = counter.value; }};\n\
+                 when(fail) {{\n\
+                     case(true) {{ report 1; }}\n\
+                     * {{ return 0; }}\n\
+                 }}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("mutex field access through 'counter' is not allowed inside dfr/edf")
+                    && error
+                        .message()
+                        .contains("delayed mutex guard effects are not modeled")
+            }),
+            "{deferred} must reject delayed mutex field access before lowering: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn deferred_blocks_reject_mutex_guard_operations() {
+    for deferred in ["dfr", "edf"] {
+        for method in ["lock", "unlock"] {
+            let source = format!(
+                "typ Counter: rec = {{ value: int }};\n\
+                 fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+                     {deferred} {{ counter.{method}(); }};\n\
+                     when(fail) {{\n\
+                         case(true) {{ report 1; }}\n\
+                         * {{ return 0; }}\n\
+                     }}\n\
+                 }};\n"
+            );
+            let errors = typecheck_fixture_folder_errors_with_config(
+                &[("main.fol", source.as_str())],
+                TypecheckConfig {
+                    capability_model: TypecheckCapabilityModel::Std,
+                },
+            );
+
+            assert!(
+                errors.iter().any(|error| {
+                    error.kind() == TypecheckErrorKind::Unsupported
+                        && error.message().contains(&format!(
+                            "mutex .{method}() is not allowed inside dfr/edf"
+                        ))
+                        && error
+                            .message()
+                            .contains("delayed mutex guard effects are not modeled")
+                }),
+                "{deferred} must reject delayed mutex .{method}() before lowering: {errors:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn deferred_blocks_reject_forwarded_mutex_handles() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "typ Counter: rec = {{ value: int }};\n\
+             fun[] leaf(counter[mux]: Counter): int = {{\n\
+                 counter.lock();\n\
+                 var value: int = counter.value;\n\
+                 counter.unlock();\n\
+                 return value;\n\
+             }};\n\
+             fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+                 counter.lock();\n\
+                 {deferred} {{ var delayed: int = leaf(counter); }};\n\
+                 when(fail) {{\n\
+                     case(true) {{ report 1; }}\n\
+                     * {{ return 0; }}\n\
+                 }}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("mutex handles cannot be forwarded to [mux] parameter")
+                    && error.message().contains("inside dfr/edf")
+            }),
+            "{deferred} must reject delayed mutex forwarding before lowering: {errors:#?}"
+        );
+        assert!(
+            !errors.iter().any(|error| error
+                .message()
+                .contains("cannot synchronously forward mutex handle")),
+            "{deferred} delayed-forwarding diagnostic must take priority over active-lock forwarding: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn deferred_blocks_reject_delayed_owner_reinitialization() {
+    for deferred in ["dfr", "edf"] {
+        let source = format!(
+            "fun[] consume(pointer: ptr[int]): int = {{ return *pointer; }};\n\
+             fun[] inspect(fail: bol): int / int = {{\n\
+                 var first: int = 1;\n\
+                 var second: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first;\n\
+                 consume(pointer);\n\
+                 {deferred} {{ pointer = &second; }};\n\
+                 when(fail) {{\n\
+                     case(true) {{ report 1; }}\n\
+                     * {{ return *pointer; }}\n\
+                 }}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains(
+                        "moved binding 'pointer' cannot be reinitialized inside dfr/edf",
+                    )
+                    && error
+                        .message()
+                        .contains("delayed ownership effects are not modeled")
+            }),
+            "{deferred} must not make a delayed owner reinitialization visible immediately: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn mutex_lock_rejects_double_acquisition() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] update(counter[mux]: Counter): non = {\n\
+                 counter.lock();\n\
+                 counter.lock();\n\
+                 return;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors
+        .iter()
+        .any(|error| error.message().contains("is already locked")));
+}
+
+#[test]
+fn mutex_unlock_requires_a_current_scope_guard() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] update(counter[mux]: Counter): non = {\n\
+                 counter.unlock();\n\
+                 return;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors
+        .iter()
+        .any(|error| error.message().contains("is not locked")));
+}
+
+#[test]
+fn mutex_guard_auto_releases_at_lexical_scope_end() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] update(counter[mux]: Counter): int = {\n\
+                 {\n\
+                     counter.lock();\n\
+                     counter.value = 1;\n\
+                 };\n\
+                 counter.lock();\n\
+                 return counter.value;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "update"))
+        .is_some());
+}
+
+#[test]
+fn mutex_whole_values_are_rejected_but_mux_forwarding_is_allowed() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] plain(value: Counter): int = { return value.value; };\n\
+             fun[] bad(counter[mux]: Counter): int = {\n\
+                 return plain(counter);\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("cannot be used as an unguarded whole value")));
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] leaf(T)(counter[mux]: T): int = { return 1; };\n\
+             fun[] forward(T)(counter[mux]: T): int = { return leaf(counter); };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "forward"))
+        .is_some());
+}
+
+#[test]
+fn mux_forwarding_does_not_move_the_protected_value() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { marker: ptr[int], value: int };\n\
+             fun[] leaf(counter[mux]: Counter): int = { return 1; };\n\
+             fun[] forward(counter[mux]: Counter): int = {\n\
+                 leaf(counter);\n\
+                 counter.lock();\n\
+                 var value: int = counter.value;\n\
+                 counter.unlock();\n\
+                 return value;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "forward"))
+        .is_some());
+}
+
+#[test]
+fn synchronous_mux_forwarding_rejects_active_and_aliased_handles() {
+    let active_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] leaf(counter[mux]: Counter): int = { return 1; };\n\
+             fun[] bad(counter[mux]: Counter): int = {\n\
+                 counter.lock();\n\
+                 var result: int = leaf(counter);\n\
+                 counter.unlock();\n\
+                 return result;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(
+        active_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("cannot synchronously forward mutex handle 'counter'")
+                && error.message().contains("while its lock is active")
+        }),
+        "a synchronous callee could lock the same guarded mutex and deadlock: {active_errors:#?}"
+    );
+
+    let alias_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] pair(left[mux]: Counter, right[mux]: Counter): int = { return 1; };\n\
+             fun[] bad(counter[mux]: Counter): int = {\n\
+                 return pair(counter, counter);\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(
+        alias_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("cannot forward mutex handle 'counter' to both [mux] parameter")
+                && error.message().contains("can self-deadlock")
+        }),
+        "two mux parameters must not alias the same mutex handle: {alias_errors:#?}"
+    );
+}
+
+#[test]
+fn guarded_mutex_handles_can_cross_spawn_and_async_task_boundaries() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] worker(counter[mux]: Counter): int = {\n\
+                 counter.lock();\n\
+                 var value: int = counter.value;\n\
+                 counter.unlock();\n\
+                 return value;\n\
+             };\n\
+             fun[] launch(counter[mux]: Counter): int = {\n\
+                 counter.lock();\n\
+                 [>]worker(counter);\n\
+                 var pending = worker(counter) | async;\n\
+                 counter.unlock();\n\
+                 return pending | await;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "launch"))
+        .is_some());
+
+    let qualified = typecheck_fixture_folder_with_config(
+        &[
+            (
+                "workers/tasks.fol",
+                "typ[exp] Counter: rec = { value: int };\n\
+                 fun[exp] worker(counter[mux]: Counter): int = {\n\
+                     counter.lock();\n\
+                     var value: int = counter.value;\n\
+                     counter.unlock();\n\
+                     return value;\n\
+                 };\n",
+            ),
+            (
+                "main.fol",
+                "fun[] launch(counter[mux]: workers::Counter): int = {\n\
+                     counter.lock();\n\
+                     [>]workers::worker(counter);\n\
+                     var pending = workers::worker(counter) | async;\n\
+                     counter.unlock();\n\
+                     return pending | await;\n\
+                 };\n",
+            ),
+        ],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(qualified
+        .typed_node(find_named_routine_syntax_id(&qualified, "launch"))
+        .is_some());
+}
+
+#[test]
+fn mutex_handle_cannot_escape_inside_mux_argument() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             typ Wrapper: rec = { inner: Counter };\n\
+             fun[] sink(value[mux]: Wrapper): int = { return 1; };\n\
+             fun[] bad(counter[mux]: Counter): int = {\n\
+                 return sink({ inner = counter });\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("cannot be used as an unguarded whole value")));
+}
+
+#[test]
+fn every_processor_surface_rejects_core_and_memo_models() {
+    let cases = [
+        (
+            "spawn",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): non = { [>]work(); return; };\n",
+            "spawn requires hosted std support",
+        ),
+        (
+            "channel",
+            "fun[] main(): non = { var messages: chn[int]; return; };\n",
+            "channel types require hosted std support",
+        ),
+        (
+            "select",
+            "fun[] main(): non = { select { * {} } return; };\n",
+            "select requires hosted std support",
+        ),
+        (
+            "mutex",
+            "fun[] work(value[mux]: int): int = { return value; };\n",
+            "mutex parameters require hosted std support",
+        ),
+        (
+            "async",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): non = { var pending = work() | async; return; };\n",
+            "async pipe stages require hosted std support",
+        ),
+        (
+            "await",
+            "fun[] main(): int = { var value: int = 1; return value | await; };\n",
+            "await pipe stages require hosted std support",
+        ),
+    ];
+
+    for capability_model in [
+        TypecheckCapabilityModel::Core,
+        TypecheckCapabilityModel::Memo,
+    ] {
+        for (surface, source, expected) in cases {
+            let errors = typecheck_fixture_folder_errors_with_config(
+                &[("main.fol", source)],
+                TypecheckConfig { capability_model },
+            );
+            assert!(
+                errors.iter().any(|error| error.message().contains(expected)),
+                "{surface} should reject {capability_model:?} with '{expected}', got {errors:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn processor_stages_reject_recoverable_pipe_spelling() {
+    for (surface, source, expected) in [
+        (
+            "async",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): int = { var pending = work() || async; return 0; };\n",
+            "'|| async'",
+        ),
+        (
+            "await",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): int = { var pending = work() | async; return pending || await; };\n",
+            "'|| await'",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains(expected)),
+            "{surface} should reject the recoverable-pipe spelling, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn awaiting_an_eventual_binding_consumes_it() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work() | async;\n\
+                 var first: int = pending | await;\n\
+                 return pending | await;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of consumed eventual binding 'pending'")
+    }));
+}
+
+#[test]
+fn bare_recoverable_async_calls_cannot_discard_the_eventual() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 work(true) | async;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("discarding a recoverable eventual loses its error")));
+}
+
+#[test]
+fn bound_recoverable_eventuals_must_be_awaited_before_return() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(true) | async;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn awaited_recoverable_eventual_results_cannot_be_discarded() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(true) | async;\n\
+                 pending | await;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("statement-position expression cannot use '/ ErrorType'")));
+}
+
+#[test]
+fn recoverable_eventuals_cannot_be_overwritten_while_unhandled() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(value: int): int / int = {\n\
+                 when(value == 0) {\n\
+                     case(true) { report 9; }\n\
+                     * { return value; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var[mut] pending = work(1) | async;\n\
+                 var replacement = work(2) | async;\n\
+                 pending = replacement;\n\
+                 return (pending | await) || 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' cannot be overwritten"
+    )));
+}
+
+#[test]
+fn recoverable_eventual_obligations_follow_transfers_and_can_be_handled() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(false) | async;\n\
+                 var moved = pending;\n\
+                 return (moved | await) || 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn transferred_recoverable_eventuals_remain_obligations() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(false) | async;\n\
+                 var moved = pending;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'moved' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn recoverable_eventual_branch_obligations_require_every_path_to_handle() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(flag: bol): int = {\n\
+                 var pending = work(false) | async;\n\
+                 when(flag) {\n\
+                     case(true) { var handled: bol = check(pending | await); }\n\
+                     * { var untouched: int = 0; }\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn recoverable_eventual_branch_obligations_accept_all_paths_handled() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(flag: bol): int = {\n\
+                 var pending = work(false) | async;\n\
+                 when(flag) {\n\
+                     case(true) { var first: bol = check(pending | await); }\n\
+                     * { var second: bol = check(pending | await); }\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn recoverable_branch_values_transfer_across_trailing_comments() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(flag: bol): int = {\n\
+                 var result: int = (when(flag) {\n\
+                     is (true) -> work(false);\n\
+                         // transferred branch value\n\
+                     * -> work(false);\n\
+                         // transferred branch value\n\
+                 }) || 0;\n\
+                 return result;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn infallible_unawaited_eventuals_remain_allowed() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(): int = { return 7; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work() | async;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn nested_anonymous_returns_ignore_outer_eventual_obligations() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(false) | async;\n\
+                 var action = fun[](): int = { return 1; };\n\
+                 var ignored: int = action();\n\
+                 return (pending | await) || ignored;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn nested_routines_cannot_await_outer_recoverable_eventuals() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(false) | async;\n\
+                 var action = fun[](): int = {\n\
+                     return (pending | await) || 0;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("implicit closure capture of outer local 'pending' is not supported")),
+        "nested routine must not discharge an outer eventual obligation: {errors:#?}"
+    );
+}
+
+#[test]
+fn nested_routines_reject_implicit_clone_safe_captures() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var outer: int = 7;\n\
+             var action = fun[](): int = { return outer; };\n\
+             return action();\n\
+         };\n",
+    )]);
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("implicit closure capture of outer local 'outer' is not supported")),
+        "closure capture must fail in typecheck instead of reaching lowering: {errors:#?}"
+    );
+}
+
+#[test]
+fn nested_routines_reject_implicit_capture_assignment_targets() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var[mut] outer: int = 7;\n\
+             var action = fun[](): int = { outer = 9; return 0; };\n\
+             return action();\n\
+         };\n",
+    )]);
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("implicit closure capture of outer local 'outer' is not supported")),
+        "assignment targets must not bypass the closure boundary: {errors:#?}"
+    );
+}
+
+#[test]
+fn recoverable_eventuals_cannot_leave_their_lexical_scope_unhandled() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 { var pending = work(false) | async; };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn recoverable_eventuals_cannot_escape_through_report() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int / int = {\n\
+                 var pending = work(false) | async;\n\
+                 report 1;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn edf_cannot_discharge_outer_recoverable_eventuals() {
+    for cleanup in [
+        "edf { var handled: bol = check(pending | await); };",
+        "edf { dfr { var handled: bol = check(pending | await); }; };",
+    ] {
+        let source = format!(
+            "fun[] work(fail: bol): int / int = {{\n\
+                 when(fail) {{\n\
+                     case(true) {{ report 9; }}\n\
+                     * {{ return 7; }}\n\
+                 }}\n\
+             }};\n\
+             fun[] main(): int = {{\n\
+                 var pending = work(false) | async;\n\
+                 {cleanup}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(errors.iter().any(|error| error
+            .message()
+            .contains("await is not allowed inside edf")),
+            "error-only cleanup must not discharge a normal-path obligation: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn recoverable_eventuals_cannot_escape_a_loop_through_break() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 loop(true) {\n\
+                     var pending = work(false) | async;\n\
+                     break;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn break_rejects_recoverable_eventuals_assigned_to_outer_slots() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var[mut] slot = work(false) | async;\n\
+                 var first: int = (slot | await) || 0;\n\
+                 loop(true) {\n\
+                     var pending = work(false) | async;\n\
+                     slot = pending;\n\
+                     break;\n\
+                 };\n\
+                 return first;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'slot' must be awaited and handled"
+    )), "break must preserve obligations activated inside the loop: {errors:#?}");
+}
+
+#[test]
+fn outer_eventuals_cannot_be_awaited_from_repeating_loops() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work() | async;\n\
+                 var[mut] keep: bol = true;\n\
+                 loop(keep) {\n\
+                     var value: int = pending | await;\n\
+                     keep = false;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "move-only binding 'pending' declared outside a repeating loop cannot be transferred"
+    )));
+}
+
+#[test]
+fn transferring_an_eventual_binding_moves_the_source() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work() | async;\n\
+                 var moved = pending;\n\
+                 return moved | await;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(): int = { return 1; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work() | async;\n\
+                 var moved = pending;\n\
+                 var value: int = moved | await;\n\
+                 return pending | await;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of moved eventual binding 'pending'")
+    }));
+}
+
+#[test]
+fn assigning_an_eventual_binding_moves_the_source() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(value: int): int = { return value; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(1) | async;\n\
+                 var[mut] target = work(2) | async;\n\
+                 target = pending;\n\
+                 var value: int = target | await;\n\
+                 return pending | await;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of moved eventual binding 'pending'")
+    }));
+}
+
+#[test]
+fn internal_eventuals_do_not_cross_unchecked_generic_boundaries() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun identity(T)(value: T): T = { return value; };\n\
+             fun[] work(): int = { return 1; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work() | async;\n\
+                 var moved = identity(pending);\n\
+                 return moved | await;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("cannot pass an internal eventual through a generic parameter")
+    }));
+}
+
+#[test]
+fn sender_only_capture_cannot_receive_from_its_channel() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 [>]fun()[channel[tx]] = {\n\
+                     var stolen: int = channel[rx];\n\
+                     return;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("captured endpoint 'channel[tx]' is sender-only")));
+}
+
+#[test]
+fn channel_send_consumes_move_only_payloads() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 @var owned: int = 42;\n\
+                 owned | channel[tx];\n\
+                 return owned;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of moved heap-owned binding 'owned'")
+    }));
+}
+
+#[test]
+fn empty_blocking_select_rejects_during_typecheck() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 select {};\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::InvalidInput
+            && error
+                .message()
+                .contains("blocking select requires at least one channel arm")
+    }));
+}
+
+#[test]
+fn select_merges_ownership_from_mutually_exclusive_arms() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+             fun[] produce(channel: chn[int]): int = { 1 | channel[tx]; return 1; };\n\
+             fun[] main(): int = {\n\
+                 var first: chn[int];\n\
+                 var second: chn[int];\n\
+                 [>]produce(first);\n\
+                 [>]produce(second);\n\
+                 var first_value: int = 1;\n\
+                 var second_value: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first_value;\n\
+                 select {\n\
+                     when first as received { consume(pointer); }\n\
+                     when second as received { pointer = &second_value; }\n\
+                     * { pointer = &second_value; }\n\
+                 };\n\
+                 return *pointer;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "a later select-arm reinitialization must not erase an earlier arm's move: {errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+             fun[] produce(channel: chn[int]): int = { 1 | channel[tx]; return 1; };\n\
+             fun[] main(): int = {\n\
+                 var first: chn[int];\n\
+                 var second: chn[int];\n\
+                 [>]produce(first);\n\
+                 [>]produce(second);\n\
+                 var value: int = 1;\n\
+                 var pointer: ptr[int] = &value;\n\
+                 select {\n\
+                     when first as first_received { consume(pointer); }\n\
+                     when second as second_received { consume(pointer); }\n\
+                     * { consume(pointer); }\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(
+        typed
+            .typed_node(find_named_routine_syntax_id(&typed, "main"))
+            .is_some(),
+        "each mutually exclusive select arm must start from the same ownership state"
+    );
+}
+
+#[test]
+fn select_without_default_preserves_the_all_closed_ownership_path() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+             fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 var first: int = 1;\n\
+                 var second: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first;\n\
+                 consume(pointer);\n\
+                 select {\n\
+                     when channel as received { pointer = &second; }\n\
+                 };\n\
+                 return *pointer;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "an all-closed select may skip every arm and must preserve its entry flow: {errors:#?}"
+    );
+}
+
+#[test]
+fn sender_only_locals_cannot_receive_through_select_or_iteration() {
+    for (surface, body) in [
+        (
+            "select",
+            "select {\n\
+                 when sender[rx] as value { return value; }\n\
+                 * { return 0; }\n\
+             }",
+        ),
+        (
+            "channel iteration",
+            "for (value in sender[rx]) {\n\
+                 return value;\n\
+             }",
+        ),
+    ] {
+        let source = format!(
+            "fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 var sender = channel[tx];\n\
+                 {body}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("sender-only channel endpoints cannot receive")
+            }),
+            "{surface} should reject a sender-only local before lowering, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn borrowed_values_cannot_cross_spawn_or_async_boundaries() {
+    for (surface, statement) in [
+        ("spawn", "[>]inspect(#owner);"),
+        ("async", "var pending = inspect(#owner) | async;"),
+    ] {
+        let source = format!(
+            "fun[] inspect(value[bor]: int): int = {{ return 0; }};\n\
+             fun[] main(): int = {{\n\
+                 var owner: int = 42;\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("borrowed values cannot cross a spawn or async thread boundary")
+            }),
+            "{surface} should reject a borrowed argument, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn unresolved_generic_values_cannot_cross_spawn_or_async_boundaries() {
+    for (surface, statement) in [
+        ("spawn", "[>]identity(value);"),
+        ("async", "var pending = identity(value) | async;"),
+    ] {
+        let source = format!(
+            "fun identity(T)(value: T): T = {{ return value; }};\n\
+             fun launch(T)(value: T): int = {{\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains(
+                        "unconstrained generic values cannot cross a spawn or async thread boundary",
+                    )
+            }),
+            "{surface} should reject an unresolved generic argument, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn concrete_generic_calls_can_cross_spawn_and_async_boundaries() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun choose(T)(value: T, fallback: int = 1): T = { return value; };\n\
+             fun[] main(): int = {\n\
+                 [>]choose(7);\n\
+                 var pending = choose(9) | async;\n\
+                 return pending | await;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn direct_qualified_calls_can_cross_processor_boundaries() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[
+            (
+                "workers/tasks.fol",
+                "fun[] launch(value: int = 7): int = { return value; };\n\
+                 fun[] compute(value: int = 41): int = { return value + 1; };\n",
+            ),
+            (
+                "main.fol",
+                "fun[] main(): int = {\n\
+                     [>]workers::launch();\n\
+                     var pending = workers::compute() | async;\n\
+                     return pending | await;\n\
+                 };\n",
+            ),
+        ],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn processor_boundaries_reject_indirect_routine_value_calls() {
+    for (value_surface, program_prefix, program_suffix) in [
+        (
+            "stored named routine",
+            "fun[] worker(): int = { return 7; };\n\
+             fun[] main(): int = {\n\
+                 var action = worker;\n",
+            "return 0;\n};\n",
+        ),
+        (
+            "stored anonymous routine",
+            "fun[] main(): int = {\n\
+                 var action = fun[](): int = { return 7; };\n",
+            "return 0;\n};\n",
+        ),
+        (
+            "routine parameter",
+            "fun[] launch(action: {fun (): int}): int = {\n",
+            "return 0;\n};\n\
+             fun[] worker(): int = { return 7; };\n\
+             fun[] main(): int = { return launch(worker); };\n",
+        ),
+    ] {
+        for (processor_surface, statement) in [
+            ("spawn", "[>]action();"),
+            ("async", "var pending = action() | async;"),
+        ] {
+            let source = format!("{program_prefix}    {statement}\n    {program_suffix}");
+            let errors = typecheck_fixture_folder_errors_with_config(
+                &[("main.fol", &source)],
+                TypecheckConfig {
+                    capability_model: TypecheckCapabilityModel::Std,
+                },
+            );
+
+            assert!(
+                errors.iter().any(|error| {
+                    error.kind() == TypecheckErrorKind::Unsupported
+                        && error.message().contains(
+                            "requires a direct call to a named routine declaration in V3",
+                        )
+                }),
+                "{processor_surface} should reject a {value_surface} call before lowering, got {errors:?} from {source:?}"
+            );
+        }
+    }
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 [>]fun() = { return; };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn omitted_borrowed_defaults_cannot_cross_processor_boundaries() {
+    for (surface, statement) in [
+        ("spawn", "[>]inspect();"),
+        ("async", "var pending = inspect() | async;"),
+    ] {
+        let source = format!(
+            "fun[] inspect(value[bor]: int = 7): int = {{ return 0; }};\n\
+             fun[] main(): int = {{\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("borrowed values cannot cross a spawn or async thread boundary")
+            }),
+            "{surface} should reject an omitted borrowed default, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn omitted_shared_pointer_defaults_cannot_cross_processor_boundaries() {
+    for (surface, statement) in [
+        ("spawn", "[>]inspect();"),
+        ("async", "var pending = inspect() | async;"),
+    ] {
+        let source = format!(
+            "fun[] inspect(value: ptr[shared, int] = &7): int = {{ return 0; }};\n\
+             fun[] main(): int = {{\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("values containing shared Rc pointers cannot cross")
+            }),
+            "{surface} should reject an omitted shared-pointer default, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn qualified_omitted_defaults_preserve_processor_boundaries() {
+    for (surface, statement, parameter, expected) in [
+        (
+            "spawn borrowed default",
+            "[>]workers::inspect();",
+            "value[bor]: int = 7",
+            "borrowed values cannot cross a spawn or async thread boundary",
+        ),
+        (
+            "async borrowed default",
+            "var pending = workers::inspect() | async;",
+            "value[bor]: int = 7",
+            "borrowed values cannot cross a spawn or async thread boundary",
+        ),
+        (
+            "spawn shared-pointer default",
+            "[>]workers::inspect();",
+            "value: ptr[shared, int] = &7",
+            "values containing shared Rc pointers cannot cross",
+        ),
+        (
+            "async shared-pointer default",
+            "var pending = workers::inspect() | async;",
+            "value: ptr[shared, int] = &7",
+            "values containing shared Rc pointers cannot cross",
+        ),
+    ] {
+        let worker = format!(
+            "fun[] inspect({parameter}): int = {{ return 0; }};\n"
+        );
+        let main = format!(
+            "fun[] main(): int = {{\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[
+                ("workers/tasks.fol", worker.as_str()),
+                ("main.fol", main.as_str()),
+            ],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| error.message().contains(expected)),
+            "{surface} should retain its omitted-argument boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn spawn_rejects_method_non_call_and_parameterized_anonymous_tasks() {
+    for (surface, task, expected) in [
+        (
+            "method call",
+            "worker.run()",
+            "spawn requires a direct named routine call",
+        ),
+        (
+            "non-call expression",
+            "42",
+            "spawn requires a direct named routine call",
+        ),
+        (
+            "parameterized anonymous routine",
+            "fun(value: int): int = { return value; }",
+            "a directly spawned anonymous routine cannot declare call parameters",
+        ),
+    ] {
+        let source = format!(
+            "typ Worker: rec = {{ value: int }};\n\
+             fun (Worker)run(): int = {{ return 1; }};\n\
+             fun[] main(): int = {{\n\
+                 var worker: Worker = {{ value = 0 }};\n\
+                 [>]{task};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains(expected)),
+            "{surface} should be rejected during typecheck, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn anonymous_recoverable_spawn_cannot_discard_its_error() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 [>]fun(): int / int = {\n\
+                     when(true) {\n\
+                         case(true) { report 9; }\n\
+                         * { return 0; }\n\
+                     }\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("bare '[>]call()' cannot spawn a recoverable routine")));
+}
+
+#[test]
+fn direct_spawn_rejects_a_channel_consumer_routine() {
+    for (surface, statement) in [
+        ("spawn", "[>]consume(channel);"),
+        ("async", "var pending = consume(channel) | async;"),
+    ] {
+        let source = format!(
+            "fun[] consume(channel: chn[int]): int = {{\n\
+                 return channel[rx];\n\
+             }};\n\
+             fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| error.message().contains(
+                "routine 'consume' receives from a channel and cannot be spawned directly"
+            )),
+            "{surface} should preserve the single channel receiver, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn channel_receiver_effect_follows_local_aliases_and_wrappers() {
+    for (surface, receiver_body) in [
+        (
+            "alias",
+            "var alias = channel;\n                 return alias[rx];",
+        ),
+        (
+            "wrapper",
+            "return consume(channel);",
+        ),
+    ] {
+        let source = format!(
+            "fun[] consume(channel: chn[int]): int = {{\n\
+                 return channel[rx];\n\
+             }};\n\
+             fun[] wrapper(channel: chn[int]): int = {{\n\
+                 {receiver_body}\n\
+             }};\n\
+             fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 [>]wrapper(channel);\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| error.message().contains(
+                "routine 'wrapper' receives from a channel and cannot be spawned directly"
+            )),
+            "{surface} receiver flow should reach the spawn boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn sender_capture_alias_cannot_receive_or_call_a_consumer() {
+    for (surface, body) in [
+        (
+            "alias receive",
+            "var alias = channel;\n                     var value: int = alias[rx];",
+        ),
+        ("consumer call", "var value: int = consume(channel);"),
+    ] {
+        let source = format!(
+            "fun[] consume(channel: chn[int]): int = {{ return channel[rx]; }};\n\
+             fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 [>]fun()[channel[tx]] = {{\n\
+                     {body}\n\
+                     return;\n\
+                 }};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.message().contains("sender-only channel endpoints cannot receive")
+                    || (error.message().contains("expects 'chn[int]'")
+                        && error.message().contains("chn[int][tx]"))
+            }),
+            "{surface} should not recover the receiver capability, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn non_receiving_channel_parameters_are_sender_only_capabilities() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] produce(channel: chn[int]): int = {\n\
+                 1 | channel[tx];\n\
+                 return 1;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    let (_, produce) = find_typed_symbol(&typed, "produce", SymbolKind::Routine);
+    let signature = produce
+        .declared_type
+        .and_then(|type_id| typed.type_table().get(type_id))
+        .and_then(|typ| match typ {
+            CheckedType::Routine(signature) => Some(signature),
+            _ => None,
+        })
+        .expect("produce should retain its routine signature");
+    assert!(matches!(
+        signature
+            .params
+            .first()
+            .and_then(|type_id| typed.type_table().get(*type_id)),
+        Some(CheckedType::ChannelSender { .. })
+    ));
+}
+
+#[test]
+fn transferring_a_channel_receiver_moves_the_source_binding() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(channel: chn[int]): int = { return channel[rx]; };\n\
+             fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 42 | channel[tx];\n\
+                 var value: int = consume(channel);\n\
+                 return channel[rx];\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of moved channel receiver binding 'channel'")
+    }));
+}
+
+#[test]
+fn outer_channel_receivers_cannot_move_into_consumers_from_repeating_loops() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] consume(channel: chn[int]): int = { return channel[rx]; };\n\
+             fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 42 | channel[tx];\n\
+                 var[mut] keep: bol = true;\n\
+                 loop(keep) {\n\
+                     var value: int = consume(channel);\n\
+                     keep = false;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "move-only binding 'channel' declared outside a repeating loop cannot be transferred"
+    )));
+}
+
+#[test]
+fn receiver_acquisition_rejects_late_transmitter_acquisition() {
+    for (surface, body) in [
+        (
+            "direct endpoint",
+            "var value: int = channel[rx];\n                 2 | channel[tx];",
+        ),
+        (
+            "sender wrapper",
+            "var value: int = channel[rx];\n                 var sent: int = produce(channel);",
+        ),
+        (
+            "nested capture",
+            "{\n                     var value: int = channel[rx];\n                     [>]fun()[channel[tx]] = { 2 | channel[tx]; return; };\n                 };",
+        ),
+        (
+            "select receiver",
+            "var[mut] seen: int = 0;\n                 select {\n                     when channel as value { seen = value; }\n                     * { seen = seen; }\n                 }\n                 2 | channel[tx];",
+        ),
+        (
+            "loop receiver",
+            "loop(true) {\n                     2 | channel[tx];\n                     var value: int = channel[rx];\n                     break;\n                 };",
+        ),
+    ] {
+        let source = format!(
+            "fun[] produce(channel: chn[int]): int = {{ 1 | channel[tx]; return 1; }};\n\
+             fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 1 | channel[tx];\n\
+                 {body}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| error
+                .message()
+                .contains("is no longer available after receiver acquisition")),
+            "{surface} should reject late tx acquisition, got {errors:?}"
+        );
+    }
+
+
+    for (surface, deferred_body) in [
+        ("direct deferred endpoint", "1 | channel[tx];"),
+        (
+            "deferred endpoint capture",
+            "[>]fun()[channel[tx]] = { 1 | channel[tx]; return; };",
+        ),
+    ] {
+        let source = format!(
+            "fun[] main(): int = {{\n\
+                 var channel: chn[int];\n\
+                 dfr {{ {deferred_body} }};\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let deferred_errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            deferred_errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("channel endpoint acquisition is not allowed inside dfr/edf")
+            }),
+            "{surface} should report the explicit dfr/edf endpoint boundary, got {deferred_errors:?}"
+        );
+    }
+}
+
+#[test]
+fn receiver_acquisition_rejects_late_method_sender_call() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Relay: rec = { value: int };\n\
+             fun[] (Relay)produce(channel: chn[int]): int = {\n\
+                 1 | channel[tx];\n\
+                 return 1;\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var relay: Relay = { value = 0 };\n\
+                 var channel: chn[int];\n\
+                 1 | channel[tx];\n\
+                 var value: int = channel[rx];\n\
+                 return relay.produce(channel);\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("is no longer available after receiver acquisition")));
+}
+
+#[test]
+fn channel_endpoint_bases_reject_non_binding_values() {
+    for (surface, body) in [
+        (
+            "computed receive",
+            "var value: int = make()[rx];\n                 return value;",
+        ),
+        (
+            "computed select receiver",
+            "var[mut] seen: int = 0;\n                 select {\n                     when make() as value { seen = value; }\n                     * { seen = seen; }\n                 }\n                 return seen;",
+        ),
+    ] {
+        let source = format!(
+            "fun[] make(): chn[int] = {{\n\
+                 var channel: chn[int];\n\
+                 return channel;\n\
+             }};\n\
+             fun[] main(): int = {{\n\
+                 {body}\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("requires a direct local, parameter, or capture binding")
+            }),
+            "{surface} should report the explicit V3 endpoint-base boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn aggregate_types_cannot_embed_full_channels() {
+    for (surface, source) in [
+        (
+            "record field",
+            "typ Holder: rec = { channel: chn[int] };\nfun[] main(): int = { return 0; };\n",
+        ),
+        (
+            "entry payload",
+            "typ Message: ent = { var CHANNEL: chn[int]; };\nfun[] main(): int = { return 0; };\n",
+        ),
+        (
+            "container element",
+            "fun[] main(): int = { var channels: vec[chn[int]]; return 0; };\n",
+        ),
+        (
+            "wrapper value",
+            "fun[] main(value: opt[chn[int]]): int = { return 0; };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("full chn[T] values cannot be embedded")
+            }),
+            "{surface} should report the aggregate-channel boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn channel_endpoint_bases_reject_implicit_outer_routine_captures() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var channel: chn[int];\n\
+                 fun[] nested(): int = {\n\
+                     1 | channel[tx];\n\
+                     return 1;\n\
+                 };\n\
+                 return nested();\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Unsupported
+            && error
+                .message()
+                .contains("implicit closure capture of outer local 'channel' is not supported")
+    }));
+}
+
+#[test]
+fn anonymous_channel_parameters_report_the_v3_boundary() {
+    for (surface, declaration, param_type) in [
+        ("direct channel", "", "chn[int]"),
+        ("channel alias", "ali Messages: chn[int];\n", "Messages"),
+    ] {
+        let source = format!(
+            "{declaration}fun[] main(): int = {{\n\
+                 var sender = fun[](channel: {param_type}): int = {{\n\
+                     1 | channel[tx];\n\
+                     return 1;\n\
+                 }};\n\
+                 var channel: chn[int];\n\
+                 return sender(channel);\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("anonymous routine chn[T] parameters are not supported in V3")
+            }),
+            "{surface} should report the anonymous-channel boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn mutex_parameter_abi_stays_on_named_direct_calls() {
+    for (surface, source, expected) in [
+        (
+            "named routine value",
+            "typ Counter: rec = { value: int };\n\
+             fun[] worker(counter[mux]: Counter): int = { return 0; };\n\
+             fun[] main(): int = { var action = worker; return 0; };\n",
+            "routine 'worker' with [mux] parameters cannot be used as a plain routine value in V3",
+        ),
+        (
+            "anonymous routine value",
+            "typ Counter: rec = { value: int };\n\
+             fun[] main(): int = {\n\
+                 var action = fun[](counter[mux]: Counter): int = { return 0; };\n\
+                 return 0;\n\
+             };\n",
+            "anonymous routines with [mux] parameters are not supported in V3",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error.message().contains(expected)
+            }),
+            "{surface} should stop before mutex ABI metadata is erased: {errors:?}"
+        );
+    }
+
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] worker(counter[mux]: Counter): int = { return 1; };\n\
+             fun[] main(): int = {\n\
+                 var counter: Counter = { value = 0 };\n\
+                 return worker(counter);\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn top_level_channel_bindings_report_the_v3_boundary() {
+    for (surface, source) in [
+        (
+            "direct declaration",
+            "var global: chn[int];\nfun[] main(): int = { return 0; };\n",
+        ),
+        (
+            "alias declaration",
+            "ali Messages: chn[int];\nvar global: Messages;\nfun[] main(): int = { return 0; };\n",
+        ),
+        (
+            "inferred initializer",
+            "fun[] make(): chn[int] = { var channel: chn[int]; return channel; };\nvar global = make();\nfun[] main(): int = { return 0; };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error
+                        .message()
+                        .contains("top-level channel bindings are not supported in V3")
+            }),
+            "{surface} should report the top-level-channel boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn top_level_bindings_reject_non_global_safe_v3_types() {
+    for (surface, source, expected) in [
+        (
+            "owned allocation",
+            "typ Item: rec = { value: int };\n@var global: Item = { value = 7 };\nfun[] main(): int = { return 0; };\n",
+            "top-level move-only bindings are not supported in V3",
+        ),
+        (
+            "unique pointer",
+            "var global: ptr[int];\nfun[] main(): int = { return 0; };\n",
+            "top-level move-only bindings are not supported in V3",
+        ),
+        (
+            "aggregate containing a unique pointer",
+            "typ Holder: rec = { pointer: ptr[int] };\nvar global: Holder;\nfun[] main(): int = { return 0; };\n",
+            "top-level move-only bindings are not supported in V3",
+        ),
+        (
+            "inferred unique pointer",
+            "fun[] make(): ptr[int] = { var seed: int = 7; return &seed; };\nvar global = make();\nfun[] main(): int = { return 0; };\n",
+            "top-level move-only bindings are not supported in V3",
+        ),
+        (
+            "shared Rc pointer",
+            "var global: ptr[shared, int];\nfun[] main(): int = { return 0; };\n",
+            "top-level bindings containing ptr[shared, T] are not supported in V3",
+        ),
+        (
+            "borrowed global",
+            "var owner: int = 7;\nvar[bor] global: int = #owner;\nfun[] main(): int = { return 0; };\n",
+            "top-level bindings containing borrowed values are not supported in V3",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Unsupported
+                    && error.message().contains(expected)
+            }),
+            "{surface} should report the global-storage boundary, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn top_level_clone_safe_scalars_and_records_remain_available() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+             "typ Snapshot: rec = { value: int };\n\
+             var count: int = 1;\n\
+             var current: Snapshot = { value = 2 };\n\
+             fun[] main(): int = { return count + current.value; };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn spawn_boundaries_reject_recursively_nested_shared_pointers() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Shared: rec = { value: ptr[shared, int] };\n\
+             fun[] consume(value: Shared): int = { return 0; };\n\
+             fun[] main(): int = {\n\
+                 var value: int = 1;\n\
+                 var shared: Shared = { value = &value };\n\
+                 [>]consume(shared);\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("values containing shared Rc pointers cannot cross")
+    }));
+
+    let capture_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 var channel: chn[ptr[shared, int]];\n\
+                 [>]fun()[channel[tx]] = { return; };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(capture_errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error.message().contains("captured endpoint 'channel[tx]'")
+    }));
+
+    let method_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Shared: rec = { value: ptr[shared, int] };\n\
+             fun (Shared)consume(): int = { return 0; };\n\
+             fun[] main(): int = {\n\
+                 var value: int = 1;\n\
+                 var shared: Shared = { value = &value };\n\
+                 [>]shared.consume();\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(method_errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("values containing shared Rc pointers cannot cross")
+    }));
+
+    let method_channel_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "typ Worker: rec = { value: int };\n\
+             fun (Worker)consume(channel: chn[int]): int = { return channel[rx]; };\n\
+             fun[] main(): int = {\n\
+                 var worker: Worker = { value = 0 };\n\
+                 var channel: chn[int];\n\
+                 [>]worker.consume(channel);\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(method_channel_errors.iter().any(|error| {
+        error
+            .message()
+            .contains("receives from a channel and cannot be spawned directly")
+    }));
+
+    let async_errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] make(): ptr[shared, int] = {\n\
+                 var shared: ptr[shared, int];\n\
+                 return shared;\n\
+             };\n\
+             fun[] main(): int = { var pending = make() | async; return 0; };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(async_errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("async result containing shared Rc pointers")
+    }));
 }
 
 #[test]
@@ -2021,8 +6015,7 @@ fn propagation_typing_rejects_incompatible_error_types_in_plain_value_contexts()
 
 #[test]
 fn self_referential_record_type_is_rejected_without_panicking() {
-    // A self-referential record has no finite runtime shape in the structural
-    // model (a direct `next: Node` field would be infinitely sized). The
+    // A direct self-referential value field has no finite runtime shape. The
     // checker rejects it with an honest, located diagnostic rather than
     // accepting an unbuildable type or overflowing the stack during lowering.
     let errors = typecheck_fixture_folder_errors(&[(
@@ -2039,7 +6032,8 @@ fn self_referential_record_type_is_rejected_without_panicking() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
-                && error.message().contains("recursive type 'Node' is not yet supported")
+                && error.message().contains("recursive value type 'Node'")
+                && error.message().contains("opt @Node")
         }),
         "Expected a self-referential record to be rejected with an honest boundary, got: {errors:?}"
     );
@@ -2321,6 +6315,139 @@ fn immutable_bindings_reject_whole_binding_reassignment() {
 }
 
 #[test]
+fn moved_mutable_bindings_can_be_reinitialized() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] main(): int = {\n\
+             var first: int = 1;\n\
+             var second: int = 2;\n\
+             var[mut] pointer: ptr[int] = &first;\n\
+             var old: int = consume(pointer);\n\
+             pointer = &second;\n\
+             pointer = pointer;\n\
+             return old + *pointer;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+
+    let immutable_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] main(): int = {\n\
+             var first: int = 1;\n\
+             var second: int = 2;\n\
+             con pointer: ptr[int] = &first;\n\
+             consume(pointer);\n\
+             pointer = &second;\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        immutable_errors
+            .iter()
+            .any(|error| error.message().contains("cannot reassign immutable binding 'pointer'")),
+        "reinitialization must preserve ordinary mutability checks: {immutable_errors:#?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] choose(flag: bol): int = {\n\
+             var first: int = 1;\n\
+             var second: int = 2;\n\
+             var[mut] pointer: ptr[int] = &first;\n\
+             consume(pointer);\n\
+             when(flag) {\n\
+                 case(true) { pointer = &first; }\n\
+                 * { pointer = &second; }\n\
+             }\n\
+             return *pointer;\n\
+         };\n",
+    )]);
+    assert!(
+        typed
+            .typed_node(find_named_routine_syntax_id(&typed, "choose"))
+            .is_some(),
+        "a binding reinitialized on every continuing branch must become usable"
+    );
+
+    let partial_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] choose(flag: bol): int = {\n\
+             var value: int = 1;\n\
+             var[mut] pointer: ptr[int] = &value;\n\
+             consume(pointer);\n\
+             when(flag) {\n\
+                 * { pointer = &value; }\n\
+             }\n\
+             return *pointer;\n\
+         };\n",
+    )]);
+    assert!(
+        partial_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "a case-less gate can skip reinitialization and must keep the binding maybe-moved: {partial_errors:#?}"
+    );
+}
+
+#[test]
+fn loop_reinitialization_does_not_erase_the_zero_iteration_move() {
+    for (surface, setup, loop_body) in [
+        (
+            "condition loop",
+            "",
+            "loop(false) { pointer = &second; };",
+        ),
+        (
+            "iterable loop",
+            "var values: arr[int, 1] = { 1 };",
+            "loop(value in values when false) { pointer = &second; };",
+        ),
+        (
+            "channel loop",
+            "var channel: chn[int];",
+            "for (value in channel[rx]) { pointer = &second; };",
+        ),
+    ] {
+        let source = format!(
+            "fun[] consume(pointer: ptr[int]): int = {{ return *pointer; }};\n\
+             fun[] main(): int = {{\n\
+                 var first: int = 1;\n\
+                 var second: int = 2;\n\
+                 var[mut] pointer: ptr[int] = &first;\n\
+                 consume(pointer);\n\
+                 {setup}\n\
+                 {loop_body}\n\
+                 return *pointer;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error
+                        .message()
+                        .contains("use of moved heap-owned binding 'pointer'")
+            }),
+            "{surface} may skip its body and must preserve the entry ownership flow: {errors:#?}"
+        );
+    }
+}
+
+#[test]
 fn panic_terminates_when_arms_and_stays_out_of_defer() {
     // A when arm that panics terminates like return/report.
     let typed = typecheck_fixture_folder(&[(
@@ -2339,15 +6466,15 @@ fn panic_terminates_when_arms_and_stays_out_of_defer() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] main(): int = {\n\
-             defer { panic \"cleanup\"; };\n\
+             dfr { panic \"cleanup\"; };\n\
              return 0;\n\
          };\n",
     )]);
     assert!(
         errors
             .iter()
-            .any(|error| error.message().contains("panic is not allowed inside deferred blocks")),
-        "defer should keep an explicit panic boundary: {errors:#?}"
+            .any(|error| error.message().contains("panic is not allowed inside dfr/edf blocks")),
+        "dfr should keep an explicit panic boundary: {errors:#?}"
     );
 }
 

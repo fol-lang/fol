@@ -1,7 +1,8 @@
 use crate::{
     CheckedType, CheckedTypeId, DeclaredTypeKind, GenericConstraint, RoutineType, TypeTable,
-    TypecheckError, TypecheckErrorKind, TypecheckResult, TypedConformance, TypedConformanceClaim,
-    TypedProgram, TypedStandard, TypedStandardField, TypedStandardRoutine,
+    TypecheckCapabilityModel, TypecheckError, TypecheckErrorKind, TypecheckResult,
+    TypedConformance, TypedConformanceClaim, TypedProgram, TypedStandard, TypedStandardField,
+    TypedStandardRoutine,
 };
 use fol_parser::ast::{
     AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
@@ -41,6 +42,12 @@ pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult
 
     if let Err(mut conformance_errors) = check_standard_conformance(typed, &resolved, &syntax) {
         errors.append(&mut conformance_errors);
+    }
+
+    if errors.is_empty() {
+        if let Err(error) = crate::channel_analysis::refine_channel_parameters(typed) {
+            errors.push(error);
+        }
     }
 
     if errors.is_empty() {
@@ -96,6 +103,11 @@ fn lower_record_field_layout(
                 routine_return_type: None,
                 routine_error_type: None,
                 error_call_mode: crate::exprs::ErrorCallMode::Propagate,
+                processor_task_call: None,
+                allow_mutex_handle: false,
+                repeating_loop_scope: None,
+                inside_deferred_block: false,
+                inside_error_deferred_block: false,
             };
             let typed_default = crate::exprs::type_node_with_expectation(
                 typed,
@@ -136,16 +148,22 @@ fn lower_top_level_declaration(
     source_unit_id: SourceUnitId,
     item: &ParsedTopLevel,
 ) -> Result<(), TypecheckError> {
-    if let Some(error) = unsupported_v1_top_level_decl(resolved, item) {
+    if let Some(error) = unsupported_v1_top_level_decl(resolved, item, typed.capability_model()) {
         return Err(error);
     }
 
     match &item.node {
         AstNode::VarDecl {
-            name, type_hint, ..
+            name,
+            type_hint,
+            options,
+            ..
         }
         | AstNode::LabDecl {
-            name, type_hint, ..
+            name,
+            type_hint,
+            options,
+            ..
         } => {
             if let Some(type_hint) = type_hint {
                 let symbol_id = find_symbol_id(
@@ -158,7 +176,35 @@ fn lower_top_level_declaration(
                     .symbol(symbol_id)
                     .map(|symbol| symbol.scope)
                     .ok_or_else(|| internal_error("resolved binding symbol disappeared", None))?;
-                let type_id = lower_type(typed, resolved, symbol_scope, type_hint)?;
+                let mut type_id = lower_type(typed, resolved, symbol_scope, type_hint)?;
+                if options
+                    .iter()
+                    .any(|option| matches!(option, VarOption::New))
+                {
+                    reject_heap_backed_type_in_core(
+                        typed,
+                        resolved,
+                        type_hint,
+                        "heap allocation binding",
+                        resolved
+                            .symbol(symbol_id)
+                            .and_then(|symbol| symbol.origin.clone())
+                            .or_else(|| node_origin(resolved, &item.node)),
+                    )?;
+                    type_id = typed
+                        .type_table_mut()
+                        .intern(CheckedType::Owned { inner: type_id });
+                }
+                crate::exprs::bindings::reject_unsupported_top_level_binding_type(
+                    typed,
+                    resolved,
+                    symbol_id,
+                    type_id,
+                    resolved
+                        .symbol(symbol_id)
+                        .and_then(|symbol| symbol.origin.clone())
+                        .or_else(|| node_origin(resolved, &item.node)),
+                )?;
                 record_symbol_type(typed, symbol_id, type_id)?;
             }
         }
@@ -189,6 +235,16 @@ fn lower_top_level_declaration(
                         source_unit_id,
                         &[SymbolKind::DestructureBinding],
                         &name,
+                    )?;
+                    crate::exprs::bindings::reject_unsupported_top_level_binding_type(
+                        typed,
+                        resolved,
+                        symbol_id,
+                        type_id,
+                        resolved
+                            .symbol(symbol_id)
+                            .and_then(|symbol| symbol.origin.clone())
+                            .or_else(|| node_origin(resolved, &item.node)),
                     )?;
                     record_symbol_type(typed, symbol_id, type_id)?;
                 }
@@ -267,8 +323,7 @@ fn lower_top_level_declaration(
             let symbol_id = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Type], name)?;
             let type_scope =
                 find_top_level_type_decl_scope(resolved, source_unit_id, item, symbol_id)?;
-            let generic_params =
-                generic_params_in_scope(resolved, type_scope, item, generics)?;
+            let generic_params = generic_params_in_scope(resolved, type_scope, item, generics)?;
             let generic_constraints = lower_generic_constraints_for_params(
                 typed,
                 resolved,
@@ -333,18 +388,28 @@ fn lower_top_level_declaration(
                         .intern(CheckedType::Entry { variants: lowered })
                 }
             };
+            crate::exprs::helpers::reject_embedded_full_channel(
+                typed,
+                type_id,
+                node_origin(resolved, &item.node)
+                    .or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
+            )?;
             record_symbol_type(typed, symbol_id, type_id)?;
-            // Recursive type definitions (`typ Node(T) = { next: Node[T] }`,
-            // `typ Tree = { kids: vec[Tree] }`) are not representable in the
-            // current structural runtime model: there is no nominal/named
-            // lowered type, so the shape has no finite form. Reject the
-            // declaration with an honest, located diagnostic instead of looping
-            // forever in lowering. This is a compile-time boundary, not a
-            // silent acceptance — recursive/heap-linked data belongs to the
-            // later ownership/pointer surface.
+            // Directly value-recursive definitions (`typ Node(T) = { next:
+            // Node[T] }`, `typ Tree = { kids: vec[Tree] }`) have no finite
+            // shape. V3's shipped recursive path uses explicit `@`-owned
+            // indirection, which the check below permits. Reject only the
+            // unguarded value-recursive form with a located diagnostic instead
+            // of looping forever in lowering.
             let recursion_origin = node_origin(resolved, &item.node)
                 .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
-            reject_recursive_type_definition(typed, symbol_id, type_id, recursion_origin, resolved)?;
+            reject_recursive_type_definition(
+                typed,
+                symbol_id,
+                type_id,
+                recursion_origin,
+                resolved,
+            )?;
             if !explicit_contracts.is_empty() {
                 let mut standard_symbol_ids = Vec::new();
                 let mut claims = Vec::new();
@@ -355,12 +420,8 @@ fn lower_top_level_declaration(
                     // Pull explicit type arguments out of
                     // `Name[args]`-shaped contract references and lower
                     // them in the type declaration scope.
-                    let type_args = extract_contract_type_args(
-                        typed,
-                        resolved,
-                        type_scope,
-                        contract,
-                    )?;
+                    let type_args =
+                        extract_contract_type_args(typed, resolved, type_scope, contract)?;
                     claims.push(TypedConformanceClaim {
                         standard_symbol_id,
                         type_args,
@@ -391,7 +452,8 @@ fn lower_top_level_declaration(
                             "resolved standard scope disappeared for standard '{}'",
                             name
                         ),
-                        node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
+                        node_origin(resolved, &item.node)
+                            .or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
                     )
                 })?;
             // Bind the standard's generic parameters as declared types in
@@ -537,8 +599,8 @@ fn lower_nested_declarations_in_node(
         .source_unit(source_unit_id)
         .ok_or_else(|| internal_error("resolved source unit disappeared", None))?;
     if let AstNode::StdDecl { syntax_id, .. } = node {
-        let is_top_level_standard = syntax_id
-            .is_some_and(|id| source_unit.top_level_nodes.contains(&id));
+        let is_top_level_standard =
+            syntax_id.is_some_and(|id| source_unit.top_level_nodes.contains(&id));
         if !is_top_level_standard {
             return Err(match node_origin(resolved, node) {
                 Some(origin) => TypecheckError::with_origin(
@@ -553,17 +615,23 @@ fn lower_nested_declarations_in_node(
             });
         }
     } else if current_scope != source_unit.scope_id {
-        if let Some(error) = unsupported_v1_nested_decl(resolved, node) {
+        if let Some(error) = unsupported_v1_nested_decl(resolved, node, typed.capability_model()) {
             return Err(error);
         }
     }
 
     match node {
         AstNode::VarDecl {
-            name, type_hint, ..
+            name,
+            type_hint,
+            options,
+            ..
         }
         | AstNode::LabDecl {
-            name, type_hint, ..
+            name,
+            type_hint,
+            options,
+            ..
         } => {
             if let Some(type_hint) = type_hint {
                 let symbol_id = find_symbol_id_in_scope(
@@ -573,7 +641,32 @@ fn lower_nested_declarations_in_node(
                     &[symbol_kind_for_node(node)],
                     name,
                 )?;
-                let type_id = lower_type(typed, resolved, current_scope, type_hint)?;
+                let mut type_id =
+                    lower_type(typed, resolved, current_scope, type_hint).map_err(|error| {
+                        resolved
+                            .symbol(symbol_id)
+                            .and_then(|symbol| symbol.origin.clone())
+                            .or_else(|| node_origin(resolved, node))
+                            .map_or(error.clone(), |origin| error.with_fallback_origin(origin))
+                    })?;
+                if options
+                    .iter()
+                    .any(|option| matches!(option, VarOption::New))
+                {
+                    reject_heap_backed_type_in_core(
+                        typed,
+                        resolved,
+                        type_hint,
+                        "heap allocation binding",
+                        resolved
+                            .symbol(symbol_id)
+                            .and_then(|symbol| symbol.origin.clone())
+                            .or_else(|| node_origin(resolved, node)),
+                    )?;
+                    type_id = typed
+                        .type_table_mut()
+                        .intern(CheckedType::Owned { inner: type_id });
+                }
                 record_symbol_type(typed, symbol_id, type_id)?;
             }
         }
@@ -685,11 +778,14 @@ fn lower_nested_declarations_in_node(
                 let _ = lower_type(typed, resolved, current_scope, error_type)?;
             }
         }
-        AstNode::Defer {
+        AstNode::Dfr {
+            syntax_id, body, ..
+        }
+        | AstNode::Edf {
             syntax_id, body, ..
         } => {
             let deferred_scope =
-                nested_scope_for_syntax(resolved, current_scope, *syntax_id, "defer block")?;
+                nested_scope_for_syntax(resolved, current_scope, *syntax_id, "dfr block")?;
             lower_nested_declarations_in_nodes(
                 typed,
                 resolved,
@@ -756,12 +852,15 @@ fn lower_nested_declarations_in_node(
                 )?;
             }
         }
-        AstNode::Loop { condition, body } => {
-            // A condition (while-like) loop keeps its body in the parent
-            // scope, but an iteration (for-like) loop resolves its body in a
-            // dedicated `LoopBinder` scope. Nested bindings must be lowered
-            // against whichever scope the resolver actually used, mirroring
-            // the When-case handling above.
+        AstNode::Loop {
+            syntax_id,
+            condition,
+            body,
+        } => {
+            // Every loop body is a lexical scope. Iteration loops use that
+            // same scope for their binder; condition loops use an ordinary
+            // block scope.
+            let body_scope = crate::exprs::loop_body_scope(resolved, *syntax_id)?;
             match condition.as_ref() {
                 fol_parser::ast::LoopCondition::Condition(cond) => {
                     lower_nested_declarations_in_node(
@@ -775,12 +874,12 @@ fn lower_nested_declarations_in_node(
                         typed,
                         resolved,
                         source_unit_id,
-                        current_scope,
+                        body_scope,
                         body,
                     )?;
                 }
                 fol_parser::ast::LoopCondition::Iteration {
-                    var,
+                    var: _,
                     iterable,
                     condition: guard,
                     ..
@@ -792,14 +891,7 @@ fn lower_nested_declarations_in_node(
                         current_scope,
                         iterable,
                     )?;
-                    let binder_scope = crate::exprs::loop_binder_scope(
-                        resolved,
-                        source_unit_id,
-                        current_scope,
-                        var,
-                        guard,
-                        body,
-                    )?;
+                    let binder_scope = body_scope;
                     if let Some(guard) = guard.as_deref() {
                         lower_nested_declarations_in_node(
                             typed,
@@ -861,16 +953,17 @@ fn lower_named_routine_signature(
         .and_then(|id| resolved.scope_for_syntax(id))
         .or_else(|| resolved.symbol(symbol_id).map(|symbol| symbol.scope))
         .ok_or_else(|| internal_error("resolved routine scope disappeared", None))?;
-    let (generic_params, generic_constraints) = lower_routine_generic_params(
-        typed,
-        resolved,
-        source_unit_id,
-        signature_scope,
-        generics,
-    )?;
+    let (generic_params, generic_constraints) =
+        lower_routine_generic_params(typed, resolved, source_unit_id, signature_scope, generics)?;
     let mut lowered_params = Vec::new();
     for param in params {
-        let param_type = lower_type(typed, resolved, signature_scope, &param.param_type)?;
+        let mut param_type = lower_type(typed, resolved, signature_scope, &param.param_type)?;
+        if param.is_borrowable {
+            param_type = typed.type_table_mut().intern(CheckedType::Borrowed {
+                inner: param_type,
+                mutable: false,
+            });
+        }
         let param_symbol_id = find_symbol_id_in_scope(
             resolved,
             source_unit_id,
@@ -879,6 +972,11 @@ fn lower_named_routine_signature(
             &param.name,
         )?;
         record_symbol_type(typed, param_symbol_id, param_type)?;
+        if param.is_mutex {
+            if let Some(symbol) = typed.typed_symbol_mut(param_symbol_id) {
+                symbol.is_mutex = true;
+            }
+        }
         lowered_params.push(param_type);
     }
     let lowered_return = match return_type {
@@ -903,16 +1001,23 @@ fn lower_named_routine_signature(
         )?;
         record_symbol_type(typed, self_symbol_id, receiver_checked)?;
     }
+    let param_defaults = params
+        .iter()
+        .map(|param| param.default.clone())
+        .collect::<Vec<_>>();
     let routine_type = typed
         .type_table_mut()
         .intern(CheckedType::Routine(RoutineType {
             generic_params,
             generic_constraints: generic_constraints.clone(),
             param_names: params.iter().map(|param| param.name.clone()).collect(),
-            param_defaults: params.iter().map(|param| param.default.clone()).collect(),
-            variadic_index: params
+            param_defaults: param_defaults.clone(),
+            variadic_index: params.iter().position(|param| param.is_variadic),
+            mutex_params: params
                 .iter()
-                .position(|param| param.is_variadic),
+                .enumerate()
+                .filter_map(|(index, param)| param.is_mutex.then_some(index))
+                .collect(),
             params: lowered_params,
             return_type: lowered_return,
             error_type: lowered_error,
@@ -920,6 +1025,7 @@ fn lower_named_routine_signature(
     record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
     record_symbol_type(typed, symbol_id, routine_type)?;
     record_symbol_receiver_type(typed, symbol_id, lowered_receiver)?;
+    record_symbol_param_defaults(typed, symbol_id, param_defaults)?;
     Ok(signature_scope)
 }
 
@@ -932,7 +1038,9 @@ fn lower_protocol_standard_member(
 ) -> Result<TypedStandardRoutine, TypecheckError> {
     let origin = node_origin(resolved, member);
     let unsupported = |message: &'static str| match origin.clone() {
-        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+        }
         None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
     };
 
@@ -1069,7 +1177,9 @@ fn lower_blueprint_standard_member(
 ) -> Result<TypedStandardField, TypecheckError> {
     let origin = node_origin(resolved, member);
     let unsupported = |message: &'static str| match origin.clone() {
-        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+        }
         None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
     };
 
@@ -1248,11 +1358,9 @@ fn check_standard_conformance(
                 };
             let Some(conformance) = typed.typed_conformance(type_symbol_id).cloned() else {
                 errors.push(internal_error(
-                    format!(
-                        "typed conformance metadata disappeared for type '{}'",
-                        name
-                    ),
-                    node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
+                    format!("typed conformance metadata disappeared for type '{}'", name),
+                    node_origin(resolved, &item.node)
+                        .or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
                 ));
                 continue;
             };
@@ -1394,11 +1502,9 @@ fn check_standard_conformance(
                         .filter(|symbol| {
                             symbol.kind == SymbolKind::Routine
                                 && symbol.receiver_type == Some(receiver_type)
-                                && resolved
-                                    .symbol(symbol.symbol_id)
-                                    .is_some_and(|resolved_symbol| {
-                                        resolved_symbol.name == requirement.name
-                                    })
+                                && resolved.symbol(symbol.symbol_id).is_some_and(
+                                    |resolved_symbol| resolved_symbol.name == requirement.name,
+                                )
                         })
                         .filter_map(|symbol| {
                             symbol
@@ -1522,11 +1628,13 @@ fn check_standard_conformance(
                         .symbol(requirement.symbol_id)
                         .and_then(|symbol| symbol.origin.clone())
                     {
-                        error = error.with_related_origin(origin, "required by this standard routine");
+                        error =
+                            error.with_related_origin(origin, "required by this standard routine");
                     }
                     for (symbol_id, _) in exact_matches {
-                        if let Some(origin) =
-                            resolved.symbol(*symbol_id).and_then(|symbol| symbol.origin.clone())
+                        if let Some(origin) = resolved
+                            .symbol(*symbol_id)
+                            .and_then(|symbol| symbol.origin.clone())
                         {
                             error = error.with_related_origin(
                                 origin,
@@ -1557,8 +1665,7 @@ fn check_standard_conformance(
                         .symbol(standard.symbol_id)
                         .map(|symbol| symbol.name.clone())
                         .unwrap_or_else(|| format!("#{}", standard.symbol_id.0));
-                    let expected_type_name =
-                        typed.type_table().render_type(requirement.field_type);
+                    let expected_type_name = typed.type_table().render_type(requirement.field_type);
                     let Some(fields) = conformer_record_fields.as_ref() else {
                         errors.push(match node_origin(resolved, &item.node).or_else(|| resolved.syntax_index().origin(item.node_id).cloned()) {
                             Some(origin) => TypecheckError::with_origin(
@@ -1702,8 +1809,7 @@ fn checked_type_satisfies_standard(
             .and_then(|param_symbol| param_symbol.generic_constraints.get(symbol))
             .is_some_and(|constraints| {
                 constraints.iter().any(|constraint| {
-                    constraint.standard == standard_symbol_id
-                        && constraint.args == standard_args
+                    constraint.standard == standard_symbol_id && constraint.args == standard_args
                 })
             });
     }
@@ -1713,11 +1819,13 @@ fn checked_type_satisfies_standard(
     };
     // The conformer must claim this exact standard at these exact arguments:
     // a type claiming `Holder[str]` does not satisfy a `Holder[int]` bound.
-    typed.typed_conformance(type_symbol_id).is_some_and(|conformance| {
-        conformance.claims.iter().any(|claim| {
-            claim.standard_symbol_id == standard_symbol_id && claim.type_args == standard_args
+    typed
+        .typed_conformance(type_symbol_id)
+        .is_some_and(|conformance| {
+            conformance.claims.iter().any(|claim| {
+                claim.standard_symbol_id == standard_symbol_id && claim.type_args == standard_args
+            })
         })
-    })
 }
 
 pub(crate) fn conformance_subject_symbol(
@@ -1794,12 +1902,7 @@ fn lower_routine_generic_params(
             .constraints
             .iter()
             .map(|constraint| {
-                lower_standard_constraint_for_contract(
-                    typed,
-                    resolved,
-                    signature_scope,
-                    constraint,
-                )
+                lower_standard_constraint_for_contract(typed, resolved, signature_scope, constraint)
             })
             .collect::<Result<Vec<_>, _>>()?;
         if !lowered_constraints.is_empty() {
@@ -1837,17 +1940,34 @@ pub(crate) fn checked_type_contains_generic_param(
             .iter()
             .any(|arg| checked_type_contains_generic_param(typed, *arg)),
         Some(CheckedType::Array { element_type, .. })
-        | Some(CheckedType::Vector {
-            element_type,
+        | Some(CheckedType::Vector { element_type })
+        | Some(CheckedType::Sequence { element_type })
+        | Some(CheckedType::Channel { element_type })
+        | Some(CheckedType::ChannelSender { element_type })
+        | Some(CheckedType::Optional {
+            inner: element_type,
         })
-        | Some(CheckedType::Sequence {
-            element_type,
+        | Some(CheckedType::Owned {
+            inner: element_type,
         })
-        | Some(CheckedType::Optional { inner: element_type }) => {
-            checked_type_contains_generic_param(typed, *element_type)
+        | Some(CheckedType::Borrowed {
+            inner: element_type,
+            ..
+        })
+        | Some(CheckedType::Pointer {
+            target: element_type,
+            ..
+        }) => checked_type_contains_generic_param(typed, *element_type),
+        Some(CheckedType::Eventual {
+            value_type,
+            error_type,
+        }) => {
+            checked_type_contains_generic_param(typed, *value_type)
+                || error_type.is_some_and(|error| checked_type_contains_generic_param(typed, error))
         }
-        Some(CheckedType::Error { inner }) => inner
-            .is_some_and(|inner| checked_type_contains_generic_param(typed, inner)),
+        Some(CheckedType::Error { inner }) => {
+            inner.is_some_and(|inner| checked_type_contains_generic_param(typed, inner))
+        }
         Some(CheckedType::Set { member_types }) => member_types
             .iter()
             .any(|member| checked_type_contains_generic_param(typed, *member)),
@@ -1923,18 +2043,41 @@ pub(crate) fn lower_type(
     scope_id: ScopeId,
     typ: &FolType,
 ) -> Result<CheckedTypeId, TypecheckError> {
+    let type_id = lower_type_inner(typed, resolved, scope_id, typ)?;
+    crate::exprs::helpers::reject_embedded_full_channel(
+        typed,
+        type_id,
+        type_origin(resolved, typ),
+    )?;
+    Ok(type_id)
+}
+
+fn lower_type_inner(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    scope_id: ScopeId,
+    typ: &FolType,
+) -> Result<CheckedTypeId, TypecheckError> {
     match typ {
         FolType::Int { .. } => Ok(typed.builtin_types().int),
         FolType::Float { .. } => Ok(typed.builtin_types().float),
         FolType::Bool => Ok(typed.builtin_types().bool_),
         FolType::Char { .. } => Ok(typed.builtin_types().char_),
         typ if typ.is_builtin_str() => {
-            reject_heap_backed_type_in_core(typed, resolved, typ, "str")?;
+            reject_heap_backed_type_in_core(typed, resolved, typ, "str", None)?;
             Ok(typed.builtin_types().str_)
         }
         FolType::Never => Ok(typed.builtin_types().never),
         FolType::Named { name, syntax_id } => {
-            if let Some(instantiated) = parse_instantiated_type_args(name, type_origin(resolved, typ))? {
+            if name == "evt" || name.starts_with("evt[") {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    "eventual types are internal in V3 and cannot be named; produce one with | async and consume it with | await",
+                ));
+            }
+            if let Some(instantiated) =
+                parse_instantiated_type_args(name, type_origin(resolved, typ))?
+            {
                 let symbol_id = if let Some(syntax_id) = *syntax_id {
                     resolved_symbol_for_syntax(
                         resolved,
@@ -1972,22 +2115,22 @@ pub(crate) fn lower_type(
                 );
             }
             let symbol_id = if syntax_id.is_some() {
-                resolved_symbol_for_syntax(
-                    resolved,
-                    *syntax_id,
-                    name,
-                    SymbolReferenceShape::Named,
-                )
-                .or_else(|_| {
-                    resolve_declared_symbol_by_text(
-                        resolved,
-                        scope_id,
-                        name,
-                        type_origin(resolved, typ),
-                    )
-                })?
+                resolved_symbol_for_syntax(resolved, *syntax_id, name, SymbolReferenceShape::Named)
+                    .or_else(|_| {
+                        resolve_declared_symbol_by_text(
+                            resolved,
+                            scope_id,
+                            name,
+                            type_origin(resolved, typ),
+                        )
+                    })?
             } else {
-                resolve_declared_symbol_by_text(resolved, scope_id, name, type_origin(resolved, typ))?
+                resolve_declared_symbol_by_text(
+                    resolved,
+                    scope_id,
+                    name,
+                    type_origin(resolved, typ),
+                )?
             };
             lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id)
         }
@@ -2065,21 +2208,65 @@ pub(crate) fn lower_type(
             }))
         }
         FolType::Vector { element_type } => {
-            reject_heap_backed_type_in_core(typed, resolved, typ, "vec[...]")?;
+            reject_heap_backed_type_in_core(typed, resolved, typ, "vec[...]", None)?;
             let element_type = lower_type(typed, resolved, scope_id, element_type)?;
             Ok(typed
                 .type_table_mut()
                 .intern(CheckedType::Vector { element_type }))
         }
         FolType::Sequence { element_type } => {
-            reject_heap_backed_type_in_core(typed, resolved, typ, "seq[...]")?;
+            reject_heap_backed_type_in_core(typed, resolved, typ, "seq[...]", None)?;
             let element_type = lower_type(typed, resolved, scope_id, element_type)?;
             Ok(typed
                 .type_table_mut()
                 .intern(CheckedType::Sequence { element_type }))
         }
+        FolType::Channel { element_type } => {
+            if !typed.capability_model().supports_processor() {
+                return Err(match type_origin(resolved, typ) {
+                    Some(origin) => TypecheckError::with_origin(
+                        TypecheckErrorKind::Unsupported,
+                        "channel types require hosted std support; declare the bundled internal standard dependency",
+                        origin,
+                    ),
+                    None => TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "channel types require hosted std support; declare the bundled internal standard dependency",
+                    ),
+                });
+            }
+            let element_type = lower_type(typed, resolved, scope_id, element_type)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Channel { element_type }))
+        }
+        FolType::Owned { inner } => {
+            reject_heap_backed_type_in_core(typed, resolved, typ, "owned heap type '@T'", None)?;
+            let inner = lower_type(typed, resolved, scope_id, inner)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Owned { inner }))
+        }
+        FolType::Pointer { qualifier, target } => {
+            if matches!(qualifier, fol_parser::ast::PointerQualifier::Raw) {
+                return Err(match type_origin(resolved, typ) {
+                    Some(origin) => TypecheckError::with_origin(
+                        TypecheckErrorKind::Unsupported,
+                        "raw pointers are a V4 interop surface",
+                        origin,
+                    ),
+                    None => TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "raw pointers are a V4 interop surface",
+                    ),
+                });
+            }
+            let target = lower_type(typed, resolved, scope_id, target)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Pointer {
+                target,
+                shared: matches!(qualifier, fol_parser::ast::PointerQualifier::Shared),
+            }))
+        }
         FolType::Set { types } => {
-            reject_heap_backed_type_in_core(typed, resolved, typ, "set[...]")?;
+            reject_heap_backed_type_in_core(typed, resolved, typ, "set[...]", None)?;
             let mut member_types = Vec::new();
             for member in types {
                 member_types.push(lower_type(typed, resolved, scope_id, member)?);
@@ -2092,7 +2279,7 @@ pub(crate) fn lower_type(
             key_type,
             value_type,
         } => {
-            reject_heap_backed_type_in_core(typed, resolved, typ, "map[...]")?;
+            reject_heap_backed_type_in_core(typed, resolved, typ, "map[...]", None)?;
             let key_type = lower_type(typed, resolved, scope_id, key_type)?;
             let value_type = lower_type(typed, resolved, scope_id, value_type)?;
             Ok(typed.type_table_mut().intern(CheckedType::Map {
@@ -2148,21 +2335,29 @@ pub(crate) fn lower_type(
                 .iter()
                 .map(|p| lower_type(typed, resolved, scope_id, p))
                 .collect::<Result<Vec<_>, _>>()?;
-            let lowered_return = lower_type(typed, resolved, scope_id, return_type)?;
-            Ok(typed.type_table_mut().intern(CheckedType::Routine(
-                crate::types::RoutineType {
+            let lowered_return = match return_type.as_ref() {
+                FolType::None => None,
+                return_type => Some(lower_type(typed, resolved, scope_id, return_type)?),
+            };
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Routine(crate::types::RoutineType {
                     generic_params: Vec::new(),
                     generic_constraints: BTreeMap::new(),
                     param_names: vec![String::new(); lowered_params.len()],
                     param_defaults: vec![None; lowered_params.len()],
                     variadic_index: None,
+                    mutex_params: Default::default(),
                     params: lowered_params,
-                    return_type: Some(lowered_return),
+                    return_type: lowered_return,
                     error_type: None,
-                },
-            )))
+                })))
         }
-        unsupported => Err(unsupported_type_error(resolved, unsupported)),
+        unsupported => Err(unsupported_type_error(
+            resolved,
+            unsupported,
+            typed.capability_model(),
+        )),
     }
 }
 
@@ -2192,7 +2387,10 @@ fn parse_instantiated_type_args(
         .map(|arg| {
             fol_parser::parse_type_reference_text(&arg).map_err(|diagnostic| {
                 invalid_input_error(
-                    format!("could not parse generic type argument '{arg}': {}", diagnostic.message),
+                    format!(
+                        "could not parse generic type argument '{arg}': {}",
+                        diagnostic.message
+                    ),
                     origin.clone(),
                 )
             })
@@ -2263,12 +2461,14 @@ fn resolve_declared_symbol_by_text(
         for segment in &segments[1..segments.len() - 1] {
             current_namespace.push_str("::");
             current_namespace.push_str(segment);
-            current_scope = resolved.namespace_scope(&current_namespace).ok_or_else(|| {
-                invalid_input_error(
-                    format!("could not resolve generic type argument '{display_name}'"),
-                    origin.clone(),
-                )
-            })?;
+            current_scope = resolved
+                .namespace_scope(&current_namespace)
+                .ok_or_else(|| {
+                    invalid_input_error(
+                        format!("could not resolve generic type argument '{display_name}'"),
+                        origin.clone(),
+                    )
+                })?;
         }
         return resolve_symbol_in_scope_by_text(
             resolved,
@@ -2302,7 +2502,9 @@ fn resolve_declared_symbol_by_text(
             }
             _ => {
                 return Err(invalid_input_error(
-                    format!("generic type argument '{display_name}' is ambiguous in the current scope"),
+                    format!(
+                        "generic type argument '{display_name}' is ambiguous in the current scope"
+                    ),
                     origin,
                 ));
             }
@@ -2367,7 +2569,9 @@ fn resolve_qualified_type_root_by_text(
             0 => current_scope = resolved.scope(scope_id).and_then(|scope| scope.parent),
             _ => {
                 return Err(invalid_input_error(
-                    format!("generic type argument '{full_path}' is ambiguous in the current scope"),
+                    format!(
+                        "generic type argument '{full_path}' is ambiguous in the current scope"
+                    ),
                     origin,
                 ))
             }
@@ -2428,7 +2632,10 @@ fn instantiate_declared_generic_type(
     origin: Option<SyntaxOrigin>,
 ) -> Result<CheckedTypeId, TypecheckError> {
     let typed_symbol = typed.typed_symbol(symbol_id).ok_or_else(|| {
-        internal_error("instantiated type symbol disappeared during type lowering", origin.clone())
+        internal_error(
+            "instantiated type symbol disappeared during type lowering",
+            origin.clone(),
+        )
     })?;
     if typed_symbol.generic_params.is_empty() {
         return lower_declared_symbol(typed.type_table_mut(), resolved, symbol_id);
@@ -2518,12 +2725,9 @@ fn instantiate_declared_generic_type(
     Ok(instance)
 }
 
-/// Reject a type whose structural body transitively references its own
-/// declaring symbol. The structural runtime model has no nominal/named lowered
-/// type, so a recursive shape has no finite representation and would loop the
-/// backend forever; catch it here with a located diagnostic. Covers direct
-/// (`{ next: Node[T] }`), container-indirected (`{ kids: vec[Node] }`), and
-/// mutual recursion through other declared types.
+/// Reject value-recursive types while allowing recursion guarded by owned heap
+/// indirection (`@T`). A bare self-reference has infinite size; `@T` lowers to
+/// a finite `Box<T>` edge and is therefore legal.
 fn reject_recursive_type_definition(
     typed: &TypedProgram,
     symbol_id: SymbolId,
@@ -2540,9 +2744,8 @@ fn reject_recursive_type_definition(
         .map(|symbol| symbol.name.clone())
         .unwrap_or_else(|| "?".to_string());
     let message = format!(
-        "recursive type '{name}' is not yet supported: a type whose fields refer back to \
-         itself (directly or through a container/another type) has no finite runtime shape in \
-         the current model; break the cycle or model the link with a later ownership/pointer type"
+        "recursive value type '{name}' has no finite runtime shape; guard the recursive edge \
+         with owned heap indirection such as 'opt @{name}'"
     );
     Err(match origin {
         Some(origin) => {
@@ -2573,9 +2776,10 @@ fn checked_type_references_symbol(
         checked_type_references_symbol(typed, inner, target, visited)
     };
     match checked {
-        CheckedType::Declared { symbol, kind, args, .. } => {
-            if matches!(kind, DeclaredTypeKind::Type | DeclaredTypeKind::Alias)
-                && symbol == target
+        CheckedType::Declared {
+            symbol, kind, args, ..
+        } => {
+            if matches!(kind, DeclaredTypeKind::Type | DeclaredTypeKind::Alias) && symbol == target
             {
                 return true;
             }
@@ -2589,9 +2793,7 @@ fn checked_type_references_symbol(
                 .or_else(|| typed.typed_symbol(symbol).and_then(|s| s.declared_type));
             inner.is_some_and(|inner| refers(inner, visited))
         }
-        CheckedType::Record { fields } => {
-            fields.values().any(|field| refers(*field, visited))
-        }
+        CheckedType::Record { fields } => fields.values().any(|field| refers(*field, visited)),
         CheckedType::Entry { variants } => variants
             .values()
             .filter_map(|variant| *variant)
@@ -2599,13 +2801,25 @@ fn checked_type_references_symbol(
         CheckedType::Array { element_type, .. }
         | CheckedType::Vector { element_type }
         | CheckedType::Sequence { element_type } => refers(element_type, visited),
+        // A channel stores transport handles rather than embedding a message
+        // value inline, so it also breaks recursive value layout.
+        CheckedType::Channel { .. }
+        | CheckedType::ChannelSender { .. }
+        | CheckedType::Eventual { .. } => false,
         CheckedType::Set { member_types } => {
             member_types.iter().any(|member| refers(*member, visited))
         }
-        CheckedType::Map { key_type, value_type } => {
-            refers(key_type, visited) || refers(value_type, visited)
-        }
+        CheckedType::Map {
+            key_type,
+            value_type,
+        } => refers(key_type, visited) || refers(value_type, visited),
         CheckedType::Optional { inner } => refers(inner, visited),
+        // Owned heap indirection gives recursion a finite runtime shape.
+        CheckedType::Owned { .. } => false,
+        // Unique/shared pointers are heap indirection too; their target is not
+        // embedded inline in the enclosing value.
+        CheckedType::Pointer { .. } => false,
+        CheckedType::Borrowed { inner, .. } => refers(inner, visited),
         CheckedType::Error { inner } => inner.is_some_and(|inner| refers(inner, visited)),
         CheckedType::Builtin(_) | CheckedType::Routine(_) => false,
     }
@@ -2617,11 +2831,12 @@ pub(crate) fn substitute_generic_checked_type(
     bindings: &BTreeMap<SymbolId, CheckedTypeId>,
     origin: Option<SyntaxOrigin>,
 ) -> Result<CheckedTypeId, TypecheckError> {
-    let checked = typed
-        .type_table()
-        .get(type_id)
-        .cloned()
-        .ok_or_else(|| internal_error("generic type substitution lost a checked type", origin.clone()))?;
+    let checked = typed.type_table().get(type_id).cloned().ok_or_else(|| {
+        internal_error(
+            "generic type substitution lost a checked type",
+            origin.clone(),
+        )
+    })?;
     match checked {
         CheckedType::Declared {
             symbol,
@@ -2629,7 +2844,10 @@ pub(crate) fn substitute_generic_checked_type(
             ..
         } => bindings.get(&symbol).copied().ok_or_else(|| {
             invalid_input_error(
-                format!("generic type substitution left parameter '{}' unbound", symbol.0),
+                format!(
+                    "generic type substitution left parameter '{}' unbound",
+                    symbol.0
+                ),
                 origin.clone(),
             )
         }),
@@ -2683,37 +2901,106 @@ pub(crate) fn substitute_generic_checked_type(
         }
         CheckedType::Declared { .. } | CheckedType::Builtin(_) => Ok(type_id),
         CheckedType::Array { element_type, size } => {
-            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
-            Ok(typed.type_table_mut().intern(CheckedType::Array { element_type, size }))
+            let element_type =
+                substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Array { element_type, size }))
         }
         CheckedType::Vector { element_type } => {
-            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
-            Ok(typed.type_table_mut().intern(CheckedType::Vector { element_type }))
+            let element_type =
+                substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Vector { element_type }))
         }
         CheckedType::Sequence { element_type } => {
-            let element_type = substitute_generic_checked_type(typed, element_type, bindings, origin)?;
-            Ok(typed.type_table_mut().intern(CheckedType::Sequence { element_type }))
+            let element_type =
+                substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Sequence { element_type }))
+        }
+        CheckedType::Channel { element_type } => {
+            let element_type =
+                substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Channel { element_type }))
+        }
+        CheckedType::ChannelSender { element_type } => {
+            let element_type =
+                substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::ChannelSender { element_type }))
+        }
+        CheckedType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            let value_type =
+                substitute_generic_checked_type(typed, value_type, bindings, origin.clone())?;
+            let error_type = error_type
+                .map(|error_type| {
+                    substitute_generic_checked_type(typed, error_type, bindings, origin.clone())
+                })
+                .transpose()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Eventual {
+                value_type,
+                error_type,
+            }))
         }
         CheckedType::Set { member_types } => {
             let member_types = member_types
                 .into_iter()
-                .map(|member| substitute_generic_checked_type(typed, member, bindings, origin.clone()))
+                .map(|member| {
+                    substitute_generic_checked_type(typed, member, bindings, origin.clone())
+                })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(typed.type_table_mut().intern(CheckedType::Set { member_types }))
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Set { member_types }))
         }
-        CheckedType::Map { key_type, value_type } => {
-            let key_type = substitute_generic_checked_type(typed, key_type, bindings, origin.clone())?;
-            let value_type =
-                substitute_generic_checked_type(typed, value_type, bindings, origin)?;
-            Ok(typed.type_table_mut().intern(CheckedType::Map { key_type, value_type }))
+        CheckedType::Map {
+            key_type,
+            value_type,
+        } => {
+            let key_type =
+                substitute_generic_checked_type(typed, key_type, bindings, origin.clone())?;
+            let value_type = substitute_generic_checked_type(typed, value_type, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Map {
+                key_type,
+                value_type,
+            }))
         }
         CheckedType::Optional { inner } => {
             let inner = substitute_generic_checked_type(typed, inner, bindings, origin)?;
-            Ok(typed.type_table_mut().intern(CheckedType::Optional { inner }))
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Optional { inner }))
+        }
+        CheckedType::Owned { inner } => {
+            let inner = substitute_generic_checked_type(typed, inner, bindings, origin)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Owned { inner }))
+        }
+        CheckedType::Borrowed { inner, mutable } => {
+            let inner = substitute_generic_checked_type(typed, inner, bindings, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Borrowed { inner, mutable }))
+        }
+        CheckedType::Pointer { target, shared } => {
+            let target = substitute_generic_checked_type(typed, target, bindings, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Pointer { target, shared }))
         }
         CheckedType::Error { inner } => {
             let inner = inner
-                .map(|inner| substitute_generic_checked_type(typed, inner, bindings, origin.clone()))
+                .map(|inner| {
+                    substitute_generic_checked_type(typed, inner, bindings, origin.clone())
+                })
                 .transpose()?;
             Ok(typed.type_table_mut().intern(CheckedType::Error { inner }))
         }
@@ -2725,7 +3012,9 @@ pub(crate) fn substitute_generic_checked_type(
                         .map(|field_type| (field_name, field_type))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
-            Ok(typed.type_table_mut().intern(CheckedType::Record { fields }))
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Record { fields }))
         }
         CheckedType::Entry { variants } => {
             let variants = variants
@@ -2733,19 +3022,28 @@ pub(crate) fn substitute_generic_checked_type(
                 .map(|(variant_name, variant_type)| {
                     variant_type
                         .map(|variant_type| {
-                            substitute_generic_checked_type(typed, variant_type, bindings, origin.clone())
+                            substitute_generic_checked_type(
+                                typed,
+                                variant_type,
+                                bindings,
+                                origin.clone(),
+                            )
                         })
                         .transpose()
                         .map(|variant_type| (variant_name, variant_type))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
-            Ok(typed.type_table_mut().intern(CheckedType::Entry { variants }))
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Entry { variants }))
         }
         CheckedType::Routine(signature) => {
             let params = signature
                 .params
                 .into_iter()
-                .map(|param| substitute_generic_checked_type(typed, param, bindings, origin.clone()))
+                .map(|param| {
+                    substitute_generic_checked_type(typed, param, bindings, origin.clone())
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             let return_type = signature
                 .return_type
@@ -2759,16 +3057,19 @@ pub(crate) fn substitute_generic_checked_type(
                     substitute_generic_checked_type(typed, error_type, bindings, origin.clone())
                 })
                 .transpose()?;
-            Ok(typed.type_table_mut().intern(CheckedType::Routine(RoutineType {
-                generic_params: Vec::new(),
-                generic_constraints: BTreeMap::new(),
-                param_names: signature.param_names,
-                param_defaults: signature.param_defaults,
-                variadic_index: signature.variadic_index,
-                params,
-                return_type,
-                error_type,
-            })))
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Routine(RoutineType {
+                    generic_params: Vec::new(),
+                    generic_constraints: BTreeMap::new(),
+                    param_names: signature.param_names,
+                    param_defaults: signature.param_defaults,
+                    variadic_index: signature.variadic_index,
+                    mutex_params: signature.mutex_params,
+                    params,
+                    return_type,
+                    error_type,
+                })))
         }
     }
 }
@@ -2867,9 +3168,16 @@ fn unify_checked_type(
                     .zip(object_args.iter())
                     .all(|(t, o)| unify_checked_type(typed, *t, *o, generic_params, bindings))
         }
-        (CheckedType::Array { element_type: t, size: ts }, CheckedType::Array { element_type: o, size: os }) => {
-            ts == os && unify_checked_type(typed, t, o, generic_params, bindings)
-        }
+        (
+            CheckedType::Array {
+                element_type: t,
+                size: ts,
+            },
+            CheckedType::Array {
+                element_type: o,
+                size: os,
+            },
+        ) => ts == os && unify_checked_type(typed, t, o, generic_params, bindings),
         (CheckedType::Vector { element_type: t }, CheckedType::Vector { element_type: o })
         | (CheckedType::Sequence { element_type: t }, CheckedType::Sequence { element_type: o })
         | (CheckedType::Optional { inner: t }, CheckedType::Optional { inner: o }) => {
@@ -2880,7 +3188,16 @@ fn unify_checked_type(
             (None, None) => true,
             _ => false,
         },
-        (CheckedType::Map { key_type: tk, value_type: tv }, CheckedType::Map { key_type: ok, value_type: ov }) => {
+        (
+            CheckedType::Map {
+                key_type: tk,
+                value_type: tv,
+            },
+            CheckedType::Map {
+                key_type: ok,
+                value_type: ov,
+            },
+        ) => {
             unify_checked_type(typed, tk, ok, generic_params, bindings)
                 && unify_checked_type(typed, tv, ov, generic_params, bindings)
         }
@@ -2893,9 +3210,7 @@ fn unify_checked_type(
         (CheckedType::Record { fields: t }, CheckedType::Record { fields: o }) => {
             t.len() == o.len()
                 && t.iter().all(|(name, t_ty)| match o.get(name) {
-                    Some(o_ty) => {
-                        unify_checked_type(typed, *t_ty, *o_ty, generic_params, bindings)
-                    }
+                    Some(o_ty) => unify_checked_type(typed, *t_ty, *o_ty, generic_params, bindings),
                     None => false,
                 })
         }
@@ -2921,15 +3236,14 @@ fn reject_heap_backed_type_in_core(
     resolved: &ResolvedProgram,
     typ: &FolType,
     label: &str,
+    fallback_origin: Option<SyntaxOrigin>,
 ) -> Result<(), TypecheckError> {
     if typed.capability_model() != crate::TypecheckCapabilityModel::Core {
         return Ok(());
     }
 
-    let message = format!(
-        "{label} requires heap support and is unavailable in 'fol_model = core'"
-    );
-    Err(match type_origin(resolved, typ) {
+    let message = format!("{label} requires heap support and is unavailable in 'fol_model = core'");
+    Err(match type_origin(resolved, typ).or(fallback_origin) {
         Some(origin) => {
             TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
         }
@@ -3043,7 +3357,7 @@ fn find_symbol_id(
         })
 }
 
-fn find_routine_symbol_id(
+pub(crate) fn find_routine_symbol_id(
     resolved: &ResolvedProgram,
     source_unit_id: SourceUnitId,
     name: &str,
@@ -3208,6 +3522,24 @@ fn record_symbol_receiver_type(
     Ok(())
 }
 
+fn record_symbol_param_defaults(
+    typed: &mut TypedProgram,
+    symbol_id: SymbolId,
+    param_defaults: Vec<Option<AstNode>>,
+) -> Result<(), TypecheckError> {
+    let symbol = typed.typed_symbol_mut(symbol_id).ok_or_else(|| {
+        TypecheckError::new(
+            TypecheckErrorKind::SymbolTableCorrupted,
+            format!(
+                "symbol table corrupted: symbol {} is missing while recording parameter defaults",
+                symbol_id.0,
+            ),
+        )
+    })?;
+    symbol.param_defaults = param_defaults;
+    Ok(())
+}
+
 fn record_symbol_generic_params(
     typed: &mut TypedProgram,
     symbol_id: SymbolId,
@@ -3282,11 +3614,19 @@ fn symbol_kind_for_node(node: &AstNode) -> SymbolKind {
     }
 }
 
-fn unsupported_type_error(resolved: &ResolvedProgram, typ: &FolType) -> TypecheckError {
+fn unsupported_type_error(
+    resolved: &ResolvedProgram,
+    typ: &FolType,
+    model: TypecheckCapabilityModel,
+) -> TypecheckError {
     let label = match typ {
         FolType::Matrix { .. } => "matrix types are not yet supported",
-        FolType::Pointer { .. } => "pointer types are planned for a future release",
-        FolType::Channel { .. } => "channel types are planned for a future release",
+        FolType::Channel { .. } if !model.supports_processor() => {
+            "channel types require hosted std support; declare the bundled internal standard dependency"
+        }
+        FolType::Channel { .. } => {
+            "channel types require hosted std support; declare the bundled internal standard dependency"
+        }
         FolType::Multiple { .. } => "multiple-return types are not yet supported",
         FolType::Union { .. } => "union types are not yet supported",
         FolType::Limited { .. } => "limited/constrained types are not yet supported",
@@ -3297,9 +3637,7 @@ fn unsupported_type_error(resolved: &ResolvedProgram, typ: &FolType) -> Typechec
         | FolType::Module { .. }
         | FolType::Block { .. }
         | FolType::Test { .. }
-        | FolType::Location { .. } => {
-            "package/build-specific type surfaces are not yet supported"
-        }
+        | FolType::Location { .. } => "package/build-specific type surfaces are not yet supported",
         _ => "this type surface is not yet supported",
     };
     match type_origin(resolved, typ) {
@@ -3311,21 +3649,24 @@ fn unsupported_type_error(resolved: &ResolvedProgram, typ: &FolType) -> Typechec
 fn unsupported_v1_top_level_decl(
     resolved: &ResolvedProgram,
     item: &ParsedTopLevel,
+    model: TypecheckCapabilityModel,
 ) -> Option<TypecheckError> {
     let origin = resolved.syntax_index().origin(item.node_id).cloned();
-    unsupported_v1_decl_with_origin(&item.node, origin)
+    unsupported_v1_decl_with_origin(&item.node, origin, model)
 }
 
 fn unsupported_v1_nested_decl(
     resolved: &ResolvedProgram,
     node: &AstNode,
+    model: TypecheckCapabilityModel,
 ) -> Option<TypecheckError> {
-    unsupported_v1_decl_with_origin(node, node_origin(resolved, node))
+    unsupported_v1_decl_with_origin(node, node_origin(resolved, node), model)
 }
 
 fn unsupported_v1_decl_with_origin(
     node: &AstNode,
     origin: Option<SyntaxOrigin>,
+    model: TypecheckCapabilityModel,
 ) -> Option<TypecheckError> {
     let message = match node {
         AstNode::VarDecl { options, .. } | AstNode::LabDecl { options, .. } => {
@@ -3333,7 +3674,9 @@ fn unsupported_v1_decl_with_origin(
         }
         AstNode::FunDecl { params, .. }
         | AstNode::ProDecl { params, .. }
-        | AstNode::LogDecl { params, .. } => unsupported_routine_param_surface_message(params),
+        | AstNode::LogDecl { params, .. } => {
+            unsupported_routine_param_surface_message(params, model)
+        }
         AstNode::TypeDecl { options, .. }
             if options
                 .iter()
@@ -3344,9 +3687,7 @@ fn unsupported_v1_decl_with_origin(
         AstNode::DefDecl { .. } => {
             Some("definition/meta declarations are planned for a future release")
         }
-        AstNode::SegDecl { .. } => {
-            Some("segment declarations are planned for a future release")
-        }
+        AstNode::SegDecl { .. } => Some("segment declarations are planned for a future release"),
         AstNode::StdDecl { .. } => None,
         _ => None,
     }?;
@@ -3368,22 +3709,27 @@ fn find_top_level_type_decl_scope(
     let parent_scope = resolved
         .source_unit(source_unit_id)
         .map(|source_unit| source_unit.scope_id)
-        .ok_or_else(|| internal_error("resolved source unit disappeared during type lowering", None))?;
+        .ok_or_else(|| {
+            internal_error(
+                "resolved source unit disappeared during type lowering",
+                None,
+            )
+        })?;
     let decl_origin = resolved.syntax_index().origin(item.node_id).cloned();
     let source_unit = resolved
         .syntax()
         .source_units
         .get(source_unit_id.0)
-        .ok_or_else(|| internal_error("resolved source unit disappeared during type lowering", None))?;
+        .ok_or_else(|| {
+            internal_error(
+                "resolved source unit disappeared during type lowering",
+                None,
+            )
+        })?;
     let type_scope_index = source_unit
         .items
         .iter()
-        .filter(|candidate| {
-            matches!(
-                candidate.node,
-                AstNode::TypeDecl { .. }
-            )
-        })
+        .filter(|candidate| matches!(candidate.node, AstNode::TypeDecl { .. }))
         .position(|candidate| candidate.node_id == item.node_id)
         .ok_or_else(|| {
             internal_error(
@@ -3399,7 +3745,7 @@ fn find_top_level_type_decl_scope(
             (matches!(scope.kind, fol_resolver::ScopeKind::TypeDeclaration)
                 && scope.parent == Some(parent_scope)
                 && scope.source_unit == Some(source_unit_id))
-                .then_some(scope_id)
+            .then_some(scope_id)
         })
         .collect::<Vec<_>>();
 
@@ -3448,11 +3794,16 @@ fn generic_params_in_scope(
 
 pub(crate) fn unsupported_routine_param_surface_message(
     params: &[Parameter],
+    model: TypecheckCapabilityModel,
 ) -> Option<&'static str> {
     if params.iter().any(|param| param.is_mutex) {
-        Some("mutex parameter semantics are planned for a future release")
-    } else if params.iter().any(|param| param.is_borrowable) {
-        Some("borrowable parameter semantics are planned for a future release")
+        if model.supports_processor() {
+            None
+        } else {
+            Some(
+            "mutex parameters require hosted std support; declare the bundled internal standard dependency"
+            )
+        }
     } else {
         None
     }
@@ -3460,16 +3811,6 @@ pub(crate) fn unsupported_routine_param_surface_message(
 
 fn unsupported_binding_surface_message(options: &[VarOption]) -> Option<&'static str> {
     if options
-        .iter()
-        .any(|option| matches!(option, VarOption::Borrowing))
-    {
-        Some("borrowing binding semantics are planned for a future release")
-    } else if options
-        .iter()
-        .any(|option| matches!(option, VarOption::New))
-    {
-        Some("heap/new binding semantics are planned for a future release")
-    } else if options
         .iter()
         .any(|option| matches!(option, VarOption::Static))
     {
@@ -3493,6 +3834,8 @@ fn type_origin(resolved: &ResolvedProgram, typ: &FolType) -> Option<SyntaxOrigin
             .syntax_id()
             .and_then(|syntax_id| resolved.syntax_index().origin(syntax_id))
             .cloned(),
+        FolType::Owned { inner } | FolType::Optional { inner } => type_origin(resolved, inner),
+        FolType::Pointer { target, .. } => type_origin(resolved, target),
         _ => None,
     }
 }

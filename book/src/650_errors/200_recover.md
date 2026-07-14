@@ -51,17 +51,35 @@ expressions.
 These are rejected:
 
 ```fol
+read_code(path)
 var value = read_code(path)
 return read_code(path)
 consume(read_code(path))
 read_code(path) + 1
 ```
 
-`/ ErrorType` must be handled immediately at the call site.
+`/ ErrorType` must be handled immediately at the call site. Evaluating a
+recoverable call as a standalone statement does not count as handling it.
+
+The same rule applies after V3 `| async`: a recoverable eventual must be
+awaited, and the awaited result must be consumed by `check(...)` or `||`.
+Moving the eventual to another binding moves that obligation; dropping,
+overwriting, or leaving the final binding at scope exit is rejected. An
+infallible eventual has no recoverable error obligation and may remain
+unawaited, although it is still joined at process exit.
+
+The obligation must be discharged before lexical fallthrough and before a
+`break`, `return`, or `report` exits any scope that still owns it. At a branch
+join, all continuing branches must leave compatible obligation state: all may
+preserve the same owner for handling after the join, transfer consistently, or
+await and handle it. Consuming or transferring on only some paths is rejected.
+Process-exit joining waits for work; it does not count as handling a recoverable
+error.
 
 ## `check(...)`
 
-`check(expr)` asks whether a `/ ErrorType` routine call failed.
+`check(expr)` asks whether a `/ ErrorType` expression failed. The expression may
+be a direct recoverable routine call or a V3 awaited recoverable eventual.
 
 It returns `bol`.
 
@@ -71,11 +89,14 @@ fun main(path: str): bol = {
 }
 ```
 
-`check(...)` works on recoverable routine calls, not on `err[...]` shell values.
+`check(...)` works on direct recoverable routine calls and on expressions such
+as `pending | await` when `pending` carries a recoverable result. It does not
+inspect `err[...]` shell values.
 
 ## `||`
 
-`expr || fallback` handles a `/ ErrorType` routine call immediately.
+`expr || fallback` handles a `/ ErrorType` expression immediately. That may be
+a direct recoverable routine call or a V3 awaited recoverable eventual.
 
 Rules:
 
@@ -151,5 +172,13 @@ For backend work:
 
 - `/ ErrorType` routine calls lower through the recoverable runtime ABI
 - `err[...]` remains a separate shell/value runtime type
+- a recoverable executable entry is adapted through the shared backend-only
+  `fol_runtime::process` seam in every runtime model; it does not require
+  bundled `std`
+
+That process adapter translates the entry outcome for the generated host
+wrapper. It is not importable source API, does not promote `core` or `memo` to
+the hosted tier, and is present for execution support regardless of whether the
+program declares bundled `std`.
 
 Those two categories are intentionally not merged.

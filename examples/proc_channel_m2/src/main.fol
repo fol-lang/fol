@@ -1,0 +1,17 @@
+use std: pkg = {"std"};
+
+fun[] produce(channel: chn[int], value: int): int = {
+    value | channel[tx];
+    return value;
+};
+
+fun[] main(): int = {
+    var channel: chn[int];
+    [>]produce(channel, 20);
+    [>]produce(channel, 22);
+    var[mut] total: int = 0;
+    for (value in channel[rx]) {
+        total = total + value;
+    };
+    return std::io::echo_int(total);
+};

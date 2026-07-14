@@ -1,6 +1,6 @@
 use super::super::{
-    EditorLspServer, JsonRpcNotification, LspDidOpenTextDocumentParams, LspPublishDiagnosticsParams,
-    LspTextDocumentItem,
+    EditorLspServer, JsonRpcNotification, LspDidOpenTextDocumentParams,
+    LspPublishDiagnosticsParams, LspTextDocumentItem,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,6 +16,7 @@ pub(super) fn temp_root(label: &str) -> PathBuf {
             .as_nanos()
     ));
     std::fs::create_dir_all(&root).expect("test root should be creatable");
+    std::fs::create_dir_all(root.join(".git")).expect("test workspace marker should be creatable");
     root
 }
 
@@ -23,6 +24,7 @@ pub(super) fn sample_package_root(label: &str) -> (PathBuf, String) {
     let root = temp_root(label);
     let src = root.join("src");
     fs::create_dir_all(&src).unwrap();
+    fs::create_dir_all(root.join(".git")).unwrap();
     fs::write(
         root.join("build.fol"),
         "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
@@ -61,7 +63,11 @@ pub(super) fn sample_loc_workspace_root(label: &str) -> (PathBuf, String) {
     let shared_src = root.join("shared");
     fs::create_dir_all(&app_src).unwrap();
     fs::create_dir_all(&shared_src).unwrap();
-    fs::write(root.join("fol.work.yaml"), "members:\n  - app\n  - shared\n").unwrap();
+    fs::write(
+        root.join("fol.work.yaml"),
+        "members:\n  - app\n  - shared\n",
+    )
+    .unwrap();
 
     fs::write(
         root.join("app/build.fol"),
@@ -113,9 +119,7 @@ pub(super) fn copied_example_package_root(example_path: &str) -> (PathBuf, Strin
         .expect("checked-in example path should canonicalize");
     let root = temp_root(&format!("example_copy_{}", example_path.replace('/', "_")));
     copy_dir_all(&source, &root);
-    let bundled_std_root =
-        fol_package::available_bundled_std_root().expect("bundled std root should exist");
-    copy_dir_all(&bundled_std_root, &root.join(".fol/pkg/std"));
+    fs::create_dir_all(root.join(".git")).unwrap();
     let uri = format!("file://{}", root.join("src/main.fol").display());
     (root, uri)
 }

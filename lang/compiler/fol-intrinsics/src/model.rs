@@ -70,6 +70,7 @@ pub enum IntrinsicAvailability {
     V1,
     V2,
     V3,
+    V4,
 }
 
 impl IntrinsicAvailability {
@@ -78,6 +79,7 @@ impl IntrinsicAvailability {
             Self::V1 => "V1",
             Self::V2 => "V2",
             Self::V3 => "V3",
+            Self::V4 => "V4",
         }
     }
 }
@@ -88,6 +90,7 @@ pub enum IntrinsicRoadmap {
     LikelyV1x,
     V2,
     V3,
+    V4,
     CoreStdInstead,
 }
 
@@ -98,6 +101,7 @@ impl IntrinsicRoadmap {
             Self::LikelyV1x => "likely-v1.x",
             Self::V2 => "v2",
             Self::V3 => "v3",
+            Self::V4 => "v4",
             Self::CoreStdInstead => "core/std",
         }
     }

@@ -215,8 +215,14 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Defer)) {
-                body.push(self.parse_defer_stmt(tokens)?);
+            if matches!(key, KEYWORD::Keyword(BUILDIN::Dfr)) {
+                body.push(self.parse_dfr_stmt(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if matches!(key, KEYWORD::Keyword(BUILDIN::Edf)) {
+                body.push(self.parse_edf_stmt(tokens)?);
                 self.consume_required_semicolon(tokens)?;
                 continue;
             }
@@ -249,12 +255,6 @@ impl AstParser {
 
             if matches!(key, KEYWORD::Keyword(BUILDIN::Var)) {
                 body.extend(self.parse_var_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Let)) {
-                body.extend(self.parse_let_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;
                 continue;
             }
@@ -380,7 +380,31 @@ impl AstParser {
                 continue;
             }
 
-            if (AstParser::token_can_be_logical_name(&key) || key.is_textual_literal())
+            if self.lookahead_is_spawn_expression(tokens) {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if self.lookahead_has_top_level_pipe(tokens) {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if matches!(
+                key,
+                KEYWORD::Symbol(SYMBOL::Bang) | KEYWORD::Symbol(SYMBOL::Hash)
+            ) || matches!(token.con().trim(), "!" | "#")
+            {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if (AstParser::token_can_be_logical_name(&key)
+                || key.is_textual_literal()
+                || matches!(key, KEYWORD::Symbol(SYMBOL::Star)))
                 && self.lookahead_is_assignment(tokens)
                 && self.can_start_assignment(tokens)
             {
@@ -545,25 +569,25 @@ impl AstParser {
         })
     }
 
-    pub(super) fn parse_defer_stmt(
+    pub(super) fn parse_dfr_stmt(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<AstNode, ParseError> {
-        let defer_token = tokens.curr(false)?;
-        if !matches!(defer_token.key(), KEYWORD::Keyword(BUILDIN::Defer)) {
+        let dfr_token = tokens.curr(false)?;
+        if !matches!(dfr_token.key(), KEYWORD::Keyword(BUILDIN::Dfr)) {
             return Err(ParseError::from_token(
-                &defer_token,
-                "Expected 'defer' statement".to_string(),
+                &dfr_token,
+                "Expected 'dfr' statement".to_string(),
             ));
         }
 
         if !self.is_inside_routine() {
             return Err(ParseError::from_token(
-                &defer_token,
-                "'defer' is only allowed inside routines".to_string(),
+                &dfr_token,
+                "'dfr' is only allowed inside routines".to_string(),
             ));
         }
-        let syntax_id = self.record_syntax_origin(&defer_token);
+        let syntax_id = self.record_syntax_origin(&dfr_token);
 
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
@@ -571,11 +595,43 @@ impl AstParser {
         if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
             return Err(ParseError::from_token(
                 &open,
-                "Expected '{' to start deferred block".to_string(),
+                "Expected '{' to start dfr block".to_string(),
             ));
         }
         let _ = tokens.bump();
-        let body = self.parse_block_body(tokens, "Expected '}' to close deferred block")?;
-        Ok(AstNode::Defer { syntax_id, body })
+        let body = self.parse_block_body(tokens, "Expected '}' to close dfr block")?;
+        Ok(AstNode::Dfr { syntax_id, body })
+    }
+
+    pub(super) fn parse_edf_stmt(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<AstNode, ParseError> {
+        let edf_token = tokens.curr(false)?;
+        if !matches!(edf_token.key(), KEYWORD::Keyword(BUILDIN::Edf)) {
+            return Err(ParseError::from_token(
+                &edf_token,
+                "Expected 'edf' statement".to_string(),
+            ));
+        }
+        if !self.is_inside_routine() {
+            return Err(ParseError::from_token(
+                &edf_token,
+                "'edf' is only allowed inside routines".to_string(),
+            ));
+        }
+        let syntax_id = self.record_syntax_origin(&edf_token);
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+        let open = tokens.curr(false)?;
+        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
+            return Err(ParseError::from_token(
+                &open,
+                "Expected '{' to start edf block".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        let body = self.parse_block_body(tokens, "Expected '}' to close edf block")?;
+        Ok(AstNode::Edf { syntax_id, body })
     }
 }

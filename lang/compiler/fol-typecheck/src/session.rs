@@ -1,9 +1,8 @@
 use crate::{
-    decls, exprs, CheckedType, CheckedTypeId, TypecheckConfig, TypecheckError,
-    TypecheckErrorKind, TypecheckResult, TypedExportMount, TypedPackage, TypedProgram,
-    TypedWorkspace,
+    decls, exprs, CheckedType, CheckedTypeId, TypecheckConfig, TypecheckError, TypecheckErrorKind,
+    TypecheckResult, TypedExportMount, TypedPackage, TypedProgram, TypedWorkspace,
 };
-use fol_resolver::{MountedSymbolProvenance, PackageIdentity, SymbolId};
+use fol_resolver::{MountedSymbolProvenance, PackageIdentity, ScopeKind, SymbolId, SymbolKind};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
@@ -29,6 +28,7 @@ impl TypecheckSession {
         resolved: fol_resolver::ResolvedProgram,
     ) -> TypecheckResult<TypedProgram> {
         validate_import_capability_model(&resolved, self.config.capability_model)?;
+        validate_implicit_closure_captures(&resolved)?;
         let mut typed =
             TypedProgram::from_resolved_with_model(resolved, self.config.capability_model);
         decls::lower_declaration_signatures(&mut typed)?;
@@ -122,12 +122,18 @@ impl TypecheckSession {
             }
         }
 
-        if errors.is_empty() {
-            if let Err(mut package_errors) =
-                validate_import_capability_model(&package.program, self.config.capability_model)
-            {
-                errors.append(&mut package_errors);
-            }
+        // Import capability legality belongs to the importing package and is
+        // independent of whether a dependency also failed to typecheck. Keep
+        // the source-file diagnostic available instead of letting an earlier
+        // dependency error suppress it (and, in editor routing, get filtered
+        // out because it points at another package).
+        if let Err(mut package_errors) =
+            validate_import_capability_model(&package.program, self.config.capability_model)
+        {
+            errors.append(&mut package_errors);
+        }
+        if let Err(mut package_errors) = validate_implicit_closure_captures(&package.program) {
+            errors.append(&mut package_errors);
         }
 
         if errors.is_empty() {
@@ -139,7 +145,8 @@ impl TypecheckSession {
                 self.hydrate_mounted_symbol_types(&mut typed, typed_packages)
             {
                 errors.append(&mut package_errors);
-            } else if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed) {
+            } else if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed)
+            {
                 errors.append(&mut package_errors);
             } else if let Err(mut package_errors) = exprs::type_program(&mut typed) {
                 errors.append(&mut package_errors);
@@ -314,8 +321,11 @@ impl TypecheckSession {
         })?;
         typed_symbol.declared_type = Some(translated);
         typed_symbol.receiver_type = translated_receiver;
+        typed_symbol.param_defaults = foreign_type.param_defaults.clone();
         typed_symbol.generic_params = foreign_type.generic_params.clone();
         typed_symbol.generic_constraints = foreign_type.generic_constraints.clone();
+        typed_symbol.is_channel_sender_capture = foreign_type.is_channel_sender_capture;
+        typed_symbol.channel_receiver_params = foreign_type.channel_receiver_params.clone();
         Ok(())
     }
 
@@ -341,8 +351,7 @@ impl TypecheckSession {
                     TypecheckErrorKind::TypeImportFailed,
                     format!(
                         "type import failed: type {} is missing from package '{}' type table",
-                        source_type_id.0,
-                        source_identity.canonical_root,
+                        source_type_id.0, source_identity.canonical_root,
                     ),
                 )
             })?;
@@ -351,7 +360,12 @@ impl TypecheckSession {
             CheckedType::Builtin(builtin) => {
                 target_program.type_table_mut().intern_builtin(builtin)
             }
-            CheckedType::Declared { symbol, name, kind, args } => {
+            CheckedType::Declared {
+                symbol,
+                name,
+                kind,
+                args,
+            } => {
                 // A generic instantiation carries type args in the SOURCE
                 // program; translate each into the target program so the
                 // imported instance keeps its nominal `(symbol, args)` identity.
@@ -373,7 +387,12 @@ impl TypecheckSession {
                     // their declared type would chase a self-reference.
                     target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args })
+                        .intern(CheckedType::Declared {
+                            symbol,
+                            name,
+                            kind,
+                            args: translated_args,
+                        })
                 } else if let Some(translated_symbol) = translated_symbol_id(
                     source_identity,
                     source_program,
@@ -392,13 +411,18 @@ impl TypecheckSession {
                     .typed_symbol(symbol)
                     .and_then(|typed_symbol| typed_symbol.declared_type)
                 {
-                    let shell_type = target_program
-                        .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args });
+                    let shell_type =
+                        target_program
+                            .type_table_mut()
+                            .intern(CheckedType::Declared {
+                                symbol,
+                                name,
+                                kind,
+                                args: translated_args,
+                            });
                     // Guard against cyclic declared types: cache the shell
                     // before expanding so re-entry terminates.
-                    imported_cache
-                        .insert((source_identity.clone(), source_type_id), shell_type);
+                    imported_cache.insert((source_identity.clone(), source_type_id), shell_type);
                     // A generic instantiation's apparent shape is the source's
                     // own apparent override (its substituted record), not the
                     // generic template; import that if present, else the body.
@@ -420,7 +444,12 @@ impl TypecheckSession {
                 } else {
                     target_program
                         .type_table_mut()
-                        .intern(CheckedType::Declared { symbol, name, kind, args: translated_args })
+                        .intern(CheckedType::Declared {
+                            symbol,
+                            name,
+                            kind,
+                            args: translated_args,
+                        })
                 }
             }
             CheckedType::Array { element_type, size } => {
@@ -461,6 +490,63 @@ impl TypecheckSession {
                 target_program
                     .type_table_mut()
                     .intern(CheckedType::Sequence { element_type })
+            }
+            CheckedType::Channel { element_type } => {
+                let element_type = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    element_type,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Channel { element_type })
+            }
+            CheckedType::ChannelSender { element_type } => {
+                let element_type = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    element_type,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::ChannelSender { element_type })
+            }
+            CheckedType::Eventual {
+                value_type,
+                error_type,
+            } => {
+                let value_type = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    value_type,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                let error_type = error_type
+                    .map(|error_type| {
+                        self.import_type_id(
+                            target_program,
+                            source_identity,
+                            source_program,
+                            error_type,
+                            mounted_symbol_map,
+                            imported_cache,
+                        )
+                    })
+                    .transpose()?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Eventual {
+                        value_type,
+                        error_type,
+                    })
             }
             CheckedType::Set { member_types } => {
                 let member_types = member_types
@@ -517,6 +603,45 @@ impl TypecheckSession {
                 target_program
                     .type_table_mut()
                     .intern(CheckedType::Optional { inner })
+            }
+            CheckedType::Owned { inner } => {
+                let inner = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    inner,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Owned { inner })
+            }
+            CheckedType::Borrowed { inner, mutable } => {
+                let inner = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    inner,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Borrowed { inner, mutable })
+            }
+            CheckedType::Pointer { target, shared } => {
+                let target = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    target,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::Pointer { target, shared })
             }
             CheckedType::Error { inner } => {
                 let inner = inner
@@ -626,6 +751,7 @@ impl TypecheckSession {
                         param_names: signature.param_names.clone(),
                         param_defaults: signature.param_defaults.clone(),
                         variadic_index: signature.variadic_index,
+                        mutex_params: signature.mutex_params.clone(),
                         params,
                         return_type,
                         error_type,
@@ -635,6 +761,72 @@ impl TypecheckSession {
 
         imported_cache.insert((source_identity.clone(), source_type_id), translated);
         Ok(translated)
+    }
+}
+
+fn validate_implicit_closure_captures(
+    resolved: &fol_resolver::ResolvedProgram,
+) -> TypecheckResult<()> {
+    fn nearest_routine_scope(
+        resolved: &fol_resolver::ResolvedProgram,
+        mut scope: fol_resolver::ScopeId,
+    ) -> Option<fol_resolver::ScopeId> {
+        loop {
+            let resolved_scope = resolved.scope(scope)?;
+            if resolved_scope.kind == ScopeKind::Routine {
+                return Some(scope);
+            }
+            scope = resolved_scope.parent?;
+        }
+    }
+
+    let mut errors = Vec::new();
+    for reference in resolved.references.iter() {
+        let Some(symbol_id) = reference.resolved else {
+            continue;
+        };
+        let Some(symbol) = resolved.symbol(symbol_id) else {
+            continue;
+        };
+        if !matches!(
+            symbol.kind,
+            SymbolKind::ValueBinding
+                | SymbolKind::LabelBinding
+                | SymbolKind::DestructureBinding
+                | SymbolKind::Parameter
+                | SymbolKind::Capture
+                | SymbolKind::LoopBinder
+                | SymbolKind::RollingBinder
+        ) {
+            continue;
+        }
+        let declaration_routine = nearest_routine_scope(resolved, symbol.scope);
+        let reference_routine = nearest_routine_scope(resolved, reference.scope);
+        if declaration_routine.is_none() || declaration_routine == reference_routine {
+            continue;
+        }
+        let message = format!(
+            "implicit closure capture of outer local '{}' is not supported; pass the value as a routine parameter instead",
+            symbol.name
+        );
+        let origin = reference
+            .syntax_id
+            .and_then(|syntax_id| resolved.syntax_index().origin(syntax_id).cloned());
+        errors.push(origin.map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Unsupported, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    message.clone(),
+                    origin,
+                )
+            },
+        ));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
 }
 

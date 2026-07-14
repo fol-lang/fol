@@ -527,32 +527,35 @@ where
                 }
             }
         }
-        Ok(_) => match crate::run_command_from_args(args) {
-            Ok((output, result)) => match output.render_command_summary(&result) {
-                Ok(rendered) => match writeln!(stdout, "{rendered}") {
-                    Ok(()) => 0,
+        Ok(cli) => {
+            let config = crate::frontend_config_from_cli(&cli, None);
+            let output = FrontendOutput::new(config.output);
+            match dispatch_cli(&cli, &config) {
+                Ok(result) => match output.render_command_summary(&result) {
+                    Ok(rendered) => match writeln!(stdout, "{rendered}") {
+                        Ok(()) => 0,
+                        Err(error) => {
+                            let _ = writeln!(stderr, "FrontendInternal: {error}");
+                            1
+                        }
+                    },
                     Err(error) => {
                         let _ = writeln!(stderr, "FrontendInternal: {error}");
                         1
                     }
                 },
                 Err(error) => {
-                    let _ = writeln!(stderr, "FrontendInternal: {error}");
+                    match output.render_error(&error) {
+                        Ok(rendered) => {
+                            let _ = writeln!(stderr, "{rendered}");
+                        }
+                        Err(render_error) => {
+                            let _ = writeln!(stderr, "FrontendInternal: {render_error}");
+                        }
+                    }
                     1
                 }
-            },
-            Err(error) => {
-                let output = FrontendOutput::new(FrontendOutputConfig::default());
-                match output.render_error(&error) {
-                    Ok(rendered) => {
-                        let _ = writeln!(stderr, "{rendered}");
-                    }
-                    Err(render_error) => {
-                        let _ = writeln!(stderr, "FrontendInternal: {render_error}");
-                    }
-                }
-                1
             }
-        },
+        }
     }
 }

@@ -250,7 +250,9 @@ impl Default for ResolverSession {
     }
 }
 
-pub(crate) fn package_source_kind(source_kind: PackageSourceKind) -> fol_package::PackageSourceKind {
+pub(crate) fn package_source_kind(
+    source_kind: PackageSourceKind,
+) -> fol_package::PackageSourceKind {
     match source_kind {
         PackageSourceKind::Entry => fol_package::PackageSourceKind::Entry,
         PackageSourceKind::Local => fol_package::PackageSourceKind::Local,
@@ -268,7 +270,9 @@ pub(crate) fn package_config_from_resolver(config: &ResolverConfig) -> fol_packa
     }
 }
 
-pub(crate) fn resolver_package_identity(identity: &fol_package::PackageIdentity) -> PackageIdentity {
+pub(crate) fn resolver_package_identity(
+    identity: &fol_package::PackageIdentity,
+) -> PackageIdentity {
     PackageIdentity {
         source_kind: match identity.source_kind {
             fol_package::PackageSourceKind::Entry => PackageSourceKind::Entry,

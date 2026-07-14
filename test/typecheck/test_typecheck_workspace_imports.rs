@@ -1,4 +1,292 @@
 use super::*;
+use fol_typecheck::TypecheckCapabilityModel;
+
+#[test]
+fn imported_channel_receiver_effect_reaches_local_spawn_wrappers() {
+    let root = unique_temp_dir("workspace_imported_channel_receiver");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] consume(channel: chn[int]): int = { return channel[rx]; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] wrapper(channel: chn[int]): int = { return consume(channel); };\n",
+                    "fun[] main(): int = {\n",
+                    "    var channel: chn[int];\n",
+                    "    [>]wrapper(channel);\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect_err("Imported receiver effects should reject spawned wrappers");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("routine 'wrapper' receives from a channel and cannot be spawned directly")));
+}
+
+#[test]
+fn imported_sender_only_channel_routine_stays_spawnable() {
+    let root = unique_temp_dir("workspace_imported_channel_sender");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "fun[exp] produce(channel: chn[int]): int = {\n",
+                    "    42 | channel[tx];\n",
+                    "    return 42;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] wrapper(channel: chn[int]): int = { return produce(channel); };\n",
+                    "fun[] main(): int = {\n",
+                    "    var channel: chn[int];\n",
+                    "    [>]wrapper(channel);\n",
+                    "    return channel[rx];\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("Imported sender-only effects should preserve spawnable producer wrappers");
+}
+
+#[test]
+fn imported_mux_signature_allows_mux_handle_forwarding() {
+    let root = unique_temp_dir("workspace_imported_mux_forwarding");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = { value: int };\n",
+                    "fun[exp] read(counter[mux]: Counter): int = {\n",
+                    "    counter.lock();\n",
+                    "    return counter.value;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] forward(counter[mux]: Counter): int = { return read(counter); };\n",
+                    "fun[] main(): int = {\n",
+                    "    var counter: Counter = { value = 42 };\n",
+                    "    return forward(counter);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("imported [mux] metadata should preserve mux-to-mux forwarding");
+}
+
+#[test]
+fn imported_plain_signature_rejects_a_mux_whole_value() {
+    let root = unique_temp_dir("workspace_imported_mux_plain_rejection");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = { value: int };\n",
+                    "fun[exp] read_plain(counter: Counter): int = { return counter.value; };\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] bad(counter[mux]: Counter): int = { return read_plain(counter); };\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect_err("imported plain-T calls must not unwrap a mutex handle");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("cannot be used as an unguarded whole value")));
+}
+
+#[test]
+fn qualified_imported_spawns_keep_receiver_and_rc_boundaries() {
+    let root = unique_temp_dir("workspace_qualified_spawn_boundaries");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Shared: rec = { value: ptr[shared, int] };\n",
+                    "fun[exp] consume_channel(channel: chn[int]): int = { return channel[rx]; };\n",
+                    "fun[exp] consume_shared(value: Shared): int = { return 0; };\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] bad_channel(): int = {\n",
+                    "    var channel: chn[int];\n",
+                    "    [>]shared::consume_channel(channel);\n",
+                    "    return 0;\n",
+                    "};\n",
+                    "fun[] bad_shared(): int = {\n",
+                    "    var value: int = 1;\n",
+                    "    var shared_value: shared::Shared = { value = &value };\n",
+                    "    [>]shared::consume_shared(shared_value);\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect_err("qualified imported spawns must preserve processor boundaries");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("routine 'shared::consume_channel' receives from a channel")));
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("values containing shared Rc pointers cannot cross")
+    }));
+}
+
+#[test]
+fn qualified_imported_spawn_is_accepted_before_lowering() {
+    let root = unique_temp_dir("workspace_qualified_spawn_surface");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] work(value: int): int = { return value; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    [>]shared::work(42);\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("qualified direct spawn targets should typecheck");
+}
+
+#[test]
+fn qualified_imported_async_is_accepted_before_lowering() {
+    let root = unique_temp_dir("workspace_qualified_async_surface");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] work(value: int): int = { return value; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    var pending = shared::work(42) | async;\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("qualified direct async targets should typecheck");
+}
 
 #[test]
 fn workspace_expression_typing_rejects_plain_imported_call_argument_mismatches() {
@@ -1447,9 +1735,9 @@ fn declaration_signature_lowering_checks_local_bindings() {
 fn declaration_signature_lowering_checks_nested_routine_signatures() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "fun[] demo(seed: int): int = {\n\
+         "fun[] demo(seed: int): int = {\n\
              fun[] helper(item: str): int = {\n\
-                 return seed;\n\
+                 return 1;\n\
              };\n\
              return seed;\n\
          };\n",

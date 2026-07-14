@@ -7,8 +7,8 @@ pub const DECLARATION_KEYWORDS: &[&str] = &[
 
 /// Control flow keyword names.
 pub const CONTROL_KEYWORDS: &[&str] = &[
-    "if", "else", "when", "while", "loop", "for", "each", "do", "case",
-    "break", "return", "yield", "defer", "go", "select",
+    "if", "else", "when", "while", "loop", "for", "each", "do", "case", "break", "return", "yield",
+    "dfr", "edf", "select",
 ];
 
 /// Operator keyword names.
@@ -23,7 +23,7 @@ pub const LITERAL_KEYWORDS: &[&str] = &["true", "false"];
 pub const DIAGNOSTIC_KEYWORDS: &[&str] = &["panic", "report", "check", "assert"];
 
 /// Other keyword names.
-pub const OTHER_KEYWORDS: &[&str] = &["let", "this", "self", "where", "get", "async", "await"];
+pub const OTHER_KEYWORDS: &[&str] = &["this", "self", "where", "get", "async", "await"];
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BUILDIN {
@@ -64,7 +64,8 @@ pub enum BUILDIN {
     Break,
     Return,
     Yield,
-    Defer,
+    Dfr,
+    Edf,
     Panic,
     Report,
     Check,
@@ -75,10 +76,8 @@ pub enum BUILDIN {
     Each,
     For,
     Do,
-    Go,
     Get,
     Of,
-    Let,
     Async,
     Await,
     Select,
@@ -124,7 +123,8 @@ impl fmt::Display for BUILDIN {
             BUILDIN::Break => "break",
             BUILDIN::Return => "return",
             BUILDIN::Yield => "yield",
-            BUILDIN::Defer => "defer",
+            BUILDIN::Dfr => "dfr",
+            BUILDIN::Edf => "edf",
             BUILDIN::Panic => "panic",
             BUILDIN::Report => "report",
             BUILDIN::Check => "check",
@@ -135,9 +135,7 @@ impl fmt::Display for BUILDIN {
             BUILDIN::Each => "each",
             BUILDIN::For => "for",
             BUILDIN::Do => "do",
-            BUILDIN::Go => "go",
             BUILDIN::Get => "get",
-            BUILDIN::Let => "let",
             BUILDIN::Async => "async",
             BUILDIN::Await => "await",
             BUILDIN::Select => "select",

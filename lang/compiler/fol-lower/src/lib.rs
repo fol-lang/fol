@@ -1,4 +1,5 @@
-//! Lowering from typed `V1` FOL workspaces into a backend-oriented IR.
+//! Lowering from typed FOL workspaces into the backend-oriented IR used by the
+//! shipped V1, V2, and V3 language surfaces.
 
 mod boundaries;
 pub mod control;
@@ -15,8 +16,8 @@ mod verify;
 
 pub use boundaries::{v1_lowering_boundaries, UnsupportedLoweringSurface};
 pub use control::{
-    LoweredBinaryOp, LoweredBlock, LoweredInstr, LoweredInstrKind, LoweredLinearKind,
-    LoweredLocal, LoweredOperand, LoweredRoutine, LoweredTerminator, LoweredUnaryOp,
+    LoweredBinaryOp, LoweredBlock, LoweredInstr, LoweredInstrKind, LoweredLinearKind, LoweredLocal,
+    LoweredOperand, LoweredRoutine, LoweredTerminator, LoweredUnaryOp,
 };
 pub use errors::{LoweringError, LoweringErrorKind};
 pub use ids::{
@@ -25,10 +26,10 @@ pub use ids::{
 };
 pub use model::{
     LoweredConformance, LoweredEntryCandidate, LoweredExportMount, LoweredFieldLayout,
-    LoweredGlobal, LoweredPackage, LoweredRecoverableAbi, LoweredSourceMap,
-    LoweredSourceMapEntry, LoweredSourceSymbol, LoweredSourceUnit, LoweredStandard,
-    LoweredStandardRoutine, LoweredSymbolOwnership, LoweredTypeDecl, LoweredTypeDeclKind,
-    LoweredVariantLayout, LoweredWorkspace,
+    LoweredGlobal, LoweredPackage, LoweredRecoverableAbi, LoweredSourceMap, LoweredSourceMapEntry,
+    LoweredSourceSymbol, LoweredSourceUnit, LoweredStandard, LoweredStandardRoutine,
+    LoweredSymbolOwnership, LoweredTypeDecl, LoweredTypeDeclKind, LoweredVariantLayout,
+    LoweredWorkspace,
 };
 pub use render::render_lowered_workspace;
 pub use session::LoweringSession;
@@ -75,10 +76,7 @@ mod tests {
             "lowering shell is not implemented yet",
         );
         assert_eq!(error.message(), "lowering shell is not implemented yet");
-        assert_eq!(
-            error.to_string(),
-            "lowering shell is not implemented yet"
-        );
+        assert_eq!(error.to_string(), "lowering shell is not implemented yet");
     }
 
     #[test]

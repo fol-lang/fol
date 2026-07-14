@@ -36,7 +36,10 @@ impl AstParser {
         Self::key_is_layout_ignorable(key) || key.is_comment()
     }
 
-    pub(super) fn skip_layout(&self, tokens: &mut fol_lexer::lexer::stage3::Elements) -> Result<(), ParseError> {
+    pub(super) fn skip_layout(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<(), ParseError> {
         let mut count = 0u32;
         loop {
             let token = match tokens.curr(false) {
@@ -49,7 +52,8 @@ impl AstParser {
                 if count > 128 {
                     return Err(ParseError::from_token(
                         &token,
-                        "skip_layout exceeded 128-token limit; possible infinite layout loop".to_string(),
+                        "skip_layout exceeded 128-token limit; possible infinite layout loop"
+                            .to_string(),
                     ));
                 }
                 if tokens.bump().is_none() {
@@ -97,7 +101,10 @@ impl AstParser {
         ))
     }
 
-    pub(super) fn skip_ignorable(&self, tokens: &mut fol_lexer::lexer::stage3::Elements) -> Result<(), ParseError> {
+    pub(super) fn skip_ignorable(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<(), ParseError> {
         let mut count = 0u32;
         loop {
             let token = match tokens.curr(false) {
@@ -110,7 +117,8 @@ impl AstParser {
                 if count > 128 {
                     return Err(ParseError::from_token(
                         &token,
-                        "skip_ignorable exceeded 128-token limit; possible infinite ignorable loop".to_string(),
+                        "skip_ignorable exceeded 128-token limit; possible infinite ignorable loop"
+                            .to_string(),
                     ));
                 }
                 if tokens.bump().is_none() {
@@ -143,9 +151,7 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::This)
                     | KEYWORD::Keyword(BUILDIN::Selfi)
                     | KEYWORD::Keyword(BUILDIN::If)
-                    | KEYWORD::Keyword(BUILDIN::Go)
                     | KEYWORD::Keyword(BUILDIN::Get)
-                    | KEYWORD::Keyword(BUILDIN::Let)
                     | KEYWORD::Keyword(BUILDIN::Not)
                     | KEYWORD::Keyword(BUILDIN::Check)
                     | KEYWORD::Keyword(BUILDIN::Panic)
@@ -175,9 +181,8 @@ impl AstParser {
     ) -> Result<String, ParseError> {
         Self::reject_illegal_token(token)?;
 
-        Self::token_to_named_label(token).ok_or_else(|| {
-            ParseError::from_token(token, message.to_string())
-        })
+        Self::token_to_named_label(token)
+            .ok_or_else(|| ParseError::from_token(token, message.to_string()))
     }
 
     pub(super) fn reject_illegal_token(
@@ -355,6 +360,20 @@ impl AstParser {
             ));
         }
 
+        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Hash)) || token.con().trim() == "#" {
+            return Some((
+                "Expected expression after borrow-from '#'",
+                Some(UnaryOperator::BorrowFrom),
+            ));
+        }
+
+        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Bang)) || token.con().trim() == "!" {
+            return Some((
+                "Expected borrow binding after give-back '!'",
+                Some(UnaryOperator::GiveBack),
+            ));
+        }
+
         None
     }
 
@@ -382,10 +401,7 @@ impl AstParser {
 
                 Ok(())
             }
-            Err(_) => Err(ParseError::from_token(
-                operator_token,
-                message.to_string(),
-            )),
+            Err(_) => Err(ParseError::from_token(operator_token, message.to_string())),
         }
     }
 
@@ -444,15 +460,13 @@ impl AstParser {
         }
 
         let normalized = value.replace('_', "");
-        let numeric_error = |message: String| {
-            ParseError {
-                kind: ParseErrorKind::Literal,
-                message,
-                file: None,
-                line: 0,
-                column: 0,
-                length: value.trim().len().max(1),
-            }
+        let numeric_error = |message: String| ParseError {
+            kind: ParseErrorKind::Literal,
+            message,
+            file: None,
+            line: 0,
+            column: 0,
+            length: value.trim().len().max(1),
         };
 
         if let Some(hex) = normalized

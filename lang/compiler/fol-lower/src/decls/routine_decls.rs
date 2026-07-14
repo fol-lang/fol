@@ -1,6 +1,6 @@
 use crate::{
-    LoweredBlock, LoweredLocal, LoweredPackage, LoweredRoutine, LoweringError,
-    LoweringErrorKind, LoweringResult,
+    LoweredBlock, LoweredLocal, LoweredPackage, LoweredRoutine, LoweringError, LoweringErrorKind,
+    LoweringResult,
 };
 use fol_parser::ast::{AstNode, ParsedSourceUnitKind};
 use fol_resolver::{SourceUnitId, SymbolId, SymbolKind};
@@ -163,7 +163,12 @@ pub fn lower_routine_declarations(
                                 params,
                                 body,
                                 ..
-                            } => (name.as_str(), *syntax_id, params.as_slice(), body.as_slice()),
+                            } => (
+                                name.as_str(),
+                                *syntax_id,
+                                params.as_slice(),
+                                body.as_slice(),
+                            ),
                             _ => continue,
                         };
                         if member_body.is_empty() {
@@ -318,7 +323,9 @@ pub fn lower_routine_decl(
             SymbolKind::Parameter,
             "self",
         ) {
-            routine.local_symbols.insert(self_symbol_id, routine.params[0]);
+            routine
+                .local_symbols
+                .insert(self_symbol_id, routine.params[0]);
         }
     }
     let checked_signature = typed_symbol.declared_type.ok_or_else(|| {
@@ -392,6 +399,9 @@ pub fn lower_routine_decl(
         };
         routine.local_symbols.insert(param_symbol_id, local_id);
         routine.params.push(local_id);
+        if param.is_mutex {
+            routine.mutex_params.insert(local_id);
+        }
         next_local_index += 1;
     }
 

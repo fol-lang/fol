@@ -47,18 +47,14 @@ pub(crate) fn monomorphize_generic_receiver_routines(
     let mut errors = Vec::new();
 
     while let Some((identity, routine_id)) = worklist.pop() {
-        let call_sites = match collect_template_call_sites(
-            packages,
-            &identity,
-            routine_id,
-            &templates,
-        ) {
-            Ok(call_sites) => call_sites,
-            Err(error) => {
-                errors.push(error);
-                continue;
-            }
-        };
+        let call_sites =
+            match collect_template_call_sites(packages, &identity, routine_id, &templates) {
+                Ok(call_sites) => call_sites,
+                Err(error) => {
+                    errors.push(error);
+                    continue;
+                }
+            };
 
         for (instr_id, template_id, arg_types) in call_sites {
             let template = &templates[&template_id];
@@ -125,11 +121,9 @@ fn collect_templates(
     let mut templates = BTreeMap::new();
     for (identity, package) in packages {
         for routine in package.routine_decls.values() {
-            let generic_receiver = routine
-                .receiver_type
-                .is_some_and(|receiver_type| {
-                    type_contains_generic_parameter(type_table, receiver_type)
-                });
+            let generic_receiver = routine.receiver_type.is_some_and(|receiver_type| {
+                type_contains_generic_parameter(type_table, receiver_type)
+            });
             // Routines that call required constraint routines on their
             // generic parameters cannot ride Rust-generics emission either:
             // the callee only exists after substitution.
@@ -182,7 +176,10 @@ fn collect_templates(
                 let calls_template = routine.instructions.iter().any(|instr| {
                     matches!(
                         &instr.kind,
-                        LoweredInstrKind::Call { callee, .. } if templates.contains_key(callee)
+                        LoweredInstrKind::Call { callee, .. }
+                            | LoweredInstrKind::SpawnCall { callee, .. }
+                            | LoweredInstrKind::AsyncCall { callee, .. }
+                            if templates.contains_key(callee)
                     )
                 });
                 if calls_template {
@@ -240,7 +237,11 @@ fn collect_template_call_sites(
     let mut call_sites = Vec::new();
     for (instr_id, instr) in routine.instructions.iter_with_ids() {
         match &instr.kind {
-            LoweredInstrKind::Call { callee, args, .. } if templates.contains_key(callee) => {
+            LoweredInstrKind::Call { callee, args, .. }
+            | LoweredInstrKind::SpawnCall { callee, args }
+            | LoweredInstrKind::AsyncCall { callee, args, .. }
+                if templates.contains_key(callee) =>
+            {
                 let arg_types = args
                     .iter()
                     .map(|arg| {
@@ -519,7 +520,10 @@ fn unify_template_type(
             {
                 unify_template_type(type_table, *template_param, *concrete_param, bindings)?;
             }
-            match (template_signature.return_type, concrete_signature.return_type) {
+            match (
+                template_signature.return_type,
+                concrete_signature.return_type,
+            ) {
                 (Some(template_return), Some(concrete_return)) => {
                     unify_template_type(type_table, template_return, concrete_return, bindings)?;
                 }
@@ -570,6 +574,7 @@ fn instantiate_template(
     for instr in routine.instructions.iter_mut() {
         match &mut instr.kind {
             LoweredInstrKind::Call { error_type, .. }
+            | LoweredInstrKind::AsyncCall { error_type, .. }
             | LoweredInstrKind::CallIndirect { error_type, .. } => {
                 *error_type = error_type
                     .map(|type_id| substitute_type(type_table, bindings, &mut memo, type_id))
@@ -581,6 +586,9 @@ fn instantiate_template(
             | LoweredInstrKind::ConstructSet { type_id, .. }
             | LoweredInstrKind::ConstructMap { type_id, .. }
             | LoweredInstrKind::ConstructOptional { type_id, .. }
+            | LoweredInstrKind::ConstructOwned { type_id, .. }
+            | LoweredInstrKind::ConstructBorrow { type_id, .. }
+            | LoweredInstrKind::ConstructPointer { type_id, .. }
             | LoweredInstrKind::ConstructError { type_id, .. }
             | LoweredInstrKind::Cast {
                 target_type: type_id,
@@ -622,24 +630,37 @@ fn substitute_type(
     let Some(lowered_type) = type_table.get(type_id).cloned() else {
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            format!("lowered type {} disappeared during monomorphization", type_id.0),
+            format!(
+                "lowered type {} disappeared during monomorphization",
+                type_id.0
+            ),
         ));
     };
 
     let substituted = match lowered_type {
-        LoweredType::GenericParameter { name } => {
-            *bindings.get(&name).ok_or_else(|| {
-                LoweringError::with_kind(
-                    LoweringErrorKind::InvalidInput,
-                    format!(
-                        "generic parameter '{name}' could not be monomorphized: no concrete type \
+        LoweredType::GenericParameter { name } => *bindings.get(&name).ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "generic parameter '{name}' could not be monomorphized: no concrete type \
                          was inferred for it. It must be fixed by the call arguments (directly or \
                          through a nested generic call whose arguments determine it)"
-                    ),
-                )
-            })?
+                ),
+            )
+        })?,
+        LoweredType::Builtin(_) | LoweredType::Named { .. } => type_id,
+        LoweredType::Owned { inner } => {
+            let inner = substitute_type(type_table, bindings, memo, inner)?;
+            type_table.intern(LoweredType::Owned { inner })
         }
-        LoweredType::Builtin(_) => type_id,
+        LoweredType::Borrowed { inner, mutable } => {
+            let inner = substitute_type(type_table, bindings, memo, inner)?;
+            type_table.intern(LoweredType::Borrowed { inner, mutable })
+        }
+        LoweredType::Pointer { target, shared } => {
+            let target = substitute_type(type_table, bindings, memo, target)?;
+            type_table.intern(LoweredType::Pointer { target, shared })
+        }
         LoweredType::Array { element_type, size } => {
             let element_type = substitute_type(type_table, bindings, memo, element_type)?;
             type_table.intern(LoweredType::Array { element_type, size })
@@ -651,6 +672,27 @@ fn substitute_type(
         LoweredType::Sequence { element_type } => {
             let element_type = substitute_type(type_table, bindings, memo, element_type)?;
             type_table.intern(LoweredType::Sequence { element_type })
+        }
+        LoweredType::Channel { element_type } => {
+            let element_type = substitute_type(type_table, bindings, memo, element_type)?;
+            type_table.intern(LoweredType::Channel { element_type })
+        }
+        LoweredType::ChannelSender { element_type } => {
+            let element_type = substitute_type(type_table, bindings, memo, element_type)?;
+            type_table.intern(LoweredType::ChannelSender { element_type })
+        }
+        LoweredType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            let value_type = substitute_type(type_table, bindings, memo, value_type)?;
+            let error_type = error_type
+                .map(|error_type| substitute_type(type_table, bindings, memo, error_type))
+                .transpose()?;
+            type_table.intern(LoweredType::Eventual {
+                value_type,
+                error_type,
+            })
         }
         LoweredType::Set { member_types } => {
             let member_types = member_types
@@ -730,7 +772,6 @@ fn substitute_type(
     Ok(substituted)
 }
 
-
 /// Rewrite every deferred constraint call in a freshly instantiated clone
 /// into an ordinary direct call: the receiver argument's substituted type is
 /// now concrete, so the conformer's receiver routine (or the standard's
@@ -741,9 +782,19 @@ fn resolve_constraint_calls(
     template: &Template,
     routine: &mut LoweredRoutine,
 ) -> Result<(), LoweringError> {
-    let mut rewrites: Vec<(usize, LoweredRoutineId, Vec<crate::ids::LoweredLocalId>, Option<LoweredTypeId>)> = Vec::new();
+    let mut rewrites: Vec<(
+        usize,
+        LoweredRoutineId,
+        Vec<crate::ids::LoweredLocalId>,
+        Option<LoweredTypeId>,
+    )> = Vec::new();
     for (index, instr) in routine.instructions.iter().enumerate() {
-        let LoweredInstrKind::ConstraintCall { method, args, error_type } = &instr.kind else {
+        let LoweredInstrKind::ConstraintCall {
+            method,
+            args,
+            error_type,
+        } = &instr.kind
+        else {
             continue;
         };
         let receiver_local = args.first().copied().ok_or_else(|| {
@@ -809,7 +860,11 @@ fn resolve_constraint_calls(
     for (index, callee, args, error_type) in rewrites {
         let instr_id = crate::ids::LoweredInstrId(index);
         if let Some(instr) = routine.instructions.get_mut(instr_id) {
-            instr.kind = LoweredInstrKind::Call { callee, args, error_type };
+            instr.kind = LoweredInstrKind::Call {
+                callee,
+                args,
+                error_type,
+            };
         }
     }
     Ok(())
@@ -927,12 +982,34 @@ fn collect_named_structural_types(
         LoweredType::Array { element_type, .. }
         | LoweredType::Vector { element_type }
         | LoweredType::Sequence { element_type }
+        | LoweredType::Channel { element_type }
+        | LoweredType::ChannelSender { element_type }
+        | LoweredType::Owned {
+            inner: element_type,
+        }
+        | LoweredType::Borrowed {
+            inner: element_type,
+            ..
+        }
+        | LoweredType::Pointer {
+            target: element_type,
+            ..
+        }
         | LoweredType::Optional {
             inner: element_type,
         } => collect_named_structural_types(type_table, *element_type, out),
         LoweredType::Error { inner } => {
             if let Some(inner) = inner {
                 collect_named_structural_types(type_table, *inner, out);
+            }
+        }
+        LoweredType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            collect_named_structural_types(type_table, *value_type, out);
+            if let Some(error_type) = error_type {
+                collect_named_structural_types(type_table, *error_type, out);
             }
         }
         LoweredType::Set { member_types } => {
@@ -958,7 +1035,9 @@ fn collect_named_structural_types(
                 collect_named_structural_types(type_table, error_type, out);
             }
         }
-        LoweredType::Builtin(_) | LoweredType::GenericParameter { .. } => {}
+        LoweredType::Builtin(_)
+        | LoweredType::Named { .. }
+        | LoweredType::GenericParameter { .. } => {}
     }
 }
 
@@ -976,29 +1055,52 @@ fn patch_call_target(
     else {
         return;
     };
-    if let LoweredInstrKind::Call { callee, .. } = &mut instr.kind {
-        *callee = concrete_id;
+    match &mut instr.kind {
+        LoweredInstrKind::Call { callee, .. }
+        | LoweredInstrKind::SpawnCall { callee, .. }
+        | LoweredInstrKind::AsyncCall { callee, .. } => *callee = concrete_id,
+        _ => {}
     }
 }
 
-fn type_contains_generic_parameter(
-    type_table: &LoweredTypeTable,
-    type_id: LoweredTypeId,
-) -> bool {
+fn type_contains_generic_parameter(type_table: &LoweredTypeTable, type_id: LoweredTypeId) -> bool {
     let Some(lowered_type) = type_table.get(type_id) else {
         return false;
     };
     match lowered_type {
         LoweredType::GenericParameter { .. } => true,
-        LoweredType::Builtin(_) => false,
+        LoweredType::Builtin(_) | LoweredType::Named { .. } => false,
         LoweredType::Array { element_type, .. }
         | LoweredType::Vector { element_type }
         | LoweredType::Sequence { element_type }
+        | LoweredType::Channel { element_type }
+        | LoweredType::ChannelSender { element_type }
+        | LoweredType::Owned {
+            inner: element_type,
+        }
+        | LoweredType::Borrowed {
+            inner: element_type,
+            ..
+        }
+        | LoweredType::Pointer {
+            target: element_type,
+            ..
+        }
         | LoweredType::Optional {
             inner: element_type,
         } => type_contains_generic_parameter(type_table, *element_type),
-        LoweredType::Error { inner } => inner
-            .is_some_and(|inner| type_contains_generic_parameter(type_table, inner)),
+        LoweredType::Error { inner } => {
+            inner.is_some_and(|inner| type_contains_generic_parameter(type_table, inner))
+        }
+        LoweredType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            type_contains_generic_parameter(type_table, *value_type)
+                || error_type.is_some_and(|error_type| {
+                    type_contains_generic_parameter(type_table, error_type)
+                })
+        }
         LoweredType::Set { member_types } => member_types
             .iter()
             .any(|member_type| type_contains_generic_parameter(type_table, *member_type)),
@@ -1021,16 +1123,12 @@ fn type_contains_generic_parameter(
                 .params
                 .iter()
                 .any(|param| type_contains_generic_parameter(type_table, *param))
-                || signature
-                    .return_type
-                    .is_some_and(|return_type| {
-                        type_contains_generic_parameter(type_table, return_type)
-                    })
-                || signature
-                    .error_type
-                    .is_some_and(|error_type| {
-                        type_contains_generic_parameter(type_table, error_type)
-                    })
+                || signature.return_type.is_some_and(|return_type| {
+                    type_contains_generic_parameter(type_table, return_type)
+                })
+                || signature.error_type.is_some_and(|error_type| {
+                    type_contains_generic_parameter(type_table, error_type)
+                })
         }
     }
 }

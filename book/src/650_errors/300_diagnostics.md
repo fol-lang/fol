@@ -41,7 +41,7 @@ At the current compiler stage, a diagnostic can carry:
 
 - severity
 - main message
-- a stable diagnostic code (e.g. `P1001`, `R1003`, `T1003`)
+- a stable diagnostic code (e.g. `P1001`, `R1003`, `T1003`, `O1001`)
 - one primary location
 - zero or more related locations
 - notes
@@ -64,6 +64,8 @@ Current code families:
 | `K1xxx`| package loading | `K1001` metadata, `K1002` layout  |
 | `R1xxx`| resolver        | `R1003` unresolved, `R1005` ambiguous |
 | `T1xxx`| type checker    | `T1003` type mismatch           |
+| `O1xxx`| ownership checker | `O1001` move, task, or resource-state violation |
+| `O2xxx`| lexical borrow checker | `O2001` owner borrowed, `O2002` conflict, `O2003` mutability, `O2004` returned borrow reused |
 | `L1xxx`| lowering        | `L1001` unsupported surface     |
 | `F1xxx`| frontend        | `F1001` invalid input, `F1002` workspace not found |
 | `K11xx`| build evaluator | `K1101` build failure           |
@@ -113,7 +115,9 @@ Typical examples:
 - a package-loading error at the control file or package root that failed
 - a resolver error at the unresolved identifier or ambiguous reference
 - a typecheck error at the expression or declaration whose types do not match
-- a lowering error at the typed surface that has no current `V1` lowering rule
+- an ownership error at the transfer, borrow, task, channel, or delayed-effect
+  boundary that made the value inaccessible
+- a lowering error at a typed surface with no current lowering rule
 
 ## Related locations
 
@@ -169,8 +173,10 @@ Even with parser recovery, edge cases in any pipeline stage can cascade.
 
 The diagnostic report layer applies two safety nets:
 
-- **same-code, same-line dedup**: if the most recently added diagnostic has the
-  same code and same line as a new one, the new one is suppressed
+- **exact consecutive dedup**: if the most recently added diagnostic is fully
+  identical to a new one, the new one is suppressed; a shared line/code alone
+  is not enough, so distinct ranges, messages, labels, and related sites remain
+  visible
 - **hard cap**: the report accepts at most 50 diagnostics total and shows
   "(output truncated)" when the limit is reached
 
@@ -187,8 +193,8 @@ flag. Both render from the same structured diagnostic model.
 The default renderer prints a framed, colored report:
 
 - a family chip that names the problem in plain language (`PARSER`, `NAMES`,
-  `TYPES`, `LOWERING`, `PACKAGE`, `BUILD`, `BACKEND`), the bold message, and the
-  diagnostic code
+  `TYPES`, `OWNERSHIP`, `LOWERING`, `PACKAGE`, `BUILD`, `BACKEND`), the bold
+  message, and the diagnostic code
 - a framed source snippet (`┌─ file:line:column`) with the offending line and a
   caret under the primary span
 - secondary labels for related sites
@@ -349,41 +355,73 @@ That means diagnostics are already strong across:
 - unresolved names
 - duplicate names
 - ambiguous references
-- type mismatches and unsupported semantic surfaces inside `V1`
-- unsupported lowered `V1` surfaces before target emission
-- backend emission and build failures when lowered `V1` workspaces cannot become
+- type mismatches and unsupported capability surfaces in the shipped V1, V2,
+  and V3 contracts
+- V2 generic/protocol conformance failures for the checked-in shipped subset
+- V3 move/resource-state failures (`O1xxx`) and lexical borrow failures
+  (`O2xxx`)
+- V3 processor tier, direct-task-target, channel lifecycle, thread-boundary,
+  eventual must-handle, and deferred mutex-effect failures
+- unsupported lowered surfaces before target emission
+- backend emission and build failures when lowered workspaces cannot become
   runnable artifacts
 - build graph evaluation failures
 
+Runtime-capability and execution-routing failures remain distinct. Using
+heap-backed values from `core`, or hosted APIs without a `memo` artifact and its
+declared bundled `std`, is a compiler-owned capability diagnostic. Trying to
+run or test a foreign selected target is a frontend target-compatibility
+diagnostic. Merely running or testing a host-compatible `core` or `memo`
+artifact is not a missing-`std` error.
+
 This is the important boundary for the current compiler stage:
 
-- the compiler can now parse, resolve, type-check, and lower the supported `V1`
-  subset
+- the compiler can parse, resolve, type-check, lower, and execute the supported
+  V1 contract, the explicitly shipped V2 subset, and both shipped V3 pillars
 - diagnostics already cover failures from each of those stages plus backend
   emission/build failures
-- the project now does promise a finished first backend for the current `V1`
-  subset, while later targets, optimizations, C ABI work, and Rust interop
-  work remain outside
-  this chapter
+- current hard boundaries are diagnosed rather than silently accepted: for
+  example unique-pointer field dereference without place-aware projection IR,
+  moved-owner deferred reinitialization, terminating `report` inside deferred
+  cleanup, indirect spawn/async targets, unhandled recoverable eventuals,
+  channel endpoint lifecycle violations, and deferred mutex guard effects
+- later targets, optimizations, C ABI work, and Rust interop remain outside the
+  current V1/V2/V3 contract
+
+V3 diagnostic completeness is inventory-driven. Every checked-in `fail_mem_*`
+and `fail_proc_*` package must appear in the shared
+`test/v3_example_inventory.rs` table with its expected producer code, message
+fragment, and related-site requirement. Compiler integration and LSP tests
+consume that same table, so the editor cannot silently weaken a boundary or
+replace a structured compiler failure with an editor-only guess. The published
+directory lists live in the memory and processor section indexes.
 
 ## What diagnostics do not guarantee
 
-Diagnostics are strong, but they are not a substitute for the later semantic
-phases.
+Diagnostics are strong, but a structured error family is not a promise that
+every future language design is implemented.
 
 Current limits still matter:
 
 - parser diagnostics do not imply type checking has happened
-- `report` compatibility still belongs to later semantic work
-- type mismatch, coercion, and conversion diagnostics are future type-checker work
-- ownership and borrowing diagnostics are future semantic work
+- V2 diagnostics cover only the explicitly shipped generic/protocol subset, not
+  every standards, blueprint, or generic design in the book
+- V3 ownership diagnostics do not imply place-aware partial moves, general
+  thread-safety contracts for unconstrained generics, or a flow-sensitive/NLL
+  borrow checker
+- V3 processor diagnostics do not imply indirect task dispatch, nameable
+  eventual types, arbitrary channel composites, deferred mutex guard effects,
+  cancellation, or an async runtime
+- coercion and conversion diagnostics only cover conversions the current
+  compiler actually implements
 - C ABI diagnostics are future `V4` package/type/backend work
 - Rust interop diagnostics are future `V4` package/type/backend work
 
 So the current guarantee is:
 
-- if stream, lexer, parser, package loading, resolver, typechecker, or lowering
-  can identify the problem now, diagnostics should be structured and exact
+- if stream, lexer, parser, package loading, resolver, typechecker (including
+  ownership/borrowing), lowering, backend, build evaluation, or frontend can
+  identify the problem now, diagnostics should be structured and exact
 
 But not:
 

@@ -1,3 +1,3 @@
 var[exp] exported: int = 1;
-let[hid] hidden: str = "x";
+var[imu, hid] hidden: str = "x";
 con[nor] local: int = 2;

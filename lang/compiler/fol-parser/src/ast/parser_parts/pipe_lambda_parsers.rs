@@ -91,9 +91,7 @@ impl AstParser {
 
             for (name, name_syntax_id) in names {
                 params.push(Parameter {
-                    is_borrowable: name.chars().all(|ch| {
-                        !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
-                    }),
+                    is_borrowable: false,
                     is_mutex: false,
                     is_variadic,
                     name,

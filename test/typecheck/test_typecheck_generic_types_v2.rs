@@ -135,7 +135,8 @@ fn generic_type_instantiations_reject_recursive_self_reference_boundary() {
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::Unsupported
-            && error.message().contains("recursive type 'Node' is not yet supported")
+            && error.message().contains("recursive value type 'Node'")
+            && error.message().contains("opt @Node")
     }), "Expected recursive generic type definition boundary to stay explicit, got: {errors:?}");
 }
 

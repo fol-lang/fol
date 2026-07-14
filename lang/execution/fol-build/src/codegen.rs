@@ -147,7 +147,7 @@ mod tests {
             name: "version".to_string(),
             relative_path: "gen/version.fol".to_string(),
             action: GeneratedFileAction::Write {
-                contents: "let version = \"0.1.0\"".to_string(),
+                contents: "con version = \"0.1.0\";".to_string(),
             },
         });
 

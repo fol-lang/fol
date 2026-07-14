@@ -44,9 +44,7 @@ fn record_initializer_lowering_constructs_records_in_binding_and_call_contexts()
         .instructions
         .iter()
         .filter_map(|instr| match &instr.kind {
-            LoweredInstrKind::ConstructRecord { type_id, fields } => {
-                Some((*type_id, fields.len()))
-            }
+            LoweredInstrKind::ConstructRecord { type_id, fields } => Some((*type_id, fields.len())),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -555,22 +553,17 @@ fn aggregate_container_and_shell_lowering_stays_aligned_across_local_and_importe
         .expect("remote_label routine should exist");
 
     assert!(
-        main.instructions
-            .iter()
-            .any(|instr| matches!(
-                instr.kind,
-                LoweredInstrKind::ConstructOptional { value: Some(_), .. }
-            )),
+        main.instructions.iter().any(|instr| matches!(
+            instr.kind,
+            LoweredInstrKind::ConstructOptional { value: Some(_), .. }
+        )),
         "local shell aliases should lower to explicit shell constructors"
     );
     assert!(
-        remote_label
-            .instructions
-            .iter()
-            .any(|instr| matches!(
-                instr.kind,
-                LoweredInstrKind::ConstructOptional { value: Some(_), .. }
-            )),
+        remote_label.instructions.iter().any(|instr| matches!(
+            instr.kind,
+            LoweredInstrKind::ConstructOptional { value: Some(_), .. }
+        )),
         "imported-package shell aliases should lower to explicit shell constructors"
     );
     assert!(
@@ -598,11 +591,8 @@ fn unsupported_lowering_surfaces_report_explicit_boundary_messages() {
 
     let mut types = LoweredTypeTable::new();
     let int_type = types.intern_builtin(LoweredBuiltinType::Int);
-    let mut routine = crate::LoweredRoutine::new(
-        crate::LoweredRoutineId(0),
-        "main",
-        crate::LoweredBlockId(0),
-    );
+    let mut routine =
+        crate::LoweredRoutine::new(crate::LoweredRoutineId(0), "main", crate::LoweredBlockId(0));
     let entry = routine.blocks.push(crate::LoweredBlock {
         id: crate::LoweredBlockId(0),
         instructions: Vec::new(),
@@ -615,9 +605,35 @@ fn unsupported_lowering_surfaces_report_explicit_boundary_messages() {
         super::super::containers::lower_nil_literal(&types, &mut cursor, Some(int_type))
             .expect_err("nil lowering outside shell contexts should stay an explicit boundary");
     assert_eq!(nil_error.kind(), LoweringErrorKind::Unsupported);
-    assert!(nil_error.message().contains(
-        "nil lowering requires an expected opt[...] or err[...] runtime type"
-    ));
+    assert!(nil_error
+        .message()
+        .contains("nil lowering requires an expected opt[...] or err[...] runtime type"));
+}
+
+#[test]
+fn borrowed_values_lower_to_explicit_plain_value_reads() {
+    let workspace = super::lower_fixture_workspace(
+        "fun[] read(value[bor]: int): int = {\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var owner: int = 7;\n\
+             return read(#owner);\n\
+         };\n",
+    );
+    let read = workspace
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "read")
+        .expect("borrow-reading routine should lower");
+
+    assert!(
+        read.instructions
+            .iter()
+            .any(|instr| matches!(instr.kind, LoweredInstrKind::ReadBorrow { .. })),
+        "using a borrow where its inner value is expected must read through the reference"
+    );
 }
 
 #[test]
@@ -654,5 +670,35 @@ fn audited_v1_lowering_boundaries_fail_with_explicit_messages() {
             surface.label(),
             error
         );
+    }
+}
+
+#[test]
+fn rejected_when_cases_keep_the_current_contract_boundary() {
+    let identifier = fol_parser::ast::AstNode::Identifier {
+        syntax_id: None,
+        name: "value".to_string(),
+    };
+    let cases = [
+        fol_parser::ast::WhenCase::In {
+            range: identifier.clone(),
+            body: Vec::new(),
+        },
+        fol_parser::ast::WhenCase::Has {
+            member: identifier.clone(),
+            body: Vec::new(),
+        },
+        fol_parser::ast::WhenCase::On {
+            channel: identifier,
+            body: Vec::new(),
+        },
+    ];
+
+    for case in cases {
+        let error = super::super::flow::when_case_condition_and_body(&case)
+            .expect_err("unsupported when cases must not reach equality lowering");
+        assert_eq!(error.kind(), LoweringErrorKind::Unsupported);
+        assert!(error.message().contains("outside the shipped contract"));
+        assert!(error.message().contains("use select for channels"));
     }
 }

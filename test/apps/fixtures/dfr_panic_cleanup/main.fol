@@ -1,0 +1,10 @@
+fun[] show(value: int): int = {
+    return .echo(value);
+};
+
+fun[] main(): int = {
+    dfr {
+        show(1);
+    };
+    panic "panic-bad";
+};

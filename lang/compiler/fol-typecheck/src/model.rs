@@ -1,9 +1,9 @@
 use crate::types::GenericConstraint;
-use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable, TypecheckCapabilityModel};
+use crate::{BuiltinTypeIds, CheckedTypeId, RoutineType, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
-use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId};
+use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecoverableCallEffect {
@@ -27,7 +27,7 @@ pub struct TypedSourceUnit {
     pub top_level_nodes: Vec<SyntaxNodeId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypedSymbol {
     pub symbol_id: SymbolId,
     pub kind: SymbolKind,
@@ -35,11 +35,23 @@ pub struct TypedSymbol {
     pub source_unit_id: SourceUnitId,
     pub declared_type: Option<CheckedTypeId>,
     pub receiver_type: Option<CheckedTypeId>,
+    /// Declaration-owned default expressions. Routine types are interned by
+    /// callable shape, so the concrete AST must remain attached to the symbol
+    /// instead of relying on whichever equal signature was interned first.
+    pub param_defaults: Vec<Option<AstNode>>,
     pub generic_params: Vec<SymbolId>,
     pub generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
     /// Mirrors the resolver's binding mutability (`var[mut]`/`lab[mut]`).
     /// Drives field-assignment legality.
     pub is_mutable: bool,
+    pub is_mutex: bool,
+    /// A channel capture written as `c[tx]` exposes only the sender endpoint
+    /// inside its anonymous routine, even though lowering still carries the
+    /// enclosing channel handle.
+    pub is_channel_sender_capture: bool,
+    /// Parameter positions that perform a receive through `c[rx]`. Direct
+    /// spawn rejects these routines so the owning receiver stays single.
+    pub channel_receiver_params: BTreeSet<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +137,66 @@ pub struct RecordFieldLayout {
     pub default: Option<AstNode>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveBorrow {
+    pub owner: SymbolId,
+    pub binding: SymbolId,
+    pub scope: ScopeId,
+    pub mutable: bool,
+    pub origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveMutexGuard {
+    pub scope: ScopeId,
+    pub origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredBindingUse {
+    pub(crate) scope: ScopeId,
+    pub(crate) origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredTransferConflict {
+    pub(crate) symbol: SymbolId,
+    pub(crate) transfer_origin: SyntaxOrigin,
+    pub(crate) deferred_origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OwnershipFlowState {
+    moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
+    eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
+    recoverable_eventual_obligations: BTreeMap<SymbolId, RecoverableEventualObligation>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EventualMoveKind {
+    Transfer,
+    Await,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RecoverableEventualObligation {
+    pub(crate) owner_scope: ScopeId,
+    pub(crate) activation_scope: ScopeId,
+    pub(crate) origin: Option<SyntaxOrigin>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnershipEventKind {
+    Move,
+    Reinitialize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OwnershipEvent {
+    kind: OwnershipEventKind,
+    origin: SyntaxOrigin,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
     capability_model: TypecheckCapabilityModel,
@@ -139,14 +211,29 @@ pub struct TypedProgram {
     conformances: BTreeMap<SymbolId, TypedConformance>,
     apparent_type_overrides: BTreeMap<CheckedTypeId, CheckedTypeId>,
     method_call_targets: BTreeMap<SyntaxNodeId, SymbolId>,
+    /// Fully instantiated signatures at direct call sites. Processor boundary
+    /// validation needs the concrete parameter types after generic inference,
+    /// including parameters filled by omitted defaults.
+    call_signatures: BTreeMap<SyntaxNodeId, RoutineType>,
     constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
     record_layouts: BTreeMap<CheckedTypeId, Vec<RecordFieldLayout>>,
     /// Generic instantiations whose structural shape is currently being
-    /// computed. A recursive type (`typ Node(T) = { next: Node[T] }`) reaches
-    /// its own instantiation while expanding it; this guard breaks the cycle so
-    /// the self-reference resolves to the interned nominal node instead of
-    /// re-expanding forever. Transient — empty outside active lowering.
+    /// computed. Recursive value instantiation reaches its own node while
+    /// expanding; this guard breaks the cycle so the checker can issue the
+    /// finite-layout diagnostic. Transient — empty outside active lowering.
     active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
+    moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
+    eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
+    recoverable_eventual_obligations: BTreeMap<SymbolId, RecoverableEventualObligation>,
+    ownership_history: BTreeMap<SymbolId, Vec<OwnershipEvent>>,
+    active_borrows: BTreeMap<SymbolId, Vec<ActiveBorrow>>,
+    borrow_bindings: BTreeMap<SymbolId, ActiveBorrow>,
+    borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
+    owner_borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
+    returned_borrows: BTreeMap<SymbolId, SyntaxOrigin>,
+    active_mutex_guards: BTreeMap<SymbolId, ActiveMutexGuard>,
+    deferred_binding_uses: BTreeMap<SymbolId, Vec<DeferredBindingUse>>,
+    deferred_transfer_conflict: Option<DeferredTransferConflict>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -235,6 +322,338 @@ impl TypedWorkspace {
 }
 
 impl TypedProgram {
+    pub(crate) fn ownership_flow_state(&self) -> OwnershipFlowState {
+        OwnershipFlowState {
+            moved_bindings: self.moved_bindings.clone(),
+            eventual_moves: self.eventual_moves.clone(),
+            recoverable_eventual_obligations: self.recoverable_eventual_obligations.clone(),
+        }
+    }
+
+    pub(crate) fn restore_ownership_flow(&mut self, state: &OwnershipFlowState) {
+        self.moved_bindings.clone_from(&state.moved_bindings);
+        self.eventual_moves.clone_from(&state.eventual_moves);
+        self.recoverable_eventual_obligations
+            .clone_from(&state.recoverable_eventual_obligations);
+    }
+
+    pub(crate) fn merge_ownership_flows(
+        &mut self,
+        baseline: &OwnershipFlowState,
+        branches: &[OwnershipFlowState],
+    ) {
+        if branches.is_empty() {
+            self.restore_ownership_flow(baseline);
+            return;
+        }
+        self.moved_bindings.clear();
+        self.eventual_moves.clear();
+        self.recoverable_eventual_obligations.clear();
+        for branch in branches {
+            for (symbol, origin) in &branch.moved_bindings {
+                self.moved_bindings
+                    .entry(*symbol)
+                    .or_insert_with(|| origin.clone());
+            }
+            for (symbol, kind) in &branch.eventual_moves {
+                self.eventual_moves.entry(*symbol).or_insert(*kind);
+            }
+            // Recoverable-eventual obligations are must-handle state. If any
+            // continuing branch still owns the obligation, it remains live
+            // after the merge. This intentionally differs from a normal move:
+            // handling the eventual on only one runtime path is insufficient.
+            for (symbol, obligation) in &branch.recoverable_eventual_obligations {
+                self.recoverable_eventual_obligations
+                    .entry(*symbol)
+                    .or_insert_with(|| obligation.clone());
+            }
+        }
+    }
+
+    pub(crate) fn mark_binding_moved(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
+        self.moved_bindings.entry(symbol).or_insert(origin);
+    }
+
+    pub(crate) fn mark_binding_reinitialized(
+        &mut self,
+        symbol: SymbolId,
+        origin: Option<SyntaxOrigin>,
+    ) {
+        if let Some(origin) = origin {
+            self.record_ownership_event(symbol, OwnershipEventKind::Reinitialize, origin);
+        }
+        self.moved_bindings.remove(&symbol);
+        self.eventual_moves.remove(&symbol);
+    }
+
+    pub(crate) fn mark_eventual_transferred(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
+        if !self.moved_bindings.contains_key(&symbol) {
+            self.eventual_moves
+                .insert(symbol, EventualMoveKind::Transfer);
+        }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
+        self.moved_bindings.entry(symbol).or_insert(origin);
+        self.recoverable_eventual_obligations.remove(&symbol);
+    }
+
+    pub(crate) fn mark_eventual_awaited(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
+        if !self.moved_bindings.contains_key(&symbol) {
+            self.eventual_moves.insert(symbol, EventualMoveKind::Await);
+        }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
+        self.moved_bindings.entry(symbol).or_insert(origin);
+        self.recoverable_eventual_obligations.remove(&symbol);
+    }
+
+    pub(crate) fn register_recoverable_eventual_obligation(
+        &mut self,
+        symbol: SymbolId,
+        owner_scope: ScopeId,
+        activation_scope: ScopeId,
+        origin: Option<SyntaxOrigin>,
+    ) {
+        self.recoverable_eventual_obligations.insert(
+            symbol,
+            RecoverableEventualObligation {
+                owner_scope,
+                activation_scope,
+                origin,
+            },
+        );
+    }
+
+    pub(crate) fn recoverable_eventual_obligation(
+        &self,
+        symbol: SymbolId,
+    ) -> Option<&RecoverableEventualObligation> {
+        self.recoverable_eventual_obligations.get(&symbol)
+    }
+
+    pub(crate) fn recoverable_eventual_obligations(
+        &self,
+    ) -> impl Iterator<Item = (SymbolId, &RecoverableEventualObligation)> {
+        self.recoverable_eventual_obligations
+            .iter()
+            .map(|(symbol, obligation)| (*symbol, obligation))
+    }
+
+    pub(crate) fn release_recoverable_eventual_obligations_in_scope(&mut self, scope: ScopeId) {
+        self.recoverable_eventual_obligations
+            .retain(|_, obligation| obligation.owner_scope != scope);
+    }
+
+    fn record_ownership_event(
+        &mut self,
+        symbol: SymbolId,
+        kind: OwnershipEventKind,
+        origin: SyntaxOrigin,
+    ) {
+        let event = OwnershipEvent { kind, origin };
+        let history = self.ownership_history.entry(symbol).or_default();
+        if !history.contains(&event) {
+            history.push(event);
+        }
+    }
+
+    fn record_deferred_transfer_conflict(
+        &mut self,
+        symbol: SymbolId,
+        transfer_origin: SyntaxOrigin,
+    ) -> bool {
+        let Some(deferred_use) = self
+            .deferred_binding_uses
+            .get(&symbol)
+            .and_then(|uses| uses.first())
+            .cloned()
+        else {
+            return false;
+        };
+        self.deferred_transfer_conflict
+            .get_or_insert(DeferredTransferConflict {
+                symbol,
+                transfer_origin,
+                deferred_origin: deferred_use.origin,
+            });
+        true
+    }
+
+    pub(crate) fn register_deferred_binding_use(
+        &mut self,
+        symbol: SymbolId,
+        deferred_use: DeferredBindingUse,
+    ) {
+        let uses = self.deferred_binding_uses.entry(symbol).or_default();
+        if !uses.contains(&deferred_use) {
+            uses.push(deferred_use);
+        }
+    }
+
+    pub(crate) fn take_deferred_transfer_conflict(&mut self) -> Option<DeferredTransferConflict> {
+        self.deferred_transfer_conflict.take()
+    }
+
+    pub(crate) fn release_deferred_binding_uses_in_scope(&mut self, scope: ScopeId) {
+        self.deferred_binding_uses.retain(|_, uses| {
+            uses.retain(|deferred_use| deferred_use.scope != scope);
+            !uses.is_empty()
+        });
+    }
+
+    pub(crate) fn eventual_move_kind(&self, symbol: SymbolId) -> Option<EventualMoveKind> {
+        self.eventual_moves.get(&symbol).copied()
+    }
+
+    pub fn moved_binding_origin(&self, symbol: SymbolId) -> Option<&SyntaxOrigin> {
+        self.moved_bindings.get(&symbol)
+    }
+
+    pub fn moved_binding_origin_at(
+        &self,
+        symbol: SymbolId,
+        file: &str,
+        line: usize,
+        column: usize,
+    ) -> Option<&SyntaxOrigin> {
+        let event = self
+            .ownership_history
+            .get(&symbol)?
+            .iter()
+            .filter(|event| {
+                event.origin.file.as_deref() == Some(file)
+                    && (event.origin.line, event.origin.column) <= (line, column)
+            })
+            .max_by_key(|event| (event.origin.line, event.origin.column))?;
+        match event.kind {
+            OwnershipEventKind::Move => Some(&event.origin),
+            OwnershipEventKind::Reinitialize => None,
+        }
+    }
+
+    pub fn active_borrow_for_owner(&self, owner: SymbolId) -> Option<&ActiveBorrow> {
+        self.active_borrows
+            .get(&owner)
+            .and_then(|borrows| borrows.first())
+    }
+
+    pub fn active_borrow_binding(&self, binding: SymbolId) -> Option<&ActiveBorrow> {
+        self.borrow_bindings.get(&binding)
+    }
+
+    pub fn borrow_for_binding(&self, binding: SymbolId) -> Option<&ActiveBorrow> {
+        self.borrow_history.get(&binding)
+    }
+
+    pub fn borrow_for_owner(&self, owner: SymbolId) -> Option<&ActiveBorrow> {
+        self.owner_borrow_history.get(&owner)
+    }
+
+    pub fn borrows_for_owner(&self, owner: SymbolId) -> impl Iterator<Item = &ActiveBorrow> {
+        self.borrow_history
+            .values()
+            .filter(move |borrow| borrow.owner == owner)
+    }
+
+    pub fn returned_borrow_origin(&self, binding: SymbolId) -> Option<&SyntaxOrigin> {
+        self.returned_borrows.get(&binding)
+    }
+
+    pub(crate) fn register_borrow(&mut self, borrow: ActiveBorrow) -> Option<ActiveBorrow> {
+        let conflict = self.active_borrows.get(&borrow.owner).and_then(|active| {
+            active
+                .iter()
+                .find(|existing| borrow.mutable || existing.mutable)
+                .cloned()
+        });
+        if conflict.is_some() {
+            return conflict;
+        }
+        self.active_borrows
+            .entry(borrow.owner)
+            .or_default()
+            .push(borrow.clone());
+        self.borrow_history.insert(borrow.binding, borrow.clone());
+        self.owner_borrow_history
+            .entry(borrow.owner)
+            .or_insert_with(|| borrow.clone());
+        self.borrow_bindings.insert(borrow.binding, borrow);
+        None
+    }
+
+    pub(crate) fn give_back_borrow(&mut self, binding: SymbolId, origin: SyntaxOrigin) -> bool {
+        let Some(borrow) = self.borrow_bindings.remove(&binding) else {
+            return false;
+        };
+        if let Some(active) = self.active_borrows.get_mut(&borrow.owner) {
+            active.retain(|entry| entry.binding != binding);
+            if active.is_empty() {
+                self.active_borrows.remove(&borrow.owner);
+            }
+        }
+        self.returned_borrows.insert(binding, origin);
+        true
+    }
+
+    pub(crate) fn release_borrows_in_scope(&mut self, scope: ScopeId) {
+        let bindings = self
+            .borrow_bindings
+            .iter()
+            .filter_map(|(binding, borrow)| (borrow.scope == scope).then_some(*binding))
+            .collect::<Vec<_>>();
+        for binding in bindings {
+            if let Some(borrow) = self.borrow_bindings.remove(&binding) {
+                if let Some(active) = self.active_borrows.get_mut(&borrow.owner) {
+                    active.retain(|entry| entry.binding != binding);
+                    if active.is_empty() {
+                        self.active_borrows.remove(&borrow.owner);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn active_mutex_guard(&self, mutex: SymbolId) -> Option<&ActiveMutexGuard> {
+        self.active_mutex_guards.get(&mutex)
+    }
+
+    pub(crate) fn register_mutex_guard(
+        &mut self,
+        mutex: SymbolId,
+        guard: ActiveMutexGuard,
+    ) -> Option<ActiveMutexGuard> {
+        if let Some(active) = self.active_mutex_guards.get(&mutex) {
+            return Some(active.clone());
+        }
+        self.active_mutex_guards.insert(mutex, guard);
+        None
+    }
+
+    pub(crate) fn release_mutex_guard(
+        &mut self,
+        mutex: SymbolId,
+        scope: ScopeId,
+    ) -> Option<ActiveMutexGuard> {
+        let guard = self.active_mutex_guards.get(&mutex)?;
+        if guard.scope != scope {
+            return None;
+        }
+        self.active_mutex_guards.remove(&mutex)
+    }
+
+    pub(crate) fn release_mutex_guards_in_scope(&mut self, scope: ScopeId) {
+        self.active_mutex_guards
+            .retain(|_, guard| guard.scope != scope);
+    }
+
     pub fn from_resolved(resolved: fol_resolver::ResolvedProgram) -> Self {
         Self::from_resolved_with_model(resolved, TypecheckCapabilityModel::Std)
     }
@@ -271,9 +690,13 @@ impl TypedProgram {
                         source_unit_id: symbol.source_unit,
                         declared_type: None,
                         receiver_type: None,
+                        param_defaults: Vec::new(),
                         generic_params: Vec::new(),
                         generic_constraints: BTreeMap::new(),
                         is_mutable: symbol.is_mutable,
+                        is_mutex: false,
+                        is_channel_sender_capture: false,
+                        channel_receiver_params: BTreeSet::new(),
                     },
                 )
             })
@@ -326,8 +749,21 @@ impl TypedProgram {
             apparent_type_overrides: BTreeMap::new(),
             active_instantiations: std::collections::BTreeSet::new(),
             method_call_targets: BTreeMap::new(),
+            call_signatures: BTreeMap::new(),
             constraint_call_sites: std::collections::BTreeSet::new(),
             record_layouts: BTreeMap::new(),
+            moved_bindings: BTreeMap::new(),
+            eventual_moves: BTreeMap::new(),
+            recoverable_eventual_obligations: BTreeMap::new(),
+            ownership_history: BTreeMap::new(),
+            active_borrows: BTreeMap::new(),
+            borrow_bindings: BTreeMap::new(),
+            borrow_history: BTreeMap::new(),
+            owner_borrow_history: BTreeMap::new(),
+            returned_borrows: BTreeMap::new(),
+            active_mutex_guards: BTreeMap::new(),
+            deferred_binding_uses: BTreeMap::new(),
+            deferred_transfer_conflict: None,
         }
     }
 
@@ -344,7 +780,9 @@ impl TypedProgram {
 
     /// The ordered field layout for a record type, if one was recorded.
     pub fn record_layout(&self, type_id: CheckedTypeId) -> Option<&[RecordFieldLayout]> {
-        self.record_layouts.get(&type_id).map(|fields| fields.as_slice())
+        self.record_layouts
+            .get(&type_id)
+            .map(|fields| fields.as_slice())
     }
 
     pub fn record_method_call_target(&mut self, syntax_id: SyntaxNodeId, symbol_id: SymbolId) {
@@ -353,6 +791,18 @@ impl TypedProgram {
 
     pub fn method_call_target(&self, syntax_id: SyntaxNodeId) -> Option<SymbolId> {
         self.method_call_targets.get(&syntax_id).copied()
+    }
+
+    pub(crate) fn record_call_signature(
+        &mut self,
+        syntax_id: SyntaxNodeId,
+        signature: RoutineType,
+    ) {
+        self.call_signatures.insert(syntax_id, signature);
+    }
+
+    pub(crate) fn call_signature(&self, syntax_id: SyntaxNodeId) -> Option<&RoutineType> {
+        self.call_signatures.get(&syntax_id)
     }
 
     pub fn record_constraint_call_site(&mut self, syntax_id: SyntaxNodeId) {

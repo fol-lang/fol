@@ -1,0 +1,8 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "fail_proc_async_in_core_m4", version = "0.1.0" });
+    var graph = build.graph();
+    var app = graph.add_exe({ name = "fail-proc-async-in-core-m4", root = "src/main.fol", fol_model = "core" });
+    graph.install(app);
+    return;
+};

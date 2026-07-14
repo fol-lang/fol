@@ -34,10 +34,10 @@ pub use clean::{clean_workspace, clean_workspace_with_config};
 pub use cli::{
     BuildCommand, CheckCommand, CodeCommand, CodeSubcommand, CompleteCommand, CompletionCommand,
     CompletionShellArg, EditorPathCommand, EditorReferenceCommand, EditorRenameCommand,
-    EmitCommand, EmitLoweredCommand, EmitRustCommand, EmitSubcommand, ExplainCommand,
-    FetchCommand, FrontendCli, FrontendCommand, FrontendProfile, InitCommand, NewCommand,
-    PackCommand, PackSubcommand, ParseError, ParseErrorKind, RunCommand, TestCommand,
-    ToolCommand, ToolSubcommand, UnitCommand, UpdateCommand,
+    EmitCommand, EmitLoweredCommand, EmitRustCommand, EmitSubcommand, ExplainCommand, FetchCommand,
+    FrontendCli, FrontendCommand, FrontendProfile, InitCommand, NewCommand, PackCommand,
+    PackSubcommand, ParseError, ParseErrorKind, RunCommand, TestCommand, ToolCommand,
+    ToolSubcommand, UnitCommand, UpdateCommand,
 };
 pub use compile::{
     build_workspace, build_workspace_for_profile_with_config, build_workspace_with_config,
@@ -60,10 +60,9 @@ pub use discovery::{
     DiscoveredRoot, PackageRoot, WorkspaceRoot, PACKAGE_FILE_NAME, WORKSPACE_FILE_NAME,
 };
 pub use editor::{
-    editor_completion_command, editor_format_command, editor_highlight_command,
-    editor_lsp_command, editor_lsp_stdio, editor_parse_command, editor_references_command,
-    editor_rename_command, editor_semantic_tokens_command, editor_symbols_command,
-    editor_tree_generate_command,
+    editor_completion_command, editor_format_command, editor_highlight_command, editor_lsp_command,
+    editor_lsp_stdio, editor_parse_command, editor_references_command, editor_rename_command,
+    editor_semantic_tokens_command, editor_symbols_command, editor_tree_generate_command,
 };
 pub use errors::{FrontendError, FrontendErrorKind, FrontendResult};
 pub use explain::{explain_command, render_explain, ExplainRendering};
@@ -100,15 +99,9 @@ impl Frontend {
         let (output, result) = run_command_from_args(args)?;
         let rendered = output
             .render_command_summary(&result)
-            .map_err(|error| FrontendError::new(
-                FrontendErrorKind::Internal,
-                error.to_string()
-            ))?;
+            .map_err(|error| FrontendError::new(FrontendErrorKind::Internal, error.to_string()))?;
         writeln!(std::io::stdout(), "{rendered}")
-            .map_err(|error| FrontendError::new(
-                FrontendErrorKind::Internal,
-                error.to_string()
-            ))?;
+            .map_err(|error| FrontendError::new(FrontendErrorKind::Internal, error.to_string()))?;
         Ok(())
     }
 }
@@ -280,15 +273,29 @@ fn apply_build_step_args(config: &mut FrontendConfig, step: &cli::BuildStepArgs)
 
 fn command_output_mode(cli: &FrontendCli) -> Option<OutputMode> {
     match cli.command.as_ref() {
-        Some(FrontendCommand::Work(command)) => Some(command.output.output),
-        Some(FrontendCommand::Pack(command)) => Some(command.output.output),
-        // `code explain` carries an optional explicit override; `None` there means
-        // the root-level `--output`/`--json` flags apply instead.
-        Some(FrontendCommand::Code(command)) => match &command.command {
-            CodeSubcommand::Explain(explain) => explain.output,
-            _ => Some(command.output.output),
-        },
-        Some(FrontendCommand::Tool(command)) => Some(command.output.output),
+        Some(FrontendCommand::Work(command)) => command.output.output,
+        Some(FrontendCommand::Pack(command)) => {
+            let local = match &command.command {
+                PackSubcommand::Fetch(fetch) => fetch.output.output,
+                PackSubcommand::Update(update) => update.output.output,
+            };
+            local.or(command.output.output)
+        }
+        Some(FrontendCommand::Code(command)) => {
+            let local = match &command.command {
+                CodeSubcommand::Build(build) => build.output.output,
+                CodeSubcommand::Run(run) => run.output.output,
+                CodeSubcommand::Test(test) => test.output.output,
+                CodeSubcommand::Check(check) => check.output.output,
+                CodeSubcommand::Emit(emit) => match &emit.command {
+                    cli::EmitSubcommand::Rust(rust) => rust.output.output,
+                    cli::EmitSubcommand::Lowered(lowered) => lowered.output.output,
+                },
+                CodeSubcommand::Explain(explain) => explain.output,
+            };
+            local.or(command.output.output)
+        }
+        Some(FrontendCommand::Tool(command)) => command.output.output,
         Some(FrontendCommand::Complete(_)) | None => None,
     }
 }
@@ -305,8 +312,8 @@ mod tests {
     use super::*;
     use crate::cli::args::{FrontendOutputArgs, FrontendProfileArgs};
 
-    fn semantic_dispatch_build() -> &'static str {
-        concat!(
+    fn semantic_dispatch_build() -> String {
+        [
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
@@ -317,10 +324,14 @@ mod tests {
             "    graph.add_test({ name = \"app_test\", root = \"src/main.fol\" });\n",
             "    return;\n",
             "};\n",
-        )
+        ]
+        .concat()
     }
 
-    fn absorbed_build_dispatch_fixture(label: &str) -> FrontendWorkspace {
+    fn absorbed_build_dispatch_fixture_with_source(
+        label: &str,
+        build_source: &str,
+    ) -> FrontendWorkspace {
         let root = std::env::temp_dir().join(format!(
             "fol_frontend_dispatch_route_{label}_{}_{}",
             std::process::id(),
@@ -331,12 +342,7 @@ mod tests {
         ));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(
-            root.join("build.fol"),
-            semantic_dispatch_build(),
-        )
-        .unwrap();
+        std::fs::write(root.join("build.fol"), build_source).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -355,6 +361,10 @@ mod tests {
         }
     }
 
+    fn absorbed_build_dispatch_fixture(label: &str) -> FrontendWorkspace {
+        absorbed_build_dispatch_fixture_with_source(label, &semantic_dispatch_build())
+    }
+
     fn modern_dispatch_fixture(label: &str) -> FrontendWorkspace {
         let root = std::env::temp_dir().join(format!(
             "fol_frontend_dispatch_modern_{label}_{}_{}",
@@ -367,11 +377,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(
-            root.join("build.fol"),
-            semantic_dispatch_build(),
-        )
-        .unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -435,11 +441,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(
-            root.join("build.fol"),
-            semantic_dispatch_build(),
-        )
-        .unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -532,7 +534,10 @@ mod tests {
             config.build_optimize_override.as_deref(),
             Some("release-fast")
         );
-        assert_eq!(config.build_option_overrides, vec!["strip=true".to_string()]);
+        assert_eq!(
+            config.build_option_overrides,
+            vec!["strip=true".to_string()]
+        );
     }
 
     #[test]
@@ -542,6 +547,71 @@ mod tests {
         let config = frontend_config_from_cli(&cli, None);
 
         assert_eq!(config.build_step_override.as_deref(), Some("docs"));
+    }
+
+    #[test]
+    fn frontend_config_resolves_output_overrides_from_most_specific_scope() {
+        let cases = [
+            (
+                vec!["fol", "--output", "json", "code", "check"],
+                OutputMode::Json,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "code", "--output", "plain", "check",
+                ],
+                OutputMode::Plain,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "code", "--output", "plain", "check", "--output",
+                    "human",
+                ],
+                OutputMode::Human,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "pack", "--output", "plain", "fetch", "--output",
+                    "human",
+                ],
+                OutputMode::Human,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "code", "--output", "plain", "emit", "rust",
+                    "--output", "human",
+                ],
+                OutputMode::Human,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "work", "--output", "plain", "info",
+                ],
+                OutputMode::Plain,
+            ),
+            (
+                vec!["fol", "--output", "json", "tool", "parse", "demo.fol"],
+                OutputMode::Json,
+            ),
+            (
+                vec![
+                    "fol", "--output", "json", "code", "explain", "R1003", "--output", "plain",
+                ],
+                OutputMode::Plain,
+            ),
+            (
+                vec![
+                    "fol", "--json", "code", "--output", "plain", "check", "--output", "human",
+                ],
+                OutputMode::Json,
+            ),
+        ];
+
+        for (args, expected) in cases {
+            let cli = FrontendCli::try_parse_from(args).expect("output fixture should parse");
+            let config = frontend_config_from_cli(&cli, None);
+            assert_eq!(config.output.mode, expected);
+        }
     }
 
     #[test]
@@ -557,8 +627,7 @@ mod tests {
             ..FrontendConfig::default()
         };
 
-        let result =
-            dispatch::dispatch_workspace_command(&command, &workspace, &config).unwrap();
+        let result = dispatch::dispatch_workspace_command(&command, &workspace, &config).unwrap();
 
         assert_eq!(result.command, "check");
         assert!(result.summary.contains("checked 1 workspace package(s)"));

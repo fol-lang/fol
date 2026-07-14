@@ -1,6 +1,6 @@
 fun blocky(a: int): int = {
     {
-        let inner: int = a;
+        var[imu] inner: int = a;
         return inner;
     }
 };

@@ -1,0 +1,9 @@
+fun[] consume(value: int): int = {
+    return value;
+};
+
+fun[] main(): int = {
+    @var owned: int = 29;
+    [>]consume(owned);
+    return owned;
+};

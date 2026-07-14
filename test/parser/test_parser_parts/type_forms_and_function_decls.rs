@@ -397,7 +397,7 @@ fn test_function_types_are_supported_in_use_and_binding_declarations() {
                                 ))
                         )
                     }),
-                    "Local let bindings should accept function type hints"
+                    "Local bindings should accept function type hints"
                 );
         }
         _ => panic!("Should return Program node"),
@@ -471,72 +471,6 @@ fn test_function_parsing() {
             // For now, we expect the minimal parser to work
         }
     }
-}
-
-#[test]
-fn test_function_body_let_parsing() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_let.fol")
-        .expect("Should read function let test file");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-    let ast = parser
-        .parse(&mut lexer)
-        .expect("Parser should parse let declarations inside function bodies");
-
-    let (has_inferred_local, has_typed_local, has_return_identifier) = match ast {
-        AstNode::Program { declarations } => {
-            let has_inferred_local = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::VarDecl { name, type_hint, value, options, .. }
-                    if name == "base"
-                        && type_hint.is_none()
-                        && value.is_some()
-                        && options.contains(&fol_parser::ast::VarOption::Immutable)
-                )
-            });
-
-            let has_typed_local = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::VarDecl {
-                        name,
-                        type_hint: Some(FolType::Int { size: None, signed: true }),
-                        value: Some(_),
-                        options,
-                        ..
-                    }
-                    if name == "next"
-                        && options.contains(&fol_parser::ast::VarOption::Immutable)
-                )
-            });
-
-            let has_return_identifier = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value) }
-                    if matches!(value.as_ref(), AstNode::Identifier { name, .. } if name == "next")
-                )
-            });
-
-            (has_inferred_local, has_typed_local, has_return_identifier)
-        }
-        _ => panic!("Expected program node"),
-    };
-
-    assert!(
-        has_inferred_local,
-        "Function body should include immutable let local without explicit type"
-    );
-    assert!(
-        has_typed_local,
-        "Function body should include immutable typed let local"
-    );
-    assert!(
-        has_return_identifier,
-        "Return should still parse after let locals"
-    );
 }
 
 #[test]
@@ -646,7 +580,7 @@ fn test_nested_block_statements_parse_inside_function_bodies() {
                     && options.contains(&fol_parser::ast::VarOption::Immutable)
             )
         }),
-        "Nested block should preserve inner let declarations"
+        "Nested block should preserve immutable inner variable declarations"
     );
     assert!(
         nested_block.iter().any(|statement| {

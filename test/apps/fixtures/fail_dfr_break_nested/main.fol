@@ -1,0 +1,11 @@
+fun[] main(): int = {
+    loop(true) {
+        dfr {
+            {
+                break;
+            }
+        };
+        break;
+    }
+    return 7;
+};

@@ -1,12 +1,13 @@
 use super::super::render_core_instruction;
 use super::super::render_core_instruction_in_workspace;
 use crate::testing::package_identity;
+use crate::BackendErrorKind;
 use fol_intrinsics::intrinsic_by_canonical_name;
 use fol_lower::{
     LoweredBlockId, LoweredBuiltinType, LoweredInstr, LoweredInstrId, LoweredInstrKind,
     LoweredLocal, LoweredLocalId, LoweredOperand, LoweredPackage, LoweredRecoverableAbi,
-    LoweredRoutine, LoweredRoutineId, LoweredSourceMap, LoweredSourceUnit, LoweredTypeTable,
-    LoweredWorkspace,
+    LoweredRoutine, LoweredRoutineId, LoweredSourceMap, LoweredSourceUnit, LoweredType,
+    LoweredTypeTable, LoweredWorkspace,
 };
 use fol_resolver::{PackageSourceKind, SourceUnitId, SymbolId};
 use std::collections::BTreeMap;
@@ -50,14 +51,11 @@ fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes()
     };
 
     let const_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &const_instr)
-            .expect("const");
+        render_core_instruction(&package_identity, &table, &routine, &const_instr).expect("const");
     let load_local_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &load_local)
-            .expect("load");
+        render_core_instruction(&package_identity, &table, &routine, &load_local).expect("load");
     let store_local_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &store_local)
-            .expect("store");
+        render_core_instruction(&package_identity, &table, &routine, &store_local).expect("store");
 
     assert!(const_rendered.contains("l__pkg__entry__app__r0__l0__value = 7_i64;"));
     assert!(load_local_rendered.contains(
@@ -69,6 +67,158 @@ fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes()
 
     let _ = SourceUnitId(0);
     let _ = SymbolId(0);
+}
+
+#[test]
+fn core_loads_take_move_only_slots_for_later_reinitialization() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "main", LoweredBlockId(0));
+    let source = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: None,
+    });
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(result),
+        kind: LoweredInstrKind::LoadLocal { local: source },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("move-only load");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__tmp = std::mem::take(&mut l__pkg__entry__app__r0__l0__pointer);"
+    );
+}
+
+#[test]
+fn consuming_pointer_deref_moves_pointee_and_replaces_owner() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let inner_pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let outer_pointer_id = table.intern(LoweredType::Pointer {
+        target: inner_pointer_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "main", LoweredBlockId(0));
+    let outer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(outer_pointer_id),
+        name: Some("outer".to_string()),
+    });
+    let extracted = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(inner_pointer_id),
+        name: Some("extracted".to_string()),
+    });
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(extracted),
+        kind: LoweredInstrKind::DerefPointer {
+            pointer: outer,
+            consuming: true,
+        },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("consuming pointer dereference");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__extracted = *std::mem::take(&mut l__pkg__entry__app__r0__l0__outer);"
+    );
+}
+
+#[test]
+fn borrowed_pointer_deref_reads_through_both_indirections() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let borrowed_pointer_id = table.intern(LoweredType::Borrowed {
+        inner: pointer_id,
+        mutable: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "read", LoweredBlockId(0));
+    let pointer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(borrowed_pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: None,
+    });
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(result),
+        kind: LoweredInstrKind::DerefPointer {
+            pointer,
+            consuming: false,
+        },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("borrowed pointer dereference");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__tmp = (**l__pkg__entry__app__r0__l0__pointer).clone();"
+    );
+}
+
+#[test]
+fn core_loads_clone_mutex_handles_with_move_only_inner_values() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "forward", LoweredBlockId(0));
+    let source = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: None,
+    });
+    routine.mutex_params.extend([source, result]);
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(result),
+        kind: LoweredInstrKind::LoadLocal { local: source },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("mutex handle load");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__tmp = l__pkg__entry__app__r0__l0__pointer.clone();"
+    );
+    assert!(!rendered.contains("std::mem::take"));
 }
 
 #[test]
@@ -107,7 +257,9 @@ fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_site
         package: "app".to_string(),
         namespace: "app".to_string(),
     });
-    package.routine_decls.insert(LoweredRoutineId(9), callee_routine);
+    package
+        .routine_decls
+        .insert(LoweredRoutineId(9), callee_routine);
     let workspace = LoweredWorkspace::new(
         package_identity.clone(),
         BTreeMap::from([(package_identity.clone(), package)]),
@@ -130,6 +282,90 @@ fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_site
         "l__pkg__entry__app__r3__l1__result = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r9__callee("
     ));
     assert!(rendered.contains("l__pkg__entry__app__r3__l0__value"));
+}
+
+#[test]
+fn mutex_wrapping_preserves_move_only_argument_transfer() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut caller = LoweredRoutine::new(LoweredRoutineId(30), "main", LoweredBlockId(0));
+    let pointer_arg = caller.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let int_arg = caller.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("count".to_string()),
+    });
+    let result = caller.locals.push(LoweredLocal {
+        id: LoweredLocalId(2),
+        type_id: Some(int_id),
+        name: Some("result".to_string()),
+    });
+
+    let mut callee = LoweredRoutine::new(LoweredRoutineId(31), "guard", LoweredBlockId(0));
+    callee.source_unit_id = Some(SourceUnitId(0));
+    let pointer_param = callee.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let int_param = callee.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: Some("count".to_string()),
+    });
+    callee.params.extend([pointer_param, int_param]);
+    callee.mutex_params.extend([pointer_param, int_param]);
+
+    let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
+    package.source_units.push(LoweredSourceUnit {
+        source_unit_id: SourceUnitId(0),
+        path: "app/main.fol".to_string(),
+        package: "app".to_string(),
+        namespace: "app".to_string(),
+    });
+    package.routine_decls.insert(LoweredRoutineId(31), callee);
+    let workspace = LoweredWorkspace::new(
+        package_identity.clone(),
+        BTreeMap::from([(package_identity.clone(), package)]),
+        Vec::new(),
+        table.clone(),
+        LoweredSourceMap::new(),
+        LoweredRecoverableAbi::v1(bool_id),
+    );
+    let call = LoweredInstr {
+        id: LoweredInstrId(30),
+        result: Some(result),
+        kind: LoweredInstrKind::Call {
+            callee: LoweredRoutineId(31),
+            args: vec![pointer_arg, int_arg],
+            error_type: None,
+        },
+    };
+
+    let rendered = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &caller,
+        &call,
+    )
+    .expect("mutex call");
+
+    assert!(rendered.contains("rt::FolMutex::from_value(l__pkg__entry__app__r30__l0__pointer)"));
+    assert!(!rendered.contains("l__pkg__entry__app__r30__l0__pointer.clone()"));
+    assert!(
+        rendered.contains("rt::FolMutex::from_value(l__pkg__entry__app__r30__l1__count.clone())")
+    );
 }
 
 #[test]
@@ -164,6 +400,84 @@ fn core_instruction_rendering_emits_record_field_accesses_as_native_member_reads
         rendered,
         "l__pkg__entry__app__r4__l1__age = l__pkg__entry__app__r4__l0__user.age.clone();"
     );
+}
+
+#[test]
+fn core_instruction_rendering_takes_unique_record_fields() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(41), "main", LoweredBlockId(0));
+    let base = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: None,
+        name: Some("holder".to_string()),
+    });
+    let pointer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let access = LoweredInstr {
+        id: LoweredInstrId(41),
+        result: Some(pointer),
+        kind: LoweredInstrKind::FieldAccess {
+            base,
+            field: "pointer".to_string(),
+        },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &access)
+        .expect("unique field access");
+
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r41__l1__pointer = std::mem::take(&mut l__pkg__entry__app__r41__l0__holder.pointer);"
+    );
+}
+
+#[test]
+fn core_instruction_rendering_rejects_unique_fields_from_borrowed_bases() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let borrowed_id = table.intern(LoweredType::Borrowed {
+        inner: int_id,
+        mutable: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(42), "main", LoweredBlockId(0));
+    let base = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(borrowed_id),
+        name: Some("holder".to_string()),
+    });
+    let pointer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let access = LoweredInstr {
+        id: LoweredInstrId(42),
+        result: Some(pointer),
+        kind: LoweredInstrKind::FieldAccess {
+            base,
+            field: "pointer".to_string(),
+        },
+    };
+
+    let error = render_core_instruction(&package_identity, &table, &routine, &access)
+        .expect_err("borrowed bases must not surrender unique fields");
+    assert!(error
+        .message()
+        .contains("move-only fields cannot be transferred out of a borrowed base"));
 }
 
 #[test]
@@ -315,6 +629,115 @@ fn workspace_global_rendering_uses_fol_default_initializers_for_mutable_globals(
 }
 
 #[test]
+fn field_stores_move_unique_values_and_global_storage_rejects_them() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let owned_id = table.intern(LoweredType::Owned { inner: int_id });
+    let unique_pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(16), "main", LoweredBlockId(0));
+    let base = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(int_id),
+        name: Some("record".to_string()),
+    });
+    let owned = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(owned_id),
+        name: Some("child".to_string()),
+    });
+    let unique_pointer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(2),
+        type_id: Some(unique_pointer_id),
+        name: Some("pointer".to_string()),
+    });
+
+    let field_store = LoweredInstr {
+        id: LoweredInstrId(22),
+        result: None,
+        kind: LoweredInstrKind::StoreField {
+            base,
+            field: "child".to_string(),
+            value: owned,
+        },
+    };
+    let global_store = LoweredInstr {
+        id: LoweredInstrId(23),
+        result: None,
+        kind: LoweredInstrKind::StoreGlobal {
+            global: fol_lower::LoweredGlobalId(0),
+            value: unique_pointer,
+        },
+    };
+    let global_load = LoweredInstr {
+        id: LoweredInstrId(24),
+        result: Some(unique_pointer),
+        kind: LoweredInstrKind::LoadGlobal {
+            global: fol_lower::LoweredGlobalId(0),
+        },
+    };
+
+    let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
+    package.source_units.push(LoweredSourceUnit {
+        source_unit_id: SourceUnitId(0),
+        path: "app/main.fol".to_string(),
+        package: "app".to_string(),
+        namespace: "app".to_string(),
+    });
+    package.global_decls.insert(
+        fol_lower::LoweredGlobalId(0),
+        fol_lower::LoweredGlobal {
+            id: fol_lower::LoweredGlobalId(0),
+            symbol_id: SymbolId(21),
+            source_unit_id: SourceUnitId(0),
+            name: "pointer".to_string(),
+            type_id: unique_pointer_id,
+            mutable: true,
+        },
+    );
+    let workspace = LoweredWorkspace::new(
+        package_identity.clone(),
+        BTreeMap::from([(package_identity.clone(), package)]),
+        Vec::new(),
+        table.clone(),
+        LoweredSourceMap::new(),
+        LoweredRecoverableAbi::v1(int_id),
+    );
+
+    let field_rendered = render_core_instruction(&package_identity, &table, &routine, &field_store)
+        .expect("field store");
+    let global_error = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &global_store,
+    )
+    .expect_err("move-only globals must stop before store emission");
+    let load_error = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &global_load,
+    )
+    .expect_err("move-only globals must stop before clone-based load emission");
+
+    assert_eq!(
+        field_rendered,
+        "l__pkg__entry__app__r16__l0__record.child = l__pkg__entry__app__r16__l1__child;"
+    );
+    assert!(!field_rendered.contains(".clone()"));
+    assert_eq!(global_error.kind(), BackendErrorKind::InvalidInput);
+    assert!(global_error.message().contains("move-only values"));
+    assert_eq!(load_error.kind(), BackendErrorKind::InvalidInput);
+    assert!(load_error.message().contains("move-only values"));
+}
+
+#[test]
 fn combined_core_instruction_snapshot_stays_stable() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
@@ -356,7 +779,9 @@ fn combined_core_instruction_snapshot_stays_stable() {
         package: "app".to_string(),
         namespace: "app".to_string(),
     });
-    package.routine_decls.insert(LoweredRoutineId(8), callee_routine);
+    package
+        .routine_decls
+        .insert(LoweredRoutineId(8), callee_routine);
     let workspace = LoweredWorkspace::new(
         package_identity.clone(),
         BTreeMap::from([(package_identity.clone(), package)]),
@@ -439,7 +864,7 @@ fn combined_core_instruction_snapshot_stays_stable() {
             "l__pkg__entry__app__r6__l3__tmp = 7_i64;\n",
             "l__pkg__entry__app__r6__l0__lhs = l__pkg__entry__app__r6__l3__tmp.clone();\n",
             "l__pkg__entry__app__r6__l1__rhs = l__pkg__entry__app__r6__l0__lhs.clone();\n",
-            "l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs, l__pkg__entry__app__r6__l1__rhs);\n",
+            "l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs.clone(), l__pkg__entry__app__r6__l1__rhs.clone());\n",
             "l__pkg__entry__app__r6__l4__same = l__pkg__entry__app__r6__l0__lhs == l__pkg__entry__app__r6__l1__rhs;\n",
             "l__pkg__entry__app__r6__l4__same = !l__pkg__entry__app__r6__l2__flag;\n",
             "l__pkg__entry__app__r6__l3__tmp = l__pkg__entry__app__r6__l1__rhs.count.clone();"
@@ -453,11 +878,13 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
     let mut table = LoweredTypeTable::new();
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
-    let fn_sig = table.intern(fol_lower::LoweredType::Routine(fol_lower::LoweredRoutineType {
-        params: vec![int_id],
-        return_type: Some(int_id),
-        error_type: None,
-    }));
+    let fn_sig = table.intern(fol_lower::LoweredType::Routine(
+        fol_lower::LoweredRoutineType {
+            params: vec![int_id],
+            return_type: Some(int_id),
+            error_type: None,
+        },
+    ));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(10), "caller", LoweredBlockId(0));
     let result_local = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -465,10 +892,14 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
         name: Some("fptr".to_string()),
     });
 
-    let mut callee_routine =
-        LoweredRoutine::new(LoweredRoutineId(11), "target", LoweredBlockId(0));
+    let mut callee_routine = LoweredRoutine::new(LoweredRoutineId(11), "target", LoweredBlockId(0));
     callee_routine.source_unit_id = Some(SourceUnitId(0));
     callee_routine.signature = Some(fn_sig);
+    let mut mutex_routine =
+        LoweredRoutine::new(LoweredRoutineId(12), "mutex_target", LoweredBlockId(0));
+    mutex_routine.source_unit_id = Some(SourceUnitId(0));
+    mutex_routine.signature = Some(fn_sig);
+    mutex_routine.mutex_params.insert(LoweredLocalId(0));
     let mut package = LoweredPackage::new(fol_lower::LoweredPackageId(0), package_identity.clone());
     package.source_units.push(LoweredSourceUnit {
         source_unit_id: SourceUnitId(0),
@@ -479,6 +910,9 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
     package
         .routine_decls
         .insert(LoweredRoutineId(11), callee_routine);
+    package
+        .routine_decls
+        .insert(LoweredRoutineId(12), mutex_routine);
     let workspace = LoweredWorkspace::new(
         package_identity.clone(),
         BTreeMap::from([(package_identity.clone(), package)]),
@@ -507,6 +941,24 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
     assert!(rendered.contains("l__pkg__entry__app__r10__l0__fptr"));
     assert!(rendered.contains("r__pkg__entry__app__r11__target"));
     assert!(rendered.contains(" as "));
+
+    let mutex_ref = LoweredInstr {
+        id: LoweredInstrId(21),
+        result: Some(result_local),
+        kind: LoweredInstrKind::RoutineRef {
+            routine: LoweredRoutineId(12),
+        },
+    };
+    let error = render_core_instruction_in_workspace(
+        Some(&workspace),
+        &package_identity,
+        &table,
+        &routine,
+        &mutex_ref,
+    )
+    .expect_err("[mux] routine references must stop before fn-pointer casting");
+    assert_eq!(error.kind(), BackendErrorKind::Unsupported);
+    assert!(error.message().contains("[mux] parameters"));
 }
 
 #[test]
@@ -514,11 +966,13 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
-    let fn_sig = table.intern(fol_lower::LoweredType::Routine(fol_lower::LoweredRoutineType {
-        params: vec![int_id],
-        return_type: Some(int_id),
-        error_type: None,
-    }));
+    let fn_sig = table.intern(fol_lower::LoweredType::Routine(
+        fol_lower::LoweredRoutineType {
+            params: vec![int_id],
+            return_type: Some(int_id),
+            error_type: None,
+        },
+    ));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(12), "main", LoweredBlockId(0));
     let callee_local = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -545,9 +999,8 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
             error_type: None,
         },
     };
-    let rendered =
-        render_core_instruction(&package_identity, &table, &routine, &call_indirect)
-            .expect("call indirect");
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &call_indirect)
+        .expect("call indirect");
 
     assert_eq!(
         rendered,

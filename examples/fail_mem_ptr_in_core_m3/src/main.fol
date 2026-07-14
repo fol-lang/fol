@@ -1,0 +1,5 @@
+fun[] main(): int = {
+    var value: int = 7;
+    var pointer: ptr[int] = &value;
+    return 0;
+};

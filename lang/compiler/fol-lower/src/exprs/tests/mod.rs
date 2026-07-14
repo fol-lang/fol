@@ -1,9 +1,9 @@
-mod containers;
 mod calls;
+mod containers;
 mod flow;
 mod literals;
-mod operators;
 mod mono;
+mod operators;
 
 use fol_parser::ast::AstParser;
 use fol_resolver::resolve_package_workspace;
@@ -45,7 +45,8 @@ pub(super) fn lower_folder_fixture_workspace(files: &[(&str, &str)]) -> crate::L
     let syntax = parser
         .parse_package(&mut lexer)
         .expect("Lowering folder fixture should parse");
-    let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+    let resolved =
+        resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
     let typed = Typechecker::new()
         .check_resolved_workspace(resolved)
         .expect("Lowering folder fixture should typecheck");

@@ -1,0 +1,8 @@
+fun[] work(): int = {
+    return 1;
+};
+
+fun[] main(): int = {
+    var eventual = work() | async;
+    return 0;
+};

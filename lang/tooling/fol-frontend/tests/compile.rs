@@ -1,6 +1,6 @@
 use fol_frontend::{
-    build_workspace_with_config, check_workspace, check_workspace_with_config,
-    emit_lowered, emit_rust, run_command_from_args_in_dir, run_workspace,
+    build_workspace_with_config, check_workspace, check_workspace_with_config, emit_lowered,
+    emit_rust, run_command_from_args_in_dir, run_from_args_with_io, run_workspace,
     run_workspace_with_config, test_workspace, test_workspace_with_config, FrontendArtifactKind,
     FrontendConfig, FrontendWorkspace, PackageRoot, WorkspaceRoot,
 };
@@ -8,8 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn semantic_bin_build() -> &'static str {
-    concat!(
+fn semantic_bin_build() -> String {
+    [
         "pro[] build(): non = {\n",
         "    var build = .build();\n",
         "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
@@ -19,7 +19,8 @@ fn semantic_bin_build() -> &'static str {
         "    graph.add_run(app);\n",
         "    graph.add_test({ name = \"app_test\", root = \"src/main.fol\" });\n",
         "};\n",
-    )
+    ]
+    .concat()
 }
 
 fn semantic_lib_build(name: &str) -> String {
@@ -119,6 +120,7 @@ fn locked_check_build_run_and_test_use_existing_lockfile() {
     };
 
     fol_frontend::fetch_workspace(&workspace).expect("initial fetch should succeed");
+    assert!(root.join(".fol/pkg/logtiny/build.fol").is_file());
     let locked = FrontendConfig {
         locked_fetch: true,
         ..FrontendConfig::default()
@@ -337,7 +339,7 @@ fn test_command_traverses_all_runnable_workspace_members_through_public_api() {
     assert_eq!(result.command, "test");
     assert_eq!(
         result.summary,
-        "tested 2 workspace package(s) (capability_mode=memo, bundled_std=0/1)"
+        "tested 2 workspace package(s) (capability_mode=memo, bundled_std=0/2)"
     );
     assert_eq!(result.artifacts.len(), 2);
     assert!(result
@@ -447,6 +449,102 @@ fn direct_file_or_folder_compilation_is_code_subcommand_owned() {
         .artifacts
         .iter()
         .any(|artifact| artifact.kind == FrontendArtifactKind::EmittedRust));
+
+    fs::remove_dir_all(root).ok();
+}
+
+fn direct_json_check(path: &Path) -> serde_json::Value {
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let path = path.to_string_lossy().to_string();
+
+    let code = run_from_args_with_io(
+        ["fol", "--json", "code", "check", path.as_str()],
+        &mut stdout,
+        &mut stderr,
+    );
+
+    assert_eq!(code, 1, "invalid direct source should fail");
+    assert!(stdout.is_empty(), "JSON errors belong on stderr");
+    serde_json::from_slice(&stderr).unwrap_or_else(|error| {
+        panic!(
+            "direct JSON diagnostic should remain valid JSON: {error}; stderr={} ",
+            String::from_utf8_lossy(&stderr)
+        )
+    })
+}
+
+#[test]
+fn grouped_direct_json_preserves_ownership_code_and_location() {
+    let root = temp_root("direct_json_ownership");
+    fs::create_dir_all(&root).expect("should create direct source root");
+    let source = root.join("main.fol");
+    fs::write(
+        &source,
+        concat!(
+            "fun[] main(): int = {\n",
+            "    @var owner: int = 3;\n",
+            "    @var moved: int = owner;\n",
+            "    return owner;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write ownership failure");
+
+    let json = direct_json_check(&source);
+    let diagnostic = &json["diagnostics"][0];
+
+    assert_eq!(diagnostic["code"], "O1001");
+    assert_eq!(
+        diagnostic["location"]["file"],
+        source.to_string_lossy().as_ref()
+    );
+    assert_eq!(diagnostic["location"]["line"], 4);
+    assert!(diagnostic["location"]["column"].as_u64().is_some());
+    assert!(json["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array")
+        .iter()
+        .all(|item| item["code"] != "F1004"));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn grouped_direct_json_preserves_type_code_and_location() {
+    let root = temp_root("direct_json_type");
+    fs::create_dir_all(&root).expect("should create direct source root");
+    let source = root.join("main.fol");
+    fs::write(
+        &source,
+        concat!(
+            "typ Counter: rec = {\n",
+            "    total: int;\n",
+            "    flag: bol = 7\n",
+            "};\n",
+            "fun[] main(): int = {\n",
+            "    var c: Counter = { total = 3 };\n",
+            "    return c.total;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write type failure");
+
+    let json = direct_json_check(&source);
+    let diagnostic = &json["diagnostics"][0];
+
+    assert_eq!(diagnostic["code"], "T1003");
+    assert_eq!(
+        diagnostic["location"]["file"],
+        source.to_string_lossy().as_ref()
+    );
+    assert_eq!(diagnostic["location"]["line"], 1);
+    assert!(diagnostic["location"]["column"].as_u64().is_some());
+    assert!(json["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array")
+        .iter()
+        .all(|item| item["code"] != "F1004"));
 
     fs::remove_dir_all(root).ok();
 }

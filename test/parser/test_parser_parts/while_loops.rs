@@ -24,6 +24,7 @@ fn test_function_while_loop_parsing() {
                             AstNode::Loop {
                                 condition,
                                 body,
+                                ..
                             }
                             if matches!(condition.as_ref(), LoopCondition::Condition(expr) if matches!(expr.as_ref(), AstNode::Identifier { name, .. } if name == "flag"))
                                 && body.iter().any(|node| matches!(node, AstNode::Break))
@@ -55,7 +56,12 @@ fn test_top_level_while_loop_parsing() {
     };
 
     match loop_stmt {
-        AstNode::Loop { condition, body } => {
+        AstNode::Loop {
+            syntax_id,
+            condition,
+            body,
+        } => {
+            assert!(syntax_id.is_some(), "loop keyword should retain a scope anchor");
             assert!(matches!(
                 condition.as_ref(),
                 LoopCondition::Condition(expr)

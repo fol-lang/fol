@@ -1,4 +1,7 @@
-//! Marker surface for the no-heap, no-OS runtime tier.
+//! Source/API surface for the public no-heap, no-hosted-services `core` tier.
+//! This capability boundary does not claim that a generated executable is
+//! freestanding: backend-only process adaptation remains separate, and a
+//! host-compatible core binary may still be launched by the frontend.
 
 pub use crate::abi::{check_recoverable, recoverable_succeeded, FolRecover};
 pub use crate::aggregate::{

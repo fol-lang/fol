@@ -146,8 +146,7 @@ impl ToDiagnostic for ResolverError {
             diagnostic = diagnostic.with_suggestion(suggestion.clone());
         }
         if self.kind == ResolverErrorKind::Unsupported && self.message.contains("imports yet") {
-            diagnostic =
-                diagnostic.with_note("supported import source kinds are loc, std, and pkg");
+            diagnostic = diagnostic.with_note("supported import source kinds are loc and pkg");
         }
         if self.message.contains("requires an explicit std root")
             || self.message.contains("requires bundled std at")
@@ -455,7 +454,7 @@ mod tests {
 
         assert_eq!(
             diagnostic.notes,
-            vec!["supported import source kinds are loc, std, and pkg".to_string()]
+            vec!["supported import source kinds are loc and pkg".to_string()]
         );
     }
 

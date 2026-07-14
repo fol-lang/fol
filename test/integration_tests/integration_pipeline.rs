@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_runtime_model_modules_compile_through_root_integration_graph() {
+fn test_internal_runtime_tier_modules_compile_through_root_integration_graph() {
     assert_eq!(fol_runtime::core::tier_name(), "core");
     assert_eq!(fol_runtime::memo::tier_name(), "memo");
     assert_eq!(fol_runtime::std::tier_name(), "std");

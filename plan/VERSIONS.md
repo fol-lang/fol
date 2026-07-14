@@ -1,6 +1,6 @@
 # FOL Version Boundaries
 
-Last updated: 2026-03-29
+Last updated: 2026-07-14
 
 This file explains how the language should be grouped into `V1`, `V2`, `V3`,
 and `V4`.
@@ -21,8 +21,9 @@ Its purpose is to keep one distinction clear while the compiler grows:
 FOL already has broad syntax coverage. That is good, but it is not the same as
  saying a feature is implemented.
 
-For versioning purposes, a feature is only considered part of a version when the
- compiler can support it through the full chain that matters for that feature.
+For versioning purposes, a feature is only considered part of a version when
+the repository supports it through the full chain that matters for that
+feature.
 
 That usually means:
 
@@ -31,6 +32,12 @@ That usually means:
 - the relevant semantic phase enforces the feature correctly
 - diagnostics are explicit when the feature is used incorrectly
 - the later compiler stages needed by that feature are present too
+
+For a shipped feature with runtime or editor impact, that chain also includes
+the applicable runtime/backend behavior, frontend routing, formatter and tool
+commands, LSP behavior, tree-sitter grammar/queries/corpus, positive and
+negative examples, machine inventories, tests, docs, and book text. A layer may
+need no code change, but it must be audited rather than silently omitted.
 
 So:
 
@@ -47,11 +54,29 @@ The language version and the runtime capability model are different axes.
 FOL uses a build-selected runtime model:
 
 - `core`
-  no heap, no OS
+  no heap, no source-level hosted OS APIs
 - `memo`
-  adds heap-backed facilities, still no OS
+  adds alloc-like heap-backed facilities, still no source-level hosted OS APIs
 
-Bundled `std` is a shipped internal dependency, not a third `fol_model`.
+Those are the only public `fol_model` values. Bundled `std` is a shipped
+internal dependency, not a third model; `std` is not accepted as a
+`fol_model` value.
+The build graph declares the hosted library explicitly:
+
+```fol
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+Source then imports the dependency with `use std: pkg = {"std"};`. The
+compiler derives its effective capability tier from both inputs:
+
+| Declared `fol_model` | Bundled `std` dependency | Effective tier |
+| --- | --- | --- |
+| `core` | absent | core |
+| `memo` | absent | memo |
+| `memo` | present | hosted std |
+
+Bundled `std` requires `memo`; it does not make a `core` artifact heap-capable.
 
 This model should be selected per build artifact through `build.fol`, not by a
 source-file pragma.
@@ -69,24 +94,37 @@ answers “which runtime capabilities this artifact is allowed to use.”
 
 For the runtime split:
 
-- arrays, scalars, records, routines, control flow, `defer`, and
+- arrays, scalars, records, routines, control flow, `dfr`, and
   `opt[...]`/`err[...]` belong to `core`
 - heap-backed `str`, `vec`, `seq`, `set`, and `map` belong to `memo`
 - hosted wrappers are reached through explicit bundled `std`
 
 Current contract:
 
-- `core` means no heap and no OS/runtime services
-- `memo` means heap-backed runtime facilities without hosted process/OS
-  services
+- `core` means no heap and no source-level hosted OS/runtime APIs
+- `memo` means alloc-like heap-backed runtime facilities without source-level
+  hosted process/OS APIs
 - bundled `std` remains an explicit shipped library dependency on top of
   `memo`
+- `core` and `memo` artifacts may both build, run, and test without bundled
+  `std`; the dependency gates hosted language APIs, not executability
+- `graph.add_run(...)` and `graph.add_test(...)` do not grant or require
+  bundled-`std` capabilities; they only request host execution of a selected
+  artifact
+- host-compatible artifact and system-tool launching is frontend/build-host
+  behavior, separate from the language capability model
+- cross-target artifacts require an external runner; the current `run` / `test`
+  commands are host-only and reject those artifacts
+- a recoverable entry routine is adapted to process exit by the backend-only,
+  capability-neutral `fol_runtime::process` seam; that adapter is not a public
+  source API and does not upgrade the artifact to hosted std
 
 Current implementation honesty note:
 
 - `core` is already enforced as a language/runtime capability boundary
 - `core` still goes through the current Rust backend pipeline today
-- so `core` should be read as “no heap, no OS/runtime services” rather than as
+- so `core` should be read as “no heap, no source-level hosted OS/runtime APIs”
+  rather than as “the whole generated binary performs no allocation” or
   “embedded backend complete”
 
 This split is a runtime capability boundary, not an object-model feature and
@@ -121,9 +159,9 @@ of trying to make the whole book real at once.
 
 ## What V1 means
 
-`V1` should be the first compiler release that can take ordinary FOL source,
-carry it through package loading, resolution, type checking, and lowering, and
-then produce a binary for a useful, native, non-interop subset of the language.
+`V1` is the first compiler release that takes ordinary FOL source through
+package loading, resolution, type checking, lowering, and native backend
+emission for a useful non-interop subset of the language.
 
 The key idea is coherence.
 `V1` does not need every ambitious feature from the book.
@@ -140,10 +178,13 @@ The implemented `V1` compiler chain now reaches:
 - `fol-resolver`
 - `fol-typecheck`
 - `fol-lower`
+- `fol-runtime`
+- `fol-backend`
+- `fol-frontend`
 
-So the remaining `V1` gap is no longer semantic truth for the supported subset.
-That part exists. The remaining `V1` work is the first backend that can consume
-lowered IR and continue toward a binary.
+The bounded V1 subset therefore reaches a produced binary. Later language
+surfaces remain separate version work; they are not a missing first-backend
+stage.
 
 ### V1 is the core language
 
@@ -222,9 +263,10 @@ semantics, not low-level systems interop.
 Current implemented `V2` subset at repo head:
 
 - Milestone 1
-  - generic routine core
-  - parser, resolver, and typecheck subset
-  - explicit lowering boundary
+  - executable generic routine core
+  - narrow argument-driven inference only
+  - parser, resolver, typecheck, lowering, and backend execution for the
+    checked-in positive subset
   - expanded positive and negative example coverage
   - deeper example-driven editor and tree-sitter coverage
 - Milestone 2
@@ -232,13 +274,17 @@ Current implemented `V2` subset at repo head:
   - required receiver-qualified routine signatures only
   - explicit type-side conformance headers
   - conformance checking in typecheck
-  - explicit lowering boundary
+  - procedural lowering and backend execution for the checked-in positive
+    protocol subset
   - expanded positive and negative example coverage
   - deeper example-driven editor and tree-sitter coverage
+- Combined shipped V2 surface
+  - executable generic types for the checked-in concrete M1/M2 examples
+  - generic/protocol-standard constraints only where the shipped example
+    matrix exercises them
 
 Still future in `V2`:
 
-- generic types
 - generic constraints beyond the landed narrow subset
 - blueprint standards as semantic contracts
 - extended standards as semantic contracts
@@ -324,15 +370,15 @@ These are still language features, but they are not the first batch.
 
 ## What V3 means
 
-`V3` should be the systems-semantics release.
+`V3` is the shipped systems-semantics release.
 
-This is where the compiler stops being only a typed language compiler and starts
-growing the deeper resource and runtime semantics that the language design
-already points toward.
+The compiler now includes the deeper resource and runtime semantics that the
+language design points toward, rather than stopping at ordinary typed-language
+semantics.
 
-### V3 is where memory and concurrency belong
+### V3 owns memory and concurrency
 
-The strongest candidates from the book are:
+The current contract chapters are:
 
 - `800_memory/100_ownership.md`
 - `800_memory/200_pointers.md`
@@ -344,8 +390,7 @@ The strongest candidates from the book are:
 Ownership is not just another type rule.
 It is a resource and lifetime system.
 
-As soon as the compiler claims ownership and borrowing work, it must answer
-hard questions correctly:
+The shipped ownership and borrowing contract answers these questions:
 
 - when values move
 - when values are invalidated
@@ -354,16 +399,13 @@ hard questions correctly:
 - when pointers and ownership interact
 - when destruction is safe
 
-That is a deep semantic layer.
-It is absolutely worth doing, but it should not be mixed into the first
-type-checking and lowering milestone.
-
-So ownership and borrowing belong in `V3`.
+That deep semantic layer is the V3 memory pillar rather than an extension of
+the first type-checking and lowering milestone.
 
 ### Why concurrency belongs in V3
 
-Eventuals, coroutines, channels, mutex-like routine passing, and worker/task
-semantics all require more than expression typing.
+Eventuals, spawn, channels, mutex-style routine passing, and task semantics
+require more than expression typing.
 
 They require:
 
@@ -372,26 +414,23 @@ They require:
 - channel/message typing
 - synchronization semantics
 - error and cancellation behavior
-- later lowering/runtime support
+- explicit lowering and runtime contracts
 
-That is not `V1`, and it is not really the same problem as standards/generics
-either.
-
-So concurrency belongs in `V3`.
-
-So memory ownership, borrowing, pointers, eventuals, coroutines, channels, and
-related runtime semantics belong in `V3`.
+The shipped processor pillar makes those choices explicitly: one OS thread per
+task, join-at-exit, unbounded MPSC channels, source-order `select`, `[mux]`
+shared mutation, and internal eventuals. This is separate from both V1 and the
+standards/generics work in V2.
 
 ### The V3 pillar split and its detailed plans
 
-`V3` is planned as two ordered pillars, each with its own detailed plan. These
-plans override the future-design wording in the memory and processor book
-chapters; the chapters are rewritten to match the plans as each milestone lands.
+`V3` was implemented as two ordered pillars, each with its own detailed plan.
+Those plans remain the implementation record. The linked memory and processor
+book chapters and this file define the current user-facing contract.
 
 - the memory pillar — `plan/V3_MEM.md`
 - the processor pillar — `plan/V3_PROC.md`
 
-The memory pillar completes fully before the processor pillar begins.
+The memory pillar completed fully before the processor pillar began.
 
 Memory pillar (`plan/V3_MEM.md`):
 
@@ -399,9 +438,10 @@ Memory pillar (`plan/V3_MEM.md`):
   unused reserved keyword `go`, fix the sigil charter, delete the
   `ALL_CAPS`-means-borrowable convention, and add an `O####` OWNERSHIP
   diagnostic family
-- Milestone 1: ownership with static move/clone semantics (stack values clone,
-  heap values move), and the flagship recursive heap types (`opt @Node`) through
-  a new nominal lowered-type representation
+- Milestone 1: ownership with the initial static move/clone cases (plain stack
+  values clone and `@` heap values move), plus the flagship recursive heap
+  types (`opt @Node`) through a new nominal lowered-type representation; later
+  memory milestones generalize transfer by recursive type ownership
 - Milestone 2: scope-granular borrowing (`var[bor]`, `#x`, `!x`, `name[bor]:`
   parameters), ownership-aware `dfr`, and error-only `edf`
 - Milestone 3: typed pointers `ptr[T]` (unique) and `ptr[shared, T]`
@@ -416,17 +456,39 @@ Processor pillar (`plan/V3_PROC.md`):
   tier diagnostics
 - concurrency is OS threads through the Rust standard library, with no async
   runtime, no worker pool, and no colored functions
-- P1: `[>]` spawn with thread-per-spawn execution and join-all-at-exit
+- P1: fire-and-forget `[>]` spawn with thread-per-spawn execution and
+  join-all-at-exit; awaitable work uses `call() | async` instead
 - P2: `chn[T]` unbounded MPSC channels with pipe send and a blocking pull
   receive
 - P3: multi-arm `select` multiplexing and `name[mux]:` mutex parameters
 - P4: eventuals through `| async` and `| await`, with an internal (not
-  user-nameable) eventual type and error handling identical to the synchronous
-  call site
+  user-nameable) eventual type, must-handle recoverable obligations, and error
+  handling identical to the synchronous call site
+- an eventual can be awaited at most once; a recoverable eventual must be
+  awaited and handled before fallthrough or an exiting `break`, `return`, or
+  `report`, while an infallible eventual may remain for the process-exit join
+- nested routines cannot implicitly capture outer locals, and `edf` cannot
+  await or access an existing eventual binding
 
-These pillars are plans, not yet an implemented `V3` promise. A processor or
-memory surface counts as `V3` only when it works through the full compiler chain
-that matters for it, exactly like the `V1`/`V2` rule above.
+Both V3 pillars are implemented across the compiler, runtime/backend, frontend
+artifact routing, diagnostics, formatter/tool commands, LSP, tree-sitter,
+examples, tests, docs, and book. Processor P1 uses one OS thread per spawn and
+joins at exit; P2 ships unbounded MPSC channels; P3 ships source-order polling
+select and `[mux]` shared mutation; P4 ships internal eventuals with synchronous
+error transparency and path-checked recoverable obligations. Every processor
+surface remains `std`-only.
+
+That implementation claim includes the explicit mirrors, not only compiler
+acceptance: evaluated artifact capabilities, diagnostics and explanations,
+formatter and tool-command behavior, LSP behavior, tree-sitter grammar and
+queries, corpus fixtures, positive and negative example inventories, docs, and
+book chapters must stay synchronized whenever a V3 boundary changes.
+
+Generator semantics are not part of either V3 pillar. The language keyword
+`yield` is retained by the lexer, parser, resolver, and syntax-oriented editor
+assets, but the current typechecker rejects it and lowering keeps a defensive
+unsupported boundary. That syntax preservation is not a shipped generator
+contract, and generators remain later design with no current version promise.
 
 ## What V4 means
 
@@ -516,35 +578,41 @@ That means:
 
 So sugar does not get a free pass just because it looks syntactically small.
 
-One useful example is `defer`:
+One useful example is `dfr`:
 
-- a narrow lexical-scope `defer { ... }` that only guarantees scope-exit
+- a narrow lexical-scope `dfr { ... }` that only guarantees scope-exit
   execution order is compatible with `V1`
-- a more complicated `defer` model that depends on ownership, borrowing,
+- a more complicated `dfr` model that depends on ownership, borrowing,
   pointer/resource cleanup, async task cleanup, or foreign/native resource
   coordination belongs later
-- ownership-aware and runtime-aware `defer` semantics therefore belong with the
+- ownership-aware and runtime-aware `dfr` semantics therefore belong with the
   `V3`/`V4` milestones that own those semantics
 
-## The practical compiler roadmap implied by this file
+## Release sequence and current position
 
-The intended release order is:
+The semantic milestone order remains:
 
-- finish `V1` all the way through binary-producing compiler support
-- then return to the `V2` language-semantics surfaces
-- then move into `V3` systems-semantics work
-- then move into `V4` interop and ABI work
+- `V1`: the binary-producing core language
+- `V2`: advanced language semantics and the shipped narrow generic/protocol
+  subset
+- `V3`: shipped systems semantics
+- `V4`: future interop and ABI work
 
-That means the immediate path is not:
+At the current repository head, `V1`, the explicitly bounded `V2` subset, and
+both `V3` pillars are implemented end to end. Broader V2 contract machinery and
+V4 interop remain future work; generators and language `yield` also remain
+future work outside the current V3 contract. None of those later surfaces is
+evidence that V3 is still pending.
 
-- "implement the whole book at once"
+The practical rule is therefore:
 
-It is:
-
-- make the core language real from front end through type checking and later
-  binary-producing stages
-- keep later-version features visible in the book
-- reject later-version features explicitly until their real semantic owner exists
+- keep every shipped V1/V2/V3 surface synchronized through compiler, runtime,
+  backend, frontend routing, diagnostics/explanations, formatter and tool
+  commands, LSP, tree-sitter grammar/queries/corpus, examples, tests, docs, and
+  book
+- reject only the unimplemented parts of the broader design with explicit,
+  owner-appropriate diagnostics
+- do not claim the whole book merely because its syntax parses
 
 ## Summary split
 

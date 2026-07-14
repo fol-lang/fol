@@ -1,0 +1,7 @@
+fun[] take(pointer[bor]: ptr[ptr[int]]): ptr[int] = {
+    return *pointer;
+};
+
+fun[] main(): int = {
+    return 0;
+};

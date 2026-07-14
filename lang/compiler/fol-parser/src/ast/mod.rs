@@ -10,9 +10,9 @@ pub mod visitor;
 pub use node::AstNode;
 pub use options::{
     binding_is_mutable, decl_visibility, fun_decl_visibility, type_decl_visibility,
-    use_decl_visibility, var_decl_visibility, BinaryOperator, CallSurface, CharEncoding, CommentKind, ContainerType,
-    DeclOption, FloatSize, FunOption, IntSize, Literal, StandardKind, TypeOption, UnaryOperator,
-    UseOption, UsePathSegment, UsePathSeparator, VarOption,
+    use_decl_visibility, var_decl_visibility, BinaryOperator, CallSurface, CharEncoding,
+    CommentKind, ContainerType, DeclOption, FloatSize, FunOption, IntSize, Literal, StandardKind,
+    TypeOption, UnaryOperator, UseOption, UsePathSegment, UsePathSeparator, VarOption,
 };
 pub use syntax::{
     ParsedDeclScope, ParsedDeclVisibility, ParsedPackage, ParsedSourceUnit, ParsedSourceUnitKind,
@@ -20,8 +20,8 @@ pub use syntax::{
 };
 pub use types::{
     BindingPattern, ChannelEndpoint, EntryVariantMeta, FolType, Generic, InquiryTarget,
-    LoopCondition, Parameter, QualifiedPath, RecordFieldMeta, RecordInitField, RollingBinding,
-    TypeDefinition, WhenCase,
+    LoopCondition, Parameter, PointerQualifier, QualifiedPath, RecordFieldMeta, RecordInitField,
+    RollingBinding, RoutineCapture, SelectArm, TypeDefinition, WhenCase,
 };
 pub use visitor::AstVisitor;
 

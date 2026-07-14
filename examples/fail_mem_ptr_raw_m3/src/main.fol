@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var pointer: ptr[raw, int];
+    return 0;
+};

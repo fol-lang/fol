@@ -1,6 +1,6 @@
 fun parse_msg(): int / str = {
     {
-        let flag = true;
+        var[imu] flag = true;
         report(flag);
     }
 };

@@ -11,6 +11,11 @@ impl BackendTarget {
     }
 }
 
+/// Backend-internal effective model selected after build evaluation.
+///
+/// Public `fol_model` accepts only `core` and `memo`. `Std` represents the
+/// effective hosted tier derived when a `memo` artifact declares the bundled
+/// internal `standard` dependency; it is not a legal third public model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackendFolModel {
     Core,
@@ -280,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn backend_config_defaults_to_std_fol_model() {
+    fn backend_config_defaults_to_effective_std_runtime_tier() {
         assert_eq!(BackendConfig::default().fol_model, BackendFolModel::Std);
         assert_eq!(BackendFolModel::Core.as_str(), "core");
         assert_eq!(BackendFolModel::Memo.as_str(), "memo");
@@ -292,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn backend_runtime_tier_tracks_fol_model_and_module_paths() {
+    fn backend_runtime_tier_tracks_internal_effective_model_and_module_paths() {
         assert_eq!(BackendRuntimeTier::from(BackendFolModel::Core).as_str(), "core");
         assert_eq!(BackendRuntimeTier::from(BackendFolModel::Memo).as_str(), "memo");
         assert_eq!(BackendRuntimeTier::from(BackendFolModel::Std).as_str(), "std");

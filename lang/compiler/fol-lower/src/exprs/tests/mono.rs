@@ -233,3 +233,55 @@ fn two_level_constrained_templates_propagate_bindings() {
     assert_eq!(inner_clones, 1, "inner should monomorphize once for T=Rect");
     assert_eq!(outer_clones, 1, "outer should monomorphize once for T=Rect");
 }
+
+#[test]
+fn processor_calls_to_generic_templates_are_rewritten() {
+    let workspace = lower_fixture_workspace(
+        "typ Box(T): rec = {\n\
+             value: T\n\
+         };\n\
+         fun consume(T)(value: Box[T]): non = {\n\
+             return;\n\
+         };\n\
+         fun reveal(T)(value: Box[T]): T = {\n\
+             return value.value;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var first: Box[int] = { value = 1 };\n\
+             var second: Box[int] = { value = 2 };\n\
+             [>]consume(first);\n\
+             var pending = reveal(second) | async;\n\
+             return pending | await;\n\
+         };\n",
+    );
+    let package = workspace.entry_package();
+    let main = package
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main should lower");
+
+    let processor_targets = main
+        .instructions
+        .iter()
+        .filter_map(|instr| match instr.kind {
+            LoweredInstrKind::SpawnCall { callee, .. }
+            | LoweredInstrKind::AsyncCall { callee, .. } => Some(callee),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(processor_targets.len(), 2);
+    for callee in processor_targets {
+        let concrete = package
+            .routine_decls
+            .get(&callee)
+            .expect("processor call should target a surviving concrete clone");
+        assert!(
+            concrete
+                .signature
+                .is_none_or(|signature| !type_contains_generic(&workspace, signature)),
+            "processor call target '{}' kept a generic signature",
+            concrete.name
+        );
+    }
+}

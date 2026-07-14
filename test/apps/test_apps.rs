@@ -350,18 +350,18 @@ fn generic_standard_constraint_exec_fixture_compiles_and_runs() {
 }
 
 #[test]
-fn defer_v1_showcase_example_compiles_and_runs() {
+fn dfr_v1_showcase_example_compiles_and_runs() {
     let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("test/apps/showcases/defer_v1_showcase/app");
+        .join("test/apps/showcases/dfr_v1_showcase/app");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&entry);
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = Command::new(built_binary_path(&compile_output))
         .output()
-        .expect("should run defer v1 showcase binary");
+        .expect("should run dfr v1 showcase binary");
     assert_exit_code(&run_output, 0);
-    assert_stdout_order(&run_output, &["30", "20", "40", "10", "60", "70", "50"], "defer v1 showcase");
+    assert_stdout_order(&run_output, &["30", "20", "40", "10", "60", "70", "50"], "dfr v1 showcase");
 }
 
 #[test]
@@ -406,6 +406,134 @@ fn app_harness_run_helper_executes_built_binary() {
         "compiled app binary should run successfully"
     );
 
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn v3_container_observations_compile_and_reuse_move_only_locals() {
+    let temp_root = unique_temp_root("v3_container_observations");
+    fs::create_dir_all(&temp_root).expect("observation fixture root");
+    fs::write(
+        temp_root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"v3_container_observations\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"main.fol\", fol_model = \"memo\" });\n",
+            "    graph.install(app);\n",
+            "};\n",
+        ),
+    )
+    .expect("observation fixture build");
+    fs::write(
+        temp_root.join("main.fol"),
+        concat!(
+            "fun[] read(pointer: ptr[int]): int = { return *pointer; };\n",
+            "fun[] main(): int = {\n",
+            "    var stored_value: int = 7;\n",
+            "    var query_value: int = 7;\n",
+            "    var stored: ptr[int] = &stored_value;\n",
+            "    var query: ptr[int] = &query_value;\n",
+            "    var values: map[ptr[int], int] = {{stored, 3}};\n",
+            "    var found: int = values[query];\n",
+            "    @var heap_values: vec[int] = {4, 5};\n",
+            "    var heap_len: int = .len(heap_values);\n",
+            "    var heap_head: int = heap_values[0];\n",
+            "    var heap_tail_len: int = .len(heap_values[1:]);\n",
+            "    var flags: set[int] = {9};\n",
+            "    var first_flag: int = flags[0];\n",
+            "    var flag_sum: int = 0;\n",
+            "    for (flag in flags) {\n",
+            "        flag_sum = flag_sum + flag;\n",
+            "    }\n",
+            "    var gated: int = 0;\n",
+            "    when(false) {\n",
+            "        * { gated = 100; }\n",
+            "    }\n",
+            "    when(true) {\n",
+            "        * { gated = 2; }\n",
+            "    }\n",
+            "    var first_replace: int = 1;\n",
+            "    var second_replace: int = 2;\n",
+            "    var[mut] replace: ptr[int] = &first_replace;\n",
+            "    var old_replace: int = read(replace);\n",
+            "    when(true) {\n",
+            "        case(true) { replace = &second_replace; }\n",
+            "        * { replace = &first_replace; }\n",
+            "    }\n",
+            "    replace = replace;\n",
+            "    when(found + *query + .len(values) + heap_len + heap_head + heap_tail_len + .len(heap_values) + first_flag + flag_sum + .len(flags) + gated + old_replace + *replace) {\n",
+            "        case(44) { return 0; }\n",
+            "        * { panic \"ownership observation failed\"; }\n",
+            "    }\n",
+            "};\n",
+        ),
+    )
+    .expect("observation fixture source");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&temp_root);
+    assert_artifact_paths_exist(&compile_output);
+    let run_output = compile_and_run_app(&temp_root);
+    assert_exit_code(&run_output, 0);
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn v3_moved_records_reinitialize_from_record_literals() {
+    let temp_root = unique_temp_root("v3_record_reinitialization");
+    fs::create_dir_all(&temp_root).expect("record reinitialization fixture root");
+    fs::write(
+        temp_root.join("main.fol"),
+        concat!(
+            "typ Holder: rec = { link: ptr[int], count: int };\n",
+            "fun[] consume(holder: Holder): int = { return holder.count; };\n",
+            "fun[] main(): int = {\n",
+            "    var first: int = 1;\n",
+            "    var second: int = 2;\n",
+            "    var[mut] holder: Holder = { link = &first, count = 10 };\n",
+            "    var old_count: int = consume(holder);\n",
+            "    holder = { link = &second, count = 20 };\n",
+            "    var new_count: int = holder.count;\n",
+            "    var new_link: ptr[int] = holder.link;\n",
+            "    when(old_count + new_count + *new_link) {\n",
+            "        case(32) { return 0; }\n",
+            "        * { panic \"record reinitialization failed\"; }\n",
+            "    }\n",
+            "};\n",
+        ),
+    )
+    .expect("record reinitialization fixture source");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&temp_root);
+    assert_artifact_paths_exist(&compile_output);
+    let run_output = compile_and_run_app(&temp_root);
+    assert_exit_code(&run_output, 0);
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn void_anonymous_invokes_execute_as_statements() {
+    let temp_root = unique_temp_root("void_anonymous_invoke");
+    fs::create_dir_all(&temp_root).expect("void invoke fixture root");
+    fs::write(
+        temp_root.join("main.fol"),
+        concat!(
+            "fun[] factory(): {fun (ignored: int): non} = {\n",
+            "    return pro[] (ignored: int) = { return; };\n",
+            "};\n",
+            "fun[] main(): int = {\n",
+            "    (factory())(0);\n",
+            "    return 0;\n",
+            "};\n",
+        ),
+    )
+    .expect("void invoke fixture source");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&temp_root);
+    assert_artifact_paths_exist(&compile_output);
+    let run_output = compile_and_run_app(&temp_root);
+    assert_exit_code(&run_output, 0);
     fs::remove_dir_all(&temp_root).ok();
 }
 
@@ -540,6 +668,28 @@ fn control_loop_break_fixture_compiles_and_runs() {
 #[test]
 fn control_iteration_fixture_compiles_and_runs() {
     let fixture = fixture_root("control_iteration");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
+    assert_artifact_paths_exist(&compile_output);
+
+    let run_output = compile_and_run_app(&fixture);
+    assert_exit_code(&run_output, 0);
+}
+
+#[test]
+fn control_sibling_iterations_use_their_exact_loop_scopes() {
+    let fixture = fixture_root("control_sibling_iterations");
+
+    let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
+    assert_artifact_paths_exist(&compile_output);
+
+    let run_output = compile_and_run_app(&fixture);
+    assert_exit_code(&run_output, 0);
+}
+
+#[test]
+fn control_sibling_when_bodies_use_their_exact_scopes() {
+    let fixture = fixture_root("control_sibling_when_scopes");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
     assert_artifact_paths_exist(&compile_output);
@@ -869,14 +1019,14 @@ fn method_call_niceties_fixture_compiles_and_runs() {
 }
 
 #[test]
-fn defer_scope_exit_fixture_compiles_and_runs_in_reverse_order() {
-    let fixture = fixture_root("defer_scope_exit");
+fn dfr_scope_exit_fixture_compiles_and_runs_in_reverse_order() {
+    let fixture = fixture_root("dfr_scope_exit");
     let run_output = compile_and_run_app(&fixture);
     let stdout = String::from_utf8_lossy(&run_output.stdout);
 
     let seven = stdout.find("7").expect("program should print body output first");
-    let two = stdout.find("2").expect("program should print inner defer output");
-    let one = stdout.find("1").expect("program should print outer defer output");
+    let two = stdout.find("2").expect("program should print inner dfr output");
+    let one = stdout.find("1").expect("program should print outer dfr output");
 
     assert!(
         seven < two && two < one,
@@ -886,26 +1036,26 @@ fn defer_scope_exit_fixture_compiles_and_runs_in_reverse_order() {
 }
 
 #[test]
-fn defer_nested_scopes_fixture_compiles_and_runs() {
-    let fixture = fixture_root("defer_nested_scopes");
+fn dfr_nested_scopes_fixture_compiles_and_runs() {
+    let fixture = fixture_root("dfr_nested_scopes");
     let run_output = compile_and_run_app(&fixture);
 
     assert_exit_code(&run_output, 0);
-    assert_stdout_order(&run_output, &["3", "2", "7", "1"], "nested defer scopes");
+    assert_stdout_order(&run_output, &["3", "2", "7", "1"], "nested dfr scopes");
 }
 
 #[test]
-fn defer_loop_break_fixture_compiles_and_runs() {
-    let fixture = fixture_root("defer_loop_break");
+fn dfr_loop_break_fixture_compiles_and_runs() {
+    let fixture = fixture_root("dfr_loop_break");
     let run_output = compile_and_run_app(&fixture);
 
     assert_exit_code(&run_output, 0);
-    assert_stdout_order(&run_output, &["3", "2", "7", "1"], "defer loop break");
+    assert_stdout_order(&run_output, &["3", "2", "7", "1"], "dfr loop break");
 }
 
 #[test]
-fn defer_report_cleanup_fixture_compiles_and_runs() {
-    let fixture = fixture_root("defer_report_cleanup");
+fn dfr_report_cleanup_fixture_compiles_and_runs() {
+    let fixture = fixture_root("dfr_report_cleanup");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
     assert_artifact_paths_exist(&compile_output);
@@ -913,17 +1063,17 @@ fn defer_report_cleanup_fixture_compiles_and_runs() {
     let run_output = compile_and_run_app(&fixture);
     assert!(
         !run_output.status.success(),
-        "reported defer cleanup fixture should fail at process boundary\nstdout=\n{}\nstderr=\n{}",
+        "reported dfr cleanup fixture should fail at process boundary\nstdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
-    assert_stdout_order(&run_output, &["1"], "defer report cleanup");
+    assert_stdout_order(&run_output, &["1"], "dfr report cleanup");
     assert_output_contains(&run_output, "main-bad");
 }
 
 #[test]
-fn defer_panic_cleanup_fixture_compiles_and_runs() {
-    let fixture = fixture_root("defer_panic_cleanup");
+fn dfr_panic_cleanup_fixture_compiles_and_runs() {
+    let fixture = fixture_root("dfr_panic_cleanup");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&fixture);
     assert_artifact_paths_exist(&compile_output);
@@ -931,14 +1081,14 @@ fn defer_panic_cleanup_fixture_compiles_and_runs() {
     let binary = built_binary_path(&compile_output);
     let panic_output = Command::new(&binary)
         .output()
-        .expect("should run defer panic cleanup fixture");
+        .expect("should run dfr panic cleanup fixture");
     assert!(
         !panic_output.status.success(),
-        "defer panic cleanup fixture should fail\nstdout=\n{}\nstderr=\n{}",
+        "dfr panic cleanup fixture should fail\nstdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&panic_output.stdout),
         String::from_utf8_lossy(&panic_output.stderr)
     );
-    assert_stdout_order(&panic_output, &["1"], "defer panic cleanup");
+    assert_stdout_order(&panic_output, &["1"], "dfr panic cleanup");
     assert_output_contains(&panic_output, "panic-bad");
 }
 
@@ -1278,19 +1428,19 @@ fn fail_deferred_intrinsic_fixture_fails_cleanly() {
 }
 
 #[test]
-fn fail_defer_return_nested_fixture_fails_cleanly() {
-    let fixture = fixture_root("fail_defer_return_nested");
+fn fail_dfr_return_nested_fixture_fails_cleanly() {
+    let fixture = fixture_root("fail_dfr_return_nested");
 
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "return is not allowed inside deferred blocks in V1");
+    assert_output_contains(&output, "return is not allowed inside dfr/edf blocks");
 }
 
 #[test]
-fn fail_defer_break_nested_fixture_fails_cleanly() {
-    let fixture = fixture_root("fail_defer_break_nested");
+fn fail_dfr_break_nested_fixture_fails_cleanly() {
+    let fixture = fixture_root("fail_dfr_break_nested");
 
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "break is not allowed inside deferred blocks in V1");
+    assert_output_contains(&output, "break is not allowed inside dfr/edf blocks");
 }
 
 #[test]
@@ -1309,7 +1459,7 @@ fn fail_generic_routine_fixture_now_executes_as_supported_generic_code() {
 fn fail_pointer_type_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_pointer_type");
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "pointer");
+    assert_output_contains(&output, "raw pointers are a V4 interop surface");
 }
 
 #[test]

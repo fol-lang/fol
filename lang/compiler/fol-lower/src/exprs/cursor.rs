@@ -6,8 +6,7 @@ use crate::{
 };
 use fol_parser::ast::{AstNode, Literal};
 use fol_resolver::{
-    MountedSymbolProvenance, PackageIdentity, ResolvedSymbol, SourceUnitId, SymbolId,
-    SymbolKind,
+    MountedSymbolProvenance, PackageIdentity, ResolvedSymbol, SourceUnitId, SymbolId, SymbolKind,
 };
 use std::collections::BTreeMap;
 
@@ -45,12 +44,15 @@ pub(crate) struct DeferredBody {
     pub source_unit_id: SourceUnitId,
     pub scope_id: fol_resolver::ScopeId,
     pub body: Vec<AstNode>,
+    pub error_only: bool,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveDeferScope {
     pub kind: DeferScopeKind,
     pub entries: Vec<DeferredBody>,
+    pub mutex_guards: Vec<LoweredLocalId>,
+    pub lexical_drops: Vec<LoweredLocalId>,
 }
 
 #[derive(Debug, Default)]
@@ -58,11 +60,14 @@ pub(crate) struct WorkspaceDeclIndex {
     typed_packages: BTreeMap<PackageIdentity, fol_typecheck::TypedPackage>,
     globals: BTreeMap<(PackageIdentity, SymbolId), LoweredGlobalId>,
     routines: BTreeMap<(PackageIdentity, SymbolId), LoweredRoutineId>,
-    routine_params: BTreeMap<LoweredRoutineId, Vec<LoweredTypeId>>,
-    routine_param_names: BTreeMap<LoweredRoutineId, Vec<String>>,
-    routine_param_defaults: BTreeMap<LoweredRoutineId, RoutineDefaultLowering>,
-    routine_has_receiver: BTreeMap<LoweredRoutineId, bool>,
+    routine_params: BTreeMap<(PackageIdentity, LoweredRoutineId), Vec<LoweredTypeId>>,
+    routine_param_names: BTreeMap<(PackageIdentity, LoweredRoutineId), Vec<String>>,
+    routine_param_defaults:
+        BTreeMap<(PackageIdentity, LoweredRoutineId), RoutineDefaultLowering>,
+    routine_has_receiver: BTreeMap<(PackageIdentity, LoweredRoutineId), bool>,
     entry_variants: BTreeMap<(PackageIdentity, SymbolId, String), EntryVariantLowering>,
+    record_fields: BTreeMap<(PackageIdentity, SymbolId, String), LoweredTypeId>,
+    record_runtime_types: BTreeMap<(PackageIdentity, SymbolId), LoweredTypeId>,
 }
 
 impl WorkspaceDeclIndex {
@@ -106,10 +111,19 @@ impl WorkspaceDeclIndex {
                 let param_names = routine
                     .params
                     .iter()
-                    .filter_map(|param| routine.locals.get(*param).and_then(|local| local.name.clone()))
+                    .filter_map(|param| {
+                        routine
+                            .locals
+                            .get(*param)
+                            .and_then(|local| local.name.clone())
+                    })
                     .collect::<Vec<_>>();
-                index.routine_params.insert(routine.id, params);
-                index.routine_param_names.insert(routine.id, param_names);
+                let routine_key = (package.identity.clone(), routine.id);
+                index.routine_params.insert(routine_key.clone(), params);
+                index.routine_param_names.insert(routine_key.clone(), param_names);
+                index
+                    .routine_has_receiver
+                    .insert(routine_key, routine.receiver_type.is_some());
             }
         }
         index
@@ -129,18 +143,19 @@ impl WorkspaceDeclIndex {
                 self.routines
                     .insert((package.identity.clone(), symbol_id), routine.id);
                 if let Some(typed_symbol) = typed_package.program.typed_symbol(symbol_id) {
-                    if let Some(signature_type) = typed_symbol.declared_type.and_then(|type_id| {
-                        typed_package.program.type_table().get(type_id)
-                    }) {
+                    if let Some(signature_type) = typed_symbol
+                        .declared_type
+                        .and_then(|type_id| typed_package.program.type_table().get(type_id))
+                    {
                         if let fol_typecheck::CheckedType::Routine(signature) = signature_type {
-                            let mut defaults = signature.param_defaults.clone();
+                            let mut defaults = typed_symbol.param_defaults.clone();
                             let mut variadic_index = signature.variadic_index;
                             if typed_symbol.receiver_type.is_some() {
                                 defaults.insert(0, None);
                                 variadic_index = variadic_index.map(|index| index + 1);
                             }
                             self.routine_param_defaults.insert(
-                                routine.id,
+                                (package.identity.clone(), routine.id),
                                 RoutineDefaultLowering {
                                     package_identity: package.identity.clone(),
                                     source_unit_id: typed_symbol.source_unit_id,
@@ -161,19 +176,44 @@ impl WorkspaceDeclIndex {
             let param_names = routine
                 .params
                 .iter()
-                .filter_map(|param| routine.locals.get(*param).and_then(|local| local.name.clone()))
+                .filter_map(|param| {
+                    routine
+                        .locals
+                        .get(*param)
+                        .and_then(|local| local.name.clone())
+                })
                 .collect::<Vec<_>>();
-            self.routine_params.insert(routine.id, params);
-            self.routine_param_names.insert(routine.id, param_names);
+            let routine_key = (package.identity.clone(), routine.id);
+            self.routine_params.insert(routine_key.clone(), params);
+            self.routine_param_names
+                .insert(routine_key.clone(), param_names);
             self.routine_has_receiver
-                .insert(routine.id, routine.receiver_type.is_some());
+                .insert(routine_key, routine.receiver_type.is_some());
         }
         self.extend_entry_variants(typed_package, package);
+        for (symbol_id, type_decl) in &package.type_decls {
+            if let crate::LoweredTypeDeclKind::Record { fields } = &type_decl.kind {
+                self.record_runtime_types.insert(
+                    (package.identity.clone(), *symbol_id),
+                    type_decl.runtime_type,
+                );
+                for field in fields {
+                    self.record_fields.insert(
+                        (package.identity.clone(), *symbol_id, field.name.clone()),
+                        field.type_id,
+                    );
+                }
+            }
+        }
     }
 
-    pub(crate) fn routine_has_receiver(&self, routine_id: LoweredRoutineId) -> bool {
+    pub(crate) fn routine_has_receiver(
+        &self,
+        identity: &PackageIdentity,
+        routine_id: LoweredRoutineId,
+    ) -> bool {
         self.routine_has_receiver
-            .get(&routine_id)
+            .get(&(identity.clone(), routine_id))
             .copied()
             .unwrap_or(false)
     }
@@ -196,20 +236,31 @@ impl WorkspaceDeclIndex {
 
     pub(crate) fn routine_param_types(
         &self,
+        identity: &PackageIdentity,
         routine_id: LoweredRoutineId,
     ) -> Option<&[LoweredTypeId]> {
-        self.routine_params.get(&routine_id).map(Vec::as_slice)
+        self.routine_params
+            .get(&(identity.clone(), routine_id))
+            .map(Vec::as_slice)
     }
 
-    pub(crate) fn routine_param_names(&self, routine_id: LoweredRoutineId) -> Option<&[String]> {
-        self.routine_param_names.get(&routine_id).map(Vec::as_slice)
+    pub(crate) fn routine_param_names(
+        &self,
+        identity: &PackageIdentity,
+        routine_id: LoweredRoutineId,
+    ) -> Option<&[String]> {
+        self.routine_param_names
+            .get(&(identity.clone(), routine_id))
+            .map(Vec::as_slice)
     }
 
     pub(crate) fn routine_param_defaults(
         &self,
+        identity: &PackageIdentity,
         routine_id: LoweredRoutineId,
     ) -> Option<&RoutineDefaultLowering> {
-        self.routine_param_defaults.get(&routine_id)
+        self.routine_param_defaults
+            .get(&(identity.clone(), routine_id))
     }
 
     pub(crate) fn typed_package(
@@ -227,6 +278,40 @@ impl WorkspaceDeclIndex {
     ) -> Option<&EntryVariantLowering> {
         self.entry_variants
             .get(&(identity.clone(), symbol_id, variant.to_string()))
+    }
+
+    pub(crate) fn record_field(
+        &self,
+        identity: &PackageIdentity,
+        symbol_id: SymbolId,
+        field: &str,
+    ) -> Option<LoweredTypeId> {
+        self.record_fields
+            .get(&(identity.clone(), symbol_id, field.to_string()))
+            .copied()
+    }
+
+    pub(crate) fn record_runtime_type(
+        &self,
+        identity: &PackageIdentity,
+        symbol_id: SymbolId,
+    ) -> Option<LoweredTypeId> {
+        self.record_runtime_types
+            .get(&(identity.clone(), symbol_id))
+            .copied()
+    }
+
+    pub(crate) fn record_fields(
+        &self,
+        identity: &PackageIdentity,
+        symbol_id: SymbolId,
+    ) -> BTreeMap<String, LoweredTypeId> {
+        self.record_fields
+            .iter()
+            .filter_map(|((package, symbol, field), type_id)| {
+                (package == identity && *symbol == symbol_id).then_some((field.clone(), *type_id))
+            })
+            .collect()
     }
 
     fn extend_entry_variants(
@@ -354,6 +439,8 @@ impl<'a> RoutineCursor<'a> {
         self.defer_scopes.push(ActiveDeferScope {
             kind,
             entries: Vec::new(),
+            mutex_guards: Vec::new(),
+            lexical_drops: Vec::new(),
         });
     }
 
@@ -363,6 +450,10 @@ impl<'a> RoutineCursor<'a> {
 
     pub(crate) fn defer_scope_depth(&self) -> usize {
         self.defer_scopes.len()
+    }
+
+    pub(crate) fn defer_scopes_snapshot(&self) -> Vec<ActiveDeferScope> {
+        self.defer_scopes.clone()
     }
 
     pub(crate) fn nearest_loop_defer_depth(&self) -> Option<usize> {
@@ -376,19 +467,70 @@ impl<'a> RoutineCursor<'a> {
         source_unit_id: SourceUnitId,
         scope_id: fol_resolver::ScopeId,
         body: &[AstNode],
+        error_only: bool,
     ) -> Result<(), LoweringError> {
         let Some(scope) = self.defer_scopes.last_mut() else {
             return Err(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                "defer registration requires an active defer scope",
+                "dfr registration requires an active dfr scope",
             ));
         };
         scope.entries.push(DeferredBody {
             source_unit_id,
             scope_id,
             body: body.to_vec(),
+            error_only,
         });
         Ok(())
+    }
+
+    pub(crate) fn register_lexical_drop(
+        &mut self,
+        local: LoweredLocalId,
+    ) -> Result<(), LoweringError> {
+        let Some(scope) = self.defer_scopes.last_mut() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "owned local registration requires an active lexical scope",
+            ));
+        };
+        scope.lexical_drops.push(local);
+        Ok(())
+    }
+
+    pub(crate) fn register_mutex_guard(
+        &mut self,
+        local: LoweredLocalId,
+    ) -> Result<(), LoweringError> {
+        if self
+            .defer_scopes
+            .iter()
+            .any(|scope| scope.mutex_guards.contains(&local))
+        {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "mutex parameter is already locked",
+            ));
+        }
+        let Some(scope) = self.defer_scopes.last_mut() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "mutex lock requires an active lexical scope",
+            ));
+        };
+        scope.mutex_guards.push(local);
+        Ok(())
+    }
+
+    pub(crate) fn release_mutex_guard(&mut self, local: LoweredLocalId) -> bool {
+        let Some(scope) = self.defer_scopes.last_mut() else {
+            return false;
+        };
+        let Some(index) = scope.mutex_guards.iter().rposition(|guard| *guard == local) else {
+            return false;
+        };
+        scope.mutex_guards.remove(index);
+        true
     }
 
     pub(crate) fn current_block_terminated(&self) -> Result<bool, LoweringError> {
@@ -516,6 +658,9 @@ impl<'a> RoutineCursor<'a> {
     ) -> Result<LoweredValue, LoweringError> {
         if let Some(local_id) = self.routine.local_symbols.get(&resolved_symbol.id).copied() {
             let result_local = self.allocate_local(result_type, None);
+            if self.routine.mutex_params.contains(&local_id) {
+                self.routine.mutex_params.insert(result_local);
+            }
             self.push_instr(
                 Some(result_local),
                 LoweredInstrKind::LoadLocal { local: local_id },
@@ -532,8 +677,7 @@ impl<'a> RoutineCursor<'a> {
             resolved_symbol.mounted_from.as_ref(),
             resolved_symbol.id,
         );
-        if let Some(global_id) =
-            decl_index.global_id_for_symbol(&owning_identity, owning_symbol_id)
+        if let Some(global_id) = decl_index.global_id_for_symbol(&owning_identity, owning_symbol_id)
         {
             let result_local = self.allocate_local(result_type, None);
             self.push_instr(

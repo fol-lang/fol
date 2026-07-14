@@ -66,6 +66,84 @@ fn generic_routine_calls_infer_identity_return_types() {
 }
 
 #[test]
+fn generic_calls_consume_owned_and_unique_pointer_arguments() {
+    for (surface, body, moved_name) in [
+        (
+            "owned value",
+            "typ Item: rec = { value: int };\n\
+             fun[] main(): int = {\n\
+                 @var owned: Item = { value = 7 };\n\
+                 @var forwarded: Item = identity(owned);\n\
+                 return owned.value;\n\
+             };",
+            "owned",
+        ),
+        (
+            "unique pointer",
+            "fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var pointer: ptr[int] = &seed;\n\
+                 var forwarded: ptr[int] = identity(pointer);\n\
+                 return *pointer;\n\
+             };",
+            "pointer",
+        ),
+    ] {
+        let source = format!(
+            "fun identity(T)(value: T): T = {{ return value; }};\n{body}\n"
+        );
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::Ownership
+                    && error.message().contains("use of moved")
+                    && error.message().contains(moved_name)
+            }),
+            "generic forwarding must consume its {surface} argument: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn generic_calls_leave_copy_safe_arguments_available() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun identity(T)(value: T): T = { return value; };\n\
+         fun[] main(): int = {\n\
+             var original: int = 7;\n\
+             var forwarded: int = identity(original);\n\
+             return original + forwarded;\n\
+         };\n",
+    )]);
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn bare_generic_locals_transfer_conservatively() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun duplicate(T)(value: T): T = {\n\
+             var forwarded: T = value;\n\
+             return value;\n\
+         };\n\
+         fun[] main(): int = { return duplicate(7); };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message().contains("use of moved")
+                && error.message().contains("value")
+        }),
+        "an unconstrained generic local must not be duplicated before its concrete type is known: {errors:#?}"
+    );
+}
+
+#[test]
 fn generic_routine_calls_infer_repeated_type_params_for_same_scalar_family() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",

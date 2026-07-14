@@ -4,7 +4,7 @@ This section covers the main named program elements of FOL.
 
 The declaration families include:
 - bindings:
-  `var`, `let`, `con`, `lab`
+  `var`, `con`, `lab`
 - routines:
   `fun`, `pro`, `log`
 - type and construct declarations:

@@ -2,9 +2,9 @@ use crate::{
     model::{ResolvedProgram, ScopeKind, SymbolKind},
     ResolverError, ResolverSession, ScopeId, SourceUnitId,
 };
-use fol_parser::ast::{AstNode, FolType, Generic, Parameter, SyntaxNodeId};
+use fol_parser::ast::{AstNode, FolType, Generic, Parameter, RoutineCapture, SyntaxNodeId};
 
-use super::super::scope::{insert_generic_symbols, insert_local_symbol, insert_local_symbol_with_origin};
+use super::super::scope::{insert_generic_symbols, insert_local_symbol_with_origin};
 use super::types::resolve_type_reference;
 use super::RoutineContext;
 
@@ -16,7 +16,7 @@ pub fn traverse_named_routine(
     syntax_id: &Option<SyntaxNodeId>,
     generics: &[Generic],
     receiver_type: &Option<FolType>,
-    captures: &[String],
+    captures: &[RoutineCapture],
     params: &[Parameter],
     return_type: &Option<FolType>,
     error_type: &Option<FolType>,
@@ -37,13 +37,7 @@ pub fn traverse_named_routine(
     insert_generic_symbols(program, source_unit_id, routine_scope, generics)?;
     for generic in generics {
         for constraint in &generic.constraints {
-            resolve_type_reference(
-                session,
-                program,
-                source_unit_id,
-                routine_scope,
-                constraint,
-            )?;
+            resolve_type_reference(session, program, source_unit_id, routine_scope, constraint)?;
         }
     }
     if let Some(receiver_type) = receiver_type {
@@ -65,32 +59,28 @@ pub fn traverse_named_routine(
         )?;
     }
     if let Some(return_type) = return_type {
-        resolve_type_reference(
-            session,
-            program,
-            source_unit_id,
-            routine_scope,
-            return_type,
-        )?;
+        resolve_type_reference(session, program, source_unit_id, routine_scope, return_type)?;
     }
     if let Some(error_type) = error_type {
-        resolve_type_reference(
-            session,
-            program,
-            source_unit_id,
-            routine_scope,
-            error_type,
-        )?;
+        resolve_type_reference(session, program, source_unit_id, routine_scope, error_type)?;
     }
 
     for capture in captures {
-        insert_local_symbol(
+        let capture_origin = capture
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned();
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
-            capture,
+            &capture.name,
             SymbolKind::Capture,
-            format!("symbol#{}", fol_types::canonical_identifier_key(capture)),
+            format!(
+                "symbol#{}",
+                fol_types::canonical_identifier_key(&capture.name)
+            ),
+            capture_origin,
         )?;
     }
     if receiver_type.is_some() {
@@ -160,7 +150,7 @@ pub fn traverse_anonymous_routine(
     source_unit_id: SourceUnitId,
     scope_id: ScopeId,
     syntax_id: &Option<SyntaxNodeId>,
-    captures: &[String],
+    captures: &[RoutineCapture],
     params: &[Parameter],
     return_type: &Option<FolType>,
     error_type: &Option<FolType>,
@@ -183,32 +173,28 @@ pub fn traverse_anonymous_routine(
         )?;
     }
     if let Some(return_type) = return_type {
-        resolve_type_reference(
-            session,
-            program,
-            source_unit_id,
-            routine_scope,
-            return_type,
-        )?;
+        resolve_type_reference(session, program, source_unit_id, routine_scope, return_type)?;
     }
     if let Some(error_type) = error_type {
-        resolve_type_reference(
-            session,
-            program,
-            source_unit_id,
-            routine_scope,
-            error_type,
-        )?;
+        resolve_type_reference(session, program, source_unit_id, routine_scope, error_type)?;
     }
 
     for capture in captures {
-        insert_local_symbol(
+        let capture_origin = capture
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned();
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
-            capture,
+            &capture.name,
             SymbolKind::Capture,
-            format!("symbol#{}", fol_types::canonical_identifier_key(capture)),
+            format!(
+                "symbol#{}",
+                fol_types::canonical_identifier_key(&capture.name)
+            ),
+            capture_origin,
         )?;
     }
 

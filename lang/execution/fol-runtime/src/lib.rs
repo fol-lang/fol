@@ -1,14 +1,15 @@
-//! Runtime support foundations for executable FOL `V1` programs.
+//! Runtime support for executable FOL programs across the shipped V1, V2, and
+//! V3 language surfaces.
 //!
-//! `fol-runtime` is the support crate that future generated programs will link
+//! `fol-runtime` is the support crate that generated programs link
 //! against. It is not a front-end phase and it is not the backend itself.
 //!
 //! The intended compiler split is:
 //!
 //! - `fol-runtime` owns runtime data/layout/helper semantics
-//! - `fol-backend` will later own code generation
+//! - `fol-backend` owns code generation
 //!
-//! Current `V1` runtime scope:
+//! Current runtime scope:
 //!
 //! - builtin scalar support
 //! - memo-tier strings
@@ -16,59 +17,75 @@
 //! - optional/error shells
 //! - recoverable routine results
 //! - backend-facing runtime hooks such as `.echo(...)`
+//! - a capability-neutral backend process-outcome adapter
+//! - hosted V3 task, channel, mutex, and eventual substrate
 //!
-//! The runtime model is converging on explicit internal tiers:
+//! The runtime implementation has three internal tiers:
 //!
 //! - [`core`]
 //! - [`memo`]
 //! - [`std`]
+//!
+//! The public `fol_model` surface still has only `core` and `memo`. Declaring
+//! the bundled internal `standard` dependency upgrades a `memo` artifact to
+//! the effective hosted [`std`] tier; `std` is not a third public model.
+//! Host-compatible `core` and `memo` artifacts can still be executed and
+//! tested without that dependency. The dependency gates hosted source APIs,
+//! not the frontend's ability to launch a compatible binary.
 //!
 //! The heap-backed runtime families now belong to [`memo`], while [`containers`]
 //! remains the helper layer for indexing, slicing, and rendering.
 //!
 //! Explicitly out of scope for this runtime crate:
 //!
-//! - ownership / borrowing / pointers
+//! - runtime ownership bookkeeping (V3 ownership remains compiler/backend work)
+//! - compiler-owned borrowing and pointer legality
 //! - a runtime-owned generic reification model
 //! - object-style standards/dispatch machinery
-//! - concurrency runtime
 //! - C ABI
 //!
-//! Full `V2` generics, generic types, and procedural standards still execute
-//! through the current backend strategy. The important boundary is narrower:
-//! `fol-runtime` itself does not define a second witness/dictionary system or
-//! an object-style runtime contract for standards. Those semantics stay in the
-//! compiler/lowering/backend pipeline under monomorphization.
+//! The hosted [`std`] tier does provide the small V3 processor substrate used by
+//! generated programs: OS-thread task tracking, unbounded MPSC channels,
+//! mutex-backed sharing, and internal eventual delivery. The compiler still
+//! owns the language-level legality and capability rules for those surfaces.
+//!
+//! The shipped `V2` generic-routine, generic-type, and procedural-standard
+//! subset executes through the current backend strategy. The important
+//! boundary is narrower: `fol-runtime` itself does not define a second
+//! witness/dictionary system or an object-style runtime contract for
+//! standards. Those semantics stay in the compiler/lowering/backend pipeline
+//! under monomorphization.
 //!
 //! # Backend Mapping: Builtins
 //!
-//! The first backend should map lowered builtins using this rule:
+//! The Rust backend maps lowered builtins using this rule:
 //!
 //! - prefer native Rust operators or expressions for pure scalar operations
 //! - use `fol-runtime` helpers for runtime-sensitive or policy-sensitive behavior
 //!
-//! Current `V1` expectation:
+//! Current builtin expectation:
 //!
 //! - `.eq`, `.nq`, `.lt`, `.gt`, `.ge`, `.le`
 //!   - lower to native Rust comparisons on already-lowered scalar values
 //! - `.not`
 //!   - lower to native Rust boolean negation
 //! - `.len`
-//!   - lower through the active model module's `len(...)`
+//!   - lower through the active effective runtime tier's `len(...)`
 //! - `.echo`
 //!   - lower through [`std::echo`]
 //! - `check`
-//!   - lower through the active model module's `check_recoverable(...)`
+//!   - lower through the active effective runtime tier's
+//!     `check_recoverable(...)`
 //! - recoverable top-level result handling
-//!   - lower through [`std::outcome_from_recoverable`]
+//!   - lower through [`process::outcome_from_recoverable`]
 //!
 //! The backend should not reimplement `.len` or `.echo` inline. Those are part
 //! of the runtime contract so later backends can share the same behavior.
 //!
 //! # Backend Mapping: Lowered Instructions
 //!
-//! The current lowered `V1` IR mixes instructions that can become plain Rust
-//! syntax with instructions that require stable `fol-runtime` support.
+//! The current lowered IR mixes instructions that can become plain Rust syntax
+//! with instructions that require stable `fol-runtime` support.
 //!
 //! Native-emission friendly instructions:
 //!
@@ -76,19 +93,21 @@
 //! - `LoadLocal`
 //! - `StoreLocal`
 //! - `Call`
+//! - ownership, borrow, and pointer instructions, which map to Rust moves,
+//!   references, `Box`, and `Rc` after compiler legality checks
 //! - `IntrinsicCall` for scalar comparisons and boolean negation
 //! - `FieldAccess` for backend-authored record layouts
-//! - `Cast` once the backend implements the admitted `V1` cast policy
 //! - control terminators such as `Jump`, `Branch`, and `Return`
 //!
 //! Runtime-backed instructions or lowered surfaces:
 //!
 //! - `LengthOf`
-//!   - must call the active model module's `len(...)`
+//!   - must call the active effective runtime tier's `len(...)`
 //! - `RuntimeHook`
 //!   - currently `.echo(...)`, which must call [`std::echo`]
 //! - `CheckRecoverable`
-//!   - must inspect [`abi::FolRecover`] through the active model module
+//!   - must inspect [`abi::FolRecover`] through the active effective runtime
+//!     tier
 //! - `UnwrapRecoverable`
 //!   - must unwrap the success lane of [`abi::FolRecover`]
 //! - `ExtractRecoverableError`
@@ -114,6 +133,15 @@
 //! - `Panic`
 //!   - must route through the backend's panic strategy while preserving the
 //!     runtime printable-message contract
+//! - `SpawnCall` and `AsyncCall`
+//!   - must use [`std::spawn_task`] and [`std::spawn_eventual`]
+//! - `AwaitEventual`
+//!   - must consume [`std::FolEventual`] exactly once
+//! - channel sender/send/receive/select support
+//!   - must use [`std::FolChannel`] and [`std::FolSender`]
+//! - mutex lock/unlock support
+//!   - must use [`std::FolMutex`] while compiler checks keep guard effects
+//!     lexical
 //!
 //! Backend-authored records and entries may compile into plain Rust structs and
 //! enums, but their public formatting behavior should still follow
@@ -122,7 +150,7 @@
 //!
 //! # Backend Mapping: Generated Crate Names And Imports
 //!
-//! The first backend should generate one temporary Rust crate per lowered FOL
+//! The Rust backend generates one temporary Rust crate per lowered FOL
 //! workspace.
 //!
 //! Import expectations for that generated crate:
@@ -132,7 +160,9 @@
 //!   hyphen-to-underscore rule
 //! - prefer one stable model alias per emitted module, such as
 //!   `use fol_runtime::core as rt;`
-//!   - or `memo` / `std` depending on the artifact's `fol_model`
+//!   - use `memo` for a public `fol_model = "memo"` artifact without bundled
+//!     std, or `std` when its evaluated bundled dependency selects the hosted
+//!     effective tier
 //! - use fully qualified imports for less-common runtime modules when needed,
 //!   for example:
 //!   - `fol_runtime::memo::FolSeq`
@@ -148,19 +178,19 @@
 //!   file count
 //! - backend-generated local helper names may be mangled, but runtime imports
 //!   should stay readable and stable
-//! - `fol-runtime` remains the single support dependency for current `V1`
+//! - `fol-runtime` remains the single support dependency for current shipped
 //!   semantics; generated crates should not split the runtime contract across
 //!   multiple ad hoc support crates
 //!
 //! # Backend Integration Guide
 //!
-//! A first Rust backend should integrate with `fol-runtime` in this order:
+//! The Rust backend integrates with `fol-runtime` in this order:
 //!
 //! 1. Lower a full workspace through `fol-lower` and treat that lowered
 //!    workspace as the only backend input.
 //! 2. Create one generated Rust crate for that lowered workspace.
-//! 3. Add `fol-runtime` as a dependency and import the artifact's model module
-//!    as `rt` in each emitted module.
+//! 3. Add `fol-runtime` as a dependency and import the artifact's effective
+//!    runtime tier module as `rt` in each emitted module.
 //! 4. Emit backend-authored Rust structs and enums for lowered records and
 //!    entries, then implement [`aggregate::FolRecord`] or [`aggregate::FolEntry`]
 //!    where runtime formatting needs to stay stable.
@@ -173,31 +203,33 @@
 //!    - [`shell::FolOption`]
 //!    - [`shell::FolError`]
 //!    - [`abi::FolRecover`]
-//! 6. Lower builtin/runtime-sensitive operations through the model helpers
-//!    instead of inlining policy:
+//! 6. Lower builtin/runtime-sensitive operations through effective
+//!    runtime-tier helpers instead of inlining policy:
 //!    - `rt::len(...)`
 //!    - `rt::echo(...)`
 //!    - `rt::check_recoverable(...)`
-//!    - `rt::outcome_from_recoverable(...)`
 //! 7. Keep pure scalar comparison and boolean negation native in the emitted
 //!    Rust where possible.
 //! 8. Lower top-level entry routines so recoverable outcomes become
-//!    [`std::FolProcessOutcome`] values with the documented exit-code policy.
+//!    [`process::FolProcessOutcome`] values with the documented exit-code
+//!    policy. This backend adapter is independent of the source-language
+//!    capability tier.
 //! 9. Only after emitted Rust typechecks against `fol-runtime` should the
 //!    backend invoke `cargo build` or `rustc`.
 //!
-//! Current `V1` backends should treat `fol-runtime` as stable support code, not
-//! as an optimizer target. If a future backend wants to inline or replace a
-//! runtime helper, it should first preserve the same public behavior and only
-//! then optimize behind that contract.
+//! Backends should treat `fol-runtime` as stable support code, not as an
+//! optimizer target. If a backend wants to inline or replace a runtime helper,
+//! it should first preserve the same public behavior and only then optimize
+//! behind that contract.
 
 pub mod abi;
-pub mod memo;
 pub mod aggregate;
 pub mod builtins;
 pub mod containers;
 pub mod core;
 pub mod error;
+pub mod memo;
+pub mod process;
 pub mod shell;
 pub mod std;
 pub mod value;
@@ -216,6 +248,7 @@ mod tests {
 
     const CORE_SOURCE: &str = include_str!("core.rs");
     const MEMO_SOURCE: &str = include_str!("memo.rs");
+    const PROCESS_SOURCE: &str = include_str!("process.rs");
     const STD_SOURCE: &str = include_str!("std.rs");
 
     #[test]
@@ -226,6 +259,7 @@ mod tests {
     #[test]
     fn public_runtime_module_shell_is_importable() {
         assert_eq!(memo::module_name(), "memo");
+        assert_eq!(process::FOL_EXIT_SUCCESS, 0);
         assert_eq!(abi::module_name(), "abi");
         assert_eq!(aggregate::module_name(), "aggregate");
         assert_eq!(builtins::module_name(), "builtins");
@@ -238,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_modules_expose_expected_capabilities() {
+    fn internal_runtime_tier_modules_expose_expected_capabilities() {
         assert_eq!(core::tier_name(), "core");
         assert!(!core::HAS_HEAP);
         assert!(!core::HAS_OS);
@@ -253,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_module_exports_stay_intentionally_distinct() {
+    fn internal_runtime_tier_exports_stay_intentionally_distinct() {
         assert!(!CORE_SOURCE.contains("FolStr("));
         assert!(!CORE_SOURCE.contains("FolVec("));
         assert!(!CORE_SOURCE.contains("FolSeq("));
@@ -268,12 +302,15 @@ mod tests {
         assert!(!MEMO_SOURCE.contains("FolProcessOutcome"));
 
         assert!(STD_SOURCE.contains("pub fn echo"));
-        assert!(STD_SOURCE.contains("FolProcessOutcome"));
-        assert!(STD_SOURCE.contains("pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};"));
+        assert!(!STD_SOURCE.contains("FolProcessOutcome"));
+        assert!(PROCESS_SOURCE.contains("pub struct FolProcessOutcome"));
+        assert!(
+            STD_SOURCE.contains("pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};")
+        );
     }
 
     #[test]
-    fn runtime_model_flags_and_helpers_freeze_backend_contract() {
+    fn internal_runtime_tier_flags_and_helpers_freeze_backend_contract() {
         assert_eq!(core::capabilities().name, "core");
         assert_eq!(memo::capabilities().name, "memo");
         assert_eq!(std::capabilities().name, "std");
@@ -308,9 +345,10 @@ mod tests {
     #[test]
     fn core_source_stays_free_of_accidental_heap_or_hosted_reexports() {
         // These are whole-identifier names, not substrings: the heap container
-        // types, the hosted `echo` service, and the hosted process outcome. The
-        // pure formatting helpers `render_echo` and `FolEchoFormat` are separate
-        // identifiers and remain a legitimate part of the `core` tier surface.
+        // types, the hosted `echo` service, and the capability-neutral process
+        // adapter. The pure formatting helpers `render_echo` and
+        // `FolEchoFormat` are separate identifiers and remain a legitimate part
+        // of the `core` tier surface.
         for forbidden in [
             "FolStr",
             "FolVec",
@@ -324,6 +362,29 @@ mod tests {
                 !source_defines_or_reexports_identifier(CORE_SOURCE, forbidden),
                 "core runtime tier should not expose '{forbidden}' through source reexports"
             );
+        }
+    }
+
+    #[test]
+    fn runtime_tier_sources_do_not_reexport_backend_process_apis() {
+        for (tier, source) in [
+            ("core", CORE_SOURCE),
+            ("memo", MEMO_SOURCE),
+            ("std", STD_SOURCE),
+        ] {
+            for forbidden in [
+                "FolProcessOutcome",
+                "FOL_EXIT_SUCCESS",
+                "FOL_EXIT_FAILURE",
+                "failure_outcome_from_error",
+                "printable_outcome_message",
+                "outcome_from_recoverable",
+            ] {
+                assert!(
+                    !source_defines_or_reexports_identifier(source, forbidden),
+                    "{tier} runtime tier should not expose backend process API '{forbidden}'"
+                );
+            }
         }
     }
 
@@ -350,9 +411,8 @@ mod tests {
 
     #[test]
     fn public_recoverable_abi_freezes_failure_path_through_model_modules() {
-        let value = memo::FolRecover::<memo::FolInt, memo::FolStr>::err(
-            memo::FolStr::from("bad-input"),
-        );
+        let value =
+            memo::FolRecover::<memo::FolInt, memo::FolStr>::err(memo::FolStr::from("bad-input"));
 
         assert!(memo::check_recoverable(&value));
         assert!(!memo::recoverable_succeeded(&value));
@@ -360,7 +420,10 @@ mod tests {
             value.error_ref().map(|error| error.as_str()),
             Some("bad-input")
         );
-        assert_eq!(Result::<memo::FolInt, memo::FolStr>::from(value), Err(memo::FolStr::from("bad-input")));
+        assert_eq!(
+            Result::<memo::FolInt, memo::FolStr>::from(value),
+            Err(memo::FolStr::from("bad-input"))
+        );
     }
 
     #[test]
@@ -384,7 +447,10 @@ mod tests {
         );
 
         assert_eq!(memo::unwrap_optional_shell(optional), Ok(7));
-        assert_eq!(memo::unwrap_error_shell(error_shell), memo::FolStr::from("broken"));
+        assert_eq!(
+            memo::unwrap_error_shell(error_shell),
+            memo::FolStr::from("broken")
+        );
         assert!(memo::check_recoverable(&recoverable));
     }
 }

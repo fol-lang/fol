@@ -1,9 +1,8 @@
-pro main(): int = {
-    result = doItFast() | async;
-    .echo("dosomething to echo");
+fun work(): int = {
+    return 1;
 };
 
-fun doItFast(): str = {
-    result = client.get(address).send() | await;
-    .echo(result);
+fun main(): int = {
+    var result = work() | async;
+    return result | await;
 };

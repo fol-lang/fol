@@ -1,5 +1,7 @@
 (use_decl "use" @keyword.import)
 (var_decl "var" @keyword)
+(var_decl "@var" @keyword)
+(var_decl "~var" @keyword)
 (con_decl "con" @keyword)
 (lab_decl "lab" @keyword)
 (fun_decl "fun" @keyword.function)
@@ -21,7 +23,10 @@
 (if_expr "else" @keyword.conditional)
 "else" @keyword.conditional
 (select_stmt "select" @keyword.conditional)
-(select_expr "select" @keyword.conditional)
+(select_arm "when" @keyword.conditional)
+(select_arm "as" @keyword)
+(select_arm binding: (identifier) @variable)
+(select_default_arm "*" @keyword.conditional)
 (when_expr "when" @keyword.conditional)
 (case_clause "case" @keyword.conditional)
 (default_clause "*" @keyword.conditional)
@@ -29,15 +34,21 @@
 (while_stmt "while" @keyword.repeat)
 (for_stmt "for" @keyword.repeat)
 (each_stmt "each" @keyword.repeat)
+(iteration_header "in" @operator)
+(iteration_header "when" @keyword.conditional)
+(iteration_header binding: (identifier) @variable)
+(iteration_binder_declaration "var" @keyword)
 (return_stmt "return" @keyword.return)
 (yield_stmt "yield" @keyword.return)
-(defer_stmt "defer" @keyword.repeat)
+(dfr_stmt "dfr" @keyword.repeat)
+(edf_stmt "edf" @keyword.exception)
 (report_stmt "report" @keyword.exception)
 (panic_stmt "panic" @keyword.exception)
 (assert_stmt "assert" @keyword.exception)
 (unreachable_stmt) @keyword.exception
 (check_expr "check" @keyword.exception)
 (break_stmt "break" @keyword.repeat)
+(spawn_expr "[>]" @keyword)
 __FOL_SOURCE_KIND_LINES__
 (use_decl ":" @punctuation.delimiter)
 (use_decl "=" @operator)
@@ -58,6 +69,8 @@ __FOL_SOURCE_KIND_LINES__
 (anonymous_log_expr "log" @keyword.function)
 (typed_binding ":" @punctuation.delimiter)
 (param ":" @punctuation.delimiter)
+(parameter_options "[" @punctuation.bracket "]" @punctuation.bracket)
+(parameter_options ["bor" "mux"] @attribute)
 (return_type ":" @punctuation.delimiter)
 (ali_decl ":" @punctuation.delimiter)
 (typ_decl ":" @punctuation.delimiter)
@@ -73,49 +86,26 @@ __FOL_SOURCE_KIND_LINES__
 (shell_type "[" @punctuation.bracket "]" @punctuation.bracket)
 (generic_type_expr "[" @punctuation.bracket "]" @punctuation.bracket)
 __FOL_CONTAINER_TYPE_LINES__
+(channel_type "chn" @type.builtin)
+(channel_type "[" @punctuation.bracket "]" @punctuation.bracket)
+(channel_access "[" @punctuation.bracket "]" @punctuation.bracket)
+(channel_access endpoint: ["tx" "rx"] @attribute)
 __FOL_SHELL_TYPE_LINES__
+(owned_type "@" @operator)
+(pointer_type "ptr" @type.builtin)
+(pointer_type qualifier: ["shared" "raw"] @attribute)
 (record_type) @type.builtin
 (entry_type) @type.builtin
-(typed_binding type: (type_expr (generic_type_expr base: (identifier) @type.builtin))
+(generic_type_expr base: (identifier) @type.builtin
   (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(param type: (type_expr (generic_type_expr base: (identifier) @type.builtin))
+(generic_type_expr base: (identifier) @type
+  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
+(generic_type_expr base: (qualified_path) @type)
+(type_expr (identifier) @type.builtin
   (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(return_type (type_expr (generic_type_expr base: (identifier) @type.builtin))
-  (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(error_type (type_expr (generic_type_expr base: (identifier) @type.builtin))
-  (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(ali_decl target: (type_expr (generic_type_expr base: (identifier) @type.builtin))
-  (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(typed_binding type: (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(param type: (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(return_type (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(error_type (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(ali_decl target: (type_expr (identifier) @type.builtin) (#match? @type.builtin "__FOL_BUILTIN_TYPE_REGEX__"))
-(typed_binding type: (type_expr (generic_type_expr base: (identifier) @type))
+(type_expr (identifier) @type
   (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(param type: (type_expr (generic_type_expr base: (identifier) @type))
-  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(return_type (type_expr (generic_type_expr base: (identifier) @type))
-  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(error_type (type_expr (generic_type_expr base: (identifier) @type))
-  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(ali_decl target: (type_expr (generic_type_expr base: (identifier) @type))
-  (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(typed_binding type: (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(param type: (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(return_type (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(error_type (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(ali_decl target: (type_expr (identifier) @type) (#not-match? @type "__FOL_BUILTIN_TYPE_REGEX__"))
-(typed_binding type: (type_expr (generic_type_expr base: (qualified_path) @type)))
-(param type: (type_expr (generic_type_expr base: (qualified_path) @type)))
-(return_type (type_expr (generic_type_expr base: (qualified_path) @type)))
-(error_type (type_expr (generic_type_expr base: (qualified_path) @type)))
-(ali_decl target: (type_expr (generic_type_expr base: (qualified_path) @type)))
-(typed_binding type: (type_expr (qualified_path) @type))
-(param type: (type_expr (qualified_path) @type))
-(return_type (type_expr (qualified_path) @type))
-(error_type (type_expr (qualified_path) @type))
-(ali_decl target: (type_expr (qualified_path) @type))
+(type_expr (qualified_path) @type)
 (error_type "/" @operator)
 (param name: (identifier) @variable.parameter)
 (record_field (typed_binding name: (identifier) @property))
@@ -150,15 +140,18 @@ __FOL_SHELL_TYPE_LINES__
 (binary_expr operator: "of" @operator)
 (binary_expr operator: "at" @operator)
 (unary_expr operator: "not" @operator)
+(unary_expr operator: ["&" "*" "#" "!"] @operator)
+(deref_target "*" @operator)
 (routine_capture_list "[" @punctuation.bracket "]" @punctuation.bracket)
 (routine_capture_list "," @punctuation.delimiter)
+(routine_capture endpoint: ["tx" "rx"] @attribute)
+(pipe_expr "|" @operator)
 (this_expr) @variable.builtin
 (self_expr) @variable.builtin
 (where_expr) @keyword
 (get_expr) @keyword
 (async_expr) @keyword
 (await_expr) @keyword
-(go_expr) @keyword
 (do_expr) @keyword
 (qualified_path root: (identifier) @namespace)
 (qualified_path segment: (identifier) @namespace)
@@ -166,6 +159,7 @@ __FOL_SHELL_TYPE_LINES__
 (nil_literal) @constant.builtin
 (boolean_literal) @boolean
 (string_literal) @string
+(raw_string_literal) @string
 (integer_literal) @number
 (plain_fun_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))
 (plain_pro_decl generics: (generic_params "(" @punctuation.bracket ")" @punctuation.bracket))

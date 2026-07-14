@@ -23,8 +23,17 @@ Finalized design contract:
 - source code should reach bundled std through the dependency system with `pkg`
   imports, for example:
   - `use std: pkg = {"std"};`
-- `graph.add_run(...)` is independent of std-library presence
-- runnable `core` and `memo` examples do not need bundled std at all
+- `graph.add_run(...)` may declare a run target independently of std-library
+  presence
+- building or checking an executable `core` or std-free `memo` artifact does
+  not require bundled std
+- running or testing a host-compatible `core` or `memo` artifact does not
+  require bundled std
+- bundled std gates source-visible hosted APIs, not artifact execution
+- launching artifacts and system tools is frontend/build-host behavior and is
+  orthogonal to `fol_model`
+- target compatibility is also orthogonal: a cross-target artifact still needs
+  an appropriate runner, and bundled std does not make it host-executable
 
 Normal build usage:
 
@@ -43,6 +52,28 @@ Implementation split:
 
 - `core` and `memo` remain compiler/runtime capability layers in Rust
 - `std` is the importable bundled library and should grow mostly in FOL
+
+## What the dependency changes
+
+The internal dependency declaration is package-level. For a `memo` artifact it:
+
+- makes the dependency alias available to `use std: pkg = {"std"};`
+- raises the artifact's effective API tier so hosted FOL APIs are legal
+- links the hosted runtime surface required by those APIs
+
+It does not:
+
+- create a third `fol_model`
+- widen a `core` artifact in the same package
+- grant permission to run or test an artifact
+- make a foreign machine target executable on the build host
+- import `std` into source automatically
+
+The Rust-oriented analogy is `core` for a `no_std`-style fixed-shape source
+surface, `memo` for the same source model plus alloc-like heap facilities, and
+the explicit bundled dependency for hosted FOL APIs. This analogy describes
+the FOL source contract, not whether compiler or backend implementation code
+uses host facilities internally.
 
 ## What Ships With FOL
 
@@ -107,7 +138,14 @@ Current rule:
 
 - `.echo(...)` remains the low-level hosted substrate
 - `std.io` is the first bundled public wrapper over that substrate
-- runnable artifacts still do not need bundled std unless they actually import it
+- executable artifacts can be built, run, and tested without bundled std
+- the explicit bundled dependency is required when source code uses
+  `std`-backed hosted APIs, not merely because the frontend executes a binary
+
+Cross-target execution remains separate. The current frontend rejects
+`fol code run` and `fol code test` for a target that cannot execute on the
+host; use an appropriate external runner for that artifact. Adding bundled
+std does not change target compatibility.
 
 That keeps the first shipped std honest:
 
@@ -118,13 +156,15 @@ That keeps the first shipped std honest:
 
 Canonical bootstrap example packages:
 
-- `examples/core_run_min`
-- `examples/memo_run_min`
-- `examples/std_bundled_fmt`
-- `examples/std_bundled_io`
-- `examples/std_explicit_pkg`
-- `examples/std_alias_pkg`
-- `examples/std_substrate_echo`
+- std-free executable artifacts that use the normal build/run route:
+  - `examples/core_run_min`
+  - `examples/memo_run_min`
+- bundled-std consumers:
+  - `examples/std_bundled_fmt`
+  - `examples/std_bundled_io`
+  - `examples/std_explicit_pkg`
+  - `examples/std_alias_pkg`
+  - `examples/std_substrate_echo`
 
 Current shipped public routines:
 
@@ -192,3 +232,6 @@ commands:
 The normal user path does not require `--package-store-root` or `--std-root`.
 Those flags exist for harnesses, fixture isolation, and explicit override work,
 not as part of the shipped V2 example contract.
+
+These examples declare bundled std because their source uses hosted std APIs.
+The `fol code run` command itself does not impose that dependency.

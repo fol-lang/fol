@@ -1,0 +1,14 @@
+use std: pkg = {"std"};
+
+fun[] work(fail: bol): int / int = {
+    when(fail) {
+        case(true) { report 9; }
+        * { return 7; }
+    }
+};
+
+fun[] main(): int = {
+    var pending = work(false) | async;
+    edf { var handled: bol = check(pending | await); };
+    return 0;
+};

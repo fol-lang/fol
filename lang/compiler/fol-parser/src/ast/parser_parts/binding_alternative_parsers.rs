@@ -19,9 +19,6 @@ impl AstParser {
         let next = self.next_significant_token_from_window(tokens)?;
         let (keyword, default_options) = match next.key() {
             KEYWORD::Keyword(BUILDIN::Var) => ("var", vec![VarOption::Mutable, VarOption::Normal]),
-            KEYWORD::Keyword(BUILDIN::Let) => {
-                ("let", vec![VarOption::Immutable, VarOption::Normal])
-            }
             KEYWORD::Keyword(BUILDIN::Con) => {
                 ("con", vec![VarOption::Immutable, VarOption::Normal])
             }

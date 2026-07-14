@@ -349,6 +349,8 @@ But it should preserve these future requirements:
 - target normalization must be centralized
 - build outputs must be target-scoped
 - non-host execution must be treated separately from build
+- host execution and tool launching must remain separate from source-language
+  `core` / `memo` / bundled-`std` API legality
 - native-link support later must reuse the same target model instead of
   inventing another one
 

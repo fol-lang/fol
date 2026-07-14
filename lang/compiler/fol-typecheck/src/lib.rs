@@ -1,10 +1,11 @@
-//! Whole-program type checking for the `V1` FOL language subset.
+//! Whole-workspace type checking for the shipped FOL V1, V2, and V3 language
+//! surfaces.
 //!
-//! This crate is introduced in stages. The early foundation slices only provide
-//! the workspace boundary and a small public API surface so later commits can
-//! grow semantic types, typed results, and diagnostics incrementally.
+//! This crate owns semantic types, capability-model legality, ownership and
+//! processor checks, typed results, and compiler diagnostics.
 
 pub mod builtins;
+mod channel_analysis;
 pub mod config;
 pub mod decls;
 pub mod editor;
@@ -16,19 +17,22 @@ pub mod types;
 
 pub use builtins::BuiltinTypeIds;
 pub use config::{TypecheckCapabilityModel, TypecheckConfig};
-pub use errors::{TypecheckError, TypecheckErrorKind};
 pub use editor::{
     editor_builtin_type_names, editor_container_type_names, editor_declaration_keywords,
-    editor_implemented_intrinsics, editor_intrinsic_available_in_model,
-    editor_model_capability, editor_shell_type_names, editor_source_kind_names,
+    editor_implemented_intrinsics, editor_intrinsic_available_in_model, editor_model_capability,
+    editor_processor_keyword_available_in_model, editor_processor_keyword_infos,
+    editor_shell_type_names, editor_source_kind_names, editor_structured_type_infos,
     editor_type_family_available_in_model, EditorIntrinsicInfo, EditorModelCapability,
+    EditorProcessorKeywordContext, EditorProcessorKeywordInfo, EditorStructuredTypeInfo,
     EditorTypeFamily,
 };
+pub use errors::{TypecheckError, TypecheckErrorKind};
 pub use fol_parser::ast::ParsedSourceUnitKind;
 pub use model::{
-    RecordFieldLayout, RecoverableCallEffect, TypedConformance, TypedConformanceClaim,
-    TypedExportMount, TypedNode, TypedPackage, TypedProgram, TypedReference, TypedSourceUnit,
-    TypedStandard, TypedStandardField, TypedStandardRoutine, TypedSymbol, TypedWorkspace,
+    ActiveMutexGuard, RecordFieldLayout, RecoverableCallEffect, TypedConformance,
+    TypedConformanceClaim, TypedExportMount, TypedNode, TypedPackage, TypedProgram, TypedReference,
+    TypedSourceUnit, TypedStandard, TypedStandardField, TypedStandardRoutine, TypedSymbol,
+    TypedWorkspace,
 };
 pub use types::{
     BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind, GenericConstraint, RoutineType,
@@ -185,9 +189,9 @@ mod tests {
         );
 
         assert!(
-            errors
-                .iter()
-                .any(|error| error.message().contains("when expressions require a default branch")),
+            errors.iter().any(|error| error
+                .message()
+                .contains("when expressions require a default branch")),
             "typecheck should reject missing-default when expressions before lowering: {errors:#?}"
         );
     }

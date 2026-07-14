@@ -1,3 +1,3 @@
-fun loadMesh(path: str, ((meshes)): vec[mesh]): int = {
+fun loadMesh(path: str, meshes[mux]: vec[mesh]): int = {
     return 1;
 };

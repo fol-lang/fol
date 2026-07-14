@@ -1,11 +1,9 @@
-use crate::{
-    model::ResolvedProgram, ResolverError, ResolverSession, ScopeId, SourceUnitId,
-};
+use crate::{model::ResolvedProgram, ResolverError, ResolverSession, ScopeId, SourceUnitId};
 use fol_parser::ast::{FolType, TypeDefinition};
 
+use super::super::references::record_contract_reference;
 use super::super::references::record_named_type_reference;
 use super::super::references::record_qualified_type_reference;
-use super::super::references::record_contract_reference;
 
 pub fn resolve_type_reference(
     session: &mut ResolverSession,
@@ -16,6 +14,11 @@ pub fn resolve_type_reference(
 ) -> Result<(), ResolverError> {
     match typ {
         typ if typ.is_builtin_str() => {}
+        FolType::Named { name, .. } if name == "evt" || name.starts_with("evt[") => {
+            // `evt[T]` is a deliberately non-nameable V3 internal type. Leave
+            // the precise diagnostic to typecheck instead of reporting it as
+            // an ordinary missing user declaration.
+        }
         FolType::Named { name, syntax_id } => {
             record_named_type_reference(
                 program,
@@ -59,7 +62,11 @@ pub fn resolve_type_reference(
                 resolve_type_reference(session, program, source_unit_id, scope_id, variant)?;
             }
         }
-        FolType::Optional { inner } | FolType::Pointer { target: inner } => {
+        FolType::Optional { inner }
+        | FolType::Owned { inner }
+        | FolType::Pointer {
+            target: inner, ..
+        } => {
             resolve_type_reference(session, program, source_unit_id, scope_id, inner)?;
         }
         FolType::Error { inner } => {

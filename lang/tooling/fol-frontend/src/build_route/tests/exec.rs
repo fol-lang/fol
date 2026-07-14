@@ -35,6 +35,14 @@ fn emitted_main_rs_from_result(result: &crate::FrontendCommandResult) -> String 
     fs::read_to_string(crate_root.join("src/main.rs")).expect("generated main.rs")
 }
 
+fn non_host_machine_target() -> String {
+    if FrontendConfig::host_rust_target_triple() == Some("aarch64-apple-darwin") {
+        "x86_64-unknown-linux-gnu".to_string()
+    } else {
+        "aarch64-apple-darwin".to_string()
+    }
+}
+
 #[test]
 fn cli_selected_custom_graph_steps_flow_into_the_routed_member_plan() {
     let root = std::env::temp_dir().join(format!(
@@ -1096,7 +1104,7 @@ fn execute_workspace_build_route_emits_std_runtime_module_imports() {
             run_args: Vec::new(),
         },
     )
-    .expect("std-model routed build should succeed");
+    .expect("hosted-tier routed build should succeed");
 
     let main_rs = emitted_main_rs_from_result(&result);
     assert!(main_rs.contains("use fol_runtime::std as rt_model;"));
@@ -1105,7 +1113,7 @@ fn execute_workspace_build_route_emits_std_runtime_module_imports() {
 }
 
 #[test]
-fn execute_workspace_build_route_rejects_run_for_selected_core_model_artifacts() {
+fn execute_workspace_build_route_runs_selected_core_model_artifacts_without_std() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_core_run_{}_{}",
         std::process::id(),
@@ -1149,25 +1157,38 @@ fn execute_workspace_build_route_rejects_run_for_selected_core_model_artifacts()
         install_prefix: root.join(".fol/install"),
     };
 
-    let result = execute_workspace_build_route(
+    let request = FrontendWorkspaceBuildRequest {
+        requested_step: "serve".to_string(),
+        profile: FrontendProfile::Debug,
+        run_args: Vec::new(),
+    };
+    let cross_error = execute_workspace_build_route(
         &workspace,
-        &FrontendConfig::default(),
-        &FrontendWorkspaceBuildRequest {
-            requested_step: "serve".to_string(),
-            profile: FrontendProfile::Debug,
-            run_args: Vec::new(),
+        &FrontendConfig {
+            build_target_override: Some(non_host_machine_target()),
+            ..FrontendConfig::default()
         },
+        &request,
     )
-    .expect("core-model selected run should remain routable");
+    .expect_err("selected core run must still reject a non-host target");
+    assert!(cross_error
+        .message()
+        .contains("run command cannot execute target"));
 
+    let result = execute_workspace_build_route(&workspace, &FrontendConfig::default(), &request)
+        .expect("host-compatible core artifact should run without bundled std");
+
+    assert_eq!(result.command, "run");
     assert_eq!(result.artifacts.len(), 1);
-    assert!(result.summary.contains("ran"));
+    assert_eq!(result.artifacts[0].kind, FrontendArtifactKind::Binary);
+    assert!(result.summary.contains("capability_mode=core"));
+    assert!(result.summary.contains("bundled_std=0/1"));
 
     fs::remove_dir_all(root).ok();
 }
 
 #[test]
-fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts() {
+fn execute_workspace_build_route_tests_selected_memo_model_artifacts_without_std() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_mem_test_{}_{}",
         std::process::id(),
@@ -1219,16 +1240,19 @@ fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts()
             run_args: Vec::new(),
         },
     )
-    .expect("memo-model selected test should remain routable");
+    .expect("host-compatible memo test artifact should run without bundled std");
 
+    assert_eq!(result.command, "test");
     assert_eq!(result.artifacts.len(), 1);
-    assert!(result.summary.contains("tested"));
+    assert_eq!(result.artifacts[0].kind, FrontendArtifactKind::Binary);
+    assert!(result.summary.contains("capability_mode=memo"));
+    assert!(result.summary.contains("bundled_std=0/1"));
 
     fs::remove_dir_all(root).ok();
 }
 
 #[test]
-fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_routes() {
+fn execute_workspace_build_route_runs_step_specific_artifacts_in_mixed_routes() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_mixed_model_step_{}_{}",
         std::process::id(),
@@ -1297,7 +1321,7 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
 
     crate::fetch_workspace(&workspace).expect("bundled std should materialize before run");
 
-    let result = execute_workspace_build_route(
+    let core = execute_workspace_build_route(
         &workspace,
         &FrontendConfig::default(),
         &FrontendWorkspaceBuildRequest {
@@ -1306,10 +1330,11 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
             run_args: Vec::new(),
         },
     )
-    .expect("non-hosted custom run steps should remain routable");
+    .expect("host-compatible core custom run step should execute");
 
-    assert_eq!(result.artifacts.len(), 1);
-    assert!(result.summary.contains("ran"));
+    assert_eq!(core.artifacts.len(), 1);
+    assert!(core.summary.contains("capability_mode=core"));
+    assert!(core.summary.contains("bundled_std=0/1"));
 
     let hosted = execute_workspace_build_route(
         &workspace,
@@ -1417,7 +1442,8 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
             .expect("system time before epoch")
             .as_nanos()
     ));
-    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("app")).unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
     fs::write(
         root.join("build.fol"),
         concat!(
@@ -1426,8 +1452,8 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
             "    var graph = build.graph();\n",
-            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
-            "    graph.add_test({ name = \"suite\", root = \"src/tests.fol\", fol_model = \"core\" });\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"app/main.fol\", fol_model = \"memo\" });\n",
+            "    graph.add_test({ name = \"suite\", root = \"tests/tests.fol\", fol_model = \"core\" });\n",
             "    graph.add_run(app);\n",
             "    return;\n",
             "};\n",
@@ -1435,12 +1461,12 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
     )
     .unwrap();
     fs::write(
-        root.join("src/main.fol"),
+        root.join("app/main.fol"),
         "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    var shown: str = std::io::echo_str(\"ok\");\n    return .len(shown) - .len(shown);\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/tests.fol"),
+        root.join("tests/tests.fol"),
         "fun[] verify_suite(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
@@ -1469,6 +1495,152 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
     .expect("run selection should stay on the std executable");
 
     assert!(result.summary.contains("capability_mode=memo"));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn routed_isolation_uses_the_same_option_evaluation_as_selection() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_build_route_option_scope_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(root.join("core")).unwrap();
+    fs::create_dir_all(root.join("memo")).unwrap();
+    fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+            "    var graph = build.graph();\n",
+            "    var core_root = graph.option({ name = \"core_root\", kind = \"path\", default = \"core/main.fol\" });\n",
+            "    graph.add_exe({ name = \"core\", root = core_root, fol_model = \"core\" });\n",
+            "    var app = graph.add_exe({ name = \"memo\", root = \"memo/main.fol\", fol_model = \"memo\" });\n",
+            "    graph.add_run(app);\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("core/main.fol"),
+        "fun[] main(): int = { return 1; };\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("memo/core.fol"),
+        "fun[] main(): int = { return 2; };\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("memo/main.fol"),
+        "fun[] main(): int = { return 3; };\n",
+    )
+    .unwrap();
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(root.clone())],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+    let config = FrontendConfig {
+        build_option_overrides: vec!["core_root=memo/core.fol".to_string()],
+        ..FrontendConfig::default()
+    };
+
+    let error = execute_workspace_build_route(
+        &workspace,
+        &config,
+        &FrontendWorkspaceBuildRequest {
+            requested_step: "run".to_string(),
+            profile: FrontendProfile::Debug,
+            run_args: Vec::new(),
+        },
+    )
+    .expect_err("the option-selected core root overlaps the selected memo source directory");
+
+    assert!(error.message().contains("overlaps core artifact root"));
+    assert!(error.message().contains("memo/core.fol"));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn routed_hosted_tier_uses_the_evaluated_dependency_set() {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_route_conditional_std_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var optimize = graph.standard_optimize();\n",
+            "    when(optimize == \"release-fast\") {\n",
+            "        { build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" }); }\n",
+            "    };\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+            "    graph.add_run(app);\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = { return 0; };\n",
+    )
+    .unwrap();
+    let member = FrontendMemberBuildRoute {
+        member_root: root.clone(),
+        package_name: "demo".to_string(),
+        mode: FrontendBuildWorkflowMode::Modern,
+    };
+
+    let debug_plan = plan_member_execution(&member, &FrontendConfig::default()).unwrap();
+    let debug_run = debug_plan
+        .steps
+        .iter()
+        .find(|step| step.name == "run")
+        .expect("default run step");
+    assert!(!debug_run.selection.as_ref().unwrap().has_bundled_std);
+    assert_eq!(
+        debug_run.selection.as_ref().unwrap().fol_model,
+        fol_backend::BackendFolModel::Memo
+    );
+
+    let release = FrontendConfig {
+        build_optimize_override: Some("release-fast".to_string()),
+        ..FrontendConfig::default()
+    };
+    let release_plan = plan_member_execution(&member, &release).unwrap();
+    let release_run = release_plan
+        .steps
+        .iter()
+        .find(|step| step.name == "run")
+        .expect("default run step");
+    assert!(release_run.selection.as_ref().unwrap().has_bundled_std);
+    assert_eq!(
+        release_run.selection.as_ref().unwrap().fol_model,
+        fol_backend::BackendFolModel::Std
+    );
 
     fs::remove_dir_all(root).ok();
 }

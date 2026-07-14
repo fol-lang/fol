@@ -58,6 +58,7 @@ pub struct LspTextDocumentSyncOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LspServerCapabilities {
+    pub position_encoding: String,
     pub text_document_sync: LspTextDocumentSyncOptions,
     pub hover_provider: bool,
     pub definition_provider: bool,
@@ -90,8 +91,6 @@ pub struct LspServerCapabilities {
     pub selection_range_provider: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inlay_hint_provider: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code_lens_provider: Option<LspCodeLensOptions>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -465,31 +464,6 @@ pub struct LspSelectionRangeParams {
     pub positions: Vec<LspPosition>,
 }
 
-/// A command a code lens (or other UI) can execute on the client.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LspCommand {
-    pub title: String,
-    pub command: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub arguments: Vec<serde_json::Value>,
-}
-
-/// `textDocument/codeLens` result item.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LspCodeLens {
-    pub range: LspRange,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub command: Option<LspCommand>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LspCodeLensParams {
-    pub text_document: LspTextDocumentIdentifier,
-}
-
 /// `textDocument/inlayHint` result item. `kind`: 1=Type, 2=Parameter.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -517,11 +491,4 @@ pub struct LspInlayHintParams {
 #[serde(rename_all = "camelCase")]
 pub struct LspRenameOptions {
     pub prepare_provider: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LspCodeLensOptions {
-    #[serde(default)]
-    pub resolve_provider: bool,
 }

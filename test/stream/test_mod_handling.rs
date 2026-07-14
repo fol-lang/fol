@@ -70,7 +70,7 @@ mod mod_handling_tests {
                 "single/input2.fol",
                 "single/subpak/input1.fol",
                 "single/var.fol",
-                "var/let.fol",
+                "var/binding.fol",
                 "var/var.fol",
                 "var2/number_fol/file.fol",
                 "var2/var.fol",
@@ -171,7 +171,7 @@ mod mod_handling_tests {
 
         let file_specs = vec![
             (temp_root.join("main.fol"), "fun main() => 10\n"),
-            (temp_root.join("alpha.fol"), "let alpha = 11\n"),
+            (temp_root.join("alpha.fol"), "var[imu] alpha = 11\n"),
             (
                 temp_root.join("nested/beta.fol"),
                 "fun beta() {\n    return 12\n}\n",
@@ -216,7 +216,7 @@ mod mod_handling_tests {
         );
         assert!(
             drained.contains("fun main() => 10")
-                && drained.contains("let alpha = 11")
+                && drained.contains("var[imu] alpha = 11")
                 && drained.contains("fun beta()")
                 && drained.contains("log gamma(flag: bool): bool => flag"),
             "The drained stream should still contain content from every eagerly loaded file"
