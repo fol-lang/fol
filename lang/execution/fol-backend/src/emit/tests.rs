@@ -282,6 +282,45 @@ mod tests {
     }
 
     #[test]
+    fn recoverable_main_emission_uses_capability_neutral_process_adapter() {
+        let fixture_root = temp_root("recoverable_process_adapter");
+        let fixture = write_fixture(
+            &fixture_root,
+            "fun[] main(): int / int = {\n    report 9;\n    return 0;\n};\n",
+        );
+        let lowered = lowered_workspace_from_entry_path(&fixture);
+        let session = BackendSession::new(lowered);
+
+        for fol_model in [
+            BackendFolModel::Core,
+            BackendFolModel::Memo,
+            BackendFolModel::Std,
+        ] {
+            let emitted = emit_main_rs_for_config(
+                &session,
+                &BackendConfig {
+                    fol_model,
+                    ..BackendConfig::default()
+                },
+            )
+            .expect("recoverable main should emit for every runtime model");
+
+            assert!(emitted
+                .contents
+                .contains("fol_runtime::process::outcome_from_recoverable"));
+            assert!(emitted
+                .contents
+                .contains("fol_runtime::process::printable_outcome_message"));
+            assert!(!emitted.contents.contains("rt::outcome_from_recoverable"));
+            assert!(!emitted
+                .contents
+                .contains("rt::printable_outcome_message"));
+        }
+
+        let _ = fs::remove_dir_all(&fixture_root);
+    }
+
+    #[test]
     fn main_rs_emission_parses_bool_entry_params_from_cli_args() {
         let fixture_root = temp_root("bool_entry_signature");
         let fixture = write_fixture(

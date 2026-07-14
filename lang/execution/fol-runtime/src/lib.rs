@@ -355,6 +355,29 @@ mod tests {
     }
 
     #[test]
+    fn runtime_tier_sources_do_not_reexport_backend_process_apis() {
+        for (tier, source) in [
+            ("core", CORE_SOURCE),
+            ("memo", MEMO_SOURCE),
+            ("std", STD_SOURCE),
+        ] {
+            for forbidden in [
+                "FolProcessOutcome",
+                "FOL_EXIT_SUCCESS",
+                "FOL_EXIT_FAILURE",
+                "failure_outcome_from_error",
+                "printable_outcome_message",
+                "outcome_from_recoverable",
+            ] {
+                assert!(
+                    !source_defines_or_reexports_identifier(source, forbidden),
+                    "{tier} runtime tier should not expose backend process API '{forbidden}'"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn runtime_errors_can_be_constructed_with_stable_kinds() {
         let error = RuntimeError::new(
             RuntimeErrorKind::InvariantViolation,
