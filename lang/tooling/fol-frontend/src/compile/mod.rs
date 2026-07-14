@@ -46,9 +46,7 @@ pub(crate) fn effective_runtime_model_for_package_with_bundled_std(
         return fol_backend::BackendFolModel::Std;
     }
     match fol_model {
-        fol_backend::BackendFolModel::Memo if has_bundled_std => {
-            fol_backend::BackendFolModel::Std
-        }
+        fol_backend::BackendFolModel::Memo if has_bundled_std => fol_backend::BackendFolModel::Std,
         other => other,
     }
 }
@@ -126,18 +124,14 @@ pub(crate) fn build_evaluation_inputs(
         let Some((key, value)) = override_value.split_once('=') else {
             return Err(FrontendError::new(
                 FrontendErrorKind::InvalidInput,
-                format!(
-                    "invalid build option '{override_value}'; expected name=value"
-                ),
+                format!("invalid build option '{override_value}'; expected name=value"),
             ));
         };
         let key = key.trim();
         if key.is_empty() {
             return Err(FrontendError::new(
                 FrontendErrorKind::InvalidInput,
-                format!(
-                    "invalid build option '{override_value}'; option name must not be empty"
-                ),
+                format!("invalid build option '{override_value}'; option name must not be empty"),
             ));
         }
         inputs.options.insert(key.to_string(), value.to_string());
@@ -156,7 +150,10 @@ fn evaluate_package_build(
         Err(error) => {
             return Err(FrontendError::new(
                 FrontendErrorKind::CommandFailed,
-                format!("failed to read build file '{}': {error}", build_path.display()),
+                format!(
+                    "failed to read build file '{}': {error}",
+                    build_path.display()
+                ),
             ));
         }
     };
@@ -256,9 +253,7 @@ fn distinct_declared_capability_models(
     models
 }
 
-fn public_capability_model(
-    model: fol_backend::BackendFolModel,
-) -> fol_backend::BackendFolModel {
+fn public_capability_model(model: fol_backend::BackendFolModel) -> fol_backend::BackendFolModel {
     match model {
         fol_backend::BackendFolModel::Std => fol_backend::BackendFolModel::Memo,
         other => other,
@@ -392,9 +387,8 @@ fn isolated_artifact_source_scope(
 
 #[cfg(test)]
 fn declared_capability_model_for_package(root: &std::path::Path) -> fol_backend::BackendFolModel {
-    let models = distinct_declared_capability_models(
-        &declared_artifact_capabilities_for_package(root),
-    );
+    let models =
+        distinct_declared_capability_models(&declared_artifact_capabilities_for_package(root));
     if models == [fol_backend::BackendFolModel::Core] {
         fol_backend::BackendFolModel::Core
     } else {
@@ -469,9 +463,7 @@ pub(crate) fn runtime_model_for_direct_input(
         .iter()
         .filter(|capability| {
             let artifact_path = package_root.join(&capability.root_module);
-            let artifact_path = artifact_path
-                .canonicalize()
-                .unwrap_or(artifact_path);
+            let artifact_path = artifact_path.canonicalize().unwrap_or(artifact_path);
             if input.is_dir() {
                 artifact_path.starts_with(&input_path)
             } else {
@@ -601,8 +593,7 @@ pub fn check_workspace_with_config(
         validate_declared_artifact_roots(&member.root, config)?;
         // Check under the member's declared capability model so core/memo
         // legality surfaces at check time, not first at build time.
-        let contract =
-            package_wide_runtime_contract_for_package(&member.root, "check", config)?;
+        let contract = package_wide_runtime_contract_for_package(&member.root, "check", config)?;
         compile_member_workspace_for_model(workspace, config, &member.root, contract.fol_model)?;
     }
 
@@ -779,17 +770,7 @@ pub fn run_workspace_with_args_and_config(
     let runtime_contracts = workspace
         .members
         .iter()
-        .map(|member| {
-            let label = member
-                .root
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("package");
-            let contract =
-                package_wide_runtime_contract_for_package(&member.root, "run", config)?;
-            ensure_package_runtime_is_hosted(&member.root, label, contract, "run")?;
-            Ok(contract)
-        })
+        .map(|member| package_wide_runtime_contract_for_package(&member.root, "run", config))
         .collect::<FrontendResult<Vec<_>>>()?;
     let built = build_workspace_with_config(workspace, config)?;
     let binaries = built
@@ -866,7 +847,6 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
     args: &[String],
 ) -> FrontendResult<FrontendCommandResult> {
     ensure_host_runnable_target(config, "run")?;
-    ensure_std_execution_selection(selection, "run")?;
     let built = build_selected_artifacts_for_profile_with_config(
         workspace,
         config,
@@ -956,7 +936,6 @@ pub(crate) fn test_selected_artifacts_with_config(
     selections: &[FrontendArtifactExecutionSelection],
 ) -> FrontendResult<FrontendCommandResult> {
     ensure_host_runnable_target(config, "test")?;
-    ensure_std_execution_selections(selections, "test")?;
     let built =
         build_selected_artifacts_for_profile_with_config(workspace, config, profile, selections)?;
     let binaries = built
@@ -1172,13 +1151,7 @@ fn compile_member_workspace_for_model(
     package_root: &Path,
     fol_model: fol_backend::BackendFolModel,
 ) -> FrontendResult<fol_lower::LoweredWorkspace> {
-    compile_member_source_scope_for_model(
-        workspace,
-        config,
-        package_root,
-        package_root,
-        fol_model,
-    )
+    compile_member_source_scope_for_model(workspace, config, package_root, package_root, fol_model)
 }
 
 fn compile_member_source_scope_for_model(
@@ -1421,7 +1394,9 @@ fn compile_member_workspace_targeted(
     let matching_candidates = lowered
         .entry_candidates()
         .iter()
-        .filter(|candidate| entry_candidate_matches_root_module(&lowered, candidate, &canonical_root))
+        .filter(|candidate| {
+            entry_candidate_matches_root_module(&lowered, candidate, &canonical_root)
+        })
         .cloned()
         .collect::<Vec<_>>();
     if matching_candidates.is_empty() {
@@ -1531,61 +1506,6 @@ fn ensure_host_runnable_target(config: &FrontendConfig, command: &str) -> Fronte
     ))
 }
 
-fn ensure_std_execution_selection(
-    selection: &FrontendArtifactExecutionSelection,
-    command: &str,
-) -> FrontendResult<()> {
-    if selection.fol_model == fol_backend::BackendFolModel::Std {
-        return Ok(());
-    }
-
-    Err(FrontendError::new(
-        FrontendErrorKind::InvalidInput,
-        format!(
-            "{command} cannot host-execute artifact '{}' with capability model '{}'; declare the bundled internal 'standard' dependency",
-            selection.label,
-            selection.capability_model.as_str()
-        ),
-    )
-    .with_note(
-        "host-executed run and test routes require fol_model = memo plus build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" })",
-    ))
-}
-
-fn ensure_package_runtime_is_hosted(
-    package_root: &Path,
-    label: &str,
-    contract: PackageWideRuntimeContract,
-    command: &str,
-) -> FrontendResult<()> {
-    if contract.fol_model == fol_backend::BackendFolModel::Std {
-        return Ok(());
-    }
-
-    Err(FrontendError::new(
-        FrontendErrorKind::InvalidInput,
-        format!(
-            "{command} cannot host-execute package '{}' ({}) with capability model '{}'; declare the bundled internal 'standard' dependency",
-            label,
-            package_root.display(),
-            contract.capability_model.as_str()
-        ),
-    )
-    .with_note(
-        "host-executed run and test require fol_model = memo plus build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" })",
-    ))
-}
-
-fn ensure_std_execution_selections(
-    selections: &[FrontendArtifactExecutionSelection],
-    command: &str,
-) -> FrontendResult<()> {
-    for selection in selections {
-        ensure_std_execution_selection(selection, command)?;
-    }
-    Ok(())
-}
-
 fn test_workspace_selected_with_config(
     workspace: &FrontendWorkspace,
     config: &FrontendConfig,
@@ -1595,17 +1515,7 @@ fn test_workspace_selected_with_config(
     let selected_members = selected_workspace_members(workspace, selected_package)?;
     let runtime_contracts = selected_members
         .iter()
-        .map(|member| {
-            let label = member
-                .root
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("package");
-            let contract =
-                package_wide_runtime_contract_for_package(&member.root, "test", config)?;
-            ensure_package_runtime_is_hosted(&member.root, label, contract, "test")?;
-            Ok(contract)
-        })
+        .map(|member| package_wide_runtime_contract_for_package(&member.root, "test", config))
         .collect::<FrontendResult<Vec<_>>>()?;
     let mut result = FrontendCommandResult::new("test", "tested 0 workspace package(s)");
     let mut tested_count = 0usize;

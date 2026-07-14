@@ -51,7 +51,6 @@ struct FrontendMemberPlannedStep {
     selection: Option<crate::compile::FrontendArtifactExecutionSelection>,
     ambiguous_selection: bool,
     available_models: Vec<fol_backend::BackendFolModel>,
-    has_bundled_std: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,8 +65,6 @@ enum FrontendStepExecutionKind {
 struct ResolvedWorkspaceStepExecution {
     execution: FrontendStepExecutionKind,
     selections: Vec<crate::compile::FrontendArtifactExecutionSelection>,
-    available_models: Vec<fol_backend::BackendFolModel>,
-    all_members_have_bundled_std: bool,
 }
 
 impl FrontendBuildWorkflowMode {
@@ -196,24 +193,14 @@ pub fn execute_workspace_build_route(
         }
         FrontendStepExecutionKind::Check => crate::check_workspace_with_config(workspace, config),
         FrontendStepExecutionKind::Run => match resolved.selections.as_slice() {
-            [] => {
-                ensure_std_workspace_route_models(
-                    "run",
-                    &resolved.available_models,
-                    resolved.all_members_have_bundled_std,
-                )?;
-                crate::run_workspace_with_args_and_config(workspace, config, &request.run_args)
-            }
-            [selection] => {
-                ensure_std_workspace_step_selection("run", requested_step, selection)?;
-                crate::compile::run_selected_artifact_with_args_and_config(
-                    workspace,
-                    config,
-                    request.profile,
-                    selection,
-                    &request.run_args,
-                )
-            }
+            [] => crate::run_workspace_with_args_and_config(workspace, config, &request.run_args),
+            [selection] => crate::compile::run_selected_artifact_with_args_and_config(
+                workspace,
+                config,
+                request.profile,
+                selection,
+                &request.run_args,
+            ),
             selections => Err(FrontendError::new(
                 FrontendErrorKind::InvalidInput,
                 format!(
@@ -225,14 +212,8 @@ pub fn execute_workspace_build_route(
         },
         FrontendStepExecutionKind::Test => {
             if resolved.selections.is_empty() {
-                ensure_std_workspace_route_models(
-                    "test",
-                    &resolved.available_models,
-                    resolved.all_members_have_bundled_std,
-                )?;
                 crate::test_workspace_with_config(workspace, config)
             } else {
-                ensure_std_workspace_step_selections("test", requested_step, &resolved.selections)?;
                 crate::compile::test_selected_artifacts_with_config(
                     workspace,
                     config,
@@ -451,7 +432,6 @@ pub(crate) fn plan_member_execution_from_graph(
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
     synthesize_defaults: bool,
 ) -> FrontendResult<FrontendMemberExecutionPlan> {
-    let has_bundled_std = crate::compile::evaluated_program_declares_bundled_std(evaluated);
     let mut steps = fol_package::project_graph_steps(graph)
         .into_iter()
         .map(|step| {
@@ -466,7 +446,6 @@ pub(crate) fn plan_member_execution_from_graph(
                 selection,
                 ambiguous_selection,
                 available_models: models_for_step(evaluated, &step.name, step.default_kind),
-                has_bundled_std,
                 description: step.description,
                 default_kind: step.default_kind,
                 name: step.name,
@@ -475,7 +454,7 @@ pub(crate) fn plan_member_execution_from_graph(
         })
         .collect::<Vec<_>>();
     if synthesize_defaults {
-        for step in synthesized_default_steps(member, evaluated, has_bundled_std) {
+        for step in synthesized_default_steps(member, evaluated) {
             if !steps.iter().any(|existing| existing.name == step.name) {
                 steps.push(step);
             }
@@ -490,7 +469,6 @@ pub(crate) fn plan_member_execution_from_graph(
             selection: None,
             ambiguous_selection: false,
             available_models: Vec::new(),
-            has_bundled_std,
         });
     }
     if steps.is_empty() {
@@ -556,7 +534,6 @@ fn selection_for_step(
 fn synthesized_default_steps(
     member: &FrontendMemberBuildRoute,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
-    has_bundled_std: bool,
 ) -> Vec<FrontendMemberPlannedStep> {
     let mut steps = Vec::new();
     let executable_count = artifact_count(
@@ -580,7 +557,6 @@ fn synthesized_default_steps(
                 evaluated,
                 fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
             ),
-            has_bundled_std,
         });
         steps.push(FrontendMemberPlannedStep {
             name: "run".to_string(),
@@ -593,7 +569,6 @@ fn synthesized_default_steps(
                 evaluated,
                 fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
             ),
-            has_bundled_std,
         });
     }
     let test_count = artifact_count(
@@ -617,7 +592,6 @@ fn synthesized_default_steps(
                 evaluated,
                 fol_package::build_runtime::BuildRuntimeArtifactKind::Test,
             ),
-            has_bundled_std,
         });
     }
     steps
@@ -794,8 +768,6 @@ fn resolve_requested_step_execution(
 ) -> FrontendResult<ResolvedWorkspaceStepExecution> {
     let mut resolved = None;
     let mut selections = Vec::new();
-    let mut available_models = Vec::new();
-    let mut all_members_have_bundled_std = true;
     let mut saw_untargeted = false;
     for step in member_plans
         .iter()
@@ -849,12 +821,6 @@ fn resolve_requested_step_execution(
                     ));
                 }
                 saw_untargeted = true;
-                all_members_have_bundled_std &= step.has_bundled_std;
-                for model in &step.available_models {
-                    if !available_models.contains(model) {
-                        available_models.push(*model);
-                    }
-                }
             }
         }
         match resolved {
@@ -876,8 +842,6 @@ fn resolve_requested_step_execution(
         .map(|execution| ResolvedWorkspaceStepExecution {
             execution,
             selections,
-            available_models,
-            all_members_have_bundled_std,
         })
         .ok_or_else(|| {
             FrontendError::new(
@@ -885,69 +849,6 @@ fn resolve_requested_step_execution(
                 format!("workspace build execution does not support step '{requested_step}'"),
             )
         })
-}
-
-fn ensure_std_workspace_route_models(
-    command: &str,
-    models: &[fol_backend::BackendFolModel],
-    all_members_have_bundled_std: bool,
-) -> FrontendResult<()> {
-    if all_members_have_bundled_std {
-        return Ok(());
-    }
-
-    let resolved_models = if models.is_empty() {
-        "unknown".to_string()
-    } else {
-        models
-            .iter()
-            .map(|model| model.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    Err(FrontendError::new(
-        FrontendErrorKind::InvalidInput,
-        format!(
-            "{command} command requires the bundled internal 'standard' dependency for hosted execution; resolved capability model(s): {resolved_models}"
-        ),
-    )
-    .with_note(
-        "declare build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" }) in build.fol",
-    ))
-}
-
-fn ensure_std_workspace_step_selection(
-    command: &str,
-    step_name: &str,
-    selection: &crate::compile::FrontendArtifactExecutionSelection,
-) -> FrontendResult<()> {
-    if selection.has_bundled_std {
-        return Ok(());
-    }
-
-    Err(FrontendError::new(
-        FrontendErrorKind::InvalidInput,
-        format!(
-            "workspace build step '{}' resolves artifact '{}' with capability model '{}', but {command} requires the bundled internal 'standard' dependency for hosted execution",
-            step_name,
-            selection.label,
-            selection.capability_model.as_str(),
-        ),
-    )
-    .with_note(
-        "declare build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" }) in build.fol",
-    ))
-}
-
-fn ensure_std_workspace_step_selections(
-    command: &str,
-    step_name: &str,
-    selections: &[crate::compile::FrontendArtifactExecutionSelection],
-) -> FrontendResult<()> {
-    for selection in selections {
-        ensure_std_workspace_step_selection(command, step_name, selection)?;
-    }
-    Ok(())
 }
 
 fn unknown_workspace_build_step_error(

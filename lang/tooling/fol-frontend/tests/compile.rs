@@ -1,6 +1,6 @@
 use fol_frontend::{
-    build_workspace_with_config, check_workspace, check_workspace_with_config,
-    emit_lowered, emit_rust, run_command_from_args_in_dir, run_from_args_with_io, run_workspace,
+    build_workspace_with_config, check_workspace, check_workspace_with_config, emit_lowered,
+    emit_rust, run_command_from_args_in_dir, run_from_args_with_io, run_workspace,
     run_workspace_with_config, test_workspace, test_workspace_with_config, FrontendArtifactKind,
     FrontendConfig, FrontendWorkspace, PackageRoot, WorkspaceRoot,
 };
@@ -8,17 +8,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn semantic_bin_build(with_bundled_std: bool) -> String {
-    let bundled_std_dependency = with_bundled_std
-        .then_some(
-            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
-        )
-        .unwrap_or("");
+fn semantic_bin_build() -> String {
     [
         "pro[] build(): non = {\n",
         "    var build = .build();\n",
         "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
-        bundled_std_dependency,
         "    var graph = build.graph();\n",
         "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
         "    graph.install(app);\n",
@@ -70,15 +64,11 @@ fn non_host_machine_target() -> String {
     }
 }
 
-fn sample_workspace(root: &PathBuf, with_bundled_std: bool) -> FrontendWorkspace {
+fn sample_workspace(root: &PathBuf) -> FrontendWorkspace {
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).expect("should create source tree");
-    fs::write(
-        app.join("build.fol"),
-        semantic_bin_build(with_bundled_std),
-    )
-    .expect("should write build file");
+    fs::write(app.join("build.fol"), semantic_bin_build()).expect("should write build file");
     fs::write(
         src.join("main.fol"),
         "fun[] main(): int = {\n    return 0\n};\n",
@@ -100,7 +90,7 @@ fn sample_workspace(root: &PathBuf, with_bundled_std: bool) -> FrontendWorkspace
 #[test]
 fn check_command_round_trips_workspace_members_through_public_api() {
     let root = temp_root("check");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
 
     let result = check_workspace(&workspace).expect("check should succeed");
 
@@ -131,7 +121,6 @@ fn locked_check_build_run_and_test_use_existing_lockfile() {
 
     fol_frontend::fetch_workspace(&workspace).expect("initial fetch should succeed");
     assert!(root.join(".fol/pkg/logtiny/build.fol").is_file());
-    assert!(root.join(".fol/pkg/std/build.fol").is_file());
     let locked = FrontendConfig {
         locked_fetch: true,
         ..FrontendConfig::default()
@@ -155,7 +144,6 @@ fn create_app_with_git_dep(app: &Path, remote: &Path) {
                 "    var build = .build();\n",
                 "    build.meta({{ name = \"app\", version = \"0.1.0\" }});\n",
                 "    build.add_dep({{ alias = \"logtiny\", source = \"git\", target = \"git+file://{}\" }});\n",
-                "    build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }});\n",
                 "    var graph = build.graph();\n",
                 "    var app = graph.add_exe({{ name = \"app\", root = \"src/main.fol\" }});\n",
                 "    graph.install(app);\n",
@@ -202,7 +190,7 @@ fn git(root: &Path, args: &[&str]) {
 #[test]
 fn build_command_reports_emitted_crate_and_binary_through_public_api() {
     let root = temp_root("build");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
 
     let result = build_workspace_with_config(
         &workspace,
@@ -232,7 +220,7 @@ fn build_command_reports_emitted_crate_and_binary_through_public_api() {
 #[test]
 fn build_command_scopes_binary_outputs_by_selected_target() {
     let root = temp_root("target_layout");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
     let config = FrontendConfig {
         build_target_override: Some(host_machine_target()),
         ..FrontendConfig::default()
@@ -261,7 +249,7 @@ fn build_command_scopes_binary_outputs_by_selected_target() {
 #[test]
 fn build_command_summary_surfaces_install_prefix_and_outputs() {
     let root = temp_root("build_summary");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
 
     let result = build_workspace_with_config(
         &workspace,
@@ -284,7 +272,7 @@ fn build_command_summary_surfaces_install_prefix_and_outputs() {
 #[test]
 fn run_command_executes_single_workspace_members_through_public_api() {
     let root = temp_root("run");
-    let workspace = sample_workspace(&root, true);
+    let workspace = sample_workspace(&root);
 
     let result = run_workspace(&workspace).expect("run should succeed");
 
@@ -298,7 +286,7 @@ fn run_command_executes_single_workspace_members_through_public_api() {
 #[test]
 fn run_command_rejects_non_host_targets_through_public_api() {
     let root = temp_root("run_cross_target");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
     let config = FrontendConfig {
         build_target_override: Some(non_host_machine_target()),
         ..FrontendConfig::default()
@@ -316,7 +304,7 @@ fn run_command_rejects_non_host_targets_through_public_api() {
 #[test]
 fn test_command_traverses_all_runnable_workspace_members_through_public_api() {
     let root = temp_root("test_workspace");
-    let app = sample_workspace(&root, true);
+    let app = sample_workspace(&root);
     let tools_root = root.join("tools");
     let tools_src = tools_root.join("src");
     fs::create_dir_all(&tools_src).expect("should create tools source tree");
@@ -326,7 +314,6 @@ fn test_command_traverses_all_runnable_workspace_members_through_public_api() {
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
             "    build.meta({ name = \"tools\", version = \"0.1.0\" });\n",
-            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
             "    var graph = build.graph();\n",
             "    var app = graph.add_exe({ name = \"tools\", root = \"src/main.fol\" });\n",
             "    graph.install(app);\n",
@@ -352,7 +339,7 @@ fn test_command_traverses_all_runnable_workspace_members_through_public_api() {
     assert_eq!(result.command, "test");
     assert_eq!(
         result.summary,
-        "tested 2 workspace package(s) (capability_mode=memo, bundled_std=2/2)"
+        "tested 2 workspace package(s) (capability_mode=memo, bundled_std=0/2)"
     );
     assert_eq!(result.artifacts.len(), 2);
     assert!(result
@@ -366,7 +353,7 @@ fn test_command_traverses_all_runnable_workspace_members_through_public_api() {
 #[test]
 fn test_command_rejects_non_host_targets_through_public_api() {
     let root = temp_root("test_cross_target");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
     let config = FrontendConfig {
         build_target_override: Some(non_host_machine_target()),
         ..FrontendConfig::default()
@@ -384,7 +371,7 @@ fn test_command_rejects_non_host_targets_through_public_api() {
 #[test]
 fn emit_rust_command_reports_generated_crate_paths_through_public_api() {
     let root = temp_root("emit_rust");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
 
     let result = emit_rust(&workspace).expect("emit rust should succeed");
 
@@ -404,7 +391,7 @@ fn emit_rust_command_reports_generated_crate_paths_through_public_api() {
 #[test]
 fn emit_lowered_command_reports_snapshot_paths_through_public_api() {
     let root = temp_root("emit_lowered");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
 
     let result = emit_lowered(&workspace).expect("emit lowered should succeed");
 
@@ -427,7 +414,7 @@ fn emit_lowered_command_reports_snapshot_paths_through_public_api() {
 #[test]
 fn direct_file_or_folder_compilation_is_code_subcommand_owned() {
     let root = temp_root("direct_compile");
-    let workspace = sample_workspace(&root, false);
+    let workspace = sample_workspace(&root);
     let entry_file = workspace.members[0].root.join("src/main.fol");
 
     let (_, built) = run_command_from_args_in_dir(
@@ -508,7 +495,10 @@ fn grouped_direct_json_preserves_ownership_code_and_location() {
     let diagnostic = &json["diagnostics"][0];
 
     assert_eq!(diagnostic["code"], "O1001");
-    assert_eq!(diagnostic["location"]["file"], source.to_string_lossy().as_ref());
+    assert_eq!(
+        diagnostic["location"]["file"],
+        source.to_string_lossy().as_ref()
+    );
     assert_eq!(diagnostic["location"]["line"], 4);
     assert!(diagnostic["location"]["column"].as_u64().is_some());
     assert!(json["diagnostics"]
@@ -544,7 +534,10 @@ fn grouped_direct_json_preserves_type_code_and_location() {
     let diagnostic = &json["diagnostics"][0];
 
     assert_eq!(diagnostic["code"], "T1003");
-    assert_eq!(diagnostic["location"]["file"], source.to_string_lossy().as_ref());
+    assert_eq!(
+        diagnostic["location"]["file"],
+        source.to_string_lossy().as_ref()
+    );
     assert_eq!(diagnostic["location"]["line"], 1);
     assert!(diagnostic["location"]["column"].as_u64().is_some());
     assert!(json["diagnostics"]

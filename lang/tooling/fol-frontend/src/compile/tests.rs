@@ -1,8 +1,8 @@
 use super::{
-    backend_config, build_evaluation_inputs, build_workspace, build_workspace_for_profile_with_config,
-    build_workspace_with_config, check_workspace, compile_member_workspace_targeted,
-    declared_capability_model_for_package, emit_lowered, emit_rust, profile_build_root,
-    run_workspace, run_workspace_with_args_and_config,
+    backend_config, build_evaluation_inputs, build_workspace,
+    build_workspace_for_profile_with_config, build_workspace_with_config, check_workspace,
+    compile_member_workspace_targeted, declared_capability_model_for_package, emit_lowered,
+    emit_rust, profile_build_root, run_workspace, run_workspace_with_args_and_config,
     runtime_model_for_direct_input, test_package, test_workspace, test_workspace_with_config,
     typecheck_capability_model,
 };
@@ -392,7 +392,7 @@ fn run_workspace_passes_through_binary_arguments() {
 }
 
 #[test]
-fn public_run_and_test_require_the_hosted_std_tier() {
+fn public_run_and_test_allow_host_compatible_memo_packages_without_std() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_public_hosted_guard_{}",
         std::process::id()
@@ -416,21 +416,17 @@ fn public_run_and_test_require_the_hosted_std_tier() {
         install_prefix: root.join(".fol/install"),
     };
 
-    let run_error = run_workspace(&workspace)
-        .expect_err("the public run API must not host-execute a memo package without std");
-    assert!(run_error.message().contains("run cannot host-execute package"));
-    assert!(run_error
-        .message()
-        .contains("bundled internal 'standard' dependency"));
+    let run = run_workspace(&workspace)
+        .expect("the public run API should execute a host-compatible memo package without std");
+    assert_eq!(run.command, "run");
+    assert!(run.summary.contains("capability_mode=memo"));
+    assert!(run.summary.contains("bundled_std=0/1"));
 
-    let test_error = test_workspace(&workspace)
-        .expect_err("the public test API must not host-execute a memo package without std");
-    assert!(test_error
-        .message()
-        .contains("test cannot host-execute package"));
-    assert!(test_error
-        .message()
-        .contains("bundled internal 'standard' dependency"));
+    let test = test_workspace(&workspace)
+        .expect("the public test API should execute a host-compatible memo package without std");
+    assert_eq!(test.command, "test");
+    assert!(test.summary.contains("capability_mode=memo"));
+    assert!(test.summary.contains("bundled_std=0/1"));
 
     fs::remove_dir_all(root).ok();
 }

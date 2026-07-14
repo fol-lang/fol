@@ -3320,8 +3320,11 @@ fn test_cli_std_examples_run_and_print_expected_output() {
 }
 
 #[test]
-fn test_cli_core_and_memo_examples_build_but_reject_hosted_run_without_std() {
-    for path in ["examples/core_run_min", "examples/memo_run_min"] {
+fn test_cli_core_and_memo_examples_build_and_run_without_std() {
+    for (path, expected_model) in [
+        ("examples/core_run_min", "core"),
+        ("examples/memo_run_min", "memo"),
+    ] {
         let root = temp_example_root(path);
         let build = run_example_compile(&root, true);
         let build_stdout = String::from_utf8_lossy(&build.stdout);
@@ -3339,10 +3342,18 @@ fn test_cli_core_and_memo_examples_build_but_reject_hosted_run_without_std() {
             String::from_utf8_lossy(&run.stderr)
         );
         assert!(
-            !run.status.success(),
-            "no-std example '{path}' must reject hosted CLI run: {output}"
+            run.status.success(),
+            "no-std example '{path}' should run on the host without bundled std: {output}"
         );
-        assert!(output.contains("bundled internal 'standard' dependency"));
+        assert!(output.contains("ran "), "missing run summary: {output}");
+        assert!(
+            output.contains(&format!("capability_mode={expected_model}")),
+            "run summary should retain the declared capability model: {output}"
+        );
+        assert!(
+            output.contains("bundled_std=0/1"),
+            "running must not grant bundled std: {output}"
+        );
     }
 }
 
@@ -4451,8 +4462,8 @@ fn test_cli_build_and_run_mixed_model_example_workspace() {
 }
 
 #[test]
-fn test_cli_run_rejects_core_example_route() {
-    let temp_root = unique_temp_root("run_core_route_reject");
+fn test_cli_run_executes_core_example_route_without_std() {
+    let temp_root = unique_temp_root("run_core_route_without_std");
     let root = temp_root.join("demo");
     std::fs::create_dir_all(root.join("src")).expect("should create source root");
     std::fs::write(
@@ -4475,7 +4486,14 @@ fn test_cli_run_rejects_core_example_route() {
     .expect("should write build file");
     std::fs::write(
         root.join("src/main.fol"),
-        "fun[] main(): int = {\n    return 7;\n};\n",
+        concat!(
+            "fun[] main(): int / int = {\n",
+            "    when(false) {\n",
+            "        case(true) { report 9; }\n",
+            "        * { return 0; }\n",
+            "    }\n",
+            "};\n",
+        ),
     )
     .expect("should write source");
 
@@ -4486,18 +4504,18 @@ fn test_cli_run_rejects_core_example_route() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(
-        !run.status.success(),
-        "core route must not host-execute without bundled std: {output}"
+        run.status.success(),
+        "core route should host-execute without bundled std: {output}"
     );
-    assert!(output.contains("artifact 'demo'"));
-    assert!(output.contains("capability model 'core'"));
-    assert!(output.contains("bundled internal 'standard' dependency"));
+    assert!(output.contains("ran "), "missing run summary: {output}");
+    assert!(output.contains("capability_mode=core"), "{output}");
+    assert!(output.contains("bundled_std=0/1"), "{output}");
     std::fs::remove_dir_all(&temp_root).ok();
 }
 
 #[test]
-fn test_cli_run_rejects_mem_example_route() {
-    let temp_root = unique_temp_root("run_mem_route_reject");
+fn test_cli_run_executes_memo_example_route_without_std() {
+    let temp_root = unique_temp_root("run_memo_route_without_std");
     let root = temp_root.join("demo");
     std::fs::create_dir_all(root.join("src")).expect("should create source root");
     std::fs::write(
@@ -4520,7 +4538,16 @@ fn test_cli_run_rejects_mem_example_route() {
     .expect("should write build file");
     std::fs::write(
         root.join("src/main.fol"),
-        "fun[] main(): str = {\n    return \"memo\";\n};\n",
+        concat!(
+            "fun[] main(): int / str = {\n",
+            "    var text: str = \"memo\";\n",
+            "    var size: int = .len(text);\n",
+            "    when(false) {\n",
+            "        case(true) { report \"memo-failure\"; }\n",
+            "        * { return 0; }\n",
+            "    }\n",
+            "};\n",
+        ),
     )
     .expect("should write source");
 
@@ -4531,19 +4558,19 @@ fn test_cli_run_rejects_mem_example_route() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(
-        !run.status.success(),
-        "memo route must not host-execute without bundled std: {output}"
+        run.status.success(),
+        "memo route should host-execute without bundled std: {output}"
     );
-    assert!(output.contains("artifact 'demo'"));
-    assert!(output.contains("capability model 'memo'"));
-    assert!(output.contains("bundled internal 'standard' dependency"));
+    assert!(output.contains("ran "), "missing run summary: {output}");
+    assert!(output.contains("capability_mode=memo"), "{output}");
+    assert!(output.contains("bundled_std=0/1"), "{output}");
 
     std::fs::remove_dir_all(&temp_root).ok();
 }
 
 #[test]
-fn test_cli_test_rejects_memo_example_route() {
-    let temp_root = unique_temp_root("test_memo_route_reject");
+fn test_cli_test_executes_memo_example_route_without_std() {
+    let temp_root = unique_temp_root("test_memo_route_without_std");
     let root = temp_root.join("demo");
     std::fs::create_dir_all(root.join("src")).expect("should create source root");
     std::fs::write(
@@ -4565,7 +4592,16 @@ fn test_cli_test_rejects_memo_example_route() {
     .expect("should write build file");
     std::fs::write(
         root.join("src/main.fol"),
-        "fun[] main(): str = {\n    return \"memo\";\n};\n",
+        concat!(
+            "fun[] main(): int / str = {\n",
+            "    var text: str = \"memo\";\n",
+            "    var size: int = .len(text);\n",
+            "    when(false) {\n",
+            "        case(true) { report \"memo-failure\"; }\n",
+            "        * { return 0; }\n",
+            "    }\n",
+            "};\n",
+        ),
     )
     .expect("should write source");
 
@@ -4576,19 +4612,19 @@ fn test_cli_test_rejects_memo_example_route() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(
-        !run.status.success(),
-        "memo test route must not host-execute without bundled std: {output}"
+        run.status.success(),
+        "memo test route should host-execute without bundled std: {output}"
     );
-    assert!(output.contains("artifact 'demo-tests'"));
-    assert!(output.contains("capability model 'memo'"));
-    assert!(output.contains("bundled internal 'standard' dependency"));
+    assert!(output.contains("tested "), "missing test summary: {output}");
+    assert!(output.contains("capability_mode=memo"), "{output}");
+    assert!(output.contains("bundled_std=0/1"), "{output}");
 
     std::fs::remove_dir_all(&temp_root).ok();
 }
 
 #[test]
-fn test_cli_run_rejects_ambiguous_non_std_models_with_resolved_models() {
-    let temp_root = unique_temp_root("run_mixed_route_reject");
+fn test_cli_run_rejects_ambiguous_models_with_resolved_models() {
+    let temp_root = unique_temp_root("run_mixed_route_ambiguous");
     let root = temp_root.join("demo");
     std::fs::create_dir_all(root.join("src")).expect("should create source root");
     std::fs::write(
@@ -4622,7 +4658,7 @@ fn test_cli_run_rejects_ambiguous_non_std_models_with_resolved_models() {
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(
         !run.status.success(),
-        "mixed non-std route should be rejected"
+        "ambiguous route should require an explicit selection"
     );
     assert!(stderr.contains("requires an explicit named step"));
     assert!(stderr.contains("resolved model(s): core, memo"));
@@ -4631,8 +4667,8 @@ fn test_cli_run_rejects_ambiguous_non_std_models_with_resolved_models() {
 }
 
 #[test]
-fn test_cli_run_rejects_explicit_core_run_step_with_step_model_detail() {
-    let temp_root = unique_temp_root("run_explicit_core_step_reject");
+fn test_cli_run_executes_explicit_core_run_step_without_std() {
+    let temp_root = unique_temp_root("run_explicit_core_step_without_std");
     let root = temp_root.join("demo");
     std::fs::create_dir_all(root.join("src")).expect("should create source root");
     std::fs::write(
@@ -4662,12 +4698,12 @@ fn test_cli_run_rejects_explicit_core_run_step_with_step_model_detail() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(
-        !run.status.success(),
-        "explicit core run step must retain hosted-tier rejection: {output}"
+        run.status.success(),
+        "explicit core run step should execute without bundled std: {output}"
     );
-    assert!(output.contains("artifact 'blink'"));
-    assert!(output.contains("capability model 'core'"));
-    assert!(output.contains("bundled internal 'standard' dependency"));
+    assert!(output.contains("ran "), "missing run summary: {output}");
+    assert!(output.contains("capability_mode=core"), "{output}");
+    assert!(output.contains("bundled_std=0/1"), "{output}");
 
     std::fs::remove_dir_all(&temp_root).ok();
 }

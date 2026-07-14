@@ -312,17 +312,11 @@ mod tests {
     use super::*;
     use crate::cli::args::{FrontendOutputArgs, FrontendProfileArgs};
 
-    fn semantic_dispatch_build(with_bundled_std: bool) -> String {
-        let bundled_std_dependency = with_bundled_std
-            .then_some(
-                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
-            )
-            .unwrap_or("");
+    fn semantic_dispatch_build() -> String {
         [
             "pro[] build(): non = {\n",
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
-            bundled_std_dependency,
             "    var graph = build.graph();\n",
             "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
             "    graph.install(app);\n",
@@ -368,11 +362,7 @@ mod tests {
     }
 
     fn absorbed_build_dispatch_fixture(label: &str) -> FrontendWorkspace {
-        absorbed_build_dispatch_fixture_with_source(label, &semantic_dispatch_build(false))
-    }
-
-    fn absorbed_hosted_build_dispatch_fixture(label: &str) -> FrontendWorkspace {
-        absorbed_build_dispatch_fixture_with_source(label, &semantic_dispatch_build(true))
+        absorbed_build_dispatch_fixture_with_source(label, &semantic_dispatch_build())
     }
 
     fn modern_dispatch_fixture(label: &str) -> FrontendWorkspace {
@@ -387,7 +377,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(root.join("build.fol"), semantic_dispatch_build(false)).unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -451,7 +441,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(root.join("build.fol"), semantic_dispatch_build(false)).unwrap();
+        std::fs::write(root.join("build.fol"), semantic_dispatch_build()).unwrap();
         std::fs::write(
             src.join("main.fol"),
             "fun[] main(): int = {\n    return 0\n};\n",
@@ -594,7 +584,9 @@ mod tests {
                 OutputMode::Human,
             ),
             (
-                vec!["fol", "--output", "json", "work", "--output", "plain", "info"],
+                vec![
+                    "fol", "--output", "json", "work", "--output", "plain", "info",
+                ],
                 OutputMode::Plain,
             ),
             (
@@ -602,7 +594,9 @@ mod tests {
                 OutputMode::Json,
             ),
             (
-                vec!["fol", "--output", "json", "code", "explain", "R1003", "--output", "plain"],
+                vec![
+                    "fol", "--output", "json", "code", "explain", "R1003", "--output", "plain",
+                ],
                 OutputMode::Plain,
             ),
             (
@@ -672,7 +666,7 @@ mod tests {
 
     #[test]
     fn workspace_dispatch_keeps_run_summary_and_binary_artifact_on_routed_execution() {
-        let workspace = absorbed_hosted_build_dispatch_fixture("run_artifacts");
+        let workspace = absorbed_build_dispatch_fixture("run_artifacts");
         let command = FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs::default(),
             profile: FrontendProfileArgs::default(),

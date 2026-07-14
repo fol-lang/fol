@@ -71,37 +71,12 @@ fn ensure_direct_target_runs_on_host(frontend_config: &FrontendConfig) -> Fronte
     ))
 }
 
-fn ensure_direct_model_is_hosted(
-    fol_model: fol_backend::BackendFolModel,
-    input: &str,
-) -> FrontendResult<()> {
-    if fol_model == fol_backend::BackendFolModel::Std {
-        return Ok(());
-    }
-
-    Err(FrontendError::new(
-        FrontendErrorKind::InvalidInput,
-        format!(
-            "run cannot host-execute direct input '{input}' with capability model '{}'; declare the bundled internal 'standard' dependency",
-            fol_model.as_str()
-        ),
-    )
-    .with_note(
-        "direct host execution requires fol_model = memo plus build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" })",
-    ))
-}
-
 pub fn run_direct_compile(
     config: &DirectCompileConfig,
     frontend_config: &FrontendConfig,
 ) -> FrontendResult<FrontendCommandResult> {
-    let fol_model = crate::compile::runtime_model_for_direct_input(
-        Path::new(&config.input),
-        frontend_config,
-    )?;
-    if matches!(config.mode, DirectCompileMode::Run { .. }) {
-        ensure_direct_model_is_hosted(fol_model, &config.input)?;
-    }
+    let fol_model =
+        crate::compile::runtime_model_for_direct_input(Path::new(&config.input), frontend_config)?;
     let mut diagnostics = DiagnosticReport::new();
     let lowered = match compile_file(
         &config.input,
@@ -430,21 +405,6 @@ pub fn run_direct_compile_with_io(
             return 1;
         }
     };
-    if matches!(config.mode, DirectCompileMode::Run { .. }) {
-        if let Err(error) = ensure_direct_model_is_hosted(fol_model, &config.input) {
-            diagnostics.add_from(&error);
-            let rendered = match frontend_config.output.mode {
-                OutputMode::Human => crate::pretty::render_report_pretty(&diagnostics),
-                OutputMode::Plain => diagnostics.output(OutputFormat::Human),
-                OutputMode::Json => diagnostics.output(OutputFormat::Json),
-            };
-            if !rendered.trim().is_empty() {
-                let _ = writeln!(stdout, "{rendered}");
-            }
-            return 1;
-        }
-    }
-
     match compile_file(&config.input, &resolver_config, fol_model, &mut diagnostics) {
         Ok(lowered) => {
             if matches!(
@@ -723,7 +683,7 @@ mod tests {
     use super::{
         run_direct_compile, run_direct_compile_with_io, DirectCompileConfig, DirectCompileMode,
     };
-    use crate::FrontendConfig;
+    use crate::{FrontendArtifactKind, FrontendConfig};
     use std::fs;
 
     fn non_host_machine_target() -> String {
@@ -789,11 +749,7 @@ mod tests {
         .unwrap();
         let core = root.join("src/core.fol");
         let heap = root.join("src/heap.fol");
-        fs::write(
-            &core,
-            "fun[] illegal_core(): str = { return \"heap\"; };\n",
-        )
-        .unwrap();
+        fs::write(&core, "fun[] illegal_core(): str = { return \"heap\"; };\n").unwrap();
         fs::write(&heap, "fun[] legal_heap(): str = { return \"heap\"; };\n").unwrap();
 
         let frontend_config = FrontendConfig::default();
@@ -807,9 +763,10 @@ mod tests {
             &frontend_config,
         )
         .expect_err("the exact core artifact root must retain core legality");
-        assert!(core_error.diagnostics().iter().any(|diagnostic| diagnostic
-            .message
-            .contains("str requires heap support")));
+        assert!(core_error
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("str requires heap support")));
 
         run_direct_compile(
             &DirectCompileConfig {
@@ -890,9 +847,10 @@ mod tests {
             &FrontendConfig::default(),
         )
         .expect_err("a helper inside the core artifact scope must retain core legality");
-        assert!(core_error.diagnostics().iter().any(|diagnostic| diagnostic
-            .message
-            .contains("str requires heap support")));
+        assert!(core_error
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("str requires heap support")));
 
         run_direct_compile(
             &DirectCompileConfig {
@@ -909,7 +867,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_run_requires_the_hosted_std_tier() {
+    fn direct_run_allows_host_compatible_core_and_memo_inputs_without_std() {
         let root = std::env::temp_dir().join(format!(
             "fol_direct_hosted_run_model_{}",
             std::process::id()
@@ -937,23 +895,19 @@ mod tests {
                 },
             };
 
-            let error = run_direct_compile(&config, &FrontendConfig::default())
-                .expect_err("direct core/memo run must not bypass hosted-tier routing");
-            assert!(error.message().contains(&format!("capability model '{model}'")));
-            assert!(error
-                .message()
-                .contains("bundled internal 'standard' dependency"));
+            let result = run_direct_compile(&config, &FrontendConfig::default())
+                .expect("direct host-compatible core/memo inputs should run without std");
+            assert_eq!(result.command, "run");
+            assert!(result
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == FrontendArtifactKind::Binary));
 
             let mut output = Vec::new();
-            let exit = run_direct_compile_with_io(
-                &config,
-                &FrontendConfig::default(),
-                &mut output,
-            );
+            let exit = run_direct_compile_with_io(&config, &FrontendConfig::default(), &mut output);
             let output = String::from_utf8(output).unwrap();
-            assert_eq!(exit, 1);
-            assert!(output.contains(&format!("capability model '{model}'")));
-            assert!(output.contains("bundled internal 'standard' dependency"));
+            assert_eq!(exit, 0, "{output}");
+            assert!(output.contains("Compilation successful"), "{output}");
         }
 
         fs::remove_dir_all(root).ok();

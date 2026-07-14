@@ -35,6 +35,14 @@ fn emitted_main_rs_from_result(result: &crate::FrontendCommandResult) -> String 
     fs::read_to_string(crate_root.join("src/main.rs")).expect("generated main.rs")
 }
 
+fn non_host_machine_target() -> String {
+    if FrontendConfig::host_rust_target_triple() == Some("aarch64-apple-darwin") {
+        "x86_64-unknown-linux-gnu".to_string()
+    } else {
+        "aarch64-apple-darwin".to_string()
+    }
+}
+
 #[test]
 fn cli_selected_custom_graph_steps_flow_into_the_routed_member_plan() {
     let root = std::env::temp_dir().join(format!(
@@ -1105,7 +1113,7 @@ fn execute_workspace_build_route_emits_std_runtime_module_imports() {
 }
 
 #[test]
-fn execute_workspace_build_route_rejects_run_for_selected_core_model_artifacts() {
+fn execute_workspace_build_route_runs_selected_core_model_artifacts_without_std() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_core_run_{}_{}",
         std::process::id(),
@@ -1149,27 +1157,38 @@ fn execute_workspace_build_route_rejects_run_for_selected_core_model_artifacts()
         install_prefix: root.join(".fol/install"),
     };
 
-    let error = execute_workspace_build_route(
+    let request = FrontendWorkspaceBuildRequest {
+        requested_step: "serve".to_string(),
+        profile: FrontendProfile::Debug,
+        run_args: Vec::new(),
+    };
+    let cross_error = execute_workspace_build_route(
         &workspace,
-        &FrontendConfig::default(),
-        &FrontendWorkspaceBuildRequest {
-            requested_step: "serve".to_string(),
-            profile: FrontendProfile::Debug,
-            run_args: Vec::new(),
+        &FrontendConfig {
+            build_target_override: Some(non_host_machine_target()),
+            ..FrontendConfig::default()
         },
+        &request,
     )
-    .expect_err("core-model selected run without bundled std must be rejected");
+    .expect_err("selected core run must still reject a non-host target");
+    assert!(cross_error
+        .message()
+        .contains("run command cannot execute target"));
 
-    assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
-    assert!(error.message().contains("artifact 'demo'"));
-    assert!(error.message().contains("capability model 'core'"));
-    assert!(error.message().contains("bundled internal 'standard' dependency"));
+    let result = execute_workspace_build_route(&workspace, &FrontendConfig::default(), &request)
+        .expect("host-compatible core artifact should run without bundled std");
+
+    assert_eq!(result.command, "run");
+    assert_eq!(result.artifacts.len(), 1);
+    assert_eq!(result.artifacts[0].kind, FrontendArtifactKind::Binary);
+    assert!(result.summary.contains("capability_mode=core"));
+    assert!(result.summary.contains("bundled_std=0/1"));
 
     fs::remove_dir_all(root).ok();
 }
 
 #[test]
-fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts() {
+fn execute_workspace_build_route_tests_selected_memo_model_artifacts_without_std() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_mem_test_{}_{}",
         std::process::id(),
@@ -1212,7 +1231,7 @@ fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts()
         install_prefix: root.join(".fol/install"),
     };
 
-    let error = execute_workspace_build_route(
+    let result = execute_workspace_build_route(
         &workspace,
         &FrontendConfig::default(),
         &FrontendWorkspaceBuildRequest {
@@ -1221,18 +1240,19 @@ fn execute_workspace_build_route_rejects_test_for_selected_mem_model_artifacts()
             run_args: Vec::new(),
         },
     )
-    .expect_err("memo-model selected test without bundled std must be rejected");
+    .expect("host-compatible memo test artifact should run without bundled std");
 
-    assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
-    assert!(error.message().contains("artifact 'demo_test'"));
-    assert!(error.message().contains("capability model 'memo'"));
-    assert!(error.message().contains("bundled internal 'standard' dependency"));
+    assert_eq!(result.command, "test");
+    assert_eq!(result.artifacts.len(), 1);
+    assert_eq!(result.artifacts[0].kind, FrontendArtifactKind::Binary);
+    assert!(result.summary.contains("capability_mode=memo"));
+    assert!(result.summary.contains("bundled_std=0/1"));
 
     fs::remove_dir_all(root).ok();
 }
 
 #[test]
-fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_routes() {
+fn execute_workspace_build_route_runs_step_specific_artifacts_in_mixed_routes() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_mixed_model_step_{}_{}",
         std::process::id(),
@@ -1301,7 +1321,7 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
 
     crate::fetch_workspace(&workspace).expect("bundled std should materialize before run");
 
-    let error = execute_workspace_build_route(
+    let core = execute_workspace_build_route(
         &workspace,
         &FrontendConfig::default(),
         &FrontendWorkspaceBuildRequest {
@@ -1310,11 +1330,11 @@ fn execute_workspace_build_route_keeps_step_specific_model_diagnostics_in_mixed_
             run_args: Vec::new(),
         },
     )
-    .expect_err("non-hosted custom run steps must be rejected");
+    .expect("host-compatible core custom run step should execute");
 
-    assert!(error.message().contains("artifact 'blink'"));
-    assert!(error.message().contains("capability model 'core'"));
-    assert!(error.message().contains("bundled internal 'standard' dependency"));
+    assert_eq!(core.artifacts.len(), 1);
+    assert!(core.summary.contains("capability_mode=core"));
+    assert!(core.summary.contains("bundled_std=0/1"));
 
     let hosted = execute_workspace_build_route(
         &workspace,
@@ -1600,7 +1620,7 @@ fn routed_hosted_tier_uses_the_evaluated_dependency_set() {
         .iter()
         .find(|step| step.name == "run")
         .expect("default run step");
-    assert!(!debug_run.has_bundled_std);
+    assert!(!debug_run.selection.as_ref().unwrap().has_bundled_std);
     assert_eq!(
         debug_run.selection.as_ref().unwrap().fol_model,
         fol_backend::BackendFolModel::Memo
@@ -1616,7 +1636,7 @@ fn routed_hosted_tier_uses_the_evaluated_dependency_set() {
         .iter()
         .find(|step| step.name == "run")
         .expect("default run step");
-    assert!(release_run.has_bundled_std);
+    assert!(release_run.selection.as_ref().unwrap().has_bundled_std);
     assert_eq!(
         release_run.selection.as_ref().unwrap().fol_model,
         fol_backend::BackendFolModel::Std
