@@ -94,20 +94,8 @@ pro main(): non = {
 
 The call `5.print()` is still just receiver sugar for `print(5)`.
 
-Another example turns a string into a vector of characters through a
-receiver-qualified routine:
-
-```fol
-typ[ext] str: str;
-
-fun (str)to_array(): vec[chr] = {
-    loop(x in self) {
-        yield x;
-    }
-}
-
-pro main(): non = {
-    var characters: vec[chr] = "a random str".to_array();
-    .echo(characters)
-}
-```
+An older version of this chapter used a string-to-vector extension containing
+`yield`. That mixed future generator design into the current alias contract.
+Language `yield` is parsed and retained for future work, but the current
+typechecker and lowerer reject it; it is not part of V3. Alias and extension
+support therefore does not imply generator support.

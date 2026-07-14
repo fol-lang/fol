@@ -170,7 +170,7 @@ These crates define executable behavior:
 
 Key current rule:
 
-- `fol-runtime` is one crate with internal `core`, heap, and `std` modules
+- `fol-runtime` is one crate with internal `core`, `memo`, and `std` modules
 - `fol-backend` must emit against the correct runtime tier
 - `fol-build` owns the `build.fol` graph/eval surface
 
@@ -289,13 +289,14 @@ References:
 
 - `book/src/500_items/200_routines/_index.md`
 - `book/src/650_errors/200_recover.md`
-- `book/src/700_sugar/250_defer.md`
+- `book/src/700_sugar/250_dfr.md`
 - `book/src/300_meta/100_buildin.md`
 
 ### `V2`
 
-This is later language expressiveness and contract work, not current compiler
-surface.
+Broader V2 expressiveness and contract work remains later design, but the
+bounded Milestone 1 and Milestone 2 subset listed below is shipped current
+compiler surface.
 
 Examples already marked as V2-oriented in the book:
 
@@ -370,14 +371,30 @@ Current deliberate V3 boundaries include:
   until lowering has place-aware projection IR
 - a moved owner cannot be reinitialized inside `dfr` or `edf`, because the
   delayed assignment has not happened when the deferred body is registered
+- deferred bodies cannot contain `return`, `break`, `report`, or `panic`,
+  because cleanup cannot initiate another exit while an exit is being replayed
 - spawn and async task calls must target direct named routine declarations;
-  stored routine values and routine parameters are not indirect task targets
+  stored routine values and routine parameters are indirect and are not task
+  targets, and receiver-method syntax is excluded from the task-target surface
+- nested routine bodies cannot implicitly capture outer locals; values needed by
+  the nested routine must be passed through declared parameters; the only
+  shipped explicit capture form is the channel sender-endpoint form on an
+  anonymous spawn
+- recoverable eventuals must be awaited and handled before fallthrough or before
+  `break`, `return`, or `report` leaves their live scope; at a branch join, all
+  continuing paths must leave a compatible state by preserving the same owner,
+  transferring consistently, or discharging the obligation. Discard, live
+  overwrite, and an exit with a live obligation are rejected
+- `| await` and access to an existing eventual binding are rejected inside
+  `edf`, because error-only cleanup cannot discharge eventual ownership on
+  normal exits
 - deferred bodies cannot access mutex fields, call `.lock()` / `.unlock()`, or
   forward a mutex handle to another `[mux]` routine
 
 V3 work is incomplete unless the whole shipped surface is synchronized across
 compiler semantics, lowering, runtime/backend, frontend routing, diagnostics,
-LSP, tree-sitter grammar/queries/corpus, examples, tests, docs, and the book.
+formatter and tool commands, LSP, tree-sitter grammar/queries/corpus, examples,
+tests, docs, and the book.
 The editor must reuse compiler truth for semantic behavior, but its explicit
 syntax, completion, token, inventory, and UX mirrors still have to be audited.
 
@@ -407,10 +424,11 @@ References:
 
 When implementing or reviewing a feature:
 
-- confirm whether the book presents it as current V1 or later V2/V3/V4 design
-- if it is later-version material, do not silently implement it as part of V1
-- if V1 is chosen explicitly, update code, tests, docs, editor, and examples
-  together
+- confirm whether the book presents it as current V1, the shipped bounded V2
+  subset, shipped V3, or future V4 design
+- do not silently move a feature into a different version contract
+- for whichever shipped version owns the feature, update code, tests, docs,
+  editor, and examples together
 
 ## Legacy Policy
 

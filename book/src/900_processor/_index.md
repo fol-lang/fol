@@ -101,8 +101,15 @@ Positive:
 Negative:
 
 - `examples/fail_proc_async_in_core_m4`
+- `examples/fail_proc_async_break_outer_m4`
+- `examples/fail_proc_async_edf_await_m4`
 - `examples/fail_proc_async_indirect_m4`
 - `examples/fail_proc_async_in_memo_m4`
+- `examples/fail_proc_async_nested_capture_m4`
+- `examples/fail_proc_async_recoverable_discard_m4`
+- `examples/fail_proc_async_recoverable_overwrite_m4`
+- `examples/fail_proc_async_recoverable_unawaited_m4`
 - `examples/fail_proc_await_in_core_m4`
 - `examples/fail_proc_await_in_memo_m4`
+- `examples/fail_proc_await_recoverable_discard_m4`
 - `examples/fail_proc_evt_named_m4`

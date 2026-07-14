@@ -361,7 +361,7 @@ That means diagnostics are already strong across:
 - V3 move/resource-state failures (`O1xxx`) and lexical borrow failures
   (`O2xxx`)
 - V3 processor tier, direct-task-target, channel lifecycle, thread-boundary,
-  eventual, and deferred mutex-effect failures
+  eventual must-handle, and deferred mutex-effect failures
 - unsupported lowered surfaces before target emission
 - backend emission and build failures when lowered workspaces cannot become
   runnable artifacts
@@ -382,8 +382,9 @@ This is the important boundary for the current compiler stage:
   emission/build failures
 - current hard boundaries are diagnosed rather than silently accepted: for
   example unique-pointer field dereference without place-aware projection IR,
-  moved-owner deferred reinitialization, indirect spawn/async targets, channel
-  endpoint lifecycle violations, and deferred mutex guard effects
+  moved-owner deferred reinitialization, terminating `report` inside deferred
+  cleanup, indirect spawn/async targets, unhandled recoverable eventuals,
+  channel endpoint lifecycle violations, and deferred mutex guard effects
 - later targets, optimizations, C ABI work, and Rust interop remain outside the
   current V1/V2/V3 contract
 

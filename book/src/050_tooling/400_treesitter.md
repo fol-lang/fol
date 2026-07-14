@@ -223,11 +223,14 @@ Those remain compiler tasks.
 
 In particular, tree-sitter does not decide whether a unique-pointer field can
 be dereferenced, whether a moved owner can be reinitialized in deferred work,
-whether a call is a legal direct spawn/async target, or whether mutex effects
-can occur inside `dfr`/`edf`. The LSP reports compiler diagnostics for those
-semantic boundaries. Tree-sitter is responsible only for the corresponding
-syntax shape, highlighting/query captures, and corpus coverage. The exact
-positive and negative processor package matrix lives in the
+whether deferred cleanup may initiate `report`, whether a call is a legal
+direct spawn/async target, whether a nested routine implicitly captures an
+outer local, whether a recoverable eventual remains live across fallthrough or
+an exiting `break`/`return`/`report`, whether `await` is used inside `edf`, or
+whether mutex effects can occur inside `dfr`/`edf`. The LSP reports compiler
+diagnostics for those semantic boundaries. Tree-sitter is responsible only for
+the corresponding syntax shape, highlighting/query captures, and corpus
+coverage. The exact positive and negative processor package matrix lives in the
 [shipped processor inventory](../900_processor/_index.md#shipped-example-inventory).
 
 When a language feature changes syntax, use the

@@ -17,6 +17,8 @@ Current boundary:
   last-expression return shown here are earlier design, not current behavior
 - the closures, currying, and generator material at the end of this chapter is
   later design work, not part of the current compiler surface
+- nested and anonymous routine bodies cannot implicitly capture an outer local
+  in the shipped compiler; pass the value through a declared parameter instead
 
 When a function has a custom recoverable error type, use `/` after the result type:
 
@@ -171,10 +173,18 @@ fun[] add2(): {fun (x: int): int} = {
     return f
 }
 ```
-### Generators
-A generator is very similar to a function that returns an array, in that a generator has parameters, can be called, and generates a sequence of values. However, instead of building an array containing all the values and returning them all at once, a generator yields the values one at a time, which requires less memory and allows the caller to get started processing the first few values immediately. In short, a generator looks like a function but behaves like an iterator.
+### Generators (future design)
 
-For a function to be a generator (thus to make the keyword `yield` accesable), it needs to return a type of container: `arr, vec, seq, mat` but not `set, any`.
+Generators and the language `yield` expression are not part of the shipped
+`V1`, bounded `V2`, or `V3` contracts. The lexer, parser, and resolver preserve
+the syntax, which also lets tree-sitter keep it readable, but the current
+typechecker rejects `yield` and lowering retains a defensive unsupported
+boundary. Parser or highlighting support must not be read as executable
+generator support.
+
+An earlier design sketch proposed a container-returning routine that yielded
+one value at a time:
+
 ```
 fun someIter: vec[int] = {
     var curInt = 0;
@@ -183,3 +193,9 @@ fun someIter: vec[int] = {
     }
 }
 ```
+
+That snippet is a future syntax sketch, not current source. Its eligible return
+types, ownership behavior, suspension model, lowering, and runtime contract
+remain undecided. Generator `yield` is also unrelated to V3 `| async` and
+`| await`, which produce and consume internal eventuals without suspending the
+calling routine as a generator.

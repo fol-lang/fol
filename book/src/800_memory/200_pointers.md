@@ -12,25 +12,38 @@ APIs.
 ```fol
 fun[] main(): int = {
     var value: int = 7;
-    var[mut] pointer: ptr[int] = &value;
-    *pointer = 9;
-    return *pointer;
+    var inner: ptr[int] = &value;
+    var outer: ptr[ptr[int]] = &inner;
+    var[mut] extracted: ptr[int] = *outer;
+    *extracted = 9;
+    return *extracted;
 };
 ```
 
 `&value` allocates the pointed-to value and produces a unique pointer. The
 backend represents it as `Box<T>`. Unique pointers move on transfer, just like
 other unique heap-owned values, and are freed when their owner leaves scope.
+Constructing a pointer from a move-only value transfers that value into the new
+allocation.
 
-`*pointer` dereferences once to the `T` pointee. A unique pointer binding
-declared with `var[mut]` supports write-through assignment.
+`*pointer` is a by-value dereference to the `T` pointee:
+
+- if `T` is clone-safe, dereference clones `T` and leaves the pointer usable
+- if `T` is move-only, dereferencing a unique pointer transfers `T` out and
+  consumes that pointer
+
+The example consumes `outer` because its pointee is another unique pointer.
+`extracted` then owns that inner pointer. A direct unique-pointer binding
+declared with `var[mut]` supports write-through assignment such as
+`*extracted = 9`.
 
 Direct unique-pointer bindings can be dereferenced, but a unique pointer reached
 through a record field cannot be dereferenced in V3. That observation needs a
 place-aware field projection in lowering; treating the field as an ordinary
-value would partially move the pointer merely to read its pointee. Keep the
-unique pointer in a direct binding, or use `ptr[shared, T]` when a read-only
-pointer field is the intended shape.
+value would partially move the pointer merely to read its pointee. This field
+boundary also applies when `T` is clone-safe. Keep the unique pointer in a
+direct binding, or use `ptr[shared, T]` with a clone-safe pointee when a
+read-only pointer field is the intended shape.
 
 ## Shared pointers
 
@@ -48,7 +61,28 @@ reference count, so `first` and `second` refer to the same allocation. Shared
 pointers are read-only; write-through is rejected.
 
 A single `*p` yields `T` for both unique and shared pointers. The reference
-counting layer is not exposed as another pointer that needs a second dereference.
+counting layer is not exposed as another pointer that needs a second
+dereference. Because a shared pointer cannot remove the value from all of its
+aliases, this read is available only when `T` is clone-safe. Dereferencing
+`ptr[shared, ptr[int]]`, for example, is rejected rather than cloning or moving
+the unique inner pointer.
+
+## Borrowed pointers
+
+A pointer can be borrowed like any other owned value:
+
+```fol
+fun[] read(pointer[bor]: ptr[int]): int = {
+    return *pointer;
+};
+```
+
+The borrowed pointer is a non-owning, read-only view. It can be passed directly
+to another compatible `[bor]` parameter and reused for later calls. Dereference
+can clone a clone-safe pointee such as `int`, but it cannot move a move-only
+pointee through the borrow. A borrowed `ptr[ptr[int]]` therefore cannot produce
+the inner `ptr[int]` by value. Write-through also requires a direct mutable
+unique-pointer binding; a borrowed pointer is not such a binding.
 
 ## Shared recursive graphs
 
@@ -81,7 +115,8 @@ never deletes a pointer.
 - `#owner` creates a lexical borrow without allocation
 - `!borrow` gives that borrow back early
 - `&value` constructs a typed allocating pointer
-- `*pointer` reads or, for mutable unique pointers, writes through the pointer
+- `*pointer` clones a clone-safe pointee, consumes a unique pointer when its
+  pointee is move-only, or writes through a direct mutable unique pointer
 
 Borrowing is compile-time-only and legal in `core`. Pointer type declarations
 can be analyzed in `core`, but evaluating `&value` is rejected there because it

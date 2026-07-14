@@ -4,7 +4,9 @@ FOL's V3 memory model uses compile-time ownership. It does not add a garbage
 collector, runtime ownership tags, or user-defined destructors.
 
 V3 ships unique heap ownership, move checking, lexical borrowing, and typed
-unique/shared pointers.
+unique/shared pointers. Transfer behavior follows the value type, not merely
+the binding's location: clone-safe values are copied by cloning, while unique
+ownership and aggregates containing unique ownership move.
 
 ## Stack and heap bindings
 
@@ -27,10 +29,13 @@ owning scope ends.
 
 ## Assignment and ownership transfer
 
-Assignment and rebinding use the value's storage class:
+Assignment and rebinding use the value's ownership class:
 
-- stack values clone, so the source and destination remain usable
-- heap-owned values move, so the source becomes inaccessible
+- clone-safe values clone, so the source and destination remain usable
+- heap-owned values and unique pointers move, so the source becomes
+  inaccessible
+- an aggregate is move-only when it contains a move-only value
+- a shared pointer clones its reference count instead of moving its source
 
 ```fol
 fun[] main(): int = {
@@ -46,12 +51,12 @@ fun[] main(): int = {
 
 A later read of `heap_a` is a compile error in the `O####` OWNERSHIP diagnostic
 family. The diagnostic points at both the invalid use and the transfer site.
-The backend emits stack transfers with `.clone()` and unique heap transfers as
+The backend emits clone-safe transfers with `.clone()` and unique transfers as
 ordinary Rust moves. No runtime tag decides which operation occurs.
 
 Evaluating a move-only value as a standalone expression is also a transfer even
 when its result is discarded. Lowering still evaluates that expression, so the
-source cannot be used afterward. Copy-safe scalar expression statements remain
+source cannot be used afterward. Clone-safe scalar expression statements remain
 usable because their values clone.
 
 A whole mutable binding can be reinitialized after its old value moves:
@@ -73,7 +78,7 @@ statement and does not yield a second copy of the stored value.
 Transferring a move-only record field consumes the whole source binding. V3
 does not leave a partially moved record available through its other fields.
 Any indexed read whose element or map value is move-only remains unsupported,
-including selecting a copy-safe field from that element afterward. Index access
+including selecting a clone-safe field from that element afterward. Index access
 materializes the whole element, so these containers need an explicit removal
 operation rather than a clone-based read.
 
@@ -85,11 +90,19 @@ projection IR; such a lookup is rejected instead of partially moving its
 source. The same boundary rejects nested field access through a move-only
 intermediate.
 
-Dereferencing a unique-pointer field is another place observation, not a whole
+Dereferencing is a by-value operation whose ownership effect depends on the
+pointee. `*pointer` clones a clone-safe pointee and leaves the pointer usable.
+If the pointee is move-only, dereferencing a direct unique `ptr[T]` transfers
+the pointee and consumes that pointer. A shared or borrowed pointer cannot
+surrender a move-only pointee, so those dereferences are rejected; their
+read-only dereference is available only when the pointee is clone-safe.
+
+Dereferencing a unique-pointer field is also a place observation, not a whole
 field transfer. Until V3 has place-aware projection IR, `*record.pointer` is
-rejected when the field is a unique pointer; otherwise backend lowering would
-partially move the pointer just to observe its target. Direct `*pointer` and
-fields containing `ptr[shared, T]` remain available.
+rejected even when its pointee is clone-safe; otherwise backend lowering would
+partially move the pointer just to observe its target. Direct pointer bindings
+remain available. A field containing `ptr[shared, T]` can be dereferenced when
+`T` is clone-safe.
 
 Forward slices currently create a new `vec[...]` or `seq[...]` by cloning the
 selected elements. Their element type must therefore be clone-safe. Fixed-size
@@ -187,7 +200,9 @@ flow-sensitive or non-lexical lifetime analysis in V3.
 While a borrow is active:
 
 - the owner cannot be read, written, moved, or borrowed incompatibly
-- shared borrowers are read-only
+- an immutable borrower is read-only
+- a borrowed value cannot transfer move-only data out of its owner; clone-safe
+  observations remain available
 - any mutable borrower excludes every other borrower of that owner
 
 Leaving the scope returns access to the owner automatically:
@@ -230,9 +245,11 @@ view.value = 9;
 return owner.value;
 ```
 
-`var[bor]` is immutable unless `mut` is also present. Attempting a mutable
-borrow from `var[imu]`, or creating another borrow while a mutable borrow is
-active, is an `O####` ownership diagnostic.
+`var[bor]` is immutable unless `mut` is also present. A `var[mut, bor]` binding
+may update the original owner, but it still does not own the value and cannot
+move unique data out of it. Attempting a mutable borrow from `var[imu]`, or
+creating another borrow while a mutable borrow is active, is an `O####`
+ownership diagnostic.
 
 ## Borrow parameters
 
@@ -244,9 +261,14 @@ fun[] inspect(item[bor]: Node): int = {
 };
 ```
 
-The backend emits a Rust reference parameter. The argument is borrowed for the
-call and returned when the call completes. Parameter spelling or casing never
-changes ownership semantics; `name[bor]: T` is the only borrow-parameter form.
+The backend emits a Rust reference parameter. Passing an owner requires an
+explicit `#owner`; an existing compatible borrow binding can be passed directly
+and reused by later `[bor]` calls. The call borrow ends when the call returns,
+while an existing borrow binding keeps its surrounding lexical lifetime.
+Parameter spelling or casing never changes ownership semantics;
+`name[bor]: T` is the only borrow-parameter form. A borrowed parameter can
+observe clone-safe data, but it cannot return or forward a move-only value as
+an owned argument.
 
 Borrowing is compile-time-only and legal in `core`. It does not allocate or add
 runtime reference bookkeeping.

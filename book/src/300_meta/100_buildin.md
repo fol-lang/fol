@@ -187,7 +187,9 @@ panic("fatal")
 
 Current `V1` rule:
 
-- `check(expr)` asks whether a recoverable routine call failed and returns `bol`
+- `check(expr)` asks whether a recoverable `/ ErrorType` expression failed and
+  returns `bol`; that expression may be a direct routine call or, in V3, an
+  awaited recoverable eventual
 - `panic(...)` aborts control flow immediately
 
 These are described in more detail in the recoverable-error chapter.
@@ -285,7 +287,7 @@ Likewise, recoverable routine calls such as:
 fun[] read_code(path: str): int / str = { ... }
 ```
 
-are handled with:
+and V3 recoverable results produced by `eventual | await` are handled with:
 
 - `check(expr)`
 - `expr || fallback`

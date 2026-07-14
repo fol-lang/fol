@@ -1,7 +1,8 @@
 # Editor Sync
 
-This document is the canonical contract for keeping the compiler, LSP, and
-tree-sitter assets aligned.
+This document is the canonical contract for keeping compiler truth, frontend
+tooling, diagnostics, the LSP, tree-sitter assets, examples, and their machine
+inventories aligned.
 
 ## Intent
 
@@ -49,6 +50,8 @@ Current shipped V3 coverage is compiler-backed and inventory-driven:
   guarded failure inventory
 - semantic diagnostics should flow from compiler truth, while completion and
   tree-sitter captures still require explicit V3 regression coverage
+- formatter and tool commands consume the same positive inventory, while the
+  diagnostic and editor gates consume the exact checked-in failure inventory
 
 ### V3 mirror matrix
 
@@ -64,7 +67,7 @@ complete row.
 | P1 spawn | direct named task targets, thread-boundary transfer, and join-at-exit | hosted-tier completion, spawn hover/navigation, and structured direct-target/thread-boundary diagnostics | `v3_eventuals.txt` plus the P1 inventory |
 | P2 channels | direct endpoint ownership, send/pull/iteration, capture, and close lifecycle | endpoint-only completion, lifecycle-aware completion, endpoint hover/navigation, and guarded failure diagnostics | `v3_channels_select_mutex.txt` plus the P2 inventory |
 | P3 select and mutex | source-order multi-arm selection, optional default, `[mux]` guards, forwarding, and deferred-effect boundaries | select-binding navigation, mutex-method completion, deferred-scope suppression, semantic tokens, and dead-form rejection | `v3_channels_select_mutex.txt` plus the P3 inventory |
-| P4 eventuals | internal move-only eventuals, direct async targets, single await, and synchronous error transparency | async/await hover and context completion, navigation, type-shell handling, and tier/boundary diagnostics | `v3_eventuals.txt` plus the P4 inventory |
+| P4 eventuals | internal move-only eventuals, direct async targets, at-most-one await, mandatory await/handling for recoverable results, lexical-exit obligations, and synchronous error transparency | async/await hover and context completion, navigation, type-shell handling, and exact discard/overwrite/exit/`edf` diagnostics | `v3_eventuals.txt` plus the P4 inventory |
 | Cross-cutting lexical/tooling | compiler-recognized comments and raw strings protect V3 sigils and braces | shared formatter/source scanning, UTF-16 LSP positions, real in-process parse/highlight/symbol commands, and generated-query validation | `v3_lexical_boundaries.txt`, `make tree-test`, and editor integration tests |
 
 Frontend and editor analysis must derive the active model and bundled-standard
@@ -79,10 +82,20 @@ inventory in `test/v3_example_inventory.rs`; do not reintroduce independent
 hard-coded example lists in individual LSP test modules.
 In particular, editor diagnostic coverage must preserve the current hard
 boundaries for unique-pointer field dereference, deferred reinitialization of a
-moved owner, indirect spawn/async call targets, channel endpoint lifecycle, and
-deferred mutex field/guard/forwarding effects. These are compiler-owned semantic
-rules: the LSP publishes their structured diagnostics, while tree-sitter only
-validates and highlights the syntax that reaches them.
+moved owner, terminating `report` inside deferred cleanup, indirect spawn/async
+call targets, implicit nested-routine capture of outer locals, unhandled
+recoverable eventuals at fallthrough/`break`/`return`/`report`, awaiting an
+eventual inside `edf` (including through a nested `dfr`), channel endpoint
+lifecycle, and deferred mutex field/guard/forwarding effects. These are
+compiler-owned semantic rules: the LSP publishes their structured diagnostics,
+while tree-sitter only validates and highlights the syntax that reaches them.
+
+Syntax preservation must not be presented as semantic support. For example,
+tree-sitter and the parser recognize language `yield`, and the resolver retains
+its expression, but the current typechecker rejects it and lowering has a
+defensive unsupported path. Generators are later design, not a V3 processor
+feature. Highlighting or parsing `yield` therefore proves editor readability,
+not an executable language contract.
 
 ## Ownership
 
@@ -269,6 +282,7 @@ When you add or change a language feature, the editor sync bar is:
    - compiler/query sync tests
    - top-level editor sync integration tests
    - model-aware LSP completion and diagnostics tests
+   - exact positive/failure example inventory checks
 3. If the feature changes only semantic behavior:
    - do not add a duplicated editor-only semantic rule first
    - prefer the compiler-backed analysis path
@@ -287,6 +301,10 @@ When you add or change a language feature, the editor sync bar is:
    - update bundled std examples that should demonstrate the new names
    - add or update LSP completion plus hover/definition coverage
    - add or update tree-sitter real-example highlight coverage
+8. If syntax is intentionally preserved ahead of semantics:
+   - document the semantic rejection boundary explicitly
+   - test compiler-backed diagnostics rather than claiming syntax support as
+     feature completion
 
 The intended workflow is:
 

@@ -27,16 +27,25 @@ fun[] main(): int = {
 };
 ```
 
-A bare spawn must be infallible. Spawning a routine declared with `/ ErrorType`
-without awaiting it is rejected because the error would otherwise disappear.
-The call form must resolve directly to a named routine declaration; stored
-routine values and routine parameters are not spawn targets in `V3`. The
-explicit zero-parameter anonymous spawn form remains available for captures.
+A bare spawn is always fire-and-forget: `[>]call()` creates no eventual and
+cannot be awaited. It must therefore call an infallible routine. To run a
+recoverable routine asynchronously, omit `[>]`, write `call() | async`, then
+consume the eventual with `| await` and handle the result with `check(...)` or
+`||`.
+The call form must resolve directly to a named routine declaration. Both an
+unqualified call such as `[>]worker()` and a qualified call such as
+`[>]workers::worker()` are supported. Stored routine values, stored anonymous
+routines, and routine parameters remain indirect calls and are not spawn
+targets in `V3`. The explicit zero-parameter anonymous spawn form remains
+available for explicit channel sender-endpoint captures; it is not a general
+closure-capture surface. Receiver-method call syntax is not a named
+spawn-target form; use a free routine name or qualified path instead.
 
 The spawn boundary follows the `V3` memory rules:
 
-- stack values clone into the task
-- `@` values move into the task, leaving the sender moved-out
+- clone-safe values clone into the task
+- thread-safe move-only values, including `@` ownership and unique pointers,
+  move into the task and leave the sender moved-out
 - borrowed values do not cross the thread boundary
 - `ptr[shared, T]` values do not cross the boundary because their `Rc` backing
   is not thread-safe
@@ -57,6 +66,11 @@ MPSC `chn[T]` backed by `std::sync::mpsc`: `c[tx]` sends without blocking,
 `c[rx]` performs a blocking pull, and receiver iteration runs until all sender
 handles are dropped. The old sequence-index spelling `c[rx][i]` is not part of
 the contract.
+
+`T` may be a thread-safe move-only value. Sending consumes that value, and a
+blocking receive, receiver iteration, or selected arm transfers the payload to
+its destination without cloning it. Unique pointers are supported this way;
+values containing `ptr[shared, T]` remain barred from OS-thread boundaries.
 
 The first `c[rx]` acquisition relinquishes that channel binding's local
 transmitter capability. Clone or capture every needed `c[tx]` handle before
@@ -110,9 +124,15 @@ select {
 
 The old single-channel `select(channel as name) { ... }` form is not retained.
 The runtime polls arms in source order with `try_recv()`. Closed arms are
-skipped and a blocking select completes when all arms are closed. An optional
-`*` arm runs immediately when no receiver is ready. Simultaneously-ready arms
-therefore have source-order bias in V3; no fairness guarantee is promised.
+skipped and a blocking select completes, continuing after the statement, when
+all arms are closed. An optional `*` arm runs immediately when no receiver is
+ready. Simultaneously-ready arms therefore have source-order bias in V3; no
+fairness guarantee is promised.
+
+A blocking select without `*` must contain at least one channel arm.
+`select {}` is invalid and is rejected during typecheck rather than being left
+for lowering. A default-only select is non-blocking because its `*` body runs
+immediately.
 
 ## Mutex parameters
 
@@ -131,8 +151,9 @@ fun[] update(value[mux]: Counter): int = {
 `[mux]` lowers to `Arc<Mutex<T>>`. A routine acquires the guard with `.lock()`;
 guarded fields are accessible only while that guard is active. The guard is
 released automatically at the end of the lexical scope that acquired it, or
-early with `.unlock()` in that same scope. The historical `((name))` parameter
-spelling is not retained.
+early with `.unlock()` in that same scope. Locking the same parameter twice is
+rejected, as is unlocking without a guard acquired in the current lexical
+scope. The historical `((name))` parameter spelling is not retained.
 
 Mutex field access and `.lock()`/`.unlock()` are not allowed inside `dfr` or
 `edf` bodies in `V3`. Guard transitions are tracked for immediate lexical
@@ -145,12 +166,24 @@ The guarded `T` cannot be copied, returned, embedded, or passed to an ordinary
 `[mux]` parameter is allowed, including through spawn; data access still
 requires that receiving routine to acquire its own guard.
 
+For a synchronous call, the caller must unlock a handle before forwarding it
+to another `[mux]` parameter; otherwise the callee could block trying to acquire
+the caller's guard. One call also cannot pass the same handle to two `[mux]`
+parameters because those aliases can self-deadlock. Spawn and async calls are
+task boundaries and may receive the cloned handle while the caller still holds
+its guard; the new task waits until the caller releases it.
+
 The `[mux]` calling convention is currently available only on named routines
-that are called directly. A named routine with `[mux]` parameters cannot be
-stored or passed as a first-class routine value, and anonymous routines cannot
-declare `[mux]` parameters. Those routine-value forms do not yet retain the
-mutex ABI metadata needed to preserve `Arc<Mutex<T>>`; use a named direct call
-instead.
+that are called directly, through either unqualified or qualified names. A
+named routine with `[mux]` parameters cannot be stored or passed as a
+first-class routine value, and anonymous routines cannot declare `[mux]`
+parameters. Those routine-value forms do not yet retain the mutex ABI metadata
+needed to preserve `Arc<Mutex<T>>`; use a named direct call instead.
+
+Despite this chapter's historical filename, the shipped surface is OS-thread
+tasks, channels, select, and mutexes—not resumable coroutines or generators.
+Generator `yield` is parser-recognized but remains rejected by typecheck and
+lowering in `V3`.
 
 The exact positive, removed-syntax, deferred-effect, and tier-failure examples
 for `select` and mutexes are maintained in the

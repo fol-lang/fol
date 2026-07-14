@@ -21,8 +21,9 @@ Its purpose is to keep one distinction clear while the compiler grows:
 FOL already has broad syntax coverage. That is good, but it is not the same as
  saying a feature is implemented.
 
-For versioning purposes, a feature is only considered part of a version when the
- compiler can support it through the full chain that matters for that feature.
+For versioning purposes, a feature is only considered part of a version when
+the repository supports it through the full chain that matters for that
+feature.
 
 That usually means:
 
@@ -31,6 +32,12 @@ That usually means:
 - the relevant semantic phase enforces the feature correctly
 - diagnostics are explicit when the feature is used incorrectly
 - the later compiler stages needed by that feature are present too
+
+For a shipped feature with runtime or editor impact, that chain also includes
+the applicable runtime/backend behavior, frontend routing, formatter and tool
+commands, LSP behavior, tree-sitter grammar/queries/corpus, positive and
+negative examples, machine inventories, tests, docs, and book text. A layer may
+need no code change, but it must be audited rather than silently omitted.
 
 So:
 
@@ -431,9 +438,10 @@ Memory pillar (`plan/V3_MEM.md`):
   unused reserved keyword `go`, fix the sigil charter, delete the
   `ALL_CAPS`-means-borrowable convention, and add an `O####` OWNERSHIP
   diagnostic family
-- Milestone 1: ownership with static move/clone semantics (stack values clone,
-  heap values move), and the flagship recursive heap types (`opt @Node`) through
-  a new nominal lowered-type representation
+- Milestone 1: ownership with the initial static move/clone cases (plain stack
+  values clone and `@` heap values move), plus the flagship recursive heap
+  types (`opt @Node`) through a new nominal lowered-type representation; later
+  memory milestones generalize transfer by recursive type ownership
 - Milestone 2: scope-granular borrowing (`var[bor]`, `#x`, `!x`, `name[bor]:`
   parameters), ownership-aware `dfr`, and error-only `edf`
 - Milestone 3: typed pointers `ptr[T]` (unique) and `ptr[shared, T]`
@@ -448,26 +456,39 @@ Processor pillar (`plan/V3_PROC.md`):
   tier diagnostics
 - concurrency is OS threads through the Rust standard library, with no async
   runtime, no worker pool, and no colored functions
-- P1: `[>]` spawn with thread-per-spawn execution and join-all-at-exit
+- P1: fire-and-forget `[>]` spawn with thread-per-spawn execution and
+  join-all-at-exit; awaitable work uses `call() | async` instead
 - P2: `chn[T]` unbounded MPSC channels with pipe send and a blocking pull
   receive
 - P3: multi-arm `select` multiplexing and `name[mux]:` mutex parameters
 - P4: eventuals through `| async` and `| await`, with an internal (not
-  user-nameable) eventual type and error handling identical to the synchronous
-  call site
+  user-nameable) eventual type, must-handle recoverable obligations, and error
+  handling identical to the synchronous call site
+- an eventual can be awaited at most once; a recoverable eventual must be
+  awaited and handled before fallthrough or an exiting `break`, `return`, or
+  `report`, while an infallible eventual may remain for the process-exit join
+- nested routines cannot implicitly capture outer locals, and `edf` cannot
+  await or access an existing eventual binding
 
 Both V3 pillars are implemented across the compiler, runtime/backend, frontend
 artifact routing, diagnostics, formatter/tool commands, LSP, tree-sitter,
 examples, tests, docs, and book. Processor P1 uses one OS thread per spawn and
 joins at exit; P2 ships unbounded MPSC channels; P3 ships source-order polling
 select and `[mux]` shared mutation; P4 ships internal eventuals with synchronous
-error transparency. Every processor surface remains `std`-only.
+error transparency and path-checked recoverable obligations. Every processor
+surface remains `std`-only.
 
 That implementation claim includes the explicit mirrors, not only compiler
 acceptance: evaluated artifact capabilities, diagnostics and explanations,
 formatter and tool-command behavior, LSP behavior, tree-sitter grammar and
 queries, corpus fixtures, positive and negative example inventories, docs, and
 book chapters must stay synchronized whenever a V3 boundary changes.
+
+Generator semantics are not part of either V3 pillar. The language keyword
+`yield` is retained by the lexer, parser, resolver, and syntax-oriented editor
+assets, but the current typechecker rejects it and lowering keeps a defensive
+unsupported boundary. That syntax preservation is not a shipped generator
+contract, and generators remain later design with no current version promise.
 
 ## What V4 means
 
@@ -579,7 +600,9 @@ The semantic milestone order remains:
 
 At the current repository head, `V1`, the explicitly bounded `V2` subset, and
 both `V3` pillars are implemented end to end. Broader V2 contract machinery and
-V4 interop remain future work; they are not evidence that V3 is still pending.
+V4 interop remain future work; generators and language `yield` also remain
+future work outside the current V3 contract. None of those later surfaces is
+evidence that V3 is still pending.
 
 The practical rule is therefore:
 
