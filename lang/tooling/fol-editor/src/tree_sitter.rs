@@ -21,6 +21,20 @@ impl TreeSitterCorpusCase {
         let (program, _) = body.split_once("\n---\n")?;
         Some(program.trim_end_matches(|character| character == '\r' || character == '\n'))
     }
+
+    #[cfg(test)]
+    fn registered_case_count(&self) -> usize {
+        let delimiters = self
+            .source
+            .lines()
+            .filter(|line| {
+                let line = line.trim();
+                line.len() >= 3 && line.bytes().all(|byte| byte == b'=')
+            })
+            .count();
+        debug_assert_eq!(delimiters % 2, 0, "tree-sitter corpus case delimiters");
+        delimiters / 2
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1284,7 +1298,10 @@ mod tests {
         let output = run_tree_sitter_test(&root, &cache);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let case_count = fol_tree_sitter_corpus().len();
+        let case_count = fol_tree_sitter_corpus()
+            .iter()
+            .map(|case| case.registered_case_count())
+            .sum::<usize>();
 
         assert!(
             output.status.success(),
