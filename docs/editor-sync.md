@@ -190,6 +190,11 @@ All three rows may describe executable artifacts. Bundled std changes the APIs
 that compiler-backed editor analysis exposes; it does not decide whether the
 frontend may run or test a host-compatible artifact.
 
+Machine-target compatibility is not an editor capability either. A foreign
+target may require an external runner and be rejected by the current frontend
+`run` / `test` path, but that must not promote or demote the document's
+`core`, `memo`, or hosted API analysis.
+
 ## Routed artifact fallback
 
 When the editor can map an opened file to one routed artifact root from

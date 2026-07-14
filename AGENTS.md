@@ -99,6 +99,8 @@ Execution rule:
   `std`
 - bundled `std` gates source-visible hosted APIs; it does not grant permission
   to execute an artifact
+- cross-target execution still requires an appropriate runner; bundled `std`
+  does not make a foreign target executable on the build host
 - the frontend launching a host-compatible executable, compiler, linker, or
   other system tool is build-host behavior and is orthogonal to `fol_model`
 - generated recoverable entry wrappers use the shared backend-only

@@ -33,23 +33,41 @@ apart is what makes the model coherent:
 3. **Effective runtime tier** — what the artifact actually typechecks and
    links against. Derived, never written by hand:
 
-| Declared mode | Bundled `std` declared? | Effective API tier | `.echo` substrate |
-|---------------|--------------------------|--------------------|-------------------|
-| `core`        | (not allowed)            | `core`             | forbidden         |
-| `memo`        | no                       | `memo`             | forbidden         |
-| `memo`        | yes                      | hosted APIs (`std`) | legal             |
+| Declared mode | Package declares bundled `std`? | Effective API tier | `.echo` substrate |
+|---------------|---------------------------------|--------------------|-------------------|
+| `core`        | either; unavailable to this artifact | `core`       | forbidden         |
+| `memo`        | no                              | `memo`             | forbidden         |
+| `memo`        | yes                             | hosted APIs (`std`) | legal             |
 
 The promotion in the last row is the one rule people trip over: declaring the
-bundled internal `standard` dependency upgrades the artifact's effective API
-capability to hosted. That is what lets the bundled std wrappers (which are
-built on the hosted `.echo(...)` primitive) typecheck — and it also legalizes
-direct `.echo(...)` in your own source as the raw substrate
+bundled internal `standard` dependency at package level upgrades a `memo`
+artifact's effective API capability to hosted. A `core` artifact in the same
+package remains `core`; it cannot import or use bundled std. The promotion is
+what lets the bundled std wrappers (which are built on the hosted `.echo(...)`
+primitive) typecheck — and it also legalizes direct `.echo(...)` in your own
+hosted source as the raw substrate
 (`examples/std_substrate_echo` pins exactly this). Style still says ordinary
 hosted code goes through `std.io`, but legality is decided by the dependency
 declaration, not the spelling.
 
 The build output reports both halves explicitly, for example:
 `capability_mode=memo, bundled_std=1/1`.
+
+## Rust-oriented mental model
+
+The closest Rust analogy is:
+
+| FOL selection | Rust mental model | FOL source can use |
+|---------------|-------------------|--------------------|
+| `fol_model = "core"` | `#![no_std]` with `core` | fixed-shape, no-heap language facilities |
+| `fol_model = "memo"` | `#![no_std]` with `core` plus `alloc` | `core` plus FOL heap-backed values |
+| `fol_model = "memo"` plus bundled `standard` | hosted Rust with `std` | `memo` plus shipped hosted FOL APIs |
+
+This is a capability analogy, not an assertion that the current backend emits
+a freestanding Rust binary. `core` means that the FOL program has no
+source-visible heap surface. The compiler, linker, frontend, generated process
+entry adapter, and current Rust backend may still use build-host facilities as
+implementation substrate. That substrate is not made available to FOL source.
 
 Recommended style:
 
@@ -61,6 +79,23 @@ Recommended style:
   host-compatible `core` and `memo` artifacts without bundled `std`
 - treat frontend process launching as build-host behavior, not as a
   source-language hosted capability
+
+## Execution is a separate axis
+
+`fol_model` answers which operations source code may express. The selected
+machine target answers whether the frontend can launch the emitted artifact.
+Those are independent checks:
+
+| Artifact contract | Build | Run/test on a compatible host | Run/test on an incompatible host |
+|-------------------|-------|-------------------------------|----------------------------------|
+| `core`, no bundled std | yes | yes | rejected without an appropriate runner |
+| `memo`, no bundled std | yes | yes | rejected without an appropriate runner |
+| `memo`, bundled std | yes | yes | rejected without an appropriate runner |
+
+The current frontend has no cross-target runner hook. It therefore rejects
+`fol code run` and `fol code test` when the selected target cannot execute on
+the host. Build the artifact normally and use an appropriate external runner
+for that target. Declaring bundled `std` never fixes a target mismatch.
 
 ## Artifact source scopes
 
@@ -123,7 +158,7 @@ Forbidden surface:
 
 Choose `core` when:
 
-- the artifact must avoid heap allocation completely
+- the FOL source/API contract must avoid heap-backed values and operations
 - the artifact should be valid for embedded-first targets
 - arrays and plain records are enough
 - source-visible console and OS APIs are not part of the contract
@@ -240,41 +275,73 @@ Hosted std examples with explicit bundled dependency:
 - `examples/std_bundled_io`
 - `examples/std_substrate_echo`
 
-## Choose your model
+## `build.fol` recipes
 
-Use `core` when the artifact can stay array-only and fixed-shape:
-
-```fol
-var graph = .build().graph();
-graph.add_static_lib({
-    name = "math",
-    root = "src/lib.fol",
-    fol_model = "core",
-});
-```
-
-Move to `memo` when the artifact itself genuinely needs heap-backed strings or
-dynamic containers:
+Use `core` when an executable can stay fixed-shape and no-heap. Declaring a
+run step does not widen its capability:
 
 ```fol
-var graph = .build().graph();
-graph.add_static_lib({
-    name = "text",
-    root = "src/lib.fol",
-    fol_model = "memo",
-});
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "core_app", version = "0.1.0" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "core-app",
+        root = "src/main.fol",
+        fol_model = "core",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};
 ```
 
-Add bundled `std` when the package needs shipped hosted-library wrappers:
+Move to `memo` when the executable itself genuinely needs heap-backed strings
+or dynamic containers. `memo` is the default, so omitting `fol_model` is
+equivalent to spelling `fol_model = "memo"`:
 
 ```fol
-var build = .build();
-build.add_dep({
-    alias = "std",
-    source = "internal",
-    target = "standard",
-});
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "memo_app", version = "0.1.0" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "memo-app",
+        root = "src/main.fol",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};
 ```
+
+Add bundled `std` only when source needs shipped hosted-library wrappers or
+processor facilities. The dependency is declared on `build` before taking the
+graph; the artifact remains a `memo` artifact:
+
+```fol
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "hosted_app", version = "0.1.0" });
+    build.add_dep({
+        alias = "std",
+        source = "internal",
+        target = "standard",
+    });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "hosted-app",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};
+```
+
+The hosted source then imports the declared alias with
+`use std: pkg = {"std"};`. There is no valid `fol_model = "std"` form.
 
 Direct boundary reminder:
 
@@ -290,8 +357,10 @@ Transitive boundary reminder:
 
 - a `core` artifact still cannot consume heap-backed API from a `memo`
   dependency
-- a `core` or `memo` artifact cannot consume bundled `std` APIs unless the
-  bundled internal `standard` dependency was declared
+- a `core` artifact cannot consume bundled `std` APIs, even when a sibling
+  `memo` artifact caused the package to declare the dependency
+- a `memo` artifact cannot consume bundled `std` APIs unless the bundled
+  internal `standard` dependency was declared
 - a `memo` artifact with bundled `std` may consume both `core` and `memo`
   dependencies in one graph
 
@@ -304,9 +373,10 @@ That means:
 
 - a `core` artifact cannot consume heap-backed API from a `memo` package just
   because the dependency itself was declared with `fol_model = "memo"`
-- a `core` or `memo` artifact cannot reach `.echo(...)` indirectly through an
-  imported bundled `std` package unless the package declared internal
-  `standard`
+- a `core` artifact cannot reach `.echo(...)` through bundled `std`, regardless
+  of other package artifacts
+- a `memo` artifact cannot reach `.echo(...)` indirectly through bundled `std`
+  unless the package declared internal `standard`
 - a `memo` artifact with bundled `std` may consume `core` and `memo` packages
   in the same graph
 
@@ -331,7 +401,10 @@ Implemented today:
 - dynamic/string `.len(...)` requires `memo`
 - ownership and lexical borrowing are checked in every model
 - pointer type declarations are analyzable in `core`, while `&value`, owned
-  allocation, and pointer construction require `memo` or hosted `std`
+  allocation, and pointer construction require the public `memo` mode; a
+  bundled std dependency may further raise that artifact's effective API tier,
+  but it is not an alternative model and never makes those forms legal in
+  `core`
 - all processor surfaces (`[>]`, channels, `select`, mutex parameters,
   `async`, and `await`) require hosted `std`
 - routed `run` / `test` accept host-compatible `core` and `memo` artifacts
@@ -389,7 +462,12 @@ This means adding a language feature should not require a second semantic
 implementation in `fol-editor`. Only syntax-structure changes should normally
 need targeted tree-sitter or editor UX updates.
 
-## Build example
+## Mixed-package build example
+
+This is the checked-in shape from `examples/mixed_models_workspace`. The
+package-level bundled dependency raises the effective API tier of its `memo`
+artifacts, while `corelib` remains `core`. `graph.add_run(tool)` only selects a
+runnable graph artifact:
 
 ```fol
 pro[] build(): non = {
@@ -399,22 +477,27 @@ pro[] build(): non = {
     var graph = build.graph();
     var corelib = graph.add_static_lib({
         name = "corelib",
-        root = "src/core/lib.fol",
+        root = "core/lib.fol",
         fol_model = "core",
     });
 
-    var heaplib = graph.add_static_lib({
-        name = "heaplib",
-        root = "src/memo/lib.fol",
+    var memolib = graph.add_static_lib({
+        name = "memolib",
+        root = "memo/lib.fol",
         fol_model = "memo",
     });
 
     var tool = graph.add_exe({
         name = "tool",
-        root = "src/main.fol",
+        root = "app/main.fol",
         fol_model = "memo",
     });
-}
+    graph.install(corelib);
+    graph.install(memolib);
+    graph.install(tool);
+    graph.add_run(tool);
+    return;
+};
 ```
 
 ## Example packages

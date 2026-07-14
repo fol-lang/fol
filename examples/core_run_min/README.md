@@ -7,3 +7,11 @@ language APIs.
 
 Frontend process launching is separate from the source-language capability
 model.
+
+Its `build.fol` sets `fol_model = "core"` on `graph.add_exe(...)` and then
+passes the resulting artifact to `graph.add_run(...)`. The run declaration
+does not promote the artifact to `memo` or bundled `std`; it only gives the
+frontend a runnable graph target.
+
+This example assumes a host-compatible target. A cross-target build still
+needs an appropriate external runner.

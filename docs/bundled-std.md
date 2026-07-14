@@ -32,6 +32,8 @@ Finalized design contract:
 - bundled std gates source-visible hosted APIs, not artifact execution
 - launching artifacts and system tools is frontend/build-host behavior and is
   orthogonal to `fol_model`
+- target compatibility is also orthogonal: a cross-target artifact still needs
+  an appropriate runner, and bundled std does not make it host-executable
 
 Normal build usage:
 
@@ -50,6 +52,28 @@ Implementation split:
 
 - `core` and `memo` remain compiler/runtime capability layers in Rust
 - `std` is the importable bundled library and should grow mostly in FOL
+
+## What the dependency changes
+
+The internal dependency declaration is package-level. For a `memo` artifact it:
+
+- makes the dependency alias available to `use std: pkg = {"std"};`
+- raises the artifact's effective API tier so hosted FOL APIs are legal
+- links the hosted runtime surface required by those APIs
+
+It does not:
+
+- create a third `fol_model`
+- widen a `core` artifact in the same package
+- grant permission to run or test an artifact
+- make a foreign machine target executable on the build host
+- import `std` into source automatically
+
+The Rust-oriented analogy is `core` for a `no_std`-style fixed-shape source
+surface, `memo` for the same source model plus alloc-like heap facilities, and
+the explicit bundled dependency for hosted FOL APIs. This analogy describes
+the FOL source contract, not whether compiler or backend implementation code
+uses host facilities internally.
 
 ## What Ships With FOL
 
@@ -117,6 +141,11 @@ Current rule:
 - executable artifacts can be built, run, and tested without bundled std
 - the explicit bundled dependency is required when source code uses
   `std`-backed hosted APIs, not merely because the frontend executes a binary
+
+Cross-target execution remains separate. The current frontend rejects
+`fol code run` and `fol code test` for a target that cannot execute on the
+host; use an appropriate external runner for that artifact. Adding bundled
+std does not change target compatibility.
 
 That keeps the first shipped std honest:
 

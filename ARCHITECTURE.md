@@ -38,6 +38,25 @@ The design constraint is:
 - no return to YAML manifests
 - no reintroduction of public `Graph`/`Build` type names
 
+### Capability and execution are separate
+
+Build evaluation produces two related but distinct decisions:
+
+1. An artifact selects `fol_model = "core" | "memo"` (`memo` is the default).
+   A package-level internal `standard` dependency raises only a `memo`
+   artifact's effective API tier to hosted; a `core` artifact remains `core`.
+2. A run or test command checks whether the selected machine target can execute
+   on the build host. This check does not inspect bundled-std presence.
+
+That split mirrors the useful part of Rust's `no_std` model: FOL `core` is the
+no-FOL-heap source surface, and `memo` adds alloc-like source facilities.
+Toolchain process launching, compiler/linker execution, and the backend-only
+entry adapter are implementation substrate rather than language capabilities.
+
+The current frontend has no cross-target runner hook. It may build a foreign
+target, but `run` and `test` reject that target until it is handed to an
+appropriate external runner. Adding bundled `std` does not affect that check.
+
 ## Workspace layout
 
 ```
@@ -414,6 +433,10 @@ widen source-language capability.
 The public build modes remain only `core` and `memo`. An explicit bundled
 internal `standard` dependency upgrades a `memo` artifact to the hosted API
 tier; `std` is not a third `fol_model`.
+
+These module boundaries constrain generated FOL-program access. They do not
+claim that the current compiler, Rust backend, or process adapter is
+freestanding or forbidden from using build-host allocation internally.
 
 Generated Rust code calls into `fol-runtime` types and functions.
 

@@ -24,6 +24,10 @@ Use an explicit `--std-root <DIR>` override only for development and testing.
 
 `core` and `memo` are not imported from here. They remain compiler/runtime capability modes.
 
+In Rust terms, they fill the roles of a `core`-only source surface and a
+`core`-plus-`alloc` source surface. This is a capability analogy; the current
+compiler and Rust backend remain build-host tools.
+
 Phase-2 scope:
 
 - bundled `std` should remain intentionally small
@@ -61,12 +65,17 @@ That is enough to prove:
 
 - the toolchain ships a real importable `std`
 - bundled std resolves through one explicit internal dependency declaration
-- FOL-authored std modules compile and run under `fol_model = "memo"`
+- FOL-authored std modules are declared with `fol_model = "memo"` and link into
+  runnable hosted consumers through the explicit dependency
 
 Bundled std is needed here because these modules expose hosted language APIs,
 not because the artifact executes. Host-compatible `core` and `memo`
 executables can build, run, and test without bundled std; process launching is
 a frontend/toolchain concern.
+
+The declaration also does not solve target compatibility. A cross-target
+artifact needs an appropriate external runner; current frontend `run` and
+`test` commands reject targets that cannot execute on the build host.
 
 `std.io` is currently just a thin FOL wrapper over the hosted `.echo(...)`
 substrate.
