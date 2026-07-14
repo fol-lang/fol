@@ -1,6 +1,6 @@
 # FOL Version Boundaries
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 This file explains how the language should be grouped into `V1`, `V2`, `V3`,
 and `V4`.
@@ -51,7 +51,24 @@ FOL uses a build-selected runtime model:
 - `memo`
   adds alloc-like heap-backed facilities, still no source-level hosted OS APIs
 
-Bundled `std` is a shipped internal dependency, not a third `fol_model`.
+Those are the only public `fol_model` values. Bundled `std` is a shipped
+internal dependency, not a third `fol_model`; `fol_model = "std"` is invalid.
+The build graph declares the hosted library explicitly:
+
+```fol
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+Source then imports the dependency with `use std: pkg = {"std"};`. The
+compiler derives its effective capability tier from both inputs:
+
+| Declared `fol_model` | Bundled `std` dependency | Effective tier |
+| --- | --- | --- |
+| `core` | absent | core |
+| `memo` | absent | memo |
+| `memo` | present | hosted std |
+
+Bundled `std` requires `memo`; it does not make a `core` artifact heap-capable.
 
 This model should be selected per build artifact through `build.fol`, not by a
 source-file pragma.
@@ -83,15 +100,24 @@ Current contract:
   `memo`
 - `core` and `memo` artifacts may both build, run, and test without bundled
   `std`; the dependency gates hosted language APIs, not executability
+- `graph.add_run(...)` and `graph.add_test(...)` do not grant or require
+  bundled-`std` capabilities; they only request host execution of a selected
+  artifact
 - host-compatible artifact and system-tool launching is frontend/build-host
   behavior, separate from the language capability model
+- cross-target artifacts require an external runner; the current `run` / `test`
+  commands are host-only and reject those artifacts
+- a recoverable entry routine is adapted to process exit by the backend-only,
+  capability-neutral `fol_runtime::process` seam; that adapter is not a public
+  source API and does not upgrade the artifact to hosted std
 
 Current implementation honesty note:
 
 - `core` is already enforced as a language/runtime capability boundary
 - `core` still goes through the current Rust backend pipeline today
 - so `core` should be read as “no heap, no source-level hosted OS/runtime APIs”
-  rather than as “embedded backend complete”
+  rather than as “the whole generated binary performs no allocation” or
+  “embedded backend complete”
 
 This split is a runtime capability boundary, not an object-model feature and
 not a source-file pragma.

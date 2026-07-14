@@ -14,10 +14,17 @@ pillar**: OS-thread task spawning, channels, mutexes, and eventuals.
 
 The theme is:
 
-- the **entire** processor surface is **`std`-only**; `core` and `memo` reject it
-  with tier diagnostics that follow the existing `.echo(...)` gate
-- that `std`-only rule gates processor APIs, not execution itself; ordinary
-  `core` and `memo` artifacts may run and test without bundled `std`
+- the **entire** processor surface is **bundled-`std`-only**; plain `core` and
+  `memo` reject it with tier diagnostics that follow the existing `.echo(...)`
+  gate
+- that bundled-`std`-only rule gates processor APIs, not execution itself;
+  ordinary `core` and `memo` artifacts may run and test without bundled `std`
+- `std` is not a public `fol_model`; a `memo` build reaches the hosted tier only
+  through
+  `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
+- `graph.add_run(...)` / `graph.add_test(...)` do not imply that dependency;
+  current execution remains host-only, so cross-target artifacts need an
+  external runner outside those commands
 - concurrency is real OS threads through the Rust standard library — **no** Rust
   async/futures/tokio, so FOL never grows colored functions or a runtime
   dependency
@@ -41,7 +48,8 @@ Every place this plan contradicts those chapters is enumerated in Workstream AA.
 
 Keep, permanently:
 
-- `std`-only tiering for the whole processor surface
+- bundled-`std`-only tiering for the whole processor surface; this is source
+  API legality, not permission to launch a host-compatible artifact
 - OS-thread execution via `std::thread`, `std::sync::mpsc`, `std::sync::Mutex`,
   `std::sync::Arc`
 - the memory pillar's static move/clone rule at every spawn/capture boundary

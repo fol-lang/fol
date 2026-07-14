@@ -25,6 +25,12 @@ This plan covers the memory pillar only. The theme is:
   `vec` heap gates
 - `core` and `memo` artifacts remain executable without bundled `std`; model
   gates constrain source-language APIs, not frontend host process launching
+- public `fol_model` has exactly the `core` and `memo` values; explicit
+  `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
+  on a `memo` artifact supplies the separate hosted-library capability tier
+- the current Rust backend may still use hosted implementation substrate;
+  `core` is the no-heap FOL source/API contract, not a claim that the complete
+  generated binary is already freestanding or allocation-free
 - every feature change is mirrored through frontend capability routing,
   structured diagnostics and explanations, formatter/tool commands, the LSP,
   tree-sitter grammar/queries/corpus, examples, tests, docs, and the book in the
