@@ -16,6 +16,8 @@ The theme is:
 
 - the **entire** processor surface is **`std`-only**; `core` and `memo` reject it
   with tier diagnostics that follow the existing `.echo(...)` gate
+- that `std`-only rule gates processor APIs, not execution itself; ordinary
+  `core` and `memo` artifacts may run and test without bundled `std`
 - concurrency is real OS threads through the Rust standard library — **no** Rust
   async/futures/tokio, so FOL never grows colored functions or a runtime
   dependency

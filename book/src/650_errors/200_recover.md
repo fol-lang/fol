@@ -151,5 +151,8 @@ For backend work:
 
 - `/ ErrorType` routine calls lower through the recoverable runtime ABI
 - `err[...]` remains a separate shell/value runtime type
+- a recoverable executable entry is adapted through the shared backend-only
+  `fol_runtime::process` seam in every runtime model; it does not require
+  bundled `std`
 
 Those two categories are intentionally not merged.

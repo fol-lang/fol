@@ -11,9 +11,11 @@ FOL currently keeps three layers separate:
   compiler-owned operations such as `.eq(...)`, `.len(...)`, `check(...)`, and
   `panic(...)`
 - `core`:
-  the minimal runtime model with no heap and no OS/runtime services
+  the minimal runtime model with no heap and no source-level hosted OS/runtime
+  APIs
 - `memo`:
-  heap-backed library/runtime support without OS/runtime services
+  alloc-like heap-backed library/runtime support without source-level hosted
+  OS/runtime APIs
 - `std`:
   hosted/runtime services on top of `memo`, such as console, filesystem,
   networking, serialization, and other richer services
@@ -75,10 +77,15 @@ For current `V1`, backend execution of the implemented intrinsic set still goes
 through the current runtime layer where policy matters. The runtime contract is
 being split by `fol-model`, so the rule is:
 
-- `core` artifacts must not rely on heap-backed or hosted facilities
-- `memo` artifacts may use heap-backed facilities but not hosted services
+- `core` artifacts must not rely on heap-backed or source-level hosted APIs
+- `memo` artifacts may use heap-backed facilities but not source-level hosted
+  APIs
 - bundled `std` wrappers require a `memo` artifact plus explicit internal
   `standard` dependency
+
+All three API tiers may back executable artifacts. Process entry and
+recoverable outcome adaptation are backend-only support, not bundled-std
+intrinsics.
 
 In the current implementation that means:
 

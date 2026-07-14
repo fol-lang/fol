@@ -77,6 +77,9 @@ Cross-building and cross-running are different operations.
 
 If the selected target does not match the current machine, `run` and `test`
 fail early with a diagnostic instead of trying to execute the foreign binary.
+"Host-only" here is a target-compatibility rule. It is independent of the
+source-language capability tier: host-compatible `core` and `memo` artifacts
+can execute without bundled `std`.
 
 ## Output Layout
 

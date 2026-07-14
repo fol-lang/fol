@@ -401,14 +401,19 @@ separately with `rustc` and links the required surface into the output binary
 as an `.rlib`.
 
 - `core` provides no-heap scalar, array, shell, and intrinsic support
-- `memo` adds strings, dynamic containers, and heap support without hosted
-  services
-- `std` adds hosted process hooks plus V3 tasks, channels, selection, mutexes,
-  and eventuals
+- `memo` adds strings, dynamic containers, and alloc-like heap support without
+  source-visible hosted APIs
+- `std` adds source-visible hosted hooks plus V3 tasks, channels, selection,
+  mutexes, and eventuals
+
+Executable entry and recoverable process-outcome adaptation live in the shared,
+backend-only `fol_runtime::process` adapter. Generated wrappers call that
+adapter directly; it is not re-exported by `core`, `memo`, or `std` and does not
+widen source-language capability.
 
 The public build modes remain only `core` and `memo`. An explicit bundled
-internal `standard` dependency upgrades a `memo` artifact to the hosted tier;
-`std` is not a third `fol_model`.
+internal `standard` dependency upgrades a `memo` artifact to the hosted API
+tier; `std` is not a third `fol_model`.
 
 Generated Rust code calls into `fol-runtime` types and functions.
 

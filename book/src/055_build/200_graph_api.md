@@ -65,12 +65,14 @@ disjoint scopes.
 `fol_model` selects one of the two runtime capability modes for the artifact:
 
 - `core`
-  no heap, no OS/runtime services
+  no heap and no source-level hosted OS/runtime APIs
 - `memo`
-  heap-backed facilities, still no OS/runtime services
+  alloc-like heap-backed facilities, still no source-level hosted OS/runtime
+  APIs
 
 Bundled `std` is not a third `fol_model`. A `memo` artifact reaches the hosted
-tier only when the package explicitly declares the bundled internal dependency:
+API tier only when the package explicitly declares the bundled internal
+dependency:
 
 ```fol
 build.add_dep({ alias = "std", source = "internal", target = "standard" });
@@ -88,16 +90,24 @@ The important boundary is semantic and runtime-facing:
   `map`
 - `core` artifacts may still use arrays, records, routines, control flow, and
   `dfr`
-- `memo` artifacts may use heap-backed runtime types but not hosted services
+- `memo` artifacts may use heap-backed runtime types but not hosted language
+  APIs
 - bundled `std` wrappers require an explicit internal `standard` dependency
-- hosted wrappers, processor features, and host-executed `run` / `test` routes
-  require `fol_model = "memo"` plus that explicit bundled `std` dependency
+- hosted wrappers and processor features require `fol_model = "memo"` plus
+  that explicit bundled `std` dependency
+- executable `core` and `memo` artifacts may use `fol code run` and
+  `fol code test` without bundled `std`
+
+The frontend invoking a host-compatible artifact, compiler, linker, or system
+tool is build-host behavior. It is not a source-visible hosted capability and
+does not promote an artifact to the bundled-std tier.
 
 Current implementation note:
 
-- `core` already means “no heap and no OS/runtime services” at the language and
-  runtime-contract level
+- `core` already means “no heap and no source-level hosted OS/runtime APIs” at
+  the language and runtime-contract level
 - `core` artifacts are still emitted through the current Rust backend pipeline
+- `core` artifacts can execute through that pipeline without bundled `std`
 - that means `core` is ready for semantic/runtime restriction work now, but it
   should not yet be read as “finished embedded backend support”
 

@@ -179,12 +179,16 @@ That means:
 
 | Capability mode | Bundled std declared | Type completion | Intrinsic completion | Diagnostics focus | Example packages |
 |-----------------|----------------------|-----------------|----------------------|-------------------|------------------|
-| `core` | no | scalars, arrays, records, entries, shells, and analyzable `ptr[...]` types | no hosted or heap-only guidance | enforce ownership/borrowing; reject pointer construction, owned allocation, `str`, dynamic containers, processor surfaces, bundled std imports, and `.echo(...)` | `examples/core_blink_shape`, `examples/core_dfr`, `examples/core_records`, `examples/core_surface_showcase`, `examples/fail_core_std_import` |
-| `memo` | no | `core` types plus `str`, `vec`, `seq`, `set`, `map`, and allocating pointer/owned forms | no bundled std wrappers or processor intrinsics | allow memory-pillar execution; reject bundled std imports, processor surfaces, and `.echo(...)` | `examples/memo_defaults`, `examples/memo_containers`, `examples/memo_collections`, `examples/memo_surface_showcase`, `examples/mem_ptr_unique_m3`, `examples/fail_memo_echo`, `examples/fail_memo_std_missing_dep` |
+| `core` | no | scalars, arrays, records, entries, shells, and analyzable `ptr[...]` types | no hosted or heap-only guidance | allow `core` execution; enforce ownership/borrowing; reject pointer construction, owned allocation, `str`, dynamic containers, processor surfaces, bundled std imports, and `.echo(...)` | `examples/core_run_min`, `examples/core_blink_shape`, `examples/core_dfr`, `examples/core_records`, `examples/core_surface_showcase`, `examples/fail_core_std_import` |
+| `memo` | no | `core` types plus `str`, `vec`, `seq`, `set`, `map`, and allocating pointer/owned forms | no bundled std wrappers or processor intrinsics | allow `memo` execution and memory-pillar behavior; reject bundled std imports, processor surfaces, and `.echo(...)` | `examples/memo_run_min`, `examples/memo_defaults`, `examples/memo_containers`, `examples/memo_collections`, `examples/memo_surface_showcase`, `examples/mem_ptr_unique_m3`, `examples/fail_memo_echo`, `examples/fail_memo_std_missing_dep` |
 | `memo` | yes | `memo` types plus bundled `std` package exports, channels, and mutex-aware routine surfaces | bundled `std`, hosted runtime behavior, `[mux]` operations, and processor guidance | ordinary semantic/type diagnostics plus spawn/channel/select/mutex/eventual boundary checks | `examples/std_bundled_fmt`, `examples/std_bundled_io`, `examples/proc_spawn_m1`, `examples/proc_channel_m2`, `examples/proc_select_m3`, `examples/proc_async_await_m4` |
 
 For mixed-model workspaces, editor tests should also cover
 `examples/mixed_models_workspace`.
+
+All three rows may describe executable artifacts. Bundled std changes the APIs
+that compiler-backed editor analysis exposes; it does not decide whether the
+frontend may run or test a host-compatible artifact.
 
 ## Routed artifact fallback
 

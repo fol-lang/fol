@@ -31,11 +31,15 @@ Use `work` for:
 
 Scaffold reminder:
 
-- `fol work init --bin` creates a hosted binary package with `fol_model = "memo"`
+- `fol work init --bin` creates a `memo` binary whose generated source uses
+  hosted `std.io`
 - the generated `build.fol` explicitly declares bundled `std` through
   `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
 - source code that uses bundled-library names imports that declared alias with
   `use std: pkg = {"std"};`
+- this dependency follows from the generated source using hosted APIs, not from
+  the package being executable; std-free `core` and `memo` packages may also
+  use `fol code run` and `fol code test`
 
 ## Pack
 

@@ -47,9 +47,9 @@ The language version and the runtime capability model are different axes.
 FOL uses a build-selected runtime model:
 
 - `core`
-  no heap, no OS
+  no heap, no source-level hosted OS APIs
 - `memo`
-  adds heap-backed facilities, still no OS
+  adds alloc-like heap-backed facilities, still no source-level hosted OS APIs
 
 Bundled `std` is a shipped internal dependency, not a third `fol_model`.
 
@@ -76,18 +76,22 @@ For the runtime split:
 
 Current contract:
 
-- `core` means no heap and no OS/runtime services
-- `memo` means heap-backed runtime facilities without hosted process/OS
-  services
+- `core` means no heap and no source-level hosted OS/runtime APIs
+- `memo` means alloc-like heap-backed runtime facilities without source-level
+  hosted process/OS APIs
 - bundled `std` remains an explicit shipped library dependency on top of
   `memo`
+- `core` and `memo` artifacts may both build, run, and test without bundled
+  `std`; the dependency gates hosted language APIs, not executability
+- host-compatible artifact and system-tool launching is frontend/build-host
+  behavior, separate from the language capability model
 
 Current implementation honesty note:
 
 - `core` is already enforced as a language/runtime capability boundary
 - `core` still goes through the current Rust backend pipeline today
-- so `core` should be read as “no heap, no OS/runtime services” rather than as
-  “embedded backend complete”
+- so `core` should be read as “no heap, no source-level hosted OS/runtime APIs”
+  rather than as “embedded backend complete”
 
 This split is a runtime capability boundary, not an object-model feature and
 not a source-file pragma.

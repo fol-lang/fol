@@ -25,10 +25,13 @@ Finalized design contract:
   - `use std: pkg = {"std"};`
 - `graph.add_run(...)` may declare a run target independently of std-library
   presence
-- building or checking an executable `core` or unhosted `memo` artifact does
+- building or checking an executable `core` or std-free `memo` artifact does
   not require bundled std
-- executing a run or test target on the host does require a `memo` artifact
-  plus the explicit bundled `standard` dependency
+- running or testing a host-compatible `core` or `memo` artifact does not
+  require bundled std
+- bundled std gates source-visible hosted APIs, not artifact execution
+- launching artifacts and system tools is frontend/build-host behavior and is
+  orthogonal to `fol_model`
 
 Normal build usage:
 
@@ -111,9 +114,9 @@ Current rule:
 
 - `.echo(...)` remains the low-level hosted substrate
 - `std.io` is the first bundled public wrapper over that substrate
-- executable artifacts can still be built without bundled std, but routed
-  `run` / `test` host execution requires the explicit bundled dependency even
-  when source code does not import a `std` module
+- executable artifacts can be built, run, and tested without bundled std
+- the explicit bundled dependency is required when source code uses
+  `std`-backed hosted APIs, not merely because the frontend executes a binary
 
 That keeps the first shipped std honest:
 
@@ -124,7 +127,7 @@ That keeps the first shipped std honest:
 
 Canonical bootstrap example packages:
 
-- buildable unhosted executable artifacts:
+- std-free executable artifacts that use the normal build/run route:
   - `examples/core_run_min`
   - `examples/memo_run_min`
 - bundled-std consumers:
@@ -200,3 +203,6 @@ commands:
 The normal user path does not require `--package-store-root` or `--std-root`.
 Those flags exist for harnesses, fixture isolation, and explicit override work,
 not as part of the shipped V2 example contract.
+
+These examples declare bundled std because their source uses hosted std APIs.
+The `fol code run` command itself does not impose that dependency.

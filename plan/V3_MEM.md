@@ -23,6 +23,8 @@ This plan covers the memory pillar only. The theme is:
   discipline in typecheck, never a dataflow/NLL solver
 - heap allocation stays gated behind `memo`+, exactly like the existing `str` /
   `vec` heap gates
+- `core` and `memo` artifacts remain executable without bundled `std`; model
+  gates constrain source-language APIs, not frontend host process launching
 - every feature change is mirrored through frontend capability routing,
   structured diagnostics and explanations, formatter/tool commands, the LSP,
   tree-sitter grammar/queries/corpus, examples, tests, docs, and the book in the

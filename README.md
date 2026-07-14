@@ -29,19 +29,25 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the compiler pipeline, crate map, and
 
 Every FOL artifact declares a capability mode (`fol_model`) in `build.fol`:
 
-- `core`: no heap, no hosted runtime services
+- `core`: no heap and no source-level hosted runtime APIs; executable
+  artifacts are still supported
 - `memo`: heap-enabled (`str`, `vec`, `seq`, `set`, `map`), still no hosted
-  runtime services
+  runtime APIs; executable artifacts are still supported
 
-There is no third model. Hosted capability comes from declaring the bundled
-standard-library dependency on a `memo` artifact:
+There is no third model. Hosted language API capability comes from declaring
+the bundled standard-library dependency on a `memo` artifact:
 
 ```fol
 build.add_dep({ alias = "std", source = "internal", target = "standard" });
 ```
 
-which upgrades the artifact's effective runtime tier to hosted and makes the
+which upgrades the artifact's effective API tier to hosted and makes the
 shipped `std` package importable (`use std: pkg = {"std"};`).
+
+Bundled `std` gates hosted language APIs such as console and processor
+facilities; it does not gate `fol code run` or `fol code test`. Launching a
+host-compatible artifact or build tool is a frontend/toolchain concern,
+separate from the source-language capability model.
 
 Use the smallest mode that matches the artifact contract. The full matrix,
 the effective-tier derivation, and examples are in

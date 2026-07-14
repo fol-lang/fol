@@ -63,6 +63,11 @@ That is enough to prove:
 - bundled std resolves through one explicit internal dependency declaration
 - FOL-authored std modules compile and run under `fol_model = "memo"`
 
+Bundled std is needed here because these modules expose hosted language APIs,
+not because the artifact executes. Host-compatible `core` and `memo`
+executables can build, run, and test without bundled std; process launching is
+a frontend/toolchain concern.
+
 `std.io` is currently just a thin FOL wrapper over the hosted `.echo(...)`
 substrate.
 

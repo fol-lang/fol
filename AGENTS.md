@@ -41,7 +41,8 @@ labels.
 Meaning:
 
 - no heap
-- no hosted OS/runtime services
+- no source-level hosted OS/runtime APIs
+- executable artifacts are allowed
 
 Expected surface:
 
@@ -67,7 +68,8 @@ Forbidden examples:
 Meaning:
 
 - heap-backed runtime facilities
-- still no hosted runtime services
+- still no source-level hosted runtime APIs
+- executable artifacts are allowed
 
 Expected surface:
 
@@ -80,16 +82,28 @@ Expected surface:
 - dynamic/string `.len(...)`
 
 Still forbidden (unless the bundled internal `standard` dependency is
-declared, which upgrades the effective tier to hosted):
+declared, which upgrades the effective API tier to hosted):
 
 - `.echo(...)`
-- host-executed `run` / `test` assumptions
+- processor and other hosted language APIs
 
 Practical rule:
 
 - start with `core`
 - move to `memo` only when heap-backed values are actually needed
 - add bundled `std` only when shipped hosted-library wrappers are actually needed
+
+Execution rule:
+
+- `core` and `memo` executables may be built, run, and tested without bundled
+  `std`
+- bundled `std` gates source-visible hosted APIs; it does not grant permission
+  to execute an artifact
+- the frontend launching a host-compatible executable, compiler, linker, or
+  other system tool is build-host behavior and is orthogonal to `fol_model`
+- generated recoverable entry wrappers use the shared backend-only
+  `fol_runtime::process` adapter; that adapter is not re-exported as a
+  `core`, `memo`, or `std` source capability
 
 Important:
 

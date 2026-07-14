@@ -33,14 +33,14 @@ apart is what makes the model coherent:
 3. **Effective runtime tier** — what the artifact actually typechecks and
    links against. Derived, never written by hand:
 
-| Declared mode | Bundled `std` declared? | Effective tier | `.echo` substrate |
-|---------------|--------------------------|----------------|-------------------|
-| `core`        | (not allowed)            | `core`         | forbidden         |
-| `memo`        | no                       | `memo`         | forbidden         |
-| `memo`        | yes                      | hosted (`std`) | legal             |
+| Declared mode | Bundled `std` declared? | Effective API tier | `.echo` substrate |
+|---------------|--------------------------|--------------------|-------------------|
+| `core`        | (not allowed)            | `core`             | forbidden         |
+| `memo`        | no                       | `memo`             | forbidden         |
+| `memo`        | yes                      | hosted APIs (`std`) | legal             |
 
 The promotion in the last row is the one rule people trip over: declaring the
-bundled internal `standard` dependency upgrades the artifact's effective
+bundled internal `standard` dependency upgrades the artifact's effective API
 capability to hosted. That is what lets the bundled std wrappers (which are
 built on the hosted `.echo(...)` primitive) typecheck — and it also legalizes
 direct `.echo(...)` in your own source as the raw substrate
@@ -57,9 +57,10 @@ Recommended style:
 - omit `fol_model` when the artifact is meant to take the default `memo`
 - treat `core` and `memo` as capability choices
 - treat bundled `std` as a declared internal dependency, not as a third model
-- `graph.add_run(...)` may declare a run step without bundled `std`, but
-  actually executing that step through `fol code run` / `fol code test` is a
-  hosted operation and requires the explicit bundled dependency
+- `graph.add_run(...)`, `fol code run`, and `fol code test` work for
+  host-compatible `core` and `memo` artifacts without bundled `std`
+- treat frontend process launching as build-host behavior, not as a
+  source-language hosted capability
 
 ## Artifact source scopes
 
@@ -92,7 +93,8 @@ the artifacts into separate package members.
 Meaning:
 
 - no heap
-- no OS/runtime services
+- no source-level hosted OS/runtime APIs
+- executable artifacts are allowed
 
 Allowed language surface:
 
@@ -117,14 +119,14 @@ Forbidden surface:
 - `set[...]`
 - `map[...]`
 - `.echo(...)`
-- hosted process-entry assumptions
+- processor and other hosted language APIs
 
 Choose `core` when:
 
 - the artifact must avoid heap allocation completely
 - the artifact should be valid for embedded-first targets
 - arrays and plain records are enough
-- console/process services are not part of the contract
+- source-visible console and OS APIs are not part of the contract
 
 Allowed example:
 
@@ -147,7 +149,8 @@ fun[] label(): str = {
 Meaning:
 
 - heap-backed runtime facilities
-- still no hosted OS/runtime services
+- still no source-level hosted OS/runtime APIs
+- executable artifacts are allowed
 
 Adds:
 
@@ -161,7 +164,7 @@ Adds:
 - dynamic/string `.len(...)`
 
 Still forbidden **unless the bundled internal `standard` dependency is
-declared** (which upgrades the effective tier to hosted):
+declared** (which upgrades the effective API tier to hosted):
 
 - `.echo(...)`
 - `[>]` spawn, `chn[...]`, `select`, and `[mux]` routine parameters
@@ -171,7 +174,7 @@ declared** (which upgrades the effective tier to hosted):
 Choose `memo` when:
 
 - the artifact needs strings or dynamic containers
-- the artifact still should not depend on hosted OS/runtime services
+- the artifact still should not depend on source-visible hosted OS/runtime APIs
 - you want to keep heap usage explicit in `build.fol`
 
 Allowed example:
@@ -218,19 +221,19 @@ use std: pkg = {"std"};
 - pick `core` first if the artifact can stay array-only and no-heap
 - move to `memo` when you actually need `str` or dynamic containers
 - add bundled `std` only when the package genuinely needs shipped
-  hosted-library wrappers, V3 processor facilities, or routed host execution
+  hosted-library wrappers or V3 processor facilities
 
 The intent is to keep capability growth and dependency growth explicit.
 
-Executable-artifact examples that build without bundled std:
+Executable-artifact examples that build and run without bundled std:
 
 - `examples/core_run_min`
 - `examples/memo_run_min`
 
-These examples may declare a graph run target, but their unhosted `core` or
-`memo` tier only permits building and checking the artifact. Routed host
-execution requires a `memo` artifact plus the explicit bundled `standard`
-dependency.
+These examples declare graph run targets and execute through the ordinary
+frontend path. Their `core` or `memo` tier constrains which APIs the source may
+use; it does not prevent the toolchain from launching the resulting
+host-compatible executable.
 
 Hosted std examples with explicit bundled dependency:
 
@@ -278,9 +281,10 @@ Direct boundary reminder:
 - a `core` artifact must not declare `str`, `seq`, `vec`, `set`, or `map`
 - a `memo` artifact without the bundled `standard` dependency must not call
   `.echo(...)`
-- a `core` or unhosted `memo` artifact may still declare an executable and a
-  graph run target, but `fol code run` / `fol code test` must reject host
-  execution until bundled `standard` is declared on a `memo` package
+- a `core` or `memo` artifact may declare an executable, a graph run target,
+  and test artifacts without bundled `standard`
+- `fol code run` and `fol code test` may launch those host-compatible artifacts;
+  target compatibility is independent of bundled-std API legality
 
 Transitive boundary reminder:
 
@@ -310,10 +314,10 @@ The consuming artifact model always wins.
 
 ## Guarantees by capability
 
-| Capability | Heap | Bundled `std` allowed by itself | Typical artifact shape |
-|------------|------|----------------------------------|------------------------|
-| `core`     | no   | no                               | embedded logic, fixed-shape libs |
-| `memo`     | yes  | only when dependency declared    | heap utilities, host tools, bundled-std consumers |
+| Declared mode | Heap | Host-compatible execution | Hosted language APIs | Typical artifact shape |
+|---------------|------|---------------------------|----------------------|------------------------|
+| `core`        | no   | yes                       | no                   | embedded logic, fixed-shape libs, no-heap executables |
+| `memo`        | yes  | yes                       | only with explicit bundled `std` | heap utilities, alloc-like executables, bundled-std consumers |
 
 ## Current implementation status
 
@@ -321,7 +325,7 @@ Implemented today:
 
 - `.echo(...)` requires hosted std support; declaring the bundled internal
   `standard` dependency on a `memo` artifact provides it (the whole
-  consuming workspace typechecks at the hosted capability)
+  consuming workspace typechecks at the hosted API capability)
 - `str`, `vec`, `seq`, `set`, and `map` are rejected in `core`
 - array `.len(...)` stays valid in `core`
 - dynamic/string `.len(...)` requires `memo`
@@ -330,8 +334,9 @@ Implemented today:
   allocation, and pointer construction require `memo` or hosted `std`
 - all processor surfaces (`[>]`, channels, `select`, mutex parameters,
   `async`, and `await`) require hosted `std`
-- routed `run` / `test` require the explicit bundled internal `standard`
-  dependency because executing artifacts is a hosted operation
+- routed `run` / `test` accept host-compatible `core` and `memo` artifacts
+  without bundled `std`; the dependency is required only when source uses its
+  hosted APIs
 - emitted Rust imports the matching internal runtime module
 - public `fol_model = "memo"` currently maps to the internal heap runtime
   module `fol_runtime::memo`
@@ -343,25 +348,30 @@ Implemented today:
 The backend should treat the three runtime modules as intentionally different
 public surfaces.
 
+Executable entry and recoverable process-outcome adaptation are backend-only
+substrate shared by every tier. The generated wrapper calls the separate
+`fol_runtime::process` adapter directly; `core`, `memo`, and `std` do not
+re-export it as source-language capability.
+
 - `fol_runtime::core`
   - no heap-backed types
-  - no hosted hooks like `.echo(...)`
-  - no hosted process-outcome helpers
+  - no source-visible hosted hooks like `.echo(...)`
+  - executable wrappers may pair it with `fol_runtime::process`
 - internal heap runtime module
   - heap-backed strings and dynamic containers
-  - still no hosted hooks like `.echo(...)`
-  - still no hosted process-outcome helpers
+  - still no source-visible hosted hooks like `.echo(...)`
+  - executable wrappers may pair it with `fol_runtime::process`
 - `fol_runtime::std`
   - hosted hooks such as `.echo(...)`
-  - hosted process-outcome helpers
   - OS-thread spawn, channels, selection, mutex, and eventual support
   - memo-tier heap types re-exported for host artifacts
 
 Backend authors should not import a wider tier than the lowered artifact
 actually requires. `core` emission should stay `core`-only. `memo` emission
 currently routes through the internal heap runtime module and must not silently
-widen to `std`. `std` is the only tier that may rely on
-hosted runtime entry and console hooks.
+widen to `std`. `std` is the only tier whose source may reach hosted language
+APIs. Backend process entry and frontend host-tool launching are orthogonal to
+that source-language gate.
 
 ## Editor note
 
@@ -413,10 +423,12 @@ pro[] build(): non = {
 - `examples/core_dfr`
 - `examples/core_records`
 - `examples/core_surface_showcase`
+- `examples/core_run_min`
 - `examples/memo_defaults`
 - `examples/memo_containers`
 - `examples/memo_collections`
 - `examples/memo_surface_showcase`
+- `examples/memo_run_min`
 - `examples/std_cli`
 - `examples/std_bundled_fmt`
 - `examples/std_bundled_io`

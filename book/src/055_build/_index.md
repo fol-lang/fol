@@ -116,15 +116,18 @@ These checked-in example packages exercise the current public build surface:
 
 Runtime-model reminder:
 
-- examples that rely on hosted behavior such as `.echo(...)` or routed
-  execution should spell `fol_model = "memo"`
-- `core` and `memo` examples in the build book should stay free of hosted
-  assumptions
+- examples that rely on hosted language APIs such as `.echo(...)` or V3
+  processor facilities should spell `fol_model = "memo"` and declare bundled
+  `std`
+- `core` and `memo` examples may be executable and use routed `run` / `test`;
+  they should stay free of source-level hosted API assumptions
+- frontend host-tool and artifact launching is separate from language
+  capability tiering
 
 Bundled std reminder:
 
 - `std` ships with FOL under `lang/library/std`
-- hosted packages add bundled std explicitly through:
+- packages using hosted APIs add bundled std explicitly through:
   `.build().add_dep({ alias = "std", source = "internal", target = "standard" })`
-- normal hosted packages should rely on the bundled shipped `std`, not an
+- normal hosted-API packages should rely on the bundled shipped `std`, not an
   external replacement package

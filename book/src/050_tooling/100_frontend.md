@@ -28,9 +28,12 @@ The frontend owns:
 
 Bundled std reminder:
 
-- hosted binary scaffolds should default to `fol_model = "memo"`
-- scaffolded projects should rely on bundled `std`
+- the current binary scaffold defaults to `fol_model = "memo"` and bundled
+  `std` because its generated source uses hosted `std.io`
+- a bare executable may use `core` or `memo` and does not need bundled `std`
 - scaffolding should not teach manual std dependency setup
+- running and testing host-compatible artifacts is frontend/toolchain behavior,
+  not a bundled-std capability
 
 Compiler truth remains in the compiler crates.
 

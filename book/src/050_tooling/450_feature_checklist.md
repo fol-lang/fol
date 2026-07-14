@@ -101,7 +101,8 @@ Check:
 - artifact source scope and selected `fol_model`
 - evaluated conditional dependencies and bundled-standard aliases
 - direct, workspace, and named-step routes
-- `check`/`build` versus hosted `run`/`test` legality
+- language API legality versus host target compatibility for `run` / `test`
+- no accidental bundled-std requirement merely because an artifact executes
 - ambiguous mixed-model files and packages
 
 Update:
