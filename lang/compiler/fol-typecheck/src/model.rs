@@ -169,12 +169,20 @@ pub(crate) struct DeferredTransferConflict {
 pub(crate) struct OwnershipFlowState {
     moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
     eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
+    recoverable_eventual_obligations: BTreeMap<SymbolId, RecoverableEventualObligation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EventualMoveKind {
     Transfer,
     Await,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RecoverableEventualObligation {
+    pub(crate) owner_scope: ScopeId,
+    pub(crate) activation_scope: ScopeId,
+    pub(crate) origin: Option<SyntaxOrigin>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,6 +224,7 @@ pub struct TypedProgram {
     active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
     moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
     eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
+    recoverable_eventual_obligations: BTreeMap<SymbolId, RecoverableEventualObligation>,
     ownership_history: BTreeMap<SymbolId, Vec<OwnershipEvent>>,
     active_borrows: BTreeMap<SymbolId, Vec<ActiveBorrow>>,
     borrow_bindings: BTreeMap<SymbolId, ActiveBorrow>,
@@ -317,12 +326,15 @@ impl TypedProgram {
         OwnershipFlowState {
             moved_bindings: self.moved_bindings.clone(),
             eventual_moves: self.eventual_moves.clone(),
+            recoverable_eventual_obligations: self.recoverable_eventual_obligations.clone(),
         }
     }
 
     pub(crate) fn restore_ownership_flow(&mut self, state: &OwnershipFlowState) {
         self.moved_bindings.clone_from(&state.moved_bindings);
         self.eventual_moves.clone_from(&state.eventual_moves);
+        self.recoverable_eventual_obligations
+            .clone_from(&state.recoverable_eventual_obligations);
     }
 
     pub(crate) fn merge_ownership_flows(
@@ -336,6 +348,7 @@ impl TypedProgram {
         }
         self.moved_bindings.clear();
         self.eventual_moves.clear();
+        self.recoverable_eventual_obligations.clear();
         for branch in branches {
             for (symbol, origin) in &branch.moved_bindings {
                 self.moved_bindings
@@ -344,6 +357,15 @@ impl TypedProgram {
             }
             for (symbol, kind) in &branch.eventual_moves {
                 self.eventual_moves.entry(*symbol).or_insert(*kind);
+            }
+            // Recoverable-eventual obligations are must-handle state. If any
+            // continuing branch still owns the obligation, it remains live
+            // after the merge. This intentionally differs from a normal move:
+            // handling the eventual on only one runtime path is insufficient.
+            for (symbol, obligation) in &branch.recoverable_eventual_obligations {
+                self.recoverable_eventual_obligations
+                    .entry(*symbol)
+                    .or_insert_with(|| obligation.clone());
             }
         }
     }
@@ -378,6 +400,7 @@ impl TypedProgram {
         }
         self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
         self.moved_bindings.entry(symbol).or_insert(origin);
+        self.recoverable_eventual_obligations.remove(&symbol);
     }
 
     pub(crate) fn mark_eventual_awaited(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
@@ -389,6 +412,44 @@ impl TypedProgram {
         }
         self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
         self.moved_bindings.entry(symbol).or_insert(origin);
+        self.recoverable_eventual_obligations.remove(&symbol);
+    }
+
+    pub(crate) fn register_recoverable_eventual_obligation(
+        &mut self,
+        symbol: SymbolId,
+        owner_scope: ScopeId,
+        activation_scope: ScopeId,
+        origin: Option<SyntaxOrigin>,
+    ) {
+        self.recoverable_eventual_obligations.insert(
+            symbol,
+            RecoverableEventualObligation {
+                owner_scope,
+                activation_scope,
+                origin,
+            },
+        );
+    }
+
+    pub(crate) fn recoverable_eventual_obligation(
+        &self,
+        symbol: SymbolId,
+    ) -> Option<&RecoverableEventualObligation> {
+        self.recoverable_eventual_obligations.get(&symbol)
+    }
+
+    pub(crate) fn recoverable_eventual_obligations(
+        &self,
+    ) -> impl Iterator<Item = (SymbolId, &RecoverableEventualObligation)> {
+        self.recoverable_eventual_obligations
+            .iter()
+            .map(|(symbol, obligation)| (*symbol, obligation))
+    }
+
+    pub(crate) fn release_recoverable_eventual_obligations_in_scope(&mut self, scope: ScopeId) {
+        self.recoverable_eventual_obligations
+            .retain(|_, obligation| obligation.owner_scope != scope);
     }
 
     fn record_ownership_event(
@@ -693,6 +754,7 @@ impl TypedProgram {
             record_layouts: BTreeMap::new(),
             moved_bindings: BTreeMap::new(),
             eventual_moves: BTreeMap::new(),
+            recoverable_eventual_obligations: BTreeMap::new(),
             ownership_history: BTreeMap::new(),
             active_borrows: BTreeMap::new(),
             borrow_bindings: BTreeMap::new(),

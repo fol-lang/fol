@@ -368,6 +368,7 @@ pub(crate) fn type_loop(
                 allow_mutex_handle: false,
                 repeating_loop_scope: Some(binder_scope),
                 inside_deferred_block: context.inside_deferred_block,
+                inside_error_deferred_block: context.inside_error_deferred_block,
             };
             if let Some(condition) = condition.as_deref() {
                 let guard_raw = type_node(typed, resolved, loop_context, condition)?;
@@ -544,6 +545,7 @@ pub(crate) fn type_return(
     resolved: &ResolvedProgram,
     context: TypeContext,
     value: Option<&AstNode>,
+    exit_origin: Option<fol_parser::ast::SyntaxOrigin>,
 ) -> Result<TypedExpr, TypecheckError> {
     let Some(expected) = context.routine_return_type else {
         return match value {
@@ -551,7 +553,16 @@ pub(crate) fn type_return(
                 TypecheckErrorKind::InvalidInput,
                 "return with a value requires a declared routine return type in V1",
             )),
-            None => Ok(TypedExpr::none()),
+            None => {
+                super::helpers::reject_all_recoverable_eventuals(
+                    typed,
+                    resolved,
+                    context.scope_id,
+                    exit_origin,
+                    "returning from the routine",
+                )?;
+                Ok(TypedExpr::value(typed.builtin_types().never))
+            }
         };
     };
 
@@ -595,6 +606,13 @@ pub(crate) fn type_return(
         node_origin(resolved, value),
     )?;
     super::bindings::track_value_transfer(typed, resolved, return_context, Some(value), actual)?;
+    super::helpers::reject_all_recoverable_eventuals(
+        typed,
+        resolved,
+        context.scope_id,
+        exit_origin,
+        "returning from the routine",
+    )?;
     Ok(TypedExpr::value(typed.builtin_types().never))
 }
 

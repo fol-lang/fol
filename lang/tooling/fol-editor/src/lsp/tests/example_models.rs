@@ -687,6 +687,12 @@ fn lsp_server_surfaces_v3_processor_m4_eventual_state_and_failures() {
     let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     open_document(&mut server, uri.clone(), &text);
+    let async_position = find_nth_position(&text, "async", 1);
+    let async_hover = request_hover(&mut server, &uri, async_position, 1663)
+        .expect("recoverable async should have hover");
+    assert!(async_hover
+        .contents
+        .contains("must be awaited and handled before lexical fallthrough, break, return, or report"));
     let position = find_nth_position(&text, "await", 1);
     let hover = server
         .handle_request(JsonRpcRequest {
@@ -707,6 +713,7 @@ fn lsp_server_surfaces_v3_processor_m4_eventual_state_and_failures() {
     let contents = hover.expect("recoverable await should have hover").contents;
     assert!(contents.contains("blocks for `int`"));
     assert!(contents.contains("recoverable error `int`"));
+    assert!(contents.contains("handle it immediately with `||` or `check(...)`"));
     fs::remove_dir_all(root).ok();
 
     for &failure in V3_PROC_M4_FAILURES {

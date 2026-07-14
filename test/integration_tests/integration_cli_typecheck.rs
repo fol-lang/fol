@@ -611,7 +611,7 @@ fn test_cli_typecheck_rejects_invalid_check_calls_full_chain() {
         "CLI should fail when check(...) is used on a plain value"
     );
     assert!(
-        stdout.contains("check(...) requires a routine call result with '/ ErrorType' in V1"),
+        stdout.contains("check(...) requires a recoverable expression with '/ ErrorType'"),
         "CLI diagnostics should preserve the invalid check wording"
     );
     assert!(

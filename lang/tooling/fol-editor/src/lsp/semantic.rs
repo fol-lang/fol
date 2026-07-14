@@ -1832,7 +1832,7 @@ impl SemanticSnapshot {
                 let value = render_checked_type(table, *value_type);
                 match error_type {
                     Some(error) => format!(
-                        "| await: blocks for `{value}` and preserves recoverable error `{}`",
+                        "| await: blocks for `{value}` and preserves recoverable error `{}`; handle it immediately with `||` or `check(...)`",
                         render_checked_type(table, *error)
                     ),
                     None => format!("| await: blocks for `{value}`"),
@@ -1845,7 +1845,7 @@ impl SemanticSnapshot {
                     .unwrap_or_else(|| "non".to_string());
                 match signature.error_type {
                     Some(error) => format!(
-                        "| async: spawns an OS thread; yields an internal eventual of `{value}` with recoverable error `{}`",
+                        "| async: spawns an OS thread; yields an internal eventual of `{value}` with recoverable error `{}`; it must be awaited and handled before lexical fallthrough, break, return, or report, and every continuing branch must preserve or discharge the obligation",
                         render_checked_type(table, error)
                     ),
                     None => format!(

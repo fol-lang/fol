@@ -37,10 +37,34 @@ fn check_typing_rejects_plain_values() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("check(...) requires a routine call result with '/ ErrorType' in V1")
+                    .contains("check(...) requires a recoverable expression with '/ ErrorType'")
         }),
         "Expected an invalid check diagnostic, got: {errors:?}"
     );
+}
+
+#[test]
+fn statement_position_recoverable_calls_cannot_discard_errors() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] load(fail: bol): int / int = {\n\
+             when(fail) {\n\
+                 case(true) { report 9; }\n\
+                 * { return 7; }\n\
+             }\n\
+         };\n\
+         fun[] main(): int = {\n\
+             load(true);\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::InvalidInput
+            && error
+                .message()
+                .contains("statement-position expression cannot use '/ ErrorType'")
+    }), "statement-position recoverable calls must be rejected by typecheck: {errors:#?}");
 }
 
 #[test]
@@ -75,7 +99,7 @@ fn check_typing_rejects_err_shell_values_explicitly() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("check(...) inspects routine call results with '/ ErrorType', not err[...] shell values in V1")
+                    .contains("check(...) inspects recoverable '/ ErrorType' expressions")
         }),
         "Expected the err-shell check diagnostic, got: {errors:?}"
     );
@@ -116,7 +140,7 @@ fn pipe_or_typing_rejects_err_shell_values_explicitly() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("'||' handles routine call results with '/ ErrorType', not err[...] shell values in V1")
+                    .contains("'||' handles recoverable '/ ErrorType' expressions")
         }),
         "Expected the err-shell pipe-or diagnostic, got: {errors:?}"
     );

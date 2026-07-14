@@ -559,10 +559,23 @@ pub(crate) fn type_report_call(
             }),
         )
     })?;
-    ensure_assignable(typed, expected, actual, "report".to_string(), origin)?;
+    ensure_assignable(
+        typed,
+        expected,
+        actual,
+        "report".to_string(),
+        origin.clone(),
+    )?;
     // Reporting exits the routine through its error path, transferring the
     // reported value just like a return transfers its result.
     super::bindings::track_value_transfer(typed, resolved, report_context, Some(&args[0]), actual)?;
+    super::helpers::reject_all_recoverable_eventuals(
+        typed,
+        resolved,
+        context.scope_id,
+        origin,
+        "reporting from the routine",
+    )?;
     Ok(TypedExpr::value(typed.builtin_types().never))
 }
 
@@ -646,9 +659,9 @@ fn type_check_call(
             .transpose()?
             .unwrap_or(false)
         {
-            "check(...) inspects routine call results with '/ ErrorType', not err[...] shell values in V1"
+            "check(...) inspects recoverable '/ ErrorType' expressions (direct calls or awaited recoverable eventuals), not err[...] shell values"
         } else {
-            "check(...) requires a routine call result with '/ ErrorType' in V1"
+            "check(...) requires a recoverable expression with '/ ErrorType' (a direct call or awaited recoverable eventual)"
         };
         return Err(node_origin(resolved, &args[0]).map_or_else(
             || TypecheckError::new(TypecheckErrorKind::InvalidInput, message),

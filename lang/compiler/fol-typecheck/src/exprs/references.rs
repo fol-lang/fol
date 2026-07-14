@@ -25,6 +25,33 @@ pub(crate) fn type_identifier_reference(
         .reference(reference_id)
         .and_then(|reference| reference.resolved)
     {
+        if context.inside_error_deferred_block
+            && typed
+                .typed_symbol(symbol)
+                .and_then(|symbol| symbol.declared_type)
+                .and_then(|type_id| typed.type_table().get(type_id))
+                .is_some_and(|typ| matches!(typ, crate::CheckedType::Eventual { .. }))
+        {
+            return Err(origin_for(resolved, syntax_id).map_or_else(
+                || {
+                    TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        format!(
+                            "eventual binding '{name}' cannot be accessed inside edf in V3; await or transfer it in ordinary control flow"
+                        ),
+                    )
+                },
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::Unsupported,
+                        format!(
+                            "eventual binding '{name}' cannot be accessed inside edf in V3; await or transfer it in ordinary control flow"
+                        ),
+                        origin,
+                    )
+                },
+            ));
+        }
         if typed
             .typed_symbol(symbol)
             .is_some_and(|symbol| symbol.is_mutex)

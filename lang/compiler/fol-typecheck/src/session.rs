@@ -2,7 +2,7 @@ use crate::{
     decls, exprs, CheckedType, CheckedTypeId, TypecheckConfig, TypecheckError, TypecheckErrorKind,
     TypecheckResult, TypedExportMount, TypedPackage, TypedProgram, TypedWorkspace,
 };
-use fol_resolver::{MountedSymbolProvenance, PackageIdentity, SymbolId};
+use fol_resolver::{MountedSymbolProvenance, PackageIdentity, ScopeKind, SymbolId, SymbolKind};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
@@ -28,6 +28,7 @@ impl TypecheckSession {
         resolved: fol_resolver::ResolvedProgram,
     ) -> TypecheckResult<TypedProgram> {
         validate_import_capability_model(&resolved, self.config.capability_model)?;
+        validate_implicit_closure_captures(&resolved)?;
         let mut typed =
             TypedProgram::from_resolved_with_model(resolved, self.config.capability_model);
         decls::lower_declaration_signatures(&mut typed)?;
@@ -129,6 +130,9 @@ impl TypecheckSession {
         if let Err(mut package_errors) =
             validate_import_capability_model(&package.program, self.config.capability_model)
         {
+            errors.append(&mut package_errors);
+        }
+        if let Err(mut package_errors) = validate_implicit_closure_captures(&package.program) {
             errors.append(&mut package_errors);
         }
 
@@ -757,6 +761,72 @@ impl TypecheckSession {
 
         imported_cache.insert((source_identity.clone(), source_type_id), translated);
         Ok(translated)
+    }
+}
+
+fn validate_implicit_closure_captures(
+    resolved: &fol_resolver::ResolvedProgram,
+) -> TypecheckResult<()> {
+    fn nearest_routine_scope(
+        resolved: &fol_resolver::ResolvedProgram,
+        mut scope: fol_resolver::ScopeId,
+    ) -> Option<fol_resolver::ScopeId> {
+        loop {
+            let resolved_scope = resolved.scope(scope)?;
+            if resolved_scope.kind == ScopeKind::Routine {
+                return Some(scope);
+            }
+            scope = resolved_scope.parent?;
+        }
+    }
+
+    let mut errors = Vec::new();
+    for reference in resolved.references.iter() {
+        let Some(symbol_id) = reference.resolved else {
+            continue;
+        };
+        let Some(symbol) = resolved.symbol(symbol_id) else {
+            continue;
+        };
+        if !matches!(
+            symbol.kind,
+            SymbolKind::ValueBinding
+                | SymbolKind::LabelBinding
+                | SymbolKind::DestructureBinding
+                | SymbolKind::Parameter
+                | SymbolKind::Capture
+                | SymbolKind::LoopBinder
+                | SymbolKind::RollingBinder
+        ) {
+            continue;
+        }
+        let declaration_routine = nearest_routine_scope(resolved, symbol.scope);
+        let reference_routine = nearest_routine_scope(resolved, reference.scope);
+        if declaration_routine.is_none() || declaration_routine == reference_routine {
+            continue;
+        }
+        let message = format!(
+            "implicit closure capture of outer local '{}' is not supported; pass the value as a routine parameter instead",
+            symbol.name
+        );
+        let origin = reference
+            .syntax_id
+            .and_then(|syntax_id| resolved.syntax_index().origin(syntax_id).cloned());
+        errors.push(origin.map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Unsupported, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    message.clone(),
+                    origin,
+                )
+            },
+        ));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
 }
 

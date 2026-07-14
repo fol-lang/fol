@@ -236,7 +236,7 @@ pub(crate) const V3_PROC_M1_FAILURES: &[V3FailureExample] = &[
     v3_failure!(
         "examples/fail_proc_spawn_recoverable_m1",
         "T1002",
-        "spawning a recoverable routine without await discards its error",
+        "bare '[>]call()' cannot spawn a recoverable routine",
         true,
         false
     ),
@@ -416,6 +416,55 @@ pub(crate) const V3_PROC_M4_FAILURES: &[V3FailureExample] = &[
         "examples/fail_proc_async_indirect_m4",
         "T1002",
         "async requires a direct call to a named routine declaration in V3",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_async_recoverable_discard_m4",
+        "T1001",
+        "discarding a recoverable eventual loses its error",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_async_recoverable_unawaited_m4",
+        "T1001",
+        "recoverable eventual binding 'pending' must be awaited and handled",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_await_recoverable_discard_m4",
+        "T1001",
+        "statement-position expression cannot use '/ ErrorType'",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_async_recoverable_overwrite_m4",
+        "T1001",
+        "recoverable eventual binding 'pending' cannot be overwritten",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_async_break_outer_m4",
+        "T1001",
+        "recoverable eventual binding 'slot' must be awaited and handled",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_async_edf_await_m4",
+        "T1002",
+        "await is not allowed inside edf",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_async_nested_capture_m4",
+        "T1002",
+        "implicit closure capture of outer local 'pending' is not supported",
         true,
         false
     ),

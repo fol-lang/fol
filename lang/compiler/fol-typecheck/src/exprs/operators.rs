@@ -172,6 +172,14 @@ pub(crate) fn type_binary_op(
         BinaryOperator::Pipe
             if matches!(super::helpers::strip_comments(right), AstNode::AwaitStage) =>
         {
+            if context.inside_error_deferred_block {
+                return Err(unsupported_binary_surface(
+                    resolved,
+                    left,
+                    right,
+                    "await is not allowed inside edf in V3; error-only deferred cleanup cannot discharge eventual ownership on normal exits",
+                ));
+            }
             if !typed.capability_model().supports_processor() {
                 return Err(unsupported_binary_surface(
                     resolved,
@@ -374,9 +382,9 @@ pub(crate) fn type_pipe_or(
             .transpose()?
             .unwrap_or(false)
         {
-            "'||' handles routine call results with '/ ErrorType', not err[...] shell values in V1"
+            "'||' handles recoverable '/ ErrorType' expressions (direct calls or awaited recoverable eventuals), not err[...] shell values"
         } else {
-            "'||' requires a routine call result with '/ ErrorType' on the left in V1"
+            "'||' requires a recoverable expression with '/ ErrorType' on the left (a direct call or awaited recoverable eventual)"
         };
         return Err(node_origin(resolved, left).map_or_else(
             || TypecheckError::new(TypecheckErrorKind::InvalidInput, message),

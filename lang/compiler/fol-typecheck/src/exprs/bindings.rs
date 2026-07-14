@@ -5,9 +5,9 @@ use fol_resolver::{ReferenceKind, ResolvedProgram, SymbolId};
 use std::collections::BTreeSet;
 
 use super::helpers::{
-    ensure_assignable, find_symbol_in_scope_chain, internal_error, merge_recoverable_effects,
-    node_origin, plain_value_expr, reject_recoverable_error_shell_conversion,
-    reject_recoverable_plain_use,
+    ensure_assignable, find_symbol_in_scope_chain, internal_error, is_recoverable_eventual_type,
+    merge_recoverable_effects, node_origin, plain_value_expr,
+    reject_recoverable_error_shell_conversion, reject_recoverable_plain_use,
 };
 use super::type_node_with_expectation;
 use super::{TypeContext, TypedExpr};
@@ -143,6 +143,15 @@ pub(crate) fn type_binding_initializer(
                 Ok(TypedExpr::value(borrowed))
             } else {
                 track_value_transfer(typed, resolved, context, value, actual)?;
+                register_recoverable_eventual_binding(
+                    typed,
+                    symbol_id,
+                    actual,
+                    context.scope_id,
+                    binding_origin
+                        .clone()
+                        .or_else(|| value.and_then(|node| node_origin(resolved, node))),
+                );
                 Ok(TypedExpr::value(expected))
             }
         }
@@ -230,12 +239,70 @@ pub(crate) fn type_binding_initializer(
                     value,
                     inferred_expr.value_type.unwrap(),
                 )?;
+                register_recoverable_eventual_binding(
+                    typed,
+                    symbol_id,
+                    inferred,
+                    context.scope_id,
+                    binding_origin
+                        .clone()
+                        .or_else(|| value.and_then(|node| node_origin(resolved, node))),
+                );
             }
             Ok(TypedExpr::value(inferred))
         }
         (Some(expected), None) => Ok(TypedExpr::value(expected)),
         (None, None) => Ok(TypedExpr::none()),
     }
+}
+
+pub(crate) fn register_recoverable_eventual_binding(
+    typed: &mut TypedProgram,
+    symbol: SymbolId,
+    type_id: crate::CheckedTypeId,
+    activation_scope: fol_resolver::ScopeId,
+    origin: Option<fol_parser::ast::SyntaxOrigin>,
+) {
+    if !is_recoverable_eventual_type(typed, type_id) {
+        return;
+    }
+    let Some(scope) = typed.typed_symbol(symbol).map(|symbol| symbol.scope_id) else {
+        return;
+    };
+    typed.register_recoverable_eventual_obligation(symbol, scope, activation_scope, origin);
+}
+
+pub(crate) fn reject_recoverable_eventual_overwrite(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    symbol: SymbolId,
+    overwrite_origin: Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let Some(obligation) = typed.recoverable_eventual_obligation(symbol).cloned() else {
+        return Ok(());
+    };
+    let name = resolved
+        .symbol(symbol)
+        .map(|symbol| symbol.name.as_str())
+        .unwrap_or("<unknown>");
+    let message = format!(
+        "recoverable eventual binding '{name}' cannot be overwritten before it is awaited and handled with '||' or check(...)"
+    );
+    let primary = overwrite_origin
+        .clone()
+        .or_else(|| obligation.origin.clone());
+    let mut error = primary.map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::InvalidInput, message.clone()),
+        |origin| {
+            TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message.clone(), origin)
+        },
+    );
+    if let (Some(overwrite_origin), Some(origin)) = (overwrite_origin.as_ref(), obligation.origin) {
+        if overwrite_origin != &origin {
+            error = error.with_related_origin(origin, "recoverable eventual created here");
+        }
+    }
+    Err(error)
 }
 
 pub(crate) fn reject_unsupported_top_level_binding_type(

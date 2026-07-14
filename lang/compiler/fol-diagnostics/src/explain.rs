@@ -314,10 +314,17 @@ static REGISTRY: &[Explanation] = &[
          - an operand or argument shape does not match what the checker expects\n\
          - `report` appears inside `dfr` or `edf`, where deferred replay cannot initiate a\n\
            recoverable error exit\n\
+         - a `/ ErrorType` call or awaited result is discarded instead of handled with\n\
+           `check(...)` or `||`\n\
+         - a recoverable eventual is discarded, left live at lexical fallthrough, `break`,\n\
+           `return`, or `report`, or overwritten before its error is handled\n\
          - a blocking `select {}` has no channel arm and no default arm\n\n\
          How to fix:\n\
          - re-read the reported span and adjust the expression to a valid form\n\
          - move `report` into ordinary control flow and keep deferred bodies non-terminating\n\
+         - bind recoverable async work; transferring it carries the obligation to the destination\n\
+         - await it exactly once and handle the result immediately with `check(...)` or `||`\n\
+           before final discard, overwrite, lexical fallthrough, `break`, `return`, or `report`\n\
          - add at least one `when channel as binding` arm, or add a default `*` arm, to `select`"
     ),
     explanation!(
@@ -332,6 +339,10 @@ static REGISTRY: &[Explanation] = &[
            async, or await) is used without the bundled hosted `std` dependency\n\
          - spawn or async is given a stored routine value or routine parameter instead of a\n\
            direct named routine call, or a bare spawn could discard a recoverable error\n\
+         - an inner routine implicitly captures an outer local instead of receiving it through\n\
+           an explicit parameter or supported explicit capture surface\n\
+         - `edf` tries to access or await eventual state even though error-only cleanup does not\n\
+           run on successful exits and therefore cannot discharge a normal-path obligation\n\
          - a channel is placed in an unsupported composite/projected/top-level shape instead\n\
            of a direct routine-owned binding with one receiver lifecycle\n\
          - a `dfr` or `edf` body accesses a mutex field, calls `.lock()` / `.unlock()`, or\n\
@@ -342,8 +353,9 @@ static REGISTRY: &[Explanation] = &[
          - move to `fol_model = memo` for heap-backed values; for hosted facilities and\n\
            the processor surface, also declare bundled `std` on that memo artifact\n\
          - call a named routine directly for spawn/async, keep channels in direct routine-local\n\
-           bindings, and perform mutex guard work in ordinary control flow; spawn captures may\n\
-           instead use the explicit zero-parameter anonymous spawn form\n\
+           bindings, pass outer values to nested routines explicitly, and perform mutex guard or\n\
+           eventual work in ordinary control flow; spawn captures may instead use the explicit\n\
+           zero-parameter anonymous spawn form\n\
          - otherwise use a construct inside the currently shipped V1/V2/V3 boundary"
     ),
     explanation!(
@@ -627,6 +639,21 @@ mod tests {
     }
 
     #[test]
+    fn invalid_input_explanation_covers_recoverable_eventual_obligations() {
+        let explanation = explanation("T1001").expect("T1001 should be registered");
+        assert!(explanation
+            .body
+            .contains("recoverable eventual is discarded"));
+        assert!(explanation.body.contains("left unawaited"));
+        assert!(explanation.body.contains("overwritten"));
+        assert!(explanation
+            .body
+            .contains("transferring it carries the obligation"));
+        assert!(explanation.body.contains("await it exactly once"));
+        assert!(explanation.body.contains("`check(...)` or `||`"));
+    }
+
+    #[test]
     fn unsupported_explanation_covers_v3_processor_boundaries() {
         let explanation = explanation("T1002").expect("T1002 should be registered");
         assert!(explanation.body.contains("any processor surface"));
@@ -634,6 +661,10 @@ mod tests {
         assert!(explanation.body.contains("anonymous spawn form"));
         assert!(explanation.body.contains("one receiver lifecycle"));
         assert!(explanation.body.contains("forwards the handle"));
+        assert!(explanation.body.contains("implicitly captures an outer local"));
+        assert!(explanation
+            .body
+            .contains("cannot discharge a normal-path obligation"));
         assert!(explanation.body.contains("V4/FFI boundary"));
     }
 

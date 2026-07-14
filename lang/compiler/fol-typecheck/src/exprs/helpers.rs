@@ -342,6 +342,143 @@ pub(crate) fn reject_recoverable_plain_use(
     })
 }
 
+pub(crate) fn is_recoverable_eventual_type(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    matches!(
+        typed.type_table().get(type_id),
+        Some(CheckedType::Eventual {
+            error_type: Some(_),
+            ..
+        })
+    )
+}
+
+pub(crate) fn reject_discarded_recoverable_eventual(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    if !is_recoverable_eventual_type(typed, type_id) {
+        return Ok(());
+    }
+    let message = "discarding a recoverable eventual loses its error; bind it, await it, and handle the result with '||' or check(...)";
+    Err(origin.map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+        |origin| TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin),
+    ))
+}
+
+fn recoverable_eventual_exit_error(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    predicate: impl Fn(&crate::model::RecoverableEventualObligation) -> bool,
+    exit_origin: Option<SyntaxOrigin>,
+    boundary: &str,
+) -> Result<(), TypecheckError> {
+    let outstanding = typed
+        .recoverable_eventual_obligations()
+        .find(|(_, obligation)| predicate(obligation))
+        .map(|(symbol, obligation)| (symbol, obligation.clone()));
+    let Some((symbol, obligation)) = outstanding else {
+        return Ok(());
+    };
+    let name = resolved
+        .symbol(symbol)
+        .map(|symbol| symbol.name.as_str())
+        .unwrap_or("<unknown>");
+    let message = format!(
+        "recoverable eventual binding '{name}' must be awaited and handled with '||' or check(...) before {boundary}"
+    );
+    let primary = exit_origin.clone().or_else(|| obligation.origin.clone());
+    let mut error = primary.map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::InvalidInput, message.clone()),
+        |origin| {
+            TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message.clone(), origin)
+        },
+    );
+    if let (Some(exit_origin), Some(origin)) = (exit_origin.as_ref(), obligation.origin) {
+        if exit_origin != &origin {
+            error = error.with_related_origin(origin, "recoverable eventual created here");
+        }
+    }
+    Err(error)
+}
+
+pub(crate) fn reject_recoverable_eventuals_in_scope(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    scope: ScopeId,
+) -> Result<(), TypecheckError> {
+    recoverable_eventual_exit_error(
+        typed,
+        resolved,
+        |obligation| obligation.owner_scope == scope,
+        None,
+        "leaving its lexical scope",
+    )
+}
+
+pub(crate) fn nearest_routine_scope(
+    resolved: &ResolvedProgram,
+    mut scope: ScopeId,
+) -> Option<ScopeId> {
+    loop {
+        let resolved_scope = resolved.scope(scope)?;
+        if resolved_scope.kind == fol_resolver::ScopeKind::Routine {
+            return Some(scope);
+        }
+        scope = resolved_scope.parent?;
+    }
+}
+
+pub(crate) fn reject_all_recoverable_eventuals(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    current_scope: ScopeId,
+    exit_origin: Option<SyntaxOrigin>,
+    boundary: &str,
+) -> Result<(), TypecheckError> {
+    let current_routine = nearest_routine_scope(resolved, current_scope);
+    recoverable_eventual_exit_error(
+        typed,
+        resolved,
+        |obligation| {
+            nearest_routine_scope(resolved, obligation.owner_scope) == current_routine
+        },
+        exit_origin,
+        boundary,
+    )
+}
+
+pub(crate) fn reject_recoverable_eventuals_leaving_scope(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    ancestor: ScopeId,
+    exit_origin: Option<SyntaxOrigin>,
+    boundary: &str,
+) -> Result<(), TypecheckError> {
+    recoverable_eventual_exit_error(
+        typed,
+        resolved,
+        |obligation| {
+            let mut obligation_scope = obligation.activation_scope;
+            loop {
+                if obligation_scope == ancestor {
+                    break true;
+                }
+                let Some(parent) = resolved
+                    .scope(obligation_scope)
+                    .and_then(|scope| scope.parent)
+                else {
+                    break false;
+                };
+                obligation_scope = parent;
+            }
+        },
+        exit_origin,
+        boundary,
+    )
+}
+
 pub(crate) fn merge_recoverable_effects(
     typed: &TypedProgram,
     origin: Option<SyntaxOrigin>,

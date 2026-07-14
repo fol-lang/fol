@@ -52,6 +52,9 @@ pub(crate) struct TypeContext {
     /// True while typing a dfr/edf body. Mutex guard transitions are lexical
     /// today and cannot be replayed safely when deferred execution runs.
     pub(crate) inside_deferred_block: bool,
+    /// True specifically inside error-only `edf` cleanup. Eventual ownership
+    /// cannot be mutated there because the body does not run on normal exits.
+    pub(crate) inside_error_deferred_block: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -132,6 +135,7 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
             allow_mutex_handle: false,
             repeating_loop_scope: None,
             inside_deferred_block: false,
+            inside_error_deferred_block: false,
         };
         for item in &source_unit.items {
             if let Err(error) = type_node(typed, &resolved, context, &item.node) {
@@ -659,11 +663,11 @@ fn type_node_with_expectation_inner(
                 return Err(node_origin(resolved, node).map_or_else(
                     || TypecheckError::new(
                         TypecheckErrorKind::Unsupported,
-                        "spawning a recoverable routine without await discards its error; make the callee infallible or pipe through async",
+                        "bare '[>]call()' cannot spawn a recoverable routine because it discards the error; make the callee infallible or remove '[>]', use 'call() | async', then await and handle it",
                     ),
                     |origin| TypecheckError::with_origin(
                         TypecheckErrorKind::Unsupported,
-                        "spawning a recoverable routine without await discards its error; make the callee infallible or pipe through async",
+                        "bare '[>]call()' cannot spawn a recoverable routine because it discards the error; make the callee infallible or remove '[>]', use 'call() | async', then await and handle it",
                         origin,
                     ),
                 ));
@@ -733,6 +737,7 @@ fn type_node_with_expectation_inner(
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
                 inside_deferred_block: false,
+                inside_error_deferred_block: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -996,6 +1001,7 @@ fn type_node_with_expectation_inner(
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
                 inside_deferred_block: false,
+                inside_error_deferred_block: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -1162,9 +1168,24 @@ fn type_node_with_expectation_inner(
                 "assignment",
             )?;
             ensure_assignable(typed, expected, actual, "assignment".to_string(), None)?;
+            if let Some(symbol) = whole_target {
+                bindings::reject_recoverable_eventual_overwrite(
+                    typed,
+                    resolved,
+                    symbol,
+                    node_origin(resolved, target),
+                )?;
+            }
             bindings::track_value_transfer(typed, resolved, context, Some(value), actual)?;
             if let Some(symbol) = whole_target {
                 typed.mark_binding_reinitialized(symbol, node_origin(resolved, target));
+                bindings::register_recoverable_eventual_binding(
+                    typed,
+                    symbol,
+                    actual,
+                    context.scope_id,
+                    node_origin(resolved, target),
+                );
             }
             // Assignment is a statement. Treating it as the assigned value is
             // especially unsound for move-only values: lowering stores the
@@ -1313,10 +1334,25 @@ fn type_node_with_expectation_inner(
         AstNode::Select { arms, default, .. } => {
             controlflow::type_select(typed, resolved, context, node, arms, default.as_deref())
         }
-        AstNode::Return { value } => {
-            controlflow::type_return(typed, resolved, context, value.as_deref())
+        AstNode::Return { value } => controlflow::type_return(
+            typed,
+            resolved,
+            context,
+            value.as_deref(),
+            node_origin(resolved, node),
+        ),
+        AstNode::Break => {
+            if let Some(loop_scope) = context.repeating_loop_scope {
+                helpers::reject_recoverable_eventuals_leaving_scope(
+                    typed,
+                    resolved,
+                    loop_scope,
+                    node_origin(resolved, node),
+                    "leaving the loop with break",
+                )?;
+            }
+            Ok(TypedExpr::value(typed.builtin_types().never))
         }
-        AstNode::Break => Ok(TypedExpr::value(typed.builtin_types().never)),
         AstNode::Dfr { syntax_id, body } | AstNode::Edf { syntax_id, body } => {
             if body_contains_return(body) {
                 return Err(TypecheckError::new(
@@ -1349,6 +1385,8 @@ fn type_node_with_expectation_inner(
                 TypeContext {
                     scope_id: deferred_scope,
                     inside_deferred_block: true,
+                    inside_error_deferred_block: context.inside_error_deferred_block
+                        || matches!(node, AstNode::Edf { .. }),
                     ..context
                 },
                 body,
@@ -1604,7 +1642,7 @@ pub(crate) fn type_body(
     context: TypeContext,
     nodes: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
-    type_body_inner(typed, resolved, context, nodes)
+    type_body_inner(typed, resolved, context, nodes, false)
 }
 
 pub(crate) fn type_body_transferring_value(
@@ -1613,7 +1651,7 @@ pub(crate) fn type_body_transferring_value(
     context: TypeContext,
     nodes: &[AstNode],
 ) -> Result<TypedExpr, TypecheckError> {
-    type_body_inner(typed, resolved, context, nodes)
+    type_body_inner(typed, resolved, context, nodes, true)
 }
 
 fn type_body_inner(
@@ -1621,9 +1659,11 @@ fn type_body_inner(
     resolved: &ResolvedProgram,
     context: TypeContext,
     nodes: &[AstNode],
+    transfer_final_value: bool,
 ) -> Result<TypedExpr, TypecheckError> {
     let result = (|| {
         let mut final_expr = TypedExpr::none();
+        let mut pending_value = None;
         for node in nodes {
             let node_result = type_node(typed, resolved, context, node);
             if let Some(error) = take_deferred_transfer_error(typed, resolved) {
@@ -1631,6 +1671,9 @@ fn type_body_inner(
             }
             let node_expr = node_result?;
             if let Some(actual) = node_expr.value_type {
+                if let Some((previous_node, previous_expr)) = pending_value.take() {
+                    reject_discarded_body_expr(typed, resolved, previous_node, previous_expr)?;
+                }
                 final_expr = node_expr;
                 if node_expr.is_never(typed) {
                     return Ok(final_expr);
@@ -1641,14 +1684,55 @@ fn type_body_inner(
                     return Err(error);
                 }
                 transfer_result?;
+                pending_value = Some((node, node_expr));
+            } else if node_expr.recoverable_effect.is_some() {
+                helpers::reject_recoverable_plain_use(
+                    node_origin(resolved, node),
+                    "statement-position expression",
+                )?;
+            }
+        }
+        if !transfer_final_value {
+            if let Some((node, expr)) = pending_value {
+                reject_discarded_body_expr(typed, resolved, node, expr)?;
             }
         }
         Ok(final_expr)
     })();
+    let result = match result {
+        Ok(expr) if !expr.is_never(typed) => {
+            helpers::reject_recoverable_eventuals_in_scope(typed, resolved, context.scope_id)
+                .map(|()| expr)
+        }
+        other => other,
+    };
     typed.release_borrows_in_scope(context.scope_id);
     typed.release_mutex_guards_in_scope(context.scope_id);
     typed.release_deferred_binding_uses_in_scope(context.scope_id);
+    typed.release_recoverable_eventual_obligations_in_scope(context.scope_id);
     result
+}
+
+fn reject_discarded_body_expr(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    node: &AstNode,
+    expr: TypedExpr,
+) -> Result<(), TypecheckError> {
+    if expr.recoverable_effect.is_some() {
+        helpers::reject_recoverable_plain_use(
+            node_origin(resolved, node),
+            "statement-position expression",
+        )?;
+    }
+    if let Some(actual) = expr.value_type {
+        helpers::reject_discarded_recoverable_eventual(
+            typed,
+            actual,
+            node_origin(resolved, node),
+        )?;
+    }
+    Ok(())
 }
 
 fn take_deferred_transfer_error(

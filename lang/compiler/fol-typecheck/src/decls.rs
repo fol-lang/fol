@@ -107,6 +107,7 @@ fn lower_record_field_layout(
                 allow_mutex_handle: false,
                 repeating_loop_scope: None,
                 inside_deferred_block: false,
+                inside_error_deferred_block: false,
             };
             let typed_default = crate::exprs::type_node_with_expectation(
                 typed,

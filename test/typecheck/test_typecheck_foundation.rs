@@ -3404,6 +3404,503 @@ fn awaiting_an_eventual_binding_consumes_it() {
 }
 
 #[test]
+fn bare_recoverable_async_calls_cannot_discard_the_eventual() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 work(true) | async;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("discarding a recoverable eventual loses its error")));
+}
+
+#[test]
+fn bound_recoverable_eventuals_must_be_awaited_before_return() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(true) | async;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn awaited_recoverable_eventual_results_cannot_be_discarded() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(true) | async;\n\
+                 pending | await;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("statement-position expression cannot use '/ ErrorType'")));
+}
+
+#[test]
+fn recoverable_eventuals_cannot_be_overwritten_while_unhandled() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(value: int): int / int = {\n\
+                 when(value == 0) {\n\
+                     case(true) { report 9; }\n\
+                     * { return value; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var[mut] pending = work(1) | async;\n\
+                 var replacement = work(2) | async;\n\
+                 pending = replacement;\n\
+                 return (pending | await) || 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' cannot be overwritten"
+    )));
+}
+
+#[test]
+fn recoverable_eventual_obligations_follow_transfers_and_can_be_handled() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(false) | async;\n\
+                 var moved = pending;\n\
+                 return (moved | await) || 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn transferred_recoverable_eventuals_remain_obligations() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(false) | async;\n\
+                 var moved = pending;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'moved' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn recoverable_eventual_branch_obligations_require_every_path_to_handle() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(flag: bol): int = {\n\
+                 var pending = work(false) | async;\n\
+                 when(flag) {\n\
+                     case(true) { var handled: bol = check(pending | await); }\n\
+                     * { var untouched: int = 0; }\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn recoverable_eventual_branch_obligations_accept_all_paths_handled() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(flag: bol): int = {\n\
+                 var pending = work(false) | async;\n\
+                 when(flag) {\n\
+                     case(true) { var first: bol = check(pending | await); }\n\
+                     * { var second: bol = check(pending | await); }\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn recoverable_branch_values_transfer_across_trailing_comments() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(flag: bol): int = {\n\
+                 var result: int = (when(flag) {\n\
+                     is (true) -> work(false);\n\
+                         // transferred branch value\n\
+                     * -> work(false);\n\
+                         // transferred branch value\n\
+                 }) || 0;\n\
+                 return result;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn infallible_unawaited_eventuals_remain_allowed() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(): int = { return 7; };\n\
+             fun[] main(): int = {\n\
+                 var pending = work() | async;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn nested_anonymous_returns_ignore_outer_eventual_obligations() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(false) | async;\n\
+                 var action = fun[](): int = { return 1; };\n\
+                 var ignored: int = action();\n\
+                 return (pending | await) || ignored;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn nested_routines_cannot_await_outer_recoverable_eventuals() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var pending = work(false) | async;\n\
+                 var action = fun[](): int = {\n\
+                     return (pending | await) || 0;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("implicit closure capture of outer local 'pending' is not supported")),
+        "nested routine must not discharge an outer eventual obligation: {errors:#?}"
+    );
+}
+
+#[test]
+fn nested_routines_reject_implicit_clone_safe_captures() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var outer: int = 7;\n\
+             var action = fun[](): int = { return outer; };\n\
+             return action();\n\
+         };\n",
+    )]);
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("implicit closure capture of outer local 'outer' is not supported")),
+        "closure capture must fail in typecheck instead of reaching lowering: {errors:#?}"
+    );
+}
+
+#[test]
+fn nested_routines_reject_implicit_capture_assignment_targets() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var[mut] outer: int = 7;\n\
+             var action = fun[](): int = { outer = 9; return 0; };\n\
+             return action();\n\
+         };\n",
+    )]);
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("implicit closure capture of outer local 'outer' is not supported")),
+        "assignment targets must not bypass the closure boundary: {errors:#?}"
+    );
+}
+
+#[test]
+fn recoverable_eventuals_cannot_leave_their_lexical_scope_unhandled() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 { var pending = work(false) | async; };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn recoverable_eventuals_cannot_escape_through_report() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int / int = {\n\
+                 var pending = work(false) | async;\n\
+                 report 1;\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn edf_cannot_discharge_outer_recoverable_eventuals() {
+    for cleanup in [
+        "edf { var handled: bol = check(pending | await); };",
+        "edf { dfr { var handled: bol = check(pending | await); }; };",
+    ] {
+        let source = format!(
+            "fun[] work(fail: bol): int / int = {{\n\
+                 when(fail) {{\n\
+                     case(true) {{ report 9; }}\n\
+                     * {{ return 7; }}\n\
+                 }}\n\
+             }};\n\
+             fun[] main(): int = {{\n\
+                 var pending = work(false) | async;\n\
+                 {cleanup}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(errors.iter().any(|error| error
+            .message()
+            .contains("await is not allowed inside edf")),
+            "error-only cleanup must not discharge a normal-path obligation: {errors:#?}"
+        );
+    }
+}
+
+#[test]
+fn recoverable_eventuals_cannot_escape_a_loop_through_break() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 loop(true) {\n\
+                     var pending = work(false) | async;\n\
+                     break;\n\
+                 };\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'pending' must be awaited and handled"
+    )));
+}
+
+#[test]
+fn break_rejects_recoverable_eventuals_assigned_to_outer_slots() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] work(fail: bol): int / int = {\n\
+                 when(fail) {\n\
+                     case(true) { report 9; }\n\
+                     * { return 7; }\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var[mut] slot = work(false) | async;\n\
+                 var first: int = (slot | await) || 0;\n\
+                 loop(true) {\n\
+                     var pending = work(false) | async;\n\
+                     slot = pending;\n\
+                     break;\n\
+                 };\n\
+                 return first;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(errors.iter().any(|error| error.message().contains(
+        "recoverable eventual binding 'slot' must be awaited and handled"
+    )), "break must preserve obligations activated inside the loop: {errors:#?}");
+}
+
+#[test]
 fn outer_eventuals_cannot_be_awaited_from_repeating_loops() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
@@ -4104,7 +4601,7 @@ fn anonymous_recoverable_spawn_cannot_discard_its_error() {
 
     assert!(errors.iter().any(|error| error
         .message()
-        .contains("spawning a recoverable routine without await discards its error")));
+        .contains("bare '[>]call()' cannot spawn a recoverable routine")));
 }
 
 #[test]

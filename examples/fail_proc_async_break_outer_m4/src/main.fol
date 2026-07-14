@@ -1,0 +1,19 @@
+use std: pkg = {"std"};
+
+fun[] work(fail: bol): int / int = {
+    when(fail) {
+        case(true) { report 9; }
+        * { return 7; }
+    }
+};
+
+fun[] main(): int = {
+    var[mut] slot = work(false) | async;
+    var first: int = (slot | await) || 0;
+    loop(true) {
+        var pending = work(false) | async;
+        slot = pending;
+        break;
+    };
+    return first;
+};
