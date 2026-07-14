@@ -58,11 +58,6 @@ fn test_resolver_resolves_bundled_std_from_declared_pkg_alias() {
     let target_scope = import
         .target_scope
         .expect("Bundled std pkg imports should resolve to a mounted root scope");
-    let shipped_symbol = resolved
-        .symbols_in_scope(target_scope)
-        .into_iter()
-        .find(|symbol| symbol.name == "shipped_answer" && symbol.kind == SymbolKind::Routine)
-        .expect("Mounted bundled std package root should expose exported root symbols");
     assert!(
         matches!(
             resolved.scope(target_scope).map(|scope| &scope.kind),
@@ -70,7 +65,16 @@ fn test_resolver_resolves_bundled_std_from_declared_pkg_alias() {
         ),
         "Bundled std pkg imports should mount the explicit std dependency alias root",
     );
-    assert_eq!(shipped_symbol.name, "shipped_answer");
+    let fmt_scope = resolved
+        .namespace_scope("std::fmt")
+        .expect("Mounted bundled std packages should expose the std.fmt namespace");
+    assert!(
+        resolved
+            .symbols_in_scope(fmt_scope)
+            .into_iter()
+            .any(|symbol| symbol.name == "answer" && symbol.kind == SymbolKind::Routine),
+        "Mounted bundled std packages should expose public namespace symbols",
+    );
 
     fs::remove_dir_all(&temp_root)
         .expect("Temporary resolver fixture directory should be removable after the test");
@@ -140,12 +144,23 @@ fn test_resolver_resolves_bundled_std_io_from_pkg_alias_root() {
     let target_scope = import
         .target_scope
         .expect("Bundled std.io pkg imports should resolve to a mounted root scope");
-    let shipped_symbol = resolved
-        .symbols_in_scope(target_scope)
-        .into_iter()
-        .find(|symbol| symbol.name == "shipped_answer" && symbol.kind == SymbolKind::Routine)
-        .expect("Mounted bundled std package root should stay visible");
-    assert_eq!(shipped_symbol.name, "shipped_answer");
+    assert!(
+        matches!(
+            resolved.scope(target_scope).map(|scope| &scope.kind),
+            Some(ScopeKind::ProgramRoot { package }) if package == "std"
+        ),
+        "Bundled std.io pkg imports should keep the mounted std package root visible",
+    );
+    let io_scope = resolved
+        .namespace_scope("std::io")
+        .expect("Mounted bundled std packages should expose the std.io namespace");
+    assert!(
+        resolved
+            .symbols_in_scope(io_scope)
+            .into_iter()
+            .any(|symbol| symbol.name == "echo_int" && symbol.kind == SymbolKind::Routine),
+        "Mounted bundled std packages should expose public std.io symbols",
+    );
 
     fs::remove_dir_all(&temp_root)
         .expect("Temporary resolver fixture directory should be removable after the test");

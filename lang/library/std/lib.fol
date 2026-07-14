@@ -1,3 +1,0 @@
-fun[exp] shipped_answer(): int = {
-    return 7;
-};

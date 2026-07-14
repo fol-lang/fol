@@ -119,13 +119,22 @@ fn test_resolver_keeps_bundled_std_pkg_import_semantics_stable_through_package_p
     let target_scope = import
         .target_scope
         .expect("Bundled std pkg imports should still resolve to a mounted root scope");
-
+    assert!(
+        matches!(
+            resolved.scope(target_scope).map(|scope| &scope.kind),
+            Some(ScopeKind::ProgramRoot { package }) if package == "std"
+        ),
+        "Bundled std pkg imports should still mount the std package root through the provider boundary",
+    );
+    let fmt_scope = resolved
+        .namespace_scope("std::fmt")
+        .expect("Bundled std pkg imports should expose the std.fmt namespace");
     assert!(
         resolved
-            .symbols_in_scope(target_scope)
+            .symbols_in_scope(fmt_scope)
             .into_iter()
-            .any(|symbol| symbol.name == "shipped_answer" && symbol.kind == SymbolKind::Routine),
-        "Bundled std pkg imports should still expose exported root symbols through the provider boundary",
+            .any(|symbol| symbol.name == "answer" && symbol.kind == SymbolKind::Routine),
+        "Bundled std pkg imports should expose public namespace symbols through the provider boundary",
     );
 
     fs::remove_dir_all(&temp_root)
