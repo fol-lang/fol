@@ -445,7 +445,7 @@ pub(crate) const V3_PROC_M4_FAILURES: &[V3FailureExample] = &[
         "T1001",
         "recoverable eventual binding 'pending' cannot be overwritten",
         true,
-        false
+        true
     ),
     v3_failure!(
         "examples/fail_proc_async_break_outer_m4",

@@ -395,14 +395,12 @@ fn lower_top_level_declaration(
                     .or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
             )?;
             record_symbol_type(typed, symbol_id, type_id)?;
-            // Recursive type definitions (`typ Node(T) = { next: Node[T] }`,
-            // `typ Tree = { kids: vec[Tree] }`) are not representable in the
-            // current structural runtime model: there is no nominal/named
-            // lowered type, so the shape has no finite form. Reject the
-            // declaration with an honest, located diagnostic instead of looping
-            // forever in lowering. This is a compile-time boundary, not a
-            // silent acceptance — recursive/heap-linked data belongs to the
-            // later ownership/pointer surface.
+            // Directly value-recursive definitions (`typ Node(T) = { next:
+            // Node[T] }`, `typ Tree = { kids: vec[Tree] }`) have no finite
+            // shape. V3's shipped recursive path uses explicit `@`-owned
+            // indirection, which the check below permits. Reject only the
+            // unguarded value-recursive form with a located diagnostic instead
+            // of looping forever in lowering.
             let recursion_origin = node_origin(resolved, &item.node)
                 .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
             reject_recursive_type_definition(
