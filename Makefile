@@ -4,6 +4,7 @@ CURRENT_VERSION := $(shell grep '^version = ' Cargo.toml | sed -E 's/version = "
 LATEST_TAG   ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 TOP_DIR      := $(CURDIR)
 BUILD_DIR    := $(TOP_DIR)/target
+DOCS_BUILD_DIR ?= $(BUILD_DIR)/book
 
 ifeq ($(PROJECT_NAME),)
 $(error Error: project name not found in Cargo.toml)
@@ -77,7 +78,7 @@ help:
 	@echo "  tree         Regenerate the checked-in tree-sitter bundle"
 	@echo "  tree-test    Regenerate and run non-empty tree-sitter corpus tests"
 	@echo "  test         Run tests"
-	@echo "  docs         Build documentation (TYPE=mdbook|doxygen)"
+	@echo "  docs         Build documentation in target/book (TYPE=mdbook|doxygen)"
 	@echo "  release      Create a new release (TYPE=patch|minor|major)"
 	@echo
 
@@ -91,8 +92,8 @@ clean:
 docs:
 ifeq ($(TYPE),mdbook)
 	@command -v mdbook >/dev/null 2>&1 || { echo "mdbook is not installed. Please install it first."; exit 1; }
-	@mdbook build $(TOP_DIR)/book --dest-dir $(TOP_DIR)/docs
-	@git add --all && git commit -m "docs: building website/mdbook"
+	@mdbook build $(TOP_DIR)/book --dest-dir $(DOCS_BUILD_DIR)
+	@echo "Documentation written to $(DOCS_BUILD_DIR)"
 else ifeq ($(TYPE),doxygen)
 	@command -v doxygen >/dev/null 2>&1 || { echo "doxygen is not installed. Please install it first."; exit 1; }
 else
