@@ -86,6 +86,7 @@ Negative:
 - `examples/fail_proc_mutex_double_paren_m3`
 - `examples/fail_proc_mutex_in_core_m3`
 - `examples/fail_proc_mutex_in_memo_m3`
+- `examples/fail_proc_select_empty_m3`
 - `examples/fail_proc_select_in_core_m3`
 - `examples/fail_proc_select_in_memo_m3`
 - `examples/fail_proc_select_old_form_m3`

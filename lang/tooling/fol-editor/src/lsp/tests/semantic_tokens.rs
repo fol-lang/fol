@@ -185,10 +185,12 @@ fn lsp_server_tokens_explicit_v3_parameter_declarations_in_real_examples() {
 fn lsp_server_tokens_v3_memory_and_processor_references_in_real_examples() {
     let cases = [
         ("examples/mem_move_stack_vs_heap_m1", "heap_a", 2),
-        ("examples/mem_ptr_unique_m3", "pointer", 2),
+        ("examples/mem_ptr_unique_m3", "outer", 2),
         ("examples/proc_spawn_m1", "worker", 2),
+        ("examples/proc_spawn_m1", "echo_int", 1),
         ("examples/proc_channel_m2", "channel", 6),
         ("examples/proc_async_await_m4", "transferred", 2),
+        ("examples/proc_async_await_m4", "double", 1),
     ];
 
     for (index, (example, needle, ordinal)) in cases.into_iter().enumerate() {

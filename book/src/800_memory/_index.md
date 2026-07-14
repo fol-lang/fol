@@ -72,7 +72,9 @@ Positive:
 
 Negative:
 
+- `examples/fail_mem_borrowed_ptr_move_deref_m3`
 - `examples/fail_mem_ptr_raw_m3`
 - `examples/fail_mem_ptr_in_core_m3`
 - `examples/fail_mem_pointer_field_deref_m3`
+- `examples/fail_mem_shared_ptr_move_deref_m3`
 - `examples/fail_mem_shared_ptr_write_m3`

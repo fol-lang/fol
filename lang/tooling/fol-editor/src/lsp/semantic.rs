@@ -1733,20 +1733,43 @@ impl SemanticSnapshot {
         let pointer_summary = typed_package
             .and_then(|typed_package| {
                 let type_id = typed_package.program.typed_symbol(symbol_id)?.declared_type?;
-                match typed_package.program.type_table().get(type_id)? {
-                    fol_typecheck::CheckedType::Pointer { target, shared } => Some(if *shared {
+                let (target, shared, borrowed) =
+                    pointer_type_info(&typed_package.program, type_id)?;
+                let target_name =
+                    render_checked_type(typed_package.program.type_table(), target);
+                let target_moves = fol_typecheck::exprs::bindings::ownership_moves_on_transfer(
+                    &typed_package.program,
+                    target,
+                );
+                Some(if borrowed {
+                    if target_moves {
                         format!(
-                            " (shared refcount pointer; dereference yields {}; reference cycles leak until weak references exist)",
-                            render_checked_type(typed_package.program.type_table(), *target)
+                            " (borrowed pointer; read-only dereference cannot transfer move-only {target_name})"
                         )
                     } else {
                         format!(
-                            " (unique pointer; dereference yields {}; construction requires memo+)",
-                            render_checked_type(typed_package.program.type_table(), *target)
+                            " (borrowed pointer; read-only dereference clones {target_name})"
                         )
-                    }),
-                    _ => None,
-                }
+                    }
+                } else if shared {
+                    if target_moves {
+                        format!(
+                            " (shared refcount pointer; read-only dereference cannot transfer move-only {target_name}; reference cycles leak until weak references exist)"
+                        )
+                    } else {
+                        format!(
+                            " (shared refcount pointer; read-only dereference clones {target_name}; reference cycles leak until weak references exist)"
+                        )
+                    }
+                } else if target_moves {
+                    format!(
+                        " (unique pointer; dereference transfers move-only {target_name} and consumes the pointer; construction requires memo+)"
+                    )
+                } else {
+                    format!(
+                        " (unique pointer; dereference reads clone-safe {target_name} without consuming the pointer; construction requires memo+)"
+                    )
+                })
             })
             .unwrap_or_default();
         Some(LspHover {
@@ -1916,16 +1939,39 @@ impl SemanticSnapshot {
             .typed_symbol(symbol_id)?
             .declared_type?;
         let table = typed_package.program.type_table();
-        let (target, shared) = match table.get(type_id)? {
-            fol_typecheck::CheckedType::Pointer { target, shared } => (*target, *shared),
-            _ => return None,
+        let (target, shared, borrowed) = pointer_type_info(&typed_package.program, type_id)?;
+        let target_name = render_checked_type(table, target);
+        let target_moves = fol_typecheck::exprs::bindings::ownership_moves_on_transfer(
+            &typed_package.program,
+            target,
+        );
+        let contents = if borrowed {
+            if target_moves {
+                format!(
+                    "*: read-only borrowed pointer cannot transfer move-only `{target_name}`"
+                )
+            } else {
+                format!(
+                    "*: read-only borrowed pointer clones `{target_name}` without consuming the pointer"
+                )
+            }
+        } else if shared {
+            if target_moves {
+                format!("*: shared pointer cannot transfer move-only `{target_name}`")
+            } else {
+                format!(
+                    "*: read-only shared pointer clones `{target_name}` without consuming the pointer"
+                )
+            }
+        } else if target_moves {
+            format!("*: transfers move-only `{target_name}` and consumes the unique pointer")
+        } else {
+            format!(
+                "*: reads clone-safe `{target_name}` without consuming the unique pointer"
+            )
         };
         Some(LspHover {
-            contents: format!(
-                "*: dereference {} pointer to `{}`",
-                if shared { "shared" } else { "unique" },
-                render_checked_type(table, target)
-            ),
+            contents,
             range: None,
         })
     }
@@ -3525,6 +3571,26 @@ fn keyword_category(keyword: &str) -> Option<&'static str> {
         Some("diagnostic")
     } else {
         None
+    }
+}
+
+fn pointer_type_info(
+    program: &fol_typecheck::TypedProgram,
+    mut type_id: fol_typecheck::CheckedTypeId,
+) -> Option<(fol_typecheck::CheckedTypeId, bool, bool)> {
+    let mut borrowed = false;
+    loop {
+        match program.type_table().get(type_id)? {
+            fol_typecheck::CheckedType::Owned { inner } => type_id = *inner,
+            fol_typecheck::CheckedType::Borrowed { inner, .. } => {
+                borrowed = true;
+                type_id = *inner;
+            }
+            fol_typecheck::CheckedType::Pointer { target, shared } => {
+                return Some((*target, *shared, borrowed));
+            }
+            _ => return None,
+        }
     }
 }
 

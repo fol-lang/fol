@@ -816,6 +816,19 @@ fn lsp_server_reports_borrow_parameter_hover_and_definition() {
         .expect("borrow parameter use should navigate to its declaration");
     assert_eq!(definition.uri, uri);
     assert_eq!(definition.range.start.line, 4);
+
+    let pointer_deref = find_nth_position(&text, "*pointer", 1);
+    let pointer_hover = request_hover(&mut server, &uri, pointer_deref, 1676)
+        .expect("borrowed pointer dereference should have compiler-backed hover");
+    assert!(pointer_hover
+        .contents
+        .contains("read-only borrowed pointer clones `int`"));
+
+    let view_use = find_nth_position(&text, "view", 2);
+    let view_definition = request_definition(&mut server, &uri, view_use, 1677)
+        .expect("existing borrow use should navigate to its borrow declaration");
+    assert_eq!(view_definition.uri, uri);
+    assert_eq!(view_definition.range.start.line, 17);
     fs::remove_dir_all(root).ok();
 }
 
@@ -831,13 +844,53 @@ fn lsp_server_reports_recursive_shared_pointer_hover_and_definition() {
     let hover = request_hover(&mut server, &uri, pointer_use, 1674)
         .expect("shared recursive pointer use should have compiler-backed hover");
     assert!(hover.contents.contains("shared refcount pointer"));
-    assert!(hover.contents.contains("dereference yields Node"));
+    assert!(hover.contents.contains("read-only dereference clones Node"));
     assert!(hover.contents.contains("cycles leak"));
     let definition = request_definition(&mut server, &uri, pointer_use, 1675)
         .expect("shared recursive pointer use should navigate to its declaration");
     assert_eq!(definition.uri, uri);
     assert_eq!(definition.range.start.line, 7);
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lsp_qualified_processor_targets_keep_hover_and_definition() {
+    for (example, target, definition_suffix) in [
+        (
+            "examples/proc_spawn_m1",
+            "echo_int",
+            "/std/io/lib.fol",
+        ),
+        (
+            "examples/proc_async_await_m4",
+            "double",
+            "/std/fmt/root.fol",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root(example);
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        let diagnostics = open_document(&mut server, uri.clone(), &text);
+        assert!(diagnostics
+            .iter()
+            .all(|published| published.diagnostics.is_empty()));
+        let target_position = find_nth_position(&text, target, 1);
+
+        let hover = request_hover(&mut server, &uri, target_position, 1678)
+            .unwrap_or_else(|| panic!("qualified processor target '{target}' should have hover"));
+        assert!(hover.contents.contains(target));
+        let definition = request_definition(&mut server, &uri, target_position, 1679)
+            .unwrap_or_else(|| {
+                panic!("qualified processor target '{target}' should have a definition")
+            });
+        assert!(
+            definition.uri.ends_with(definition_suffix),
+            "'{target}' should navigate into bundled std, got {}",
+            definition.uri
+        );
+        fs::remove_dir_all(root).ok();
+    }
 }
 
 #[test]
@@ -1238,7 +1291,7 @@ fn lsp_server_surfaces_v3_memory_m3_pointer_state_and_failures() {
     let hover: Option<LspHover> = serde_json::from_value(hover.result.unwrap()).unwrap();
     let contents = hover.expect("shared pointer should have hover").contents;
     assert!(contents.contains("shared refcount pointer"));
-    assert!(contents.contains("dereference yields int"));
+    assert!(contents.contains("read-only dereference clones int"));
     assert!(contents.contains("cycles leak"));
     fs::remove_dir_all(root).ok();
 
@@ -1247,7 +1300,7 @@ fn lsp_server_surfaces_v3_memory_m3_pointer_state_and_failures() {
     let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     open_document(&mut server, uri.clone(), &text);
-    let pointer = find_nth_position(&text, "*pointer", 1);
+    let pointer = find_nth_position(&text, "*outer", 1);
     let hover = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -1267,7 +1320,7 @@ fn lsp_server_surfaces_v3_memory_m3_pointer_state_and_failures() {
     assert!(hover
         .expect("dereference sigil should have compiler-backed hover")
         .contents
-        .contains("dereference unique pointer to `int`"));
+        .contains("transfers move-only `ptr[int]` and consumes the unique pointer"));
     fs::remove_dir_all(root).ok();
 
     for &failure in V3_MEM_M3_FAILURES {

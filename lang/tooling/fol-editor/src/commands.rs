@@ -1680,7 +1680,7 @@ mod tests {
             &path,
             LspPosition {
                 line: 8,
-                character: 8,
+                character: 25,
             },
             true,
         )
@@ -1689,7 +1689,7 @@ mod tests {
             &path,
             LspPosition {
                 line: 8,
-                character: 8,
+                character: 25,
             },
             "task",
         )

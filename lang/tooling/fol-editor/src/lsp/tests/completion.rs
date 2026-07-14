@@ -1543,6 +1543,38 @@ fn lsp_server_gates_owned_type_completion_by_model() {
 }
 
 #[test]
+fn lsp_server_completes_qualified_processor_targets() {
+    for (label, marked_source, expected) in [
+        (
+            "spawn",
+            "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+                 [>]std::io::<|>;\n\
+                 return 0;\n\
+             };\n",
+            "echo_int",
+        ),
+        (
+            "async",
+            "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+                 var pending = std::fmt::<|> | async;\n\
+                 return 0;\n\
+             };\n",
+            "double",
+        ),
+    ] {
+        let (root, uri) = copied_example_package_root("examples/proc_spawn_m1");
+        let labels = completion_labels_at_marker(&root, &uri, marked_source);
+        assert!(
+            labels.iter().any(|item| item == expected),
+            "qualified {label} completion should contain '{expected}': {labels:?}"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
 fn lsp_server_gates_v3_nested_type_completion_by_model() {
     for (surface, source, expectations) in [
         (

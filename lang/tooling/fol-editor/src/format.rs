@@ -281,6 +281,13 @@ mod tests {
         @var owner: Node = { value = 1 };\n\
         var[bor] view: Node = #owner;\n\
         var pointer: ptr[shared, Node] = &view;\n\
+        var inner: ptr[int] = &seed;\n\
+        var outer: ptr[ptr[int]] = &inner;\n\
+        var extracted: ptr[int] = *outer;\n\
+        var[bor] pointer_view: ptr[int] = extracted;\n\
+        inspect(pointer_view);\n\
+        inspect(pointer_view);\n\
+        !pointer_view;\n\
         dfr {\n\
         !view;\n\
         };\n\
@@ -288,8 +295,9 @@ mod tests {
         var ignored: int = 0;\n\
         };\n\
         var channel: chn[int];\n\
-        [>]worker(channel[tx]);\n\
-        var pending = work(1) | async;\n\
+        [>]std::io::echo_int(worker(channel[tx]));\n\
+        var pending = std::fmt::double(work(1)) | async;\n\
+        select {};\n\
         return pending | await;\n\
         };\n";
         let expected = concat!(
@@ -297,6 +305,13 @@ mod tests {
             "    @var owner: Node = { value = 1 };\n",
             "    var[bor] view: Node = #owner;\n",
             "    var pointer: ptr[shared, Node] = &view;\n",
+            "    var inner: ptr[int] = &seed;\n",
+            "    var outer: ptr[ptr[int]] = &inner;\n",
+            "    var extracted: ptr[int] = *outer;\n",
+            "    var[bor] pointer_view: ptr[int] = extracted;\n",
+            "    inspect(pointer_view);\n",
+            "    inspect(pointer_view);\n",
+            "    !pointer_view;\n",
             "    dfr {\n",
             "        !view;\n",
             "    };\n",
@@ -304,8 +319,9 @@ mod tests {
             "        var ignored: int = 0;\n",
             "    };\n",
             "    var channel: chn[int];\n",
-            "    [>]worker(channel[tx]);\n",
-            "    var pending = work(1) | async;\n",
+            "    [>]std::io::echo_int(worker(channel[tx]));\n",
+            "    var pending = std::fmt::double(work(1)) | async;\n",
+            "    select {};\n",
             "    return pending | await;\n",
             "};\n",
         );

@@ -229,7 +229,7 @@ module.exports = grammar({
     select_stmt: $ => seq('select', $.select_block),
     select_block: $ => seq(
       '{',
-      repeat1(choice($.select_arm, $.select_default_arm, $.comment, $.doc_comment)),
+      repeat(choice($.select_arm, $.select_default_arm, $.comment, $.doc_comment)),
       '}',
     ),
     select_arm: $ => seq(

@@ -1183,22 +1183,30 @@ mod tests {
         assert!(corpus
             .iter()
             .any(|case| case.source.contains("ali IntBox: Box[int]")));
-        assert!(corpus
-            .iter()
-            .any(|case| case.name == "v3_ownership" && case.source.contains("~var replacement")));
+        assert!(corpus.iter().any(|case| {
+            case.name == "v3_ownership"
+                && case.source.contains("~var replacement")
+                && case.source.matches("inspect(view)").count() == 2
+        }));
         assert!(corpus.iter().any(|case| {
             case.name == "v3_pointers"
                 && case.source.contains("ptr[Box[int]]")
                 && case.source.contains("@arr[models::Node, 1]")
+                && case.source.contains("ptr[ptr[int]]")
+                && case.source.contains("pointer[bor]: ptr[int]")
+                && case.source.contains("*outer")
         }));
         assert!(corpus.iter().any(|case| {
             case.name == "v3_channels_select_mutex"
                 && case.source.contains("select {")
+                && case.source.contains("select {};")
                 && case.source.contains("counter[mux]")
         }));
         assert!(corpus.iter().any(|case| {
             case.name == "v3_eventuals"
                 && case.source.contains("[>]work(1)")
+                && case.source.contains("[>]std::io::echo_int")
+                && case.source.contains("std::fmt::double")
                 && case.source.contains("| async")
                 && case.source.contains("| await")
         }));
@@ -1372,7 +1380,7 @@ mod tests {
         let cases = [
             (
                 "examples/mem_ptr_unique_m3/src/main.fol",
-                "- type.builtin, start: (2, 26), end: (2, 29), text: `int`",
+                "- type.builtin, start: (2, 19), end: (2, 22), text: `int`",
             ),
             (
                 "examples/mem_ptr_shared_recursive_m3/src/main.fol",

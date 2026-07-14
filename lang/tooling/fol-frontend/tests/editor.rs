@@ -400,7 +400,7 @@ fn hosted_v3_semantic_commands_dispatch_without_a_fetched_package_store() {
             "--line",
             "8",
             "--character",
-            "8",
+            "25",
         ],
         &root,
     )
@@ -414,7 +414,7 @@ fn hosted_v3_semantic_commands_dispatch_without_a_fetched_package_store() {
             "--line",
             "8",
             "--character",
-            "8",
+            "25",
             "task",
         ],
         &root,
