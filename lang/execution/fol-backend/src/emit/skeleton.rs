@@ -51,7 +51,7 @@ pub fn emit_main_rs_for_config(
             call_args,
             recoverable: true,
         } => format!(
-            "    let __fol_outcome = rt::outcome_from_recoverable({rust_path}({call_args}));{join_tasks}\n    if let Some(__fol_message) = rt::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
+            "    let __fol_outcome = fol_runtime::process::outcome_from_recoverable({rust_path}({call_args}));{join_tasks}\n    if let Some(__fol_message) = fol_runtime::process::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
         ),
     };
     let runtime_tier = config.runtime_tier();

@@ -17,6 +17,7 @@
 //! - optional/error shells
 //! - recoverable routine results
 //! - backend-facing runtime hooks such as `.echo(...)`
+//! - a capability-neutral backend process-outcome adapter
 //! - hosted V3 task, channel, mutex, and eventual substrate
 //!
 //! The runtime model is converging on explicit internal tiers:
@@ -68,7 +69,7 @@
 //! - `check`
 //!   - lower through the active model module's `check_recoverable(...)`
 //! - recoverable top-level result handling
-//!   - lower through [`std::outcome_from_recoverable`]
+//!   - lower through [`process::outcome_from_recoverable`]
 //!
 //! The backend should not reimplement `.len` or `.echo` inline. Those are part
 //! of the runtime contract so later backends can share the same behavior.
@@ -196,11 +197,12 @@
 //!    - `rt::len(...)`
 //!    - `rt::echo(...)`
 //!    - `rt::check_recoverable(...)`
-//!    - `rt::outcome_from_recoverable(...)`
 //! 7. Keep pure scalar comparison and boolean negation native in the emitted
 //!    Rust where possible.
 //! 8. Lower top-level entry routines so recoverable outcomes become
-//!    [`std::FolProcessOutcome`] values with the documented exit-code policy.
+//!    [`process::FolProcessOutcome`] values with the documented exit-code
+//!    policy. This backend adapter is independent of the source-language
+//!    capability tier.
 //! 9. Only after emitted Rust typechecks against `fol-runtime` should the
 //!    backend invoke `cargo build` or `rustc`.
 //!
@@ -216,6 +218,7 @@ pub mod containers;
 pub mod core;
 pub mod error;
 pub mod memo;
+pub mod process;
 pub mod shell;
 pub mod std;
 pub mod value;
@@ -234,6 +237,7 @@ mod tests {
 
     const CORE_SOURCE: &str = include_str!("core.rs");
     const MEMO_SOURCE: &str = include_str!("memo.rs");
+    const PROCESS_SOURCE: &str = include_str!("process.rs");
     const STD_SOURCE: &str = include_str!("std.rs");
 
     #[test]
@@ -244,6 +248,7 @@ mod tests {
     #[test]
     fn public_runtime_module_shell_is_importable() {
         assert_eq!(memo::module_name(), "memo");
+        assert_eq!(process::FOL_EXIT_SUCCESS, 0);
         assert_eq!(abi::module_name(), "abi");
         assert_eq!(aggregate::module_name(), "aggregate");
         assert_eq!(builtins::module_name(), "builtins");
@@ -286,7 +291,8 @@ mod tests {
         assert!(!MEMO_SOURCE.contains("FolProcessOutcome"));
 
         assert!(STD_SOURCE.contains("pub fn echo"));
-        assert!(STD_SOURCE.contains("FolProcessOutcome"));
+        assert!(!STD_SOURCE.contains("FolProcessOutcome"));
+        assert!(PROCESS_SOURCE.contains("pub struct FolProcessOutcome"));
         assert!(
             STD_SOURCE.contains("pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};")
         );
@@ -328,9 +334,10 @@ mod tests {
     #[test]
     fn core_source_stays_free_of_accidental_heap_or_hosted_reexports() {
         // These are whole-identifier names, not substrings: the heap container
-        // types, the hosted `echo` service, and the hosted process outcome. The
-        // pure formatting helpers `render_echo` and `FolEchoFormat` are separate
-        // identifiers and remain a legitimate part of the `core` tier surface.
+        // types, the hosted `echo` service, and the capability-neutral process
+        // adapter. The pure formatting helpers `render_echo` and
+        // `FolEchoFormat` are separate identifiers and remain a legitimate part
+        // of the `core` tier surface.
         for forbidden in [
             "FolStr",
             "FolVec",

@@ -1,27 +1,27 @@
 #[cfg(test)]
 mod tests {
-    use crate::emit::{
-        backend_build_paths, build_generated_crate_with_rustc, build_runtime_rlib_with_rustc,
-        emit_backend_artifact, emit_cargo_toml, emit_generated_crate_skeleton,
-        emit_generated_crate_skeleton_for_config, emit_main_rs, emit_main_rs_for_config,
-        emit_namespace_module_shells, emit_namespace_module_shells_for_config,
-        emit_package_module_shells, prepare_backend_runtime_build_dir, prepare_backend_build_paths,
-        prepare_generated_build_dir, summarize_emitted_artifact, write_generated_crate,
-        backend_runtime_build_dir, backend_runtime_manifest_path,
-        backend_runtime_manifest_path_with_override, backend_runtime_source_entry,
-        backend_runtime_source_entry_with_override, backend_runtime_source_root,
-        backend_runtime_source_root_with_override,
-    };
     use super::super::build::{
         configure_generated_crate_rustc_command, configure_runtime_rustc_command,
+    };
+    use crate::emit::{
+        backend_build_paths, backend_runtime_build_dir, backend_runtime_manifest_path,
+        backend_runtime_manifest_path_with_override, backend_runtime_source_entry,
+        backend_runtime_source_entry_with_override, backend_runtime_source_root,
+        backend_runtime_source_root_with_override, build_generated_crate_with_rustc,
+        build_runtime_rlib_with_rustc, emit_backend_artifact, emit_cargo_toml,
+        emit_generated_crate_skeleton, emit_generated_crate_skeleton_for_config, emit_main_rs,
+        emit_main_rs_for_config, emit_namespace_module_shells,
+        emit_namespace_module_shells_for_config, emit_package_module_shells,
+        prepare_backend_build_paths, prepare_backend_runtime_build_dir,
+        prepare_generated_build_dir, summarize_emitted_artifact, write_generated_crate,
     };
     use crate::{
         testing::{
             lowered_workspace_from_entry_path, lowered_workspace_from_entry_path_with_config,
             sample_lowered_workspace,
         },
-        BackendArtifact, BackendBuildProfile, BackendConfig, BackendFolModel,
-        BackendMachineTarget, BackendMode, BackendSession,
+        BackendArtifact, BackendBuildProfile, BackendConfig, BackendFolModel, BackendMachineTarget,
+        BackendMode, BackendSession,
     };
     use fol_package::PackageConfig;
     use fol_resolver::ResolverConfig;
@@ -46,6 +46,13 @@ mod tests {
     }
 
     fn build_and_run_fixture(source: &str) -> std::process::Output {
+        build_and_run_fixture_for_model(source, BackendFolModel::Std)
+    }
+
+    fn build_and_run_fixture_for_model(
+        source: &str,
+        fol_model: BackendFolModel,
+    ) -> std::process::Output {
         let fixture_root = temp_root("exec");
         let fixture = write_fixture(&fixture_root, source);
         let lowered = lowered_workspace_from_entry_path(&fixture);
@@ -55,6 +62,7 @@ mod tests {
             &BackendConfig {
                 mode: BackendMode::BuildArtifact,
                 keep_build_dir: true,
+                fol_model,
                 ..BackendConfig::default()
             },
             &fixture_root,
@@ -76,7 +84,10 @@ mod tests {
     ) -> PathBuf {
         let manifest_path = crate_root.join("Cargo.toml");
         let mut command = Command::new("cargo");
-        command.arg("build").arg("--manifest-path").arg(&manifest_path);
+        command
+            .arg("build")
+            .arg("--manifest-path")
+            .arg(&manifest_path);
         if matches!(profile, BackendBuildProfile::Release) {
             command.arg("--release");
         }
@@ -96,7 +107,11 @@ mod tests {
             .join("target")
             .join(profile.as_str())
             .join(package_name);
-        assert!(binary.exists(), "cargo binary missing at '{}'", binary.display());
+        assert!(
+            binary.exists(),
+            "cargo binary missing at '{}'",
+            binary.display()
+        );
         binary
     }
 
@@ -201,7 +216,9 @@ mod tests {
         assert_eq!(emitted.path, "src/main.rs");
         assert_eq!(emitted.module_name, "main");
         assert!(emitted.contents.contains("use fol_runtime::std as rt;"));
-        assert!(emitted.contents.contains("use fol_runtime::std as rt_model;"));
+        assert!(emitted
+            .contents
+            .contains("use fol_runtime::std as rt_model;"));
         assert!(emitted.contents.contains("mod packages;"));
         assert!(emitted.contents.contains("let _entry_package = \"app\";"));
         assert!(emitted.contents.contains("let _entry_name = \"main\";"));
@@ -256,7 +273,9 @@ mod tests {
             },
         )
         .expect("std main");
-        assert!(std_emitted.contents.contains("use fol_runtime::std as rt_model;"));
+        assert!(std_emitted
+            .contents
+            .contains("use fol_runtime::std as rt_model;"));
         assert!(std_emitted.contents.contains("use fol_runtime::std as rt;"));
         assert!(!std_emitted.contents.contains("use fol_runtime::core"));
         assert!(!std_emitted.contents.contains("use fol_runtime::memo"));
@@ -275,9 +294,9 @@ mod tests {
         let emitted = emit_main_rs(&session).expect("bool entry should emit");
 
         assert!(emitted.contents.contains("__fol_parse_bool"));
-        assert!(emitted
-            .contents
-            .contains("__fol_cli_arg(0).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()"));
+        assert!(emitted.contents.contains(
+            "__fol_cli_arg(0).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()"
+        ));
         assert!(emitted.contents.contains("let _ = packages::"));
         let _ = fs::remove_dir_all(&fixture_root);
     }
@@ -326,9 +345,7 @@ mod tests {
 
         assert_eq!(emitted.len(), 4);
         assert_eq!(emitted[0].path, "src/packages/pkg__entry__app/root.rs");
-        assert!(emitted[0]
-            .contents
-            .contains("use fol_runtime::std as rt;"));
+        assert!(emitted[0].contents.contains("use fol_runtime::std as rt;"));
         assert!(emitted[0]
             .contents
             .contains("use fol_runtime::std as rt_model;"));
@@ -536,9 +553,7 @@ mod tests {
             .find(|file| file.path == "src/packages/pkg__entry__app/root.rs")
             .expect("root namespace");
 
-        assert!(main_rs
-            .contents
-            .contains("use fol_runtime::memo as rt;"));
+        assert!(main_rs.contents.contains("use fol_runtime::memo as rt;"));
         assert!(main_rs
             .contents
             .contains("use fol_runtime::memo as rt_model;"));
@@ -596,7 +611,10 @@ mod tests {
             },
         )
         .expect("core artifact");
-        let BackendArtifact::RustSourceCrate { files: core_files, .. } = core_artifact else {
+        let BackendArtifact::RustSourceCrate {
+            files: core_files, ..
+        } = core_artifact
+        else {
             panic!("expected RustSourceCrate artifact");
         };
         let core_snapshot = core_files
@@ -628,7 +646,10 @@ mod tests {
             },
         )
         .expect("memo artifact");
-        let BackendArtifact::RustSourceCrate { files: mem_files, .. } = mem_artifact else {
+        let BackendArtifact::RustSourceCrate {
+            files: mem_files, ..
+        } = mem_artifact
+        else {
             panic!("expected RustSourceCrate artifact");
         };
         let mem_snapshot = mem_files
@@ -726,8 +747,11 @@ mod tests {
         let temp_root = temp_root("runtime_dirs");
         let paths = prepare_backend_build_paths(&temp_root).expect("prepare paths");
 
-        let debug_dir =
-            backend_runtime_build_dir(&paths, &BackendMachineTarget::Host, BackendBuildProfile::Debug);
+        let debug_dir = backend_runtime_build_dir(
+            &paths,
+            &BackendMachineTarget::Host,
+            BackendBuildProfile::Debug,
+        );
         let release_dir = backend_runtime_build_dir(
             &paths,
             &BackendMachineTarget::Host,
@@ -763,9 +787,9 @@ mod tests {
             .map(|arg: &std::ffi::OsStr| arg.to_string_lossy().to_string())
             .collect::<Vec<_>>();
 
-        assert!(args.windows(2).any(|pair| {
-            pair == ["--target", "aarch64-apple-darwin"]
-        }));
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair == ["--target", "aarch64-apple-darwin"] }));
     }
 
     #[test]
@@ -806,9 +830,9 @@ mod tests {
             .map(|arg: &std::ffi::OsStr| arg.to_string_lossy().to_string())
             .collect::<Vec<_>>();
 
-        assert!(args.windows(2).any(|pair| {
-            pair == ["--target", "x86_64-unknown-linux-gnu"]
-        }));
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair == ["--target", "x86_64-unknown-linux-gnu"] }));
     }
 
     #[test]
@@ -1003,8 +1027,7 @@ mod tests {
         let paths = prepare_backend_build_paths(&temp_root).expect("prepare paths");
         let crate_root =
             write_generated_crate(Path::new(&paths.build_root), &artifact).expect("write crate");
-        let machine_target =
-            BackendMachineTarget::Triple("x86_64-linux-gnu".to_string());
+        let machine_target = BackendMachineTarget::Triple("x86_64-linux-gnu".to_string());
 
         let runtime_dir =
             backend_runtime_build_dir(&paths, &machine_target, BackendBuildProfile::Release);
@@ -1255,11 +1278,29 @@ mod tests {
 
     #[test]
     fn executable_backend_handles_recoverable_entry_failure_through_process_outcome() {
-        let output =
-            build_and_run_fixture("fun[] main(): int / str = {\n    report \"broken\";\n    return 0;\n};\n");
+        let output = build_and_run_fixture(
+            "fun[] main(): int / str = {\n    report \"broken\";\n    return 0;\n};\n",
+        );
 
         assert_eq!(output.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&output.stderr).contains("broken"));
+    }
+
+    #[test]
+    fn executable_backend_process_adapter_supports_core_and_memo_entries() {
+        let core = build_and_run_fixture_for_model(
+            "fun[] main(): int / int = {\n    report 9;\n    return 0;\n};\n",
+            BackendFolModel::Core,
+        );
+        let memo = build_and_run_fixture_for_model(
+            "fun[] main(): int / str = {\n    report \"memo-failure\";\n    return 0;\n};\n",
+            BackendFolModel::Memo,
+        );
+
+        assert_eq!(core.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&core.stderr).contains("9"));
+        assert_eq!(memo.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&memo.stderr).contains("memo-failure"));
     }
 
     #[test]
@@ -1636,11 +1677,8 @@ mod tests {
             ),
         )
         .expect("app source");
-        fs::write(
-            shared_root.join("lib.fol"),
-            "var[exp] answer: int = 7;\n",
-        )
-        .expect("shared source");
+        fs::write(shared_root.join("lib.fol"), "var[exp] answer: int = 7;\n")
+            .expect("shared source");
 
         let output = build_and_run_workspace(
             &app_root.join("main.fol"),
@@ -1685,11 +1723,8 @@ mod tests {
             ),
         )
         .expect("pkg build");
-        fs::write(
-            json_root.join("src/lib.fol"),
-            "var[exp] answer: int = 9;\n",
-        )
-        .expect("pkg source");
+        fs::write(json_root.join("src/lib.fol"), "var[exp] answer: int = 9;\n")
+            .expect("pkg source");
 
         let output = build_and_run_workspace(
             &app_root.join("main.fol"),
