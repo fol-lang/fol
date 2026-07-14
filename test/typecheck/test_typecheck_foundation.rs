@@ -4981,7 +4981,7 @@ fn aggregate_types_cannot_embed_full_channels() {
 }
 
 #[test]
-fn channel_endpoint_bases_reject_outer_routine_bindings() {
+fn channel_endpoint_bases_reject_implicit_outer_routine_captures() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
@@ -5003,7 +5003,7 @@ fn channel_endpoint_bases_reject_outer_routine_bindings() {
         error.kind() == TypecheckErrorKind::Unsupported
             && error
                 .message()
-                .contains("requires a direct binding owned by the current routine")
+                .contains("implicit closure capture of outer local 'channel' is not supported")
     }));
 }
 

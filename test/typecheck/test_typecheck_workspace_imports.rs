@@ -1735,9 +1735,9 @@ fn declaration_signature_lowering_checks_local_bindings() {
 fn declaration_signature_lowering_checks_nested_routine_signatures() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "fun[] demo(seed: int): int = {\n\
+         "fun[] demo(seed: int): int = {\n\
              fun[] helper(item: str): int = {\n\
-                 return seed;\n\
+                 return 1;\n\
              };\n\
              return seed;\n\
          };\n",
