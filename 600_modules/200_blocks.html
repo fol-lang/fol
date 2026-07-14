@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -267,8 +267,8 @@ pro[] main: int = {
 <li><code>use</code> imports packages or namespaces</li>
 <li><code>hid</code> keeps a declaration private to one file</li>
 <li><code>loc</code> imports a local directory tree without a package control file</li>
-<li><code>std</code> imports a toolchain-owned directory tree</li>
 <li><code>pkg</code> imports a formal external package defined by <code>build.fol</code></li>
+<li>bundled std is declared as an internal dependency and imported through <code>pkg</code></li>
 </ul>
 <p>This means FOL is <strong>not</strong> “one file = one module”.
 The package is the folder; the file is a source unit inside that package.</p>
@@ -276,8 +276,6 @@ The package is the folder; the file is a source unit inside that package.</p>
 <p>When a directory is treated as a package root, the exact contract depends on the import kind:</p>
 <ul>
 <li><code>loc</code>: plain local directory import, no package metadata required</li>
-<li><code>loc</code>: plain local directory import, no package control file required</li>
-<li><code>std</code>: toolchain standard-library directory import</li>
 <li><code>pkg</code>: installed external package import with explicit root files</li>
 </ul>
 <p>For <code>pkg</code>, the root is not just “a folder containing <code>.fol</code> files”.

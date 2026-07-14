@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,7 +175,8 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="memory-model"><a class="header" href="#memory-model">Memory Model</a></h1>
-<p>This section explains how FOL talks about storage, ownership, allocation, and pointer-like behavior.</p>
+<p>This section explains FOL’s shipped V3 memory model: ownership, lexical
+borrowing, owned allocation, and typed unique/shared pointers.</p>
 <p>The main topics are:</p>
 <ul>
 <li>ownership</li>
@@ -184,7 +185,69 @@
 <li>allocation lifetime</li>
 <li>cross-thread memory concerns</li>
 </ul>
-<p>The detailed chapters should be treated as the normative source. This index only frames the area.</p>
+<p>The detailed chapters are the normative source. This index also keeps the
+published example matrix aligned with the shared machine inventory in
+<code>test/v3_example_inventory.rs</code>. Adding, removing, or renaming a <code>mem_*</code> or
+<code>fail_mem_*</code> package requires updating both inventories in the same change.</p>
+<p>The memory pillar is not complete at compiler acceptance. Each row below is
+also guarded through lowering/runtime behavior, frontend capability routing,
+structured diagnostics and explanations, formatter/tool commands, LSP
+diagnostics/navigation/completion/tokens, Tree-sitter grammar/queries/corpus,
+tests, docs, and the book. The exact cross-layer mapping lives in
+<a href="../050_tooling/350_compiler_integration.html#end-to-end-feature-completeness">Compiler Integration</a>
+and the repository-level <code>docs/editor-sync.md</code> matrix.</p>
+<h2 id="shipped-example-inventory"><a class="header" href="#shipped-example-inventory">Shipped example inventory</a></h2>
+<h3 id="m1-ownership-and-owned-allocation"><a class="header" href="#m1-ownership-and-owned-allocation">M1: ownership and owned allocation</a></h3>
+<p>Positive:</p>
+<ul>
+<li><code>examples/mem_owner_reinitialize_m1</code></li>
+<li><code>examples/mem_set_observation_m1</code></li>
+<li><code>examples/mem_when_bool_gate_m1</code></li>
+<li><code>examples/mem_linked_list_m1</code></li>
+<li><code>examples/mem_tree_m1</code></li>
+<li><code>examples/mem_move_stack_vs_heap_m1</code></li>
+</ul>
+<p>Negative:</p>
+<ul>
+<li><code>examples/fail_mem_use_after_move_m1</code></li>
+<li><code>examples/fail_mem_discarded_move_m1</code></li>
+<li><code>examples/fail_mem_deferred_reinit_m1</code></li>
+<li><code>examples/fail_mem_recursive_value_m1</code></li>
+<li><code>examples/fail_mem_heap_in_core_m1</code></li>
+</ul>
+<h3 id="m2-lexical-borrowing-and-deferred-ownership"><a class="header" href="#m2-lexical-borrowing-and-deferred-ownership">M2: lexical borrowing and deferred ownership</a></h3>
+<p>Positive:</p>
+<ul>
+<li><code>examples/mem_borrow_m2</code></li>
+<li><code>examples/mem_borrow_giveback_m2</code></li>
+<li><code>examples/mem_borrow_param_m2</code></li>
+<li><code>examples/mem_mut_borrow_m2</code></li>
+<li><code>examples/mem_edf_m2</code></li>
+</ul>
+<p>Negative:</p>
+<ul>
+<li><code>examples/fail_mem_deferred_report_m2</code></li>
+<li><code>examples/fail_mem_owner_while_borrowed_m2</code></li>
+<li><code>examples/fail_mem_second_mut_borrow_m2</code></li>
+<li><code>examples/fail_mem_mut_borrow_immutable_owner_m2</code></li>
+<li><code>examples/fail_mem_borrow_reuse_m2</code></li>
+</ul>
+<h3 id="m3-typed-pointers"><a class="header" href="#m3-typed-pointers">M3: typed pointers</a></h3>
+<p>Positive:</p>
+<ul>
+<li><code>examples/mem_ptr_unique_m3</code></li>
+<li><code>examples/mem_ptr_shared_m3</code></li>
+<li><code>examples/mem_ptr_shared_recursive_m3</code></li>
+</ul>
+<p>Negative:</p>
+<ul>
+<li><code>examples/fail_mem_borrowed_ptr_move_deref_m3</code></li>
+<li><code>examples/fail_mem_ptr_raw_m3</code></li>
+<li><code>examples/fail_mem_ptr_in_core_m3</code></li>
+<li><code>examples/fail_mem_pointer_field_deref_m3</code></li>
+<li><code>examples/fail_mem_shared_ptr_move_deref_m3</code></li>
+<li><code>examples/fail_mem_shared_ptr_write_m3</code></li>
+</ul>
 
                     </main>
 

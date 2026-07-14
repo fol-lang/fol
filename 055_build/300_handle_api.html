@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -264,6 +264,10 @@ app.add_generated(schema);
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <p>The <code>Run</code> handle is returned by <code>graph.add_run</code>. All <code>Run</code> methods are
 chainable and return <code>Run</code>.</p>
+<p>A <code>Run</code> handle describes a build-host action. Creating it does not expose
+hosted source APIs and does not require bundled <code>std</code>; the referenced artifact
+keeps its declared <code>core</code> or <code>memo</code> capability contract. Execution still
+requires a host-compatible target.</p>
 <h3 id="runadd_arg"><a class="header" href="#runadd_arg"><code>run.add_arg</code></a></h3>
 <p>Appends a literal string argument to the run command.</p>
 <pre><code class="language-fol">var run = graph.add_run(app);

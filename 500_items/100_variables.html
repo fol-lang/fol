@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,15 +178,16 @@
 <p>Current boundary:</p>
 <ul>
 <li>ordinary <code>var</code>, <code>con</code>, and <code>lab</code> declarations are the current compiler surface</li>
-<li>the <code>@var</code> and heap <code>var[new]</code> spellings are later design work, not current
-behavior</li>
+<li><code>@var</code> and <code>var[new]</code> are the shipped V3 unique-heap forms and require
+<code>fol_model = "memo"</code>; a <code>memo</code> artifact with bundled <code>std</code> remains
+heap-capable too</li>
 <li>the pipe-ternary and many-to-many assignment forms shown below are later
 design work, not current behavior</li>
 </ul>
 <p>Here are some of the ways that variables can be defined:</p>
 <pre><code>var[mut] counter: int = 98
 var[exp] label: str = "this is a string"
-var[~] ratio = 192.56
+~var ratio = 192.56
 +var short_flag = true
 var names: arr[str, 3] = { "one", "two", "three" }
 var scores: seq[int] = { 20, 25, 45, 68, 73, 98 }
@@ -211,9 +212,8 @@ binding is a new value binding rather than an alias to the old name:</p>
     return newVar;
 }
 </code></pre>
-<p>Ownership, borrowing, and pointer-level aliasing are later systems-language
-work and are described in the memory chapters as future milestones rather than
-as part of the current <code>V1</code> compiler contract.</p>
+<p>V3 adds explicit unique-heap ownership, lexical borrowing, and typed pointers.
+See the memory chapters for their transfer and aliasing rules.</p>
 <p>Variables can be assigned to an output of a function:</p>
 <pre><code>pro[] main: int = {
     fun addFunc(x, y: int): int = {
@@ -232,18 +232,19 @@ as part of the current <code>V1</code> compiler contract.</p>
 }
 </code></pre>
 <h3 id="borrowing"><a class="header" href="#borrowing">Borrowing</a></h3>
-<p>If we want to reference a variable, the easiest way is to borrow the variable, use inside another scope (or the same) and return it back. If the ownership is not returned manually, by the end of the scope, it gets returned automatically.</p>
-<pre><code>pro[] main: int = {
-    var[~] aVar: int = 55;
+<p><code>var[bor]</code> creates a read-only lexical borrow. The owner is inaccessible while
+the borrow is active and becomes accessible again when the borrow’s scope ends.
+The <code>!borrow</code> prefix may give it back earlier.</p>
+<pre><code class="language-fol">fun[] main(): int = {
+    var value: int = 55;
     {
-        var[bor] newVar: int = aVar         // var[bor] represents borrowing
-        .echo(newVar)                       // this return 55
-    }
-        .echo(aVar)                         // here $aVar it not accesible, as the ownership returns at the end of the scope
-        .echo(newVar)                       // we cant access the variable because the scope has ended
-}
+        var[bor] view: int = #value;
+        var seen: int = view;
+    };
+    return value;
+};
 </code></pre>
-<p>More on borrowing you can find <a href="/docs/spec/pointers/#borrowing">here</a></p>
+<p>See <a href="../800_memory/100_ownership.html">Ownership</a> for the full borrowing rules.</p>
 <h2 id="options"><a class="header" href="#options">Options</a></h2>
 <p>As with all other blocks, <code>var</code> have their options: <code>var[opt]</code>:</p>
 <p>Options can be of two types:</p>
@@ -251,12 +252,15 @@ as part of the current <code>V1</code> compiler contract.</p>
 <li>flags eg. <code>var[mut]</code></li>
 <li>values eg. <code>var[pri=2]</code></li>
 </ul>
-<p>Flag options can have symbol aliases eg. <code>var[mut]</code> is the somename as <code>var[~]</code>.</p>
+<p>Some binding options have prefix alternatives. Mutable <code>var[mut]</code> may be
+written as <code>~var</code>, but <code>~</code> is never accepted inside the option brackets.</p>
 <pre><code>|  opt   | s |   type    | description                                       | control       |
 ----------------------------------------------------------------------------------------------
 |  mut   | ~ |   flag    | making a variable mutable                         | mutability    |
 |  imu   |   |   flag    | making a variable imutable (default)              |               |
 |  sta   | ! |   flag    | making a variable a static                        |               |
+|  new   | @ |   flag    | allocating a uniquely owned heap value            | ownership     |
+|  bor   |   |   flag    | declaring a lexical borrow binding                | ownership     |
 |  rac   | ? |   flag    | making a variable reactive                        |               |
 ----------------------------------------------------------------------------------------------
 |  exp   | + |   flag    | making a global variable exported                 | visibility    |
@@ -271,7 +275,8 @@ fun[] main(): int = {
     return aVar
 }
 </code></pre>
-<p>However, when we use two option in varable, only one can use the alternative form, so instead of using <code>var[mut,exp]</code>, this can be used <code>+var[mut]</code> or <code>+var[~]</code>, or vice varsa <code>~var[exp]</code> or <code>~var[+]</code>:</p>
+<p>When combining options, one may use a prefix alternative. For example,
+<code>var[mut,exp]</code> may be written as <code>+var[mut]</code> or <code>~var[exp]</code>:</p>
 <pre><code>+var[mut] aVar: int = 55
 fun[] main(): int = {
     .echo(aVar)
@@ -279,19 +284,26 @@ fun[] main(): int = {
 }
 </code></pre>
 <h2 id="types"><a class="header" href="#types">Types</a></h2>
-<h3 id="immutable-types-constants"><a class="header" href="#immutable-types-constants">Immutable types (constants)</a></h3>
-<p>By default when a variable is defined without options, it is immutable type, for example here an intiger variable:</p>
+<h3 id="mutable-variables"><a class="header" href="#mutable-variables">Mutable variables</a></h3>
+<p>By default a variable declared without options is mutable:</p>
 <pre><code>pro[] main: int = {
     var aNumber: int = 5;
-    aNumber = 54;                       // reassigning varibale $aNumber thorws an error
+    aNumber = 54;
 }
 </code></pre>
-<h3 id="mutable-types"><a class="header" href="#mutable-types">Mutable types</a></h3>
-<p>If we want a variable to be mutable, we have to explicitly pass as an option to the variable <code>var[mut]</code> or <code>var[~]</code>:</p>
+<p>The explicit <code>var[mut]</code> option and its <code>~var</code> prefix alternative select the
+same mutable behavior:</p>
 <pre><code>pro[] main: int = {
     var[mut] aNumber: int = 5
-    var[~] anotherNumber: int = 24
+    ~var anotherNumber: int = 24
     aNumber, anotherNumber = 6          // this is completely fine, we assign two wariables new values
+}
+</code></pre>
+<h3 id="immutable-variables"><a class="header" href="#immutable-variables">Immutable variables</a></h3>
+<p>Use <code>var[imu]</code> when a local binding must not be reassigned:</p>
+<pre><code>pro[] main: int = {
+    var[imu] aNumber: int = 5;
+    aNumber = 54;                       // typecheck error: immutable binding
 }
 </code></pre>
 <h3 id="reactive-types"><a class="header" href="#reactive-types">Reactive types</a></h3>

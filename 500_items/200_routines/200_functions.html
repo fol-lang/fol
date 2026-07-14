@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-5e2af248.js"></script>
+        <script src="../../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -190,6 +190,8 @@ type; the <code>result = ...</code> spelling, short-form return-type omission, a
 last-expression return shown here are earlier design, not current behavior</li>
 <li>the closures, currying, and generator material at the end of this chapter is
 later design work, not part of the current compiler surface</li>
+<li>nested and anonymous routine bodies cannot implicitly capture an outer local
+in the shipped compiler; pass the value through a declared parameter instead</li>
 </ul>
 <p>When a function has a custom recoverable error type, use <code>/</code> after the result type:</p>
 <pre><code>fun[] read(path: str): str / io_err = {
@@ -243,6 +245,9 @@ fun[] (a, b: int) = {                                                   `define 
 </code></pre>
 <h3 id="closures"><a class="header" href="#closures">Closures</a></h3>
 <p>Functions can appear at the top level in a module as well as inside other scopes, in which case they are called nested functions. A nested function can access local variables from its enclosing scope and if it does so it becomes a closure. Any captured variables are stored in a hidden additional argument to the closure (its environment) and they are accessed by reference by both the closure and its enclosing scope (i.e. any modifications made to them are visible in both places). The closure environment may be allocated on the heap or on the stack if the compiler determines that this would be safe.</p>
+<p>This remains future design. Any eventual heap-allocated closure environment
+must require <code>memo</code>; an implementation must not hide a source-visible heap
+capability inside <code>core</code> merely as an optimization.</p>
 <p>There are two types of closures:</p>
 <ul>
 <li>anonymous</li>
@@ -309,9 +314,15 @@ fun[] add2(): {fun (x: int): int} = {
     return f
 }
 </code></pre>
-<h3 id="generators"><a class="header" href="#generators">Generators</a></h3>
-<p>A generator is very similar to a function that returns an array, in that a generator has parameters, can be called, and generates a sequence of values. However, instead of building an array containing all the values and returning them all at once, a generator yields the values one at a time, which requires less memory and allows the caller to get started processing the first few values immediately. In short, a generator looks like a function but behaves like an iterator.</p>
-<p>For a function to be a generator (thus to make the keyword <code>yield</code> accesable), it needs to return a type of container: <code>arr, vec, seq, mat</code> but not <code>set, any</code>.</p>
+<h3 id="generators-future-design"><a class="header" href="#generators-future-design">Generators (future design)</a></h3>
+<p>Generators and the language <code>yield</code> expression are not part of the shipped
+<code>V1</code>, bounded <code>V2</code>, or <code>V3</code> contracts. The lexer, parser, and resolver preserve
+the syntax, which also lets tree-sitter keep it readable, but the current
+typechecker rejects <code>yield</code> and lowering retains a defensive unsupported
+boundary. Parser or highlighting support must not be read as executable
+generator support.</p>
+<p>An earlier design sketch proposed a container-returning routine that yielded
+one value at a time:</p>
 <pre><code>fun someIter: vec[int] = {
     var curInt = 0;
     loop(){
@@ -319,6 +330,11 @@ fun[] add2(): {fun (x: int): int} = {
     }
 }
 </code></pre>
+<p>That snippet is a future syntax sketch, not current source. Its eligible return
+types, ownership behavior, suspension model, lowering, and runtime contract
+remain undecided. Generator <code>yield</code> is also unrelated to V3 <code>| async</code> and
+<code>| await</code>, which produce and consume internal eventuals without suspending the
+calling routine as a generator.</p>
 
                     </main>
 

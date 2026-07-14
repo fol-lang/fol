@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-5e2af248.js"></script>
+        <script src="toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -195,8 +195,7 @@
 def    // named definitions such as modules, blocks, and tests
 seg    // segment/module-like declarations
 
-var    // mutable bindings
-let    // immutable local bindings
+var    // bindings; use var[imu] for immutability
 con    // constants
 lab    // labels and label-like bindings
 
@@ -246,13 +245,19 @@ each (binder in iterable) { ... }
 <p>For the current user-facing tool workflow, read
 <a href="./000_overview/200_frontend.html">Frontend Workflow</a>.</p>
 <h2 id="example"><a class="header" href="#example">Example</a></h2>
-<pre><code class="language-fol">use log: pkg = {"std/fmt/log"};
+<p>This example uses the hosted <code>std.io</code> surface. Its artifact therefore selects
+<code>fol_model = "memo"</code>, and its <code>build.fol</code> explicitly declares:</p>
+<pre><code class="language-fol">build.add_dep({ alias = "std", source = "internal", target = "standard" });
+</code></pre>
+<p>The dependency is required by the source-level hosted calls, not because
+<code>main</code> is executable.</p>
+<pre><code class="language-fol">use std: pkg = {"std"};
 
 var[hid] prefix: str = "arith";
 
 fun[] main(): int = {
-    .echo(prefix);
-    .echo(add(3, 5));
+    std::io::echo_str(prefix);
+    std::io::echo_int(add(3, 5));
     return 0;
 }
 

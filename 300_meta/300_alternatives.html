@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,11 +182,10 @@ planned for a future release; none of it is part of the current compiler
 surface</li>
 <li>everything below describes intended design, not current behavior</li>
 </ul>
-<p>Alternatives are used when we want to simplify code. For example, define an alternative, so whenever you write <code>+var</code> it is the same as <code>var[+]</code>.</p>
-<pre><code>def '+var': alt = 'var[+]'
-def '~var': alt = 'var[~]'
-def '.pointer_content': alt = '.pointer_value'
-</code></pre>
+<p>Alternatives are intended to provide shorter source spellings. They will not
+alias or override the compiler-owned memory sigils. The exact future grammar
+and supported replacement targets remain open until the meta family is
+implemented.</p>
 
                     </main>
 

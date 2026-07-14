@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -198,7 +198,7 @@ should not collapse back into ad hoc string-only graph APIs</li>
 <pre><code class="language-fol">var app = graph.add_exe({
     name     = "app",
     root     = "src/main.fol",
-    fol_model = "memo",   // spell this explicitly for each artifact
+    fol_model = "memo",   // optional; memo is the default
     target   = target,    // optional
     optimize = optimize,  // optional
 });
@@ -206,34 +206,88 @@ should not collapse back into ad hoc string-only graph APIs</li>
 <p>Returns an <code>Artifact</code> handle.</p>
 <p>Required fields: <code>name</code>, <code>root</code>.
 Optional fields: <code>fol_model</code>, <code>target</code>, <code>optimize</code>.</p>
+<p>An omitted <code>fol_model</code> currently defaults to <code>memo</code>. Spell <code>core</code> explicitly;
+an explicit <code>memo</code> remains useful when showing mixed-model intent, but omission
+and <code>fol_model = "memo"</code> select the same capability.</p>
 <p><code>root</code> is the path to the entry-point <code>.fol</code> source file relative to the
 package root.</p>
-<p><code>fol_model</code> selects the runtime capability tier for the artifact:</p>
+<p>The resolved root must be a real source file contained by that package. The
+frontend canonicalizes the path before checking containment, so neither <code>..</code>
+nor a symlink may make an artifact root escape the package.</p>
+<p>For an artifact-targeted build, the directory containing <code>root</code> is the source
+scope: FOL recursively parses that directory and checks every source in it
+under the artifact’s <code>fol_model</code>. A package may declare both <code>core</code> and <code>memo</code>
+artifacts only when their source scopes are disjoint. The scopes overlap, and
+the graph is rejected, when they are the same directory or one contains the
+other. Put different-model artifacts in sibling directories or separate
+package members; do not put <code>core.fol</code> and <code>memo.fol</code> beside each other in one
+recursively parsed source directory.</p>
+<p>Package-wide commands that require one capability model reject mixed-model
+packages. Use an exact artifact or named build step when targeting one of the
+disjoint scopes.</p>
+<p><code>fol_model</code> selects one of the two runtime capability modes for the artifact:</p>
 <ul>
 <li><code>core</code>
-no heap, no OS/runtime services</li>
+no heap and no source-level hosted OS/runtime APIs</li>
 <li><code>memo</code>
-heap-backed facilities, still no OS/runtime services</li>
-<li><code>std</code>
-hosted/runtime services on top of <code>memo</code></li>
+alloc-like heap-backed facilities, still no source-level hosted OS/runtime
+APIs</li>
 </ul>
-<p>The recommended style is to spell <code>fol_model</code> explicitly on every artifact so
-the capability contract is visible in <code>build.fol</code>.</p>
+<p>The division deliberately follows Rust’s capability shape:</p>
+<ul>
+<li>FOL <code>core</code> is analogous to <code>#![no_std]</code> with Rust <code>core</code></li>
+<li>FOL <code>memo</code> is analogous to <code>#![no_std]</code> with <code>core</code> plus <code>alloc</code></li>
+<li>FOL <code>memo</code> plus the bundled <code>standard</code> dependency is analogous to hosted
+Rust <code>std</code></li>
+</ul>
+<p>This is a capability analogy. It is independent from the build tool’s ability
+to launch a resulting host executable. The current Rust backend is still
+hosted, so FOL <code>core</code> is a source/runtime contract and is not yet a claim of
+finished freestanding backend support.</p>
+<p>Bundled <code>std</code> is not a third <code>fol_model</code>. A <code>memo</code> artifact reaches the hosted
+API tier only when the package explicitly declares the bundled internal
+dependency:</p>
+<pre><code class="language-fol">build.add_dep({ alias = "std", source = "internal", target = "standard" });
+</code></pre>
+<p>Source code reaches that dependency through its declared alias, for example
+<code>use std: pkg = {"std"};</code>.</p>
 <p>The important boundary is semantic and runtime-facing:</p>
 <ul>
 <li><code>core</code> artifacts must not use heap-backed <code>str</code>, <code>vec</code>, <code>seq</code>, <code>set</code>, or
 <code>map</code></li>
 <li><code>core</code> artifacts may still use arrays, records, routines, control flow, and
-<code>defer</code></li>
-<li><code>memo</code> artifacts may use heap-backed runtime types but not hosted services</li>
+<code>dfr</code></li>
+<li><code>memo</code> artifacts may use heap-backed runtime types but not hosted language
+APIs</li>
 <li>bundled <code>std</code> wrappers require an explicit internal <code>standard</code> dependency</li>
-<li>hosted <code>run</code> / <code>test</code> are not tied to bundled std presence</li>
+<li>hosted wrappers and processor features require <code>fol_model = "memo"</code> plus
+that explicit bundled <code>std</code> dependency</li>
+<li>executable <code>core</code> and <code>memo</code> artifacts may use <code>fol code run</code> and
+<code>fol code test</code> without bundled <code>std</code></li>
 </ul>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Source requirement</th><th><code>fol_model</code></th><th>Bundled <code>standard</code> dependency</th></tr>
+</thead>
+<tbody>
+<tr><td>no heap-backed or hosted language APIs</td><td><code>core</code></td><td>no</td></tr>
+<tr><td>heap-backed values, no hosted APIs</td><td><code>memo</code></td><td>no</td></tr>
+<tr><td>shipped hosted or processor APIs</td><td><code>memo</code></td><td>yes</td></tr>
+</tbody>
+</table>
+</div>
+<p>The last row is still a <code>memo</code> artifact. <code>std</code> is not an accepted <code>fol_model</code>
+value.</p>
+<p>The frontend invoking a host-compatible artifact, compiler, linker, or system
+tool is build-host behavior. It is not a source-visible hosted capability and
+does not promote an artifact to the bundled-std tier.</p>
 <p>Current implementation note:</p>
 <ul>
-<li><code>core</code> already means “no heap and no OS/runtime services” at the language and
-runtime-contract level</li>
+<li><code>core</code> already means “no heap and no source-level hosted OS/runtime APIs” at
+the language and runtime-contract level</li>
 <li><code>core</code> artifacts are still emitted through the current Rust backend pipeline</li>
+<li><code>core</code> artifacts can execute through that pipeline without bundled <code>std</code></li>
 <li>that means <code>core</code> is ready for semantic/runtime restriction work now, but it
 should not yet be read as “finished embedded backend support”</li>
 </ul>
@@ -241,6 +295,7 @@ should not yet be read as “finished embedded backend support”</li>
 <pre><code class="language-fol">pro[] build(): non = {
     var build = .build();
     build.meta({ name = "workspace_tools", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
     var graph = build.graph();
     var corelib = graph.add_static_lib({
         name = "corelib",
@@ -262,6 +317,12 @@ should not yet be read as “finished embedded backend support”</li>
     graph.add_run(tool);
 };
 </code></pre>
+<p>The separate <code>core/</code>, <code>memo/</code>, and <code>app/</code> directories above are semantic, not
+just organizational: they keep the recursively parsed artifact scopes
+disjoint. Moving those roots into the same directory would make the <code>core</code> and
+<code>memo</code> contracts overlap and the frontend would reject the targeted build.
+Only a <code>memo</code> source scope may import the declared <code>std</code> alias. Its presence in
+the package does not make <code>corelib</code> a hosted artifact.</p>
 <h3 id="graphadd_static_lib"><a class="header" href="#graphadd_static_lib"><code>graph.add_static_lib</code></a></h3>
 <p>Adds a static library artifact.</p>
 <pre><code class="language-fol">var core = graph.add_static_lib({ name = "core", root = "src/core/lib.fol" });
@@ -280,9 +341,17 @@ should not yet be read as “finished embedded backend support”</li>
 <p>Returns an <code>Artifact</code> handle.</p>
 <h3 id="graphadd_test"><a class="header" href="#graphadd_test"><code>graph.add_test</code></a></h3>
 <p>Adds a test artifact.</p>
-<pre><code class="language-fol">var tests = graph.add_test({ name = "tests", root = "src/tests.fol" });
+<pre><code class="language-fol">var tests = graph.add_test({
+    name = "tests",
+    root = "src/tests.fol",
+    fol_model = "core",
+});
 </code></pre>
 <p>Returns an <code>Artifact</code> handle.</p>
+<p>The test artifact follows the same capability rules as every other artifact.
+<code>fol code test</code> may build and launch this <code>core</code> test on a compatible host
+without bundled <code>std</code>. Tests that call hosted APIs instead select <code>memo</code> and
+declare the bundled dependency for those API calls, not for the test harness.</p>
 <h3 id="graphadd_module"><a class="header" href="#graphadd_module"><code>graph.add_module</code></a></h3>
 <p>Adds a standalone module that can be imported by other artifacts.</p>
 <pre><code class="language-fol">var utils = graph.add_module({ name = "utils", root = "src/utils.fol" });
@@ -329,6 +398,11 @@ one executable exists and no explicit <code>run</code> step has been registered.
 <pre><code class="language-fol">var run = graph.add_run(app);
 </code></pre>
 <p>Returns a <code>Run</code> handle. See <a href="./300_handle_api.html">Handle API</a> for <code>Run</code> methods.</p>
+<p>Registration does not alter the artifact’s <code>fol_model</code> and does not imply a
+bundled <code>std</code> dependency. When the step is selected, the frontend verifies that
+the evaluated artifact target is host-compatible and then launches it. A
+foreign target is rejected because there is no configured runner, regardless
+of whether the artifact uses <code>core</code>, <code>memo</code>, or bundled <code>std</code> APIs.</p>
 <h2 id="steps"><a class="header" href="#steps">Steps</a></h2>
 <h3 id="graphstep"><a class="header" href="#graphstep"><code>graph.step</code></a></h3>
 <p>Creates a named custom step.</p>

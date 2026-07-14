@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,7 +182,11 @@ planned for a future release; none of it is part of the current compiler
 surface</li>
 <li>everything below describes intended design, not current behavior</li>
 </ul>
-<p>Defaults are a way to change the default behaviour of options. Example the default behaviour of <code>str</code> when called without options. By defalt <code>str</code> is it is saved on stack, it is a constant and not public, thus has <code>str[pil,imu,nor]</code>, and we want to make it mutable and saved on heap by default:</p>
+<p>Defaults are intended to change option defaults within an already legal
+capability tier. They cannot turn a heap-backed type into a <code>core</code> type or grant
+hosted APIs. In particular, <code>str</code> remains a <code>memo</code> type regardless of a future
+mutability/default declaration. A possible future spelling for changing its
+option defaults is:</p>
 <pre><code>def 'str': def[] = 'str[new,mut,nor]'
 </code></pre>
 

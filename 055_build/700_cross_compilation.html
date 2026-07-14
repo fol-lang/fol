@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -236,7 +236,13 @@ already used in build code.</p>
 <li><code>fol code test</code> is host-only</li>
 </ul>
 <p>If the selected target does not match the current machine, <code>run</code> and <code>test</code>
-fail early with a diagnostic instead of trying to execute the foreign binary.</p>
+fail early with a diagnostic instead of trying to execute the foreign binary.
+“Host-only” here is a target-compatibility rule. It is independent of the
+source-language capability tier: host-compatible <code>core</code> and <code>memo</code> artifacts
+can execute without bundled <code>std</code>.</p>
+<p>There is no public cross-target runner configuration yet. When such a runner is
+added, it will be an execution-tool setting, not a reason to expose bundled
+<code>std</code> APIs to the target program.</p>
 <h2 id="output-layout"><a class="header" href="#output-layout">Output Layout</a></h2>
 <p>Compiled binaries are target-scoped so host and cross builds do not overwrite
 each other.</p>

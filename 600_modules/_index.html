@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,7 +187,9 @@
 <ul>
 <li>files in the same package contribute to the same package surface</li>
 <li>namespaces are expressed through folder structure and <code>::</code> access</li>
-<li>imported sources are classified by source kind such as <code>loc</code>, <code>pkg</code>, and <code>std</code></li>
+<li>imported sources use the public source kinds <code>loc</code> and <code>pkg</code></li>
+<li>bundled std is reached through a declared internal dependency and a <code>pkg</code>
+import, not through a third public source kind</li>
 </ul>
 
                     </main>

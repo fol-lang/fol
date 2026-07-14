@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,7 +182,8 @@
 <p>Current source kinds are:</p>
 <ul>
 <li><code>loc</code> for local directory imports</li>
-<li><code>pkg</code> for installed external packages</li>
+<li><code>pkg</code> for formal dependency packages, including installed/fetched packages
+and a declared bundled-standard alias</li>
 </ul>
 <h2 id="what-use-imports"><a class="header" href="#what-use-imports">What <code>use</code> imports</a></h2>
 <p><code>use</code> works against the source-layout model:</p>
@@ -213,12 +214,13 @@ Imports are for reaching another package or another namespace boundary.</p>
 <li>it points to a local directory</li>
 <li>that directory is scanned as a FOL package / namespace tree</li>
 <li>no <code>build.fol</code> is required</li>
-<li>no <code>build.fol</code> is required</li>
 </ul>
 <p>This makes <code>loc</code> useful for local workspace code, experiments, and monorepo-style sharing.</p>
 <h3 id="pkg"><a class="header" href="#pkg"><code>pkg</code></a></h3>
-<p><code>pkg</code> is for formal external packages.</p>
-<p>Unlike <code>loc</code> and <code>std</code>, a <code>pkg</code> import does not just point at an arbitrary source directory.
+<p><code>pkg</code> is for formal dependency packages. The dependency may come from an
+installed/fetched external package or from the explicitly declared internal
+<code>standard</code> target; source syntax does not gain a separate <code>std</code> source kind.</p>
+<p>Unlike <code>loc</code>, a <code>pkg</code> import does not just point at an arbitrary source directory.
 It points at an installed package root that must define its identity and build surface explicitly.
 The package layer discovers that root first, and ordinary name resolution happens only after the package has been prepared.</p>
 <p>For a <code>pkg</code> package root:</p>
@@ -275,6 +277,11 @@ direct dependencies, and the build graph</li>
     target = "standard",
 });
 </code></pre>
+<p>This dependency is valid for a <code>memo</code> artifact and exposes the hosted API tier.
+It is not a third artifact model: <code>std</code> is not an accepted <code>fol_model</code> value.
+It is also not an execution switch. A <code>core</code> or unhosted <code>memo</code> executable can
+use <code>fol code run</code> and <code>fol code test</code> without declaring this dependency;
+declare it only when source code needs a shipped hosted API.</p>
 <p>Then import from the <code>std</code> dependency alias with <code>pkg</code>:</p>
 <pre><code>use std: pkg = {"std"};
 
@@ -309,7 +316,7 @@ If <code>space</code> contains multiple <code>.fol</code> files in the same fold
 <p><code>loc</code> does not require <code>build.fol</code>.
 But if the target directory already defines <code>build.fol</code> at its root, that directory is treated as a formal package root and should be imported through <code>pkg</code>, not <code>loc</code>.</p>
 <h2 id="external-packages"><a class="header" href="#external-packages">External packages</a></h2>
-<p>External packages are imported through <code>pkg</code>:</p>
+<p>External packages are imported through their declared <code>pkg</code> dependency alias:</p>
 <pre><code>use space: pkg = {"space"};
 </code></pre>
 <p>Nested installed package paths use the same quoted target rule:</p>

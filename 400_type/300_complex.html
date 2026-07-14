@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -176,22 +176,34 @@
                     <main>
                         <h1 id="complex"><a class="header" href="#complex">Complex</a></h1>
 <h2 id="strings"><a class="header" href="#strings">Strings</a></h2>
-<p>Strings are a complex type that are made of array of chars with null terminator ‘\0’, and by default is utf8 encoded:</p>
-<pre><code>str[]
+<p><code>str</code> is the heap-backed UTF-8 string type. It requires the <code>memo</code> capability
+model; a <code>memo</code> artifact with bundled <code>std</code> remains heap-capable. It is not
+available in <code>core</code>.</p>
+<pre><code class="language-fol">var label: str = "fol";
 </code></pre>
 <h2 id="number"><a class="header" href="#number">Number</a></h2>
-<p>Number type is a planned abstraction of integer and float type; <code>num</code> is not
-part of the current front-end and is later design work, not current behavior.
-Imaginary-number support is likewise outside the active stream/lexer/parser
-contract.</p>
-<pre><code>num[]
+<p><code>num</code> is a planned abstraction over integer and floating-point types. It is not
+part of the current compiler surface. Imaginary-number support is likewise
+outside the active stream, lexer, parser, and lowering contract.</p>
+<h2 id="pointers"><a class="header" href="#pointers">Pointers</a></h2>
+<p>V3 ships typed unique and shared pointers:</p>
+<pre><code class="language-fol">var[mut] unique: ptr[int] = &amp;value;
+var shared: ptr[shared, int] = &amp;value;
 </code></pre>
-<h2 id="pointer"><a class="header" href="#pointer">Pointer</a></h2>
-<pre><code>ptr[]
+<p><code>ptr[T]</code> is uniquely owned and writable through a mutable pointer binding.
+<code>ptr[shared, T]</code> is reference-counted and read-only. Pointer types can be
+analyzed in <code>core</code>, but <code>&amp;value</code> constructs an allocation and therefore
+requires <code>memo</code>. A <code>memo</code> artifact may additionally declare bundled <code>std</code>, but
+the pointer operation itself does not require hosted APIs. Raw <code>ptr[raw, T]</code>
+remains a V4 interop boundary.</p>
+<p>See <a href="../800_memory/200_pointers.html">Pointers</a> for transfer, dereference, shared
+recursion, and current place-projection rules.</p>
+<h2 id="error-shells"><a class="header" href="#error-shells">Error shells</a></h2>
+<p><code>err[T]</code> is the storable error shell:</p>
+<pre><code class="language-fol">var failure: err[str] = "not found";
 </code></pre>
-<h2 id="error"><a class="header" href="#error">Error</a></h2>
-<pre><code>err[]
-</code></pre>
+<p>It is distinct from a routine’s recoverable <code>: Result / Error</code> contract. See
+<a href="../650_errors/200_recover.html">Recoverable Errors</a> for that boundary.</p>
 
                     </main>
 

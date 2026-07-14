@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -215,6 +215,9 @@ same way.</p>
 <li>definition should be derived from resolved symbol data</li>
 <li>document symbols should prefer compiler symbol ownership where practical</li>
 <li>completion should prefer compiler facts over text heuristics</li>
+<li>effective capability comes from the evaluated artifact <code>fol_model</code> plus any
+active bundled-standard dependency, not from whether a run/test command was
+requested</li>
 </ul>
 <p>The LSP should not invent a parallel semantic model.</p>
 <p>If a feature needs semantic meaning, the first question should be:</p>
@@ -287,12 +290,45 @@ logic.</p>
 <li>Does the lexer need new tokens or token families?</li>
 <li>Does the parser need new syntax or AST nodes?</li>
 <li>Does resolver or typechecker logic need new meaning?</li>
-<li>Does the feature introduce or change diagnostics?</li>
-<li>Does the LSP need hover, completion, definition, or symbol updates?</li>
-<li>Does Tree-sitter need grammar, query, or corpus updates?</li>
+<li>Do lowering, runtime, or backend transfer/execution rules change?</li>
+<li>Does frontend artifact routing or capability evaluation change?</li>
+<li>Does the feature introduce or change diagnostics and explanations?</li>
+<li>Does the formatter or a public <code>fol tool</code> inspection command need an update?</li>
+<li>Does the LSP need hover, completion, definition, symbols, tokens, positions,
+or artifact-scope updates?</li>
+<li>Does Tree-sitter need grammar, query, or executable corpus updates?</li>
 <li>Can any new editor-visible facts be generated from compiler-owned sources?</li>
+<li>Do canonical positive/failure inventories, docs, or book claims change?</li>
 </ol>
 <p>If the answer to any of those is yes, update that layer in the same change set.</p>
+<h2 id="end-to-end-feature-completeness"><a class="header" href="#end-to-end-feature-completeness">End-To-End Feature Completeness</a></h2>
+<p>Compiler-backed editor analysis prevents semantic duplication, but it does not
+make the other mirrors automatic. A shipped feature is complete only when its
+meaning survives:</p>
+<ul>
+<li>lowering and runtime/backend execution</li>
+<li>frontend artifact selection and capability routing</li>
+<li>structured CLI diagnostics, explanations, and LSP adaptation</li>
+<li>whole-document formatting and public parse/highlight/symbol commands</li>
+<li>explicit LSP UX such as completion, tokens, navigation, and position mapping</li>
+<li>Tree-sitter grammar, highlight/locals/symbol queries, and executable corpus</li>
+<li>canonical positive/failure examples, integration tests, docs, and the book</li>
+</ul>
+<p>For V3 specifically, this rule covers every ownership, borrow, pointer, <code>dfr</code> /
+<code>edf</code>, spawn, channel, <code>select</code>, <code>[mux]</code>, async, and await boundary. Reusing the
+typechecker is necessary, but it is not permission to skip an explicit syntax,
+tooling, inventory, or documentation audit.</p>
+<p>Runtime-model synchronization must preserve two independent questions across
+all of those layers:</p>
+<ul>
+<li>does this source stay within its evaluated <code>core</code>, <code>memo</code>, or hosted
+(<code>memo</code> plus bundled <code>std</code>) API tier?</li>
+<li>can the frontend execute the selected target on this host (or through a future
+configured runner)?</li>
+</ul>
+<p>The first is compiler-owned capability truth. The second is frontend execution
+routing. Neither the LSP nor Tree-sitter should infer hosted source permission
+from <code>graph.add_run</code>, <code>graph.add_test</code>, <code>fol code run</code>, or <code>fol code test</code>.</p>
 <h2 id="current-practical-rule"><a class="header" href="#current-practical-rule">Current Practical Rule</a></h2>
 <p>In FOL today:</p>
 <ul>

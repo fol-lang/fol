@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -201,9 +201,15 @@ fol work deps
 </ul>
 <p>Scaffold reminder:</p>
 <ul>
-<li><code>fol work init --bin</code> creates a hosted binary package with <code>fol_model = "memo"</code></li>
-<li>scaffolded packages rely on bundled <code>std</code> automatically</li>
-<li>scaffolded packages do not add <code>std</code> as an explicit dependency</li>
+<li><code>fol work init --bin</code> creates a <code>memo</code> binary whose generated source uses
+hosted <code>std.io</code></li>
+<li>the generated <code>build.fol</code> explicitly declares bundled <code>std</code> through
+<code>build.add_dep({ alias = "std", source = "internal", target = "standard" })</code></li>
+<li>source code that uses bundled-library names imports that declared alias with
+<code>use std: pkg = {"std"};</code></li>
+<li>this dependency follows from the generated source using hosted APIs, not from
+the package being executable; std-free <code>core</code> and <code>memo</code> packages may also
+use <code>fol code run</code> and <code>fol code test</code></li>
 </ul>
 <h2 id="pack"><a class="header" href="#pack">Pack</a></h2>
 <p>Package acquisition commands:</p>
@@ -251,6 +257,21 @@ fol code explain T1003
 <li>emitting backend/debug artifacts</li>
 <li>explaining a diagnostic code emitted by <code>fol code check</code></li>
 </ul>
+<h3 id="capability-vs-execution"><a class="header" href="#capability-vs-execution">Capability vs execution</a></h3>
+<p><code>fol code run</code> and <code>fol code test</code> evaluate <code>build.fol</code>, select the requested
+artifact or step, compile it, and launch it when its target is compatible with
+the host. That tool action is not a source capability:</p>
+<ul>
+<li><code>core</code> and <code>memo</code> artifacts can run and test without bundled <code>std</code></li>
+<li>declaring bundled <code>std</code> only makes hosted source APIs available to a <code>memo</code>
+artifact; it does not grant execution permission</li>
+<li>the compiler still rejects heap-backed or hosted APIs that exceed the
+artifact’s evaluated capability contract</li>
+<li>a foreign selected target is rejected before launch because the frontend has
+no cross-target runner configuration yet</li>
+</ul>
+<p><code>graph.add_run</code> and <code>graph.add_test</code> choose graph actions. They do not change
+the selected <code>fol_model</code>.</p>
 <h3 id="explain"><a class="header" href="#explain">Explain</a></h3>
 <p><code>fol code explain &lt;CODE&gt;</code> prints an extended, plain-language explanation for a
 diagnostic code — the same code the pretty diagnostic footer points at
@@ -316,6 +337,35 @@ fol tool completion bash
 <li>LSP serving</li>
 <li>generated tool assets</li>
 </ul>
+<h3 id="parse-and-query-results"><a class="header" href="#parse-and-query-results">Parse And Query Results</a></h3>
+<p><code>parse</code>, <code>highlight</code>, and <code>symbols</code> execute the checked-in generated FOL
+Tree-sitter parser in-process. They do not estimate results from source text or
+report the contents of query files as if those were matches.</p>
+<p><code>fol tool parse &lt;PATH&gt;</code> reports:</p>
+<ul>
+<li><code>parse_status=ok</code> for a tree with no <code>ERROR</code> or missing nodes, otherwise
+<code>parse_status=ERROR</code></li>
+<li>root kind plus total and named node counts</li>
+<li>exact <code>error_count</code> and <code>missing_count</code> values</li>
+<li>one zero-based source range and escaped source excerpt for every error or
+missing node</li>
+<li>the real Tree-sitter S-expression as <code>syntax_tree=...</code></li>
+</ul>
+<p>The command is error-tolerant: a source file with invalid syntax still produces
+its recovered tree and exits through the normal command-result path. For
+example, the removed <code>select(channel as value) { ... }</code> form reports an
+<code>ERROR</code> node rather than being accepted as a second select grammar.</p>
+<p><code>fol tool highlight &lt;PATH&gt;</code> runs <code>queries/fol/highlights.scm</code> against that tree
+and reports the actual capture count, capture kinds, and every capture as:</p>
+<pre><code class="language-text">capture=&lt;name&gt;@&lt;start-row&gt;:&lt;start-column&gt;-&lt;end-row&gt;:&lt;end-column&gt;:&lt;text&gt;
+</code></pre>
+<p><code>fol tool symbols &lt;PATH&gt;</code> runs <code>queries/fol/symbols.scm</code>, reports the actual
+symbol and scope counts, and reports each non-scope capture in the equivalent
+<code>symbol=&lt;name&gt;@...:&lt;text&gt;</code> form. Rows and columns are zero-based. Backslashes,
+tabs, carriage returns, and newlines in excerpts are escaped.</p>
+<p>These three normal commands need no external <code>tree-sitter</code> executable. The
+external CLI is required only by <code>fol tool tree generate</code>, which regenerates an
+exportable parser bundle.</p>
 <p>The public editor surface stays under <code>fol tool ...</code>.
 There is no parallel <code>fol editor ...</code> command group.
 Future editor features are not exposed as placeholder commands.

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -211,22 +211,41 @@ split into two different surfaces:</p>
 <p>In current <code>V1</code>, <code>/ ErrorType</code> routine results do not flow through ordinary
 expressions.</p>
 <p>These are rejected:</p>
-<pre><code class="language-fol">var value = read_code(path)
+<pre><code class="language-fol">read_code(path)
+var value = read_code(path)
 return read_code(path)
 consume(read_code(path))
 read_code(path) + 1
 </code></pre>
-<p><code>/ ErrorType</code> must be handled immediately at the call site.</p>
+<p><code>/ ErrorType</code> must be handled immediately at the call site. Evaluating a
+recoverable call as a standalone statement does not count as handling it.</p>
+<p>The same rule applies after V3 <code>| async</code>: a recoverable eventual must be
+awaited, and the awaited result must be consumed by <code>check(...)</code> or <code>||</code>.
+Moving the eventual to another binding moves that obligation; dropping,
+overwriting, or leaving the final binding at scope exit is rejected. An
+infallible eventual has no recoverable error obligation and may remain
+unawaited, although it is still joined at process exit.</p>
+<p>The obligation must be discharged before lexical fallthrough and before a
+<code>break</code>, <code>return</code>, or <code>report</code> exits any scope that still owns it. At a branch
+join, all continuing branches must leave compatible obligation state: all may
+preserve the same owner for handling after the join, transfer consistently, or
+await and handle it. Consuming or transferring on only some paths is rejected.
+Process-exit joining waits for work; it does not count as handling a recoverable
+error.</p>
 <h2 id="check"><a class="header" href="#check"><code>check(...)</code></a></h2>
-<p><code>check(expr)</code> asks whether a <code>/ ErrorType</code> routine call failed.</p>
+<p><code>check(expr)</code> asks whether a <code>/ ErrorType</code> expression failed. The expression may
+be a direct recoverable routine call or a V3 awaited recoverable eventual.</p>
 <p>It returns <code>bol</code>.</p>
 <pre><code class="language-fol">fun main(path: str): bol = {
     return check(read_code(path))
 }
 </code></pre>
-<p><code>check(...)</code> works on recoverable routine calls, not on <code>err[...]</code> shell values.</p>
+<p><code>check(...)</code> works on direct recoverable routine calls and on expressions such
+as <code>pending | await</code> when <code>pending</code> carries a recoverable result. It does not
+inspect <code>err[...]</code> shell values.</p>
 <h2 id=""><a class="header" href="#"><code>||</code></a></h2>
-<p><code>expr || fallback</code> handles a <code>/ ErrorType</code> routine call immediately.</p>
+<p><code>expr || fallback</code> handles a <code>/ ErrorType</code> expression immediately. That may be
+a direct recoverable routine call or a V3 awaited recoverable eventual.</p>
 <p>Rules:</p>
 <ul>
 <li>if <code>expr</code> succeeds, use its success value</li>
@@ -291,7 +310,14 @@ error container, use <code>err[...]</code>. If you use <code>/ ErrorType</code>,
 <ul>
 <li><code>/ ErrorType</code> routine calls lower through the recoverable runtime ABI</li>
 <li><code>err[...]</code> remains a separate shell/value runtime type</li>
+<li>a recoverable executable entry is adapted through the shared backend-only
+<code>fol_runtime::process</code> seam in every runtime model; it does not require
+bundled <code>std</code></li>
 </ul>
+<p>That process adapter translates the entry outcome for the generated host
+wrapper. It is not importable source API, does not promote <code>core</code> or <code>memo</code> to
+the hosted tier, and is present for execution support regardless of whether the
+program declares bundled <code>std</code>.</p>
 <p>Those two categories are intentionally not merged.</p>
 
                     </main>

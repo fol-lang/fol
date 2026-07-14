@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -219,6 +219,15 @@ compiler behavior.</p>
 </li>
 <li>generic routine lowering now succeeds for the shipped Milestone 1 example set</li>
 <li>generic routine backend execution now works for the shipped positive Milestone 1 examples</li>
+<li>ownership at a generic call boundary follows the concrete argument: clone-safe
+arguments remain available to the caller, while owned values and unique
+pointers move. Inside a routine, an unconstrained generic parameter is
+conservatively move-only because the routine cannot prove that every future
+instantiation is clone-safe; forwarding it therefore moves rather than
+deep-cloning a unique value</li>
+<li>an unresolved generic parameter cannot cross <code>[&gt;]</code> or <code>| async</code> until FOL
+defines a thread-safety and lifetime contract for generics; calls whose
+arguments infer concrete thread-safe types remain valid</li>
 <li>receiver-qualified generic routines, matching default arguments, and
 concrete instantiated generic-type receivers and concrete recoverable error
 types are now part of the executable Milestone 1 subset</li>
@@ -242,13 +251,11 @@ shipped positive core</li>
 examples without claiming broader generic-aware completion than the shipped
 editor currently provides</li>
 <li>generic error shells remain outside the current shipped Milestone 1 routine subset</li>
-<li>recursive type definitions are rejected with an honest boundary: a type whose
-fields refer back to itself — directly (<code>typ Node(T) = { next: Node[T] }</code>) or
-through a container/another type (<code>typ Tree(T) = { kids: vec[Tree[T]] }</code>) — has
-no finite shape in the current structural runtime model, so the checker rejects
-it (<code>recursive type '...' is not yet supported</code>) instead of looping in lowering;
-recursive/heap-linked data belongs to the later ownership/pointer surface, and
-<code>examples/fail_generic_recursive_m1m2</code> pins the boundary</li>
+<li>recursive value edges remain rejected because they have no finite inline
+layout. V3 owned heap recursion is now supported: an edge such as
+<code>opt @Node</code> lowers nominally to <code>Option&lt;Box&lt;Node&gt;&gt;</code>. Recursive generic
+instantiation through an inline container remains outside the shipped generic
+subset, pinned by <code>examples/fail_generic_recursive_m1m2</code></li>
 <li>generic types are not part of <code>V1</code>; they now belong to the shipped narrow
 full-<code>V2</code> contract instead</li>
 <li>examples here should be read as:

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,6 +187,8 @@
 design work, not part of the current compiler surface</li>
 <li>the recoverable-call surfaces below (<code>check(...)</code> and <code>||</code>) are the current
 compiler surface</li>
+<li>the specialized <code>call() | async</code> and <code>eventual | await</code> processor stages are
+shipped V3 <code>std</code>-only forms; they do not enable general <code>this</code>-based piping</li>
 </ul>
 <p>Use <code>|</code> when you want to continue transforming a normal value:</p>
 <pre><code class="language-fol">fun add(x: int, y: int): int = {
@@ -221,7 +223,8 @@ main error-handling tool.</p>
 <p><code>check</code> and <code>panic</code> are compiler intrinsics in the current <code>V1</code> compiler. They
 are not imported library functions.</p>
 <h2 id="checkexpr"><a class="header" href="#checkexpr"><code>check(expr)</code></a></h2>
-<p><code>check(expr)</code> asks whether a recoverable routine call failed.</p>
+<p><code>check(expr)</code> asks whether a recoverable <code>/ ErrorType</code> expression failed. That
+may be a direct routine call or, in V3, an awaited recoverable eventual.</p>
 <p>It returns <code>bol</code>.</p>
 <pre><code class="language-fol">fun main(path: str): int / str = {
     when(check(read_code(path))) {
@@ -230,7 +233,8 @@ are not imported library functions.</p>
     }
 }
 </code></pre>
-<p>This is the current <code>V1</code> inspection surface for recoverable calls.</p>
+<p>This is the current inspection surface for direct V1 recoverable calls and V3
+awaited recoverable results.</p>
 <h2 id="-fallback"><a class="header" href="#-fallback"><code>||</code> fallback</a></h2>
 <p>Double-pipe is the current shorthand for recovery:</p>
 <pre><code class="language-fol">fun read_code(path: str): int / str = {
@@ -268,13 +272,30 @@ fun must_succeed(path: str): int = {
     return read_code(path) || panic "read failed"
 }
 </code></pre>
-<h2 id="what-plain--does-not-mean-in-current-v1"><a class="header" href="#what-plain--does-not-mean-in-current-v1">What plain <code>|</code> does not mean in current V1</a></h2>
+<h2 id="v3-async-and-await-stages"><a class="header" href="#v3-async-and-await-stages">V3 async and await stages</a></h2>
+<p>V3 ships two exact processor pipe stages:</p>
+<pre><code class="language-fol">fun[] load_async(path: str): int = {
+    var pending = read_code(path) | async;
+    return (pending | await) || 0;
+}
+
+fun[] async_failed(path: str): bol = {
+    var pending = read_code(path) | async;
+    return check(pending | await);
+}
+</code></pre>
+<p><code>| async</code> starts a direct named call on an OS thread and produces an internal
+eventual. <code>| await</code> consumes that eventual binding and blocks for its result. If
+the original call is recoverable, the awaited result must flow immediately into
+<code>check(...)</code> or <code>||</code>. These stages require the explicit bundled <code>std</code>
+dependency; see <a href="../900_processor/100_eventuals.html">Eventuals</a>.</p>
+<h2 id="what-ordinary--does-not-mean"><a class="header" href="#what-ordinary--does-not-mean">What ordinary <code>|</code> does not mean</a></h2>
 <p>The current compiler does not claim that plain <code>|</code> automatically forwards both
 the success value and the error to the next stage.</p>
 <p>That older description is too broad for the current implementation.</p>
-<p>For recoverable calls in <code>V1</code>, use <code>check(expr)</code> or <code>expr || fallback</code>, and
-treat ordinary <code>|</code> as value piping rather than the main recoverable-error
-mechanism.</p>
+<p>For recoverable calls, use <code>check(expr)</code> or <code>expr || fallback</code>. The exact V3
+<code>async</code> and <code>await</code> stages above are specialized processor forms; they do not
+make the later general value-pipe design part of the shipped language.</p>
 
                     </main>
 
@@ -284,7 +305,7 @@ mechanism.</p>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../700_sugar/250_defer.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../700_sugar/250_dfr.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -298,7 +319,7 @@ mechanism.</p>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../700_sugar/250_defer.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../700_sugar/250_dfr.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

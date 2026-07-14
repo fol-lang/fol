@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,80 +175,215 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="ownership"><a class="header" href="#ownership">Ownership</a></h1>
-<p>This chapter describes the planned systems-language ownership model.</p>
-<p>Current milestone note:</p>
+<p>FOL’s V3 memory model uses compile-time ownership. It does not add a garbage
+collector, runtime ownership tags, or user-defined destructors.</p>
+<p>V3 ships unique heap ownership, move checking, lexical borrowing, and typed
+unique/shared pointers. Transfer behavior follows the value type, not merely
+the binding’s location: clone-safe values are copied by cloning, while unique
+ownership and aggregates containing unique ownership move.</p>
+<h2 id="stack-and-heap-bindings"><a class="header" href="#stack-and-heap-bindings">Stack and heap bindings</a></h2>
+<p>Bindings live on the stack unless heap allocation is explicit:</p>
+<pre><code class="language-fol">var stack_value: int = 64;
+var[new] heap_value: int = 64;
+@var other_heap_value: int = 64;
+</code></pre>
+<p><code>@var</code> is sugar for a binding with <code>[new]</code>. Heap allocation requires the
+<code>memo</code> capability model. A <code>memo</code> artifact with bundled <code>std</code> remains
+heap-capable, but allocation does not itself require hosted APIs. Ownership
+checking is a compile-time rule and is also active in <code>core</code>.</p>
+<p>There is no <code>[@]</code> binding option and no manual <code>.de_alloc()</code> or <code>.free()</code>.
+Unique heap values lower to Rust <code>Box&lt;T&gt;</code> and are freed implicitly when their
+owning scope ends.</p>
+<h2 id="assignment-and-ownership-transfer"><a class="header" href="#assignment-and-ownership-transfer">Assignment and ownership transfer</a></h2>
+<p>Assignment and rebinding use the value’s ownership class:</p>
 <ul>
-<li>ownership is not part of the current <code>V1</code> compiler contract</li>
-<li>borrowing is not part of the current <code>V1</code> compiler contract</li>
-<li>these semantics belong to the later <code>V3</code> systems milestone</li>
+<li>clone-safe values clone, so the source and destination remain usable</li>
+<li>heap-owned values and unique pointers move, so the source becomes
+inaccessible</li>
+<li>an aggregate is move-only when it contains a move-only value</li>
+<li>a shared pointer clones its reference count instead of moving its source</li>
 </ul>
-<p>So the syntax and examples here should be read as future design, not as current
-compiler behavior.</p>
-<p>Much like <a href="">C++</a> and <a href="">Rust</a>, in Fol every variable declared, by default is created in stack unless explicitly specified othervise. Using option <code>[new]</code> or <code>[@]</code> in a variable, it allocates memory in the heap. The size of the allocation is defined by the type. Internally this creates a pointer to heap address, and dereferences it to the type you are having. Usually those behind the scene pointers here are unique pointers. This means that when the scope ends, the memory that the pointer used is freed.</p>
-<pre><code>var[new] intOnHeap: int[64];
-@var intOnHeap: int[64];
+<pre><code class="language-fol">fun[] main(): int = {
+    var stack_a: int = 2;
+    var stack_b: int = stack_a;
+
+    @var heap_a: int = 3;
+    @var heap_b: int = heap_a;
+
+    return stack_a + stack_b;
+};
 </code></pre>
-<h2 id="assignments"><a class="header" href="#assignments">Assignments</a></h2>
-<p><a href="/docs/spec/040_variables/#assignments">As discussed before</a>, declaring a new variable is like this:</p>
-<pre><code>var[exp] aVar: int[32] = 64
+<p>A later read of <code>heap_a</code> is a compile error in the <code>O####</code> OWNERSHIP diagnostic
+family. The diagnostic points at both the invalid use and the transfer site.
+The backend emits clone-safe transfers with <code>.clone()</code> and unique transfers as
+ordinary Rust moves. No runtime tag decides which operation occurs.</p>
+<p>Evaluating a move-only value as a standalone expression is also a transfer even
+when its result is discarded. Lowering still evaluates that expression, so the
+source cannot be used afterward. Clone-safe scalar expression statements remain
+usable because their values clone.</p>
+<p>A whole mutable binding can be reinitialized after its old value moves:</p>
+<pre><code class="language-fol">var[mut] pointer: ptr[int] = &amp;first;
+consume(pointer);
+pointer = &amp;second;
+return *pointer;
 </code></pre>
-<p>{{% notice warn %}}</p>
-<p>However, when new variable is created and uses an old variable as value, the value is always cloned for “stack” declared values, but moved for “heap” declared values.</p>
-<p>{{% /notice %}}</p>
-<pre><code>@var aVar: int[32] = 64
+<p>The assignment target is a storage place, not a read of the missing old value.
+The right-hand side is checked and transferred first, then a successful store
+makes the binding usable again. Ordinary mutability and active-borrow rules
+still apply. Self-assignment of a live mutable owner transfers the value through
+the assignment and leaves the same binding initialized. Assignment is a
+statement and does not yield a second copy of the stored value.</p>
+<p>Transferring a move-only record field consumes the whole source binding. V3
+does not leave a partially moved record available through its other fields.
+Any indexed read whose element or map value is move-only remains unsupported,
+including selecting a clone-safe field from that element afterward. Index access
+materializes the whole element, so these containers need an explicit removal
+operation rather than a clone-based read.</p>
+<p>Container queries are observations, not transfers. <code>.len(local)</code> and indexed
+lookup through direct locals preserve the receiver and map key, including when
+their types contain unique pointers. A move-only receiver or key reached
+through a field projection is not yet observable because V3 has no place-aware
+projection IR; such a lookup is rejected instead of partially moving its
+source. The same boundary rejects nested field access through a move-only
+intermediate.</p>
+<p>Dereferencing is a by-value operation whose ownership effect depends on the
+pointee. <code>*pointer</code> clones a clone-safe pointee and leaves the pointer usable.
+If the pointee is move-only, dereferencing a direct unique <code>ptr[T]</code> transfers
+the pointee and consumes that pointer. A shared or borrowed pointer cannot
+surrender a move-only pointee, so those dereferences are rejected; their
+read-only dereference is available only when the pointee is clone-safe.</p>
+<p>Dereferencing a unique-pointer field is also a place observation, not a whole
+field transfer. Until V3 has place-aware projection IR, <code>*record.pointer</code> is
+rejected even when its pointee is clone-safe; otherwise backend lowering would
+partially move the pointer just to observe its target. Direct pointer bindings
+remain available. A field containing <code>ptr[shared, T]</code> can be dereferenced when
+<code>T</code> is clone-safe.</p>
+<p>Forward slices currently create a new <code>vec[...]</code> or <code>seq[...]</code> by cloning the
+selected elements. Their element type must therefore be clone-safe. Fixed-size
+array slices need a distinct runtime-sized result contract and remain
+unsupported. Ordinary collection iteration is also index-based and clone-based,
+so a collection containing move-only elements cannot use it yet. Channel
+receiver iteration is different: it consumes each payload and may carry
+move-only values.</p>
+<p>Top-level storage is limited to clone-safe, non-borrowed values that are safe in
+the backend’s shared static cells. Move-only values, borrowed values, full
+channels, and values containing <code>ptr[shared, T]</code> must be declared inside a
+routine. This prevents global loads from duplicating unique ownership, extending
+a lexical borrow to static lifetime, or placing <code>Rc</code> in thread-safe storage.</p>
+<p>A <code>when</code> result transfers the final value of the selected branch into its join
+value. Branches are checked from the same incoming ownership state, so the same
+owner may be transferred by mutually exclusive alternatives. After the <code>when</code>,
+every owner that could have been transferred by a continuing branch is treated
+as moved.</p>
+<p>Value-matching <code>when</code> arms use the same equality contract as <code>==</code>: selector and
+case values must have the same equality-safe scalar type. Pointer, record, and
+other move-only selectors are rejected rather than being moved by an implicit
+comparison. A <code>when</code> without value arms is instead a boolean control gate, so it
+also rejects move-only selectors rather than evaluating and silently moving an
+unused owner.</p>
+<p>Loop bodies are lexical scopes that execute once per iteration. A move-only
+binding declared outside a repeating loop cannot be transferred from the loop
+body or its repeated condition: a later iteration would try to consume the
+same value again. Create the move-only value inside the loop when each
+iteration needs a fresh owner, or transfer it after the loop. A <code>return</code> that
+transfers a value is allowed because it exits the routine instead of reaching
+another iteration.</p>
+<p>Deferred bodies also participate in ownership checking. When a <code>dfr</code> or <code>edf</code>
+body references a move-only binding from an enclosing scope, that binding is
+reserved until the registration scope exits and the selected deferred work has
+run. A later transfer in the same scope is rejected with both the transfer and
+deferred-use locations. If the deferred block belongs to a nested scope, the
+reservation ends with that nested scope.</p>
+<p>Reinitializing an already-moved binding inside <code>dfr</code> or <code>edf</code> is rejected in
+V3. The assignment runs only at scope exit, so applying its ownership effect
+when the deferred body is registered would unsafely expose the binding before
+the new value exists.</p>
+<h2 id="recursive-owned-data"><a class="header" href="#recursive-owned-data">Recursive owned data</a></h2>
+<p>Owned heap indirection gives recursive types a finite runtime shape:</p>
+<pre><code class="language-fol">typ Node: rec = {
+    value: int,
+    next: opt @Node,
+};
+</code></pre>
+<p>In type position, <code>@Node</code> means an owned heap <code>Node</code>. The example above lowers
+to one nominal Rust structure whose recursive field has the shape
+<code>FolOption&lt;Box&lt;Node&gt;&gt;</code>.</p>
+<p>A recursive value edge without owned indirection is still invalid:</p>
+<pre><code class="language-fol">typ Bad: rec = {
+    next: Bad,
+};
+</code></pre>
+<p>Such a type has no finite value layout. The compiler recommends an owned edge
+such as <code>opt @Bad</code> instead.</p>
+<h2 id="lexical-borrowing"><a class="header" href="#lexical-borrowing">Lexical borrowing</a></h2>
+<p>A borrow is an alias that does not take ownership:</p>
+<pre><code class="language-fol">var owner: Node = { value = 7, next = nil };
+var[bor] view: Node = owner;
+var value: int = view.value;
+</code></pre>
+<p><code>#owner</code> is expression sugar for borrowing from an owner:</p>
+<pre><code class="language-fol">var[bor] view: Node = #owner;
+</code></pre>
+<p>Borrowing is scope-granular. A borrow remains active until the end of the
+lexical scope where its binding was created. FOL deliberately does not use
+flow-sensitive or non-lexical lifetime analysis in V3.</p>
+<p>While a borrow is active:</p>
+<ul>
+<li>the owner cannot be read, written, moved, or borrowed incompatibly</li>
+<li>an immutable borrower is read-only</li>
+<li>a borrowed value cannot transfer move-only data out of its owner; clone-safe
+observations remain available</li>
+<li>any mutable borrower excludes every other borrower of that owner</li>
+</ul>
+<p>Leaving the scope returns access to the owner automatically:</p>
+<pre><code class="language-fol">var owner: Node = { value = 7, next = nil };
 {
-    var bVar = aVar                                              // this moves the content from $aVar to $bVar
-}
-.echo(aVar)                                                      // this will throw n error, since the $aVar is not anymore owner of any value
+    var[bor] view: Node = owner;
+    var value: int = view.value;
+};
+return owner.value;
 </code></pre>
-<p>When the variable is moved, the owner is changed. In example above, the value <code>64</code> (saved in stack) is owned my <code>aVar</code> and then the ownership is moved to <code>bVar</code>. Now <code>bVar</code> is the new owner of the variable, making the <code>aVar</code> useless and can’t be refered anymore. Since the <code>bVar</code> now controls the value, it’s lifetime lasts until the end of the scope. When the scope ends, the variable is destroyed with <code>.de_alloc()</code> function. This because when the ovnership is moved, the attributes are moved too, so the <code>@</code> of <code>aVar</code> is now part of the <code>bVar</code> even if not implicitly specified. To avoid destruction, the <code>bVar</code> needs to return the ownership back to <code>aVar</code> before the scope ends with <code>.give_back(bVar)</code> or <code>!bVar</code>.</p>
-<pre><code>@var aVar: int[32] = 64
-{
-    var bVar = aVar                                              // this moves the content from $aVar to $bVar
-    !bvar                                                        // return ownership
-}
-.echo(aVar)                                                      // this now will print 64
+<p><code>!view</code> gives a borrow back before scope exit. A returned borrow cannot be used
+again; attempting to read <code>view</code> afterward reports <code>O2004</code> with the give-back
+site as related information:</p>
+<pre><code class="language-fol">var[bor] view: Node = owner;
+var value: int = view.value;
+!view;
+return view.value;
 </code></pre>
-<p>This can be done automatically by using <a href="/docs/spec/040_variables//#borrowing">borrowing</a>.</p>
-<h2 id="borrowing"><a class="header" href="#borrowing">Borrowing</a></h2>
-<p>Borrowing does as the name says, it borrows a value from another variable, and at the end of the scope it automatically returns to the owner.</p>
-<pre><code>pro[] main: int = {
-    var[~] aVar: int = 55;
-    {
-        var[bor] newVar: int = aVar                              // represents borrowing
-        .echo(newVar)                                            // this return 55
-    }
-    .echo(aVar)                                                  // here $aVar it not accesible, as the ownership returns at the end of the scope
-    .echo(newVar)                                                // we cant access the variable because the scope has ended
-}
+<p>The <code>!</code> prefix is give-back only. It is not deletion or manual memory free.</p>
+<p>V3 does not support reborrowing a borrow binding. Borrow from the original owner
+or pass an existing borrow binding directly to a <code>[bor]</code> parameter instead.</p>
+<h2 id="mutable-borrowing"><a class="header" href="#mutable-borrowing">Mutable borrowing</a></h2>
+<p>A mutable borrow requires both an explicitly mutable owner and an explicitly
+mutable borrow binding:</p>
+<pre><code class="language-fol">var[mut] owner: Node = { value = 7, next = nil };
+var[mut, bor] view: Node = owner;
+view.value = 9;
+!view;
+return owner.value;
 </code></pre>
-<p>Borrowing uses a predefined option <code>[bor]</code>, which is not conventional like other languages that use <code>&amp;</code> or <code>*</code>. This because you can get away just with “borrowing” without using pointers (so, symbols like <code>*</code> and <code>&amp;</code> are strictly related to pointers)</p>
-<p>However, while the value is being borrowed, we can’t use the old variable while is being borrowed but we still can lend to another variable:</p>
-<pre><code>pro[] main: int = {
-    var[~] aVar: int = 55;
-    {
-        var[bor] newVar = aVar                                   // represents borrowing
-        .echo(newVar)                                            // this prints 55
-        .echo(aVar)                                              // this throws an error, cos we already have borrowd the value from $aVar
-        var[bor] anotherVar = aVar                               // $anotherVar again borrows from a $aVar
-    }
-}
+<p><code>var[bor]</code> is immutable unless <code>mut</code> is also present. A <code>var[mut, bor]</code> binding
+may update the original owner, but it still does not own the value and cannot
+move unique data out of it. Attempting a mutable borrow from <code>var[imu]</code>, or
+creating another borrow while a mutable borrow is active, is an <code>O####</code>
+ownership diagnostic.</p>
+<h2 id="borrow-parameters"><a class="header" href="#borrow-parameters">Borrow parameters</a></h2>
+<p>Routine parameters use the same explicit option position:</p>
+<pre><code class="language-fol">fun[] inspect(item[bor]: Node): int = {
+    return item.value;
+};
 </code></pre>
-<p>{{% notice warn %}}</p>
-<p>When borrowed, a the value is read-only (it’s immutable). To make it muttable, <em>firtsly</em>, the owner needs to be muttable, <em>secondly</em> the borrower needs to declarare that it intends to change.</p>
-<p>{{% /notice %}}</p>
-<p>To do so, the borrower uses <code>var[mut, bor]</code>. However, when the value is declared mutable by owner, only one borrower within one scope can declare to modify it:</p>
-<pre><code>pro[] main: int = {
-    var[~] aVar: int = 55;
-    {
-        var[mut, bor] newVar = aVar                              // [mut, bor] represents a mutable borrowing
-        var[mut, bor] anotherVar = aVar                          // this throws an error, cos we already have borrowed the muttable value before
-    }
-    {
-        var[mut, bor] anotherVar = aVar                          // this is okay, s it is in another scope
-    }
-}
-</code></pre>
+<p>The backend emits a Rust reference parameter. Passing an owner requires an
+explicit <code>#owner</code>; an existing compatible borrow binding can be passed directly
+and reused by later <code>[bor]</code> calls. The call borrow ends when the call returns,
+while an existing borrow binding keeps its surrounding lexical lifetime.
+Parameter spelling or casing never changes ownership semantics;
+<code>name[bor]: T</code> is the only borrow-parameter form. A borrowed parameter can
+observe clone-safe data, but it cannot return or forward a move-only value as
+an owned argument.</p>
+<p>Borrowing is compile-time-only and legal in <code>core</code>. It does not allocate or add
+runtime reference bookkeeping.</p>
 
                     </main>
 

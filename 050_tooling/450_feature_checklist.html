@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -184,12 +184,15 @@ error surface is added.</p>
 <li><strong>Lexer</strong> — new keywords, operators, tokens</li>
 <li><strong>Parser</strong> — new AST nodes, syntax rules</li>
 <li><strong>Semantics</strong> — resolver, typecheck, lowering, intrinsics</li>
-<li><strong>Diagnostics</strong> — new error/warning cases</li>
-<li><strong>LSP</strong> — hover, completion, definition, symbols</li>
+<li><strong>Runtime/backend</strong> — representation, transfer, cleanup, execution</li>
+<li><strong>Frontend/build routing</strong> — artifact model, active dependencies, command legality</li>
+<li><strong>Diagnostics</strong> — codes, explanations, labels, related sites</li>
+<li><strong>Formatter/tool commands</strong> — protected text, parse/highlight/symbol output</li>
+<li><strong>LSP</strong> — hover, completion, definition, symbols, positions</li>
 <li><strong>Tree-sitter</strong> — grammar, queries, corpus</li>
-<li><strong>Generated facts</strong> — compiler-owned constants</li>
-<li><strong>Docs</strong> — language chapters, tooling pages</li>
-<li><strong>Tests</strong> — unit, integration, editor, corpus</li>
+<li><strong>Generated facts and inventories</strong> — compiler-owned constants, exact examples</li>
+<li><strong>Docs and book</strong> — language chapters, tooling pages, boundary claims</li>
+<li><strong>Tests and examples</strong> — unit, integration, editor, corpus, positive/failure packages</li>
 </ol>
 <p>Automated guards exist for some of these. The <code>treesitter_sync</code> integration
 tests verify that <code>highlights.scm</code> matches compiler-owned constants for builtin
@@ -242,7 +245,46 @@ constant to the compiler without updating Tree-sitter will fail those tests.</p>
 <li><code>fol-intrinsics</code></li>
 <li>runtime/backend crates if needed</li>
 </ul>
-<h2 id="4-diagnostics-surface"><a class="header" href="#4-diagnostics-surface">4. Diagnostics Surface</a></h2>
+<h2 id="4-runtime-and-backend-surface"><a class="header" href="#4-runtime-and-backend-surface">4. Runtime And Backend Surface</a></h2>
+<p>Check:</p>
+<ul>
+<li>lowered representation and ownership-transfer mode</li>
+<li>runtime type or helper requirements</li>
+<li>cleanup/drop behavior on normal, error, branch, loop, and task paths</li>
+<li>capability-tier imports and backend emission</li>
+<li>executable behavior for every supported positive form</li>
+</ul>
+<p>Update:</p>
+<ul>
+<li><code>fol-lower</code></li>
+<li><code>fol-runtime</code></li>
+<li><code>fol-backend</code></li>
+<li>emitted-code and end-to-end execution tests</li>
+</ul>
+<h2 id="5-frontend-and-build-routing"><a class="header" href="#5-frontend-and-build-routing">5. Frontend And Build Routing</a></h2>
+<p>Check:</p>
+<ul>
+<li>artifact source scope and selected <code>fol_model</code></li>
+<li>evaluated conditional dependencies and bundled-standard aliases</li>
+<li>direct, workspace, and named-step routes</li>
+<li>language API legality versus host target compatibility for <code>run</code> / <code>test</code></li>
+<li>no accidental bundled-std requirement merely because an artifact executes</li>
+<li>ambiguous mixed-model files and packages</li>
+</ul>
+<p>Update:</p>
+<ul>
+<li><code>fol-build</code> / <code>fol-package</code> when graph truth changes</li>
+<li><code>fol-frontend</code> routing and command behavior</li>
+<li>editor workspace mapping when analysis scope changes</li>
+<li>direct, routed, mixed-model, and conditional-build integration tests</li>
+</ul>
+<p>Important rule:</p>
+<ul>
+<li>use the evaluated artifact contract as the authority</li>
+<li>do not reconstruct capability truth from static <code>build.fol</code> declarations</li>
+<li>do not fall back from an ambiguous mixed-model file to a wider model</li>
+</ul>
+<h2 id="6-diagnostics-surface"><a class="header" href="#6-diagnostics-surface">6. Diagnostics Surface</a></h2>
 <p>Check:</p>
 <ul>
 <li>new error cases</li>
@@ -257,7 +299,24 @@ constant to the compiler without updating Tree-sitter will fail those tests.</p>
 <li>editor/LSP diagnostic adapter tests if the visible shape changes</li>
 <li>docs under <a href="../650_errors/_index.html"><code>650_errors</code></a> if behavior changed materially</li>
 </ul>
-<h2 id="5-lsp-surface"><a class="header" href="#5-lsp-surface">5. LSP Surface</a></h2>
+<h2 id="7-formatter-and-tool-commands"><a class="header" href="#7-formatter-and-tool-commands">7. Formatter And Tool Commands</a></h2>
+<p>Check:</p>
+<ul>
+<li>whether new syntax changes indentation or structural scanning</li>
+<li>whether comments, cooked strings, raw strings, or character literals may
+contain the new syntax without affecting formatting</li>
+<li>whether <code>fol tool parse</code>, <code>highlight</code>, or <code>symbols</code> expose the new shape</li>
+<li>whether command output, exit status, and parse-error recovery remain honest</li>
+</ul>
+<p>Update:</p>
+<ul>
+<li>the shared compiler-aware source scanner before adding command-specific
+textual heuristics</li>
+<li>whole-document formatter tests</li>
+<li>in-process parser/query command tests</li>
+<li>public tool-command documentation</li>
+</ul>
+<h2 id="8-lsp-surface"><a class="header" href="#8-lsp-surface">8. LSP Surface</a></h2>
 <p>Check:</p>
 <ul>
 <li>hover content</li>
@@ -265,6 +324,10 @@ constant to the compiler without updating Tree-sitter will fail those tests.</p>
 <li>document symbols</li>
 <li>completion</li>
 <li>open-document analysis behavior under broken code</li>
+<li>semantic tokens, signature/type information, and rename eligibility</li>
+<li>UTF-16 position conversion for incoming and outgoing ranges</li>
+<li>related diagnostic URIs and multi-file locations</li>
+<li>active artifact scope and capability-aware suggestions</li>
 </ul>
 <p>Update:</p>
 <ul>
@@ -277,7 +340,7 @@ constant to the compiler without updating Tree-sitter will fail those tests.</p>
 <li>prefer compiler-backed meaning</li>
 <li>use fallback heuristics only when the compiler cannot supply semantic data yet</li>
 </ul>
-<h2 id="6-tree-sitter-surface"><a class="header" href="#6-tree-sitter-surface">6. Tree-sitter Surface</a></h2>
+<h2 id="9-tree-sitter-surface"><a class="header" href="#9-tree-sitter-surface">9. Tree-sitter Surface</a></h2>
 <p>Check:</p>
 <ul>
 <li>syntax shape visible while typing</li>
@@ -299,7 +362,7 @@ constant to the compiler without updating Tree-sitter will fail those tests.</p>
 <li>Tree-sitter is for syntax-facing editor behavior</li>
 <li>it does not replace compiler semantics</li>
 </ul>
-<h2 id="7-generated-facts"><a class="header" href="#7-generated-facts">7. Generated Facts</a></h2>
+<h2 id="10-generated-facts-and-inventories"><a class="header" href="#10-generated-facts-and-inventories">10. Generated Facts And Inventories</a></h2>
 <p>Check whether the feature adds a new fact that should be exported once instead
 of copied by hand.</p>
 <p>Examples:</p>
@@ -309,14 +372,17 @@ of copied by hand.</p>
 <li>source kinds</li>
 <li>keyword groups</li>
 <li>shell/container family names</li>
+<li>positive and negative example package directories</li>
 </ul>
 <p>If yes:</p>
 <ul>
 <li>update the compiler-owned source</li>
 <li>regenerate editor-facing artifacts from that source</li>
 <li>do not patch multiple copies manually</li>
+<li>update the canonical shared example inventory and its published book matrix
+together; do not create a private LSP-only list</li>
 </ul>
-<h2 id="8-documentation"><a class="header" href="#8-documentation">8. Documentation</a></h2>
+<h2 id="11-documentation"><a class="header" href="#11-documentation">11. Documentation</a></h2>
 <p>Update:</p>
 <ul>
 <li>the language chapter for the feature</li>
@@ -324,24 +390,32 @@ of copied by hand.</p>
 <li>diagnostics docs if compiler reporting changes</li>
 <li>examples/fixtures that demonstrate the preferred form</li>
 </ul>
-<h2 id="9-tests"><a class="header" href="#9-tests">9. Tests</a></h2>
+<h2 id="12-tests-and-examples"><a class="header" href="#12-tests-and-examples">12. Tests And Examples</a></h2>
 <p>Add or update:</p>
 <ul>
 <li>compiler unit tests</li>
 <li>integration tests</li>
 <li>editor/LSP tests if semantic editor behavior changes</li>
 <li>Tree-sitter tests/corpus if syntax-facing behavior changes</li>
+<li>a runnable positive package for shipped behavior</li>
+<li>a <code>fail_*</code> package for each deliberate boundary or removed form</li>
+<li>the canonical inventory guard when an example directory is added, removed, or
+renamed</li>
 </ul>
 <p>Keep the feature test in the same change as the feature.</p>
-<h2 id="10-final-review-questions"><a class="header" href="#10-final-review-questions">10. Final Review Questions</a></h2>
+<h2 id="13-final-review-questions"><a class="header" href="#13-final-review-questions">13. Final Review Questions</a></h2>
 <p>Before considering the feature complete, answer:</p>
 <ol>
 <li>Is compiler meaning implemented?</li>
-<li>Are diagnostics correct and structured?</li>
-<li>Does the LSP reflect the new meaning where needed?</li>
-<li>Does Tree-sitter reflect the new syntax where needed?</li>
-<li>Did we generate shared facts instead of duplicating them?</li>
-<li>Did docs explain the intended user-facing behavior?</li>
+<li>Does lowering/runtime/backend preserve that meaning on every control-flow path?</li>
+<li>Does frontend routing select the exact evaluated artifact capability?</li>
+<li>Are diagnostics coded, explained, structured, and location-correct?</li>
+<li>Do formatter and public tool commands understand the new syntax boundaries?</li>
+<li>Does the LSP reflect the meaning, model, ranges, and UX where needed?</li>
+<li>Does Tree-sitter reflect the syntax in grammar, queries, and executable corpus?</li>
+<li>Did we generate shared facts and reuse one canonical example inventory?</li>
+<li>Do positive examples run and deliberate boundaries fail with the expected code?</li>
+<li>Do docs and the book state the shipped behavior without preserving dead syntax?</li>
 </ol>
 
                     </main>

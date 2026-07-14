@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,66 +175,100 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="pointers"><a class="header" href="#pointers">Pointers</a></h1>
-<p>This chapter is future systems-language design.</p>
-<p>Current milestone note:</p>
+<p>FOL V3 has typed unique and shared pointers. Pointer construction allocates, so
+it requires the <code>memo</code> capability model. A <code>memo</code> artifact with bundled <code>std</code>
+remains heap-capable, but pointer construction does not itself require hosted
+APIs.</p>
+<h2 id="unique-pointers"><a class="header" href="#unique-pointers">Unique pointers</a></h2>
+<p><code>ptr[T]</code> is a uniquely owned pointer to <code>T</code>:</p>
+<pre><code class="language-fol">fun[] main(): int = {
+    var value: int = 7;
+    var inner: ptr[int] = &amp;value;
+    var outer: ptr[ptr[int]] = &amp;inner;
+    var[mut] extracted: ptr[int] = *outer;
+    *extracted = 9;
+    return *extracted;
+};
+</code></pre>
+<p><code>&amp;value</code> allocates the pointed-to value and produces a unique pointer. The
+backend represents it as <code>Box&lt;T&gt;</code>. Unique pointers move on transfer, just like
+other unique heap-owned values, and are freed when their owner leaves scope.
+Constructing a pointer from a move-only value transfers that value into the new
+allocation.</p>
+<p><code>*pointer</code> is a by-value dereference to the <code>T</code> pointee:</p>
 <ul>
-<li>pointer semantics are not part of the implemented <code>V1</code> compiler contract</li>
-<li>pointer-specific intrinsics such as <code>.pointer_value(...)</code>,
-<code>.address_of(...)</code>, and <code>.borrow_from(...)</code> are deferred</li>
-<li>the material here belongs to the later <code>V3</code> systems milestone</li>
+<li>if <code>T</code> is clone-safe, dereference clones <code>T</code> and leaves the pointer usable</li>
+<li>if <code>T</code> is move-only, dereferencing a unique pointer transfers <code>T</code> out and
+consumes that pointer</li>
 </ul>
-<p>So the examples in this chapter should be read as planned language direction,
-not as currently supported <code>V1</code> code.</p>
-<p>The only way to access the same memory with different variable is by using pointers. In example below, we create a pointer, and when we want to dereference it to modify the content of the address that the pointer is pointing to, we use <code>*ptrname</code> or <code>.pointer_value(ptrname)</code>.</p>
-<pre><code>@var aContainer: arr[int, 5];                                    //allocating memory on the heap
-var contPoint: ptr[] = aContainer;
-    
-*contPoint = { zero, one, two, three, four };                    //dereferencing and then assigning values
+<p>The example consumes <code>outer</code> because its pointee is another unique pointer.
+<code>extracted</code> then owns that inner pointer. A direct unique-pointer binding
+declared with <code>var[mut]</code> supports write-through assignment such as
+<code>*extracted = 9</code>.</p>
+<p>Direct unique-pointer bindings can be dereferenced, but a unique pointer reached
+through a record field cannot be dereferenced in V3. That observation needs a
+place-aware field projection in lowering; treating the field as an ordinary
+value would partially move the pointer merely to read its pointee. This field
+boundary also applies when <code>T</code> is clone-safe. Keep the unique pointer in a
+direct binding, or use <code>ptr[shared, T]</code> with a clone-safe pointee when a
+read-only pointer field is the intended shape.</p>
+<h2 id="shared-pointers"><a class="header" href="#shared-pointers">Shared pointers</a></h2>
+<p><code>ptr[shared, T]</code> is a reference-counted shared pointer:</p>
+<pre><code class="language-fol">var value: int = 7;
+var first: ptr[shared, int] = &amp;value;
+var second: ptr[shared, int] = first;
+return *first + *second;
 </code></pre>
-<p>Bare in mind, that the pointer (so, the address itself) can’t be changes, unless when created is marked as <code>var[mut]</code>. To see tha address of a pointer we use <code>&amp;ptrname</code> or <code>.address_of(ptrname)</code></p>
-<pre><code>@var aContainer: arr[int, 5];                                    //allocating memory on the heap
-var contPoint: ptr[] = aContainer;
-    
-var anotherPoint: ptr[] = &amp;contPoint;                            //assigning the same adress to another pointer
+<p>The backend represents shared pointers as <code>Rc&lt;T&gt;</code>. Assigning one clones the
+reference count, so <code>first</code> and <code>second</code> refer to the same allocation. Shared
+pointers are read-only; write-through is rejected.</p>
+<p>A single <code>*p</code> yields <code>T</code> for both unique and shared pointers. The reference
+counting layer is not exposed as another pointer that needs a second
+dereference. Because a shared pointer cannot remove the value from all of its
+aliases, this read is available only when <code>T</code> is clone-safe. Dereferencing
+<code>ptr[shared, ptr[int]]</code>, for example, is rejected rather than cloning or moving
+the unique inner pointer.</p>
+<h2 id="borrowed-pointers"><a class="header" href="#borrowed-pointers">Borrowed pointers</a></h2>
+<p>A pointer can be borrowed like any other owned value:</p>
+<pre><code class="language-fol">fun[] read(pointer[bor]: ptr[int]): int = {
+    return *pointer;
+};
 </code></pre>
-<h2 id="unique-pointer"><a class="header" href="#unique-pointer">Unique pointer</a></h2>
-<p>Ponter of a pointer is very simimilar to RUST move pointer, it actually, deletes the first pointer and references the new one to the location of deleted one. However this works only when the pointer is unique (all pointers by default all unique). This is like borrowing, but does not invalidate the source variable:</p>
-<pre><code>var aContainer: arr[int, 5] = { zero, one, two, three, four };
-
-var contPoint: ptr[] = aContainer;
-var anotherPoint: ptr[] = &amp;contPoint;
+<p>The borrowed pointer is a non-owning, read-only view. It can be passed directly
+to another compatible <code>[bor]</code> parameter and reused for later calls. Dereference
+can clone a clone-safe pointee such as <code>int</code>, but it cannot move a move-only
+pointee through the borrow. A borrowed <code>ptr[ptr[int]]</code> therefore cannot produce
+the inner <code>ptr[int]</code> by value. Write-through also requires a direct mutable
+unique-pointer binding; a borrowed pointer is not such a binding.</p>
+<h2 id="shared-recursive-graphs"><a class="header" href="#shared-recursive-graphs">Shared recursive graphs</a></h2>
+<p>Shared pointer indirection gives recursive graph edges a finite layout:</p>
+<pre><code class="language-fol">typ Node: rec = {
+    value: int,
+    next: opt ptr[shared, Node],
+};
 </code></pre>
-<p>with borrowing, we use <code>#varname</code> or <code>.borrow_from(varname)</code></p>
-<pre><code>var aContainer: arr[int, 5] = { zero, one, two, three, four };
-{
-    var borrowVar = #aContainer;                                    //this makes a new var form the old var, but makes the old invalid (until out of scope)
-}
-</code></pre>
-<h2 id="shred-pointer"><a class="header" href="#shred-pointer">Shred pointer</a></h2>
-<p>Ponter can be shared too. They can get referenced by another pointer, and they don’t get destroyed until the last reference’s scope is finished. This is exacly like smart shared_ptr in C++. Pointer to this pointer makes a reference not a copy as unique pointers. Dereferencing is a bit complicated here, as when you dereference a pointer pointer you get a pointer, so you need to dereference it too to get the value.</p>
-<pre><code>@var aContainer: arr[int, 5] = { zero, one, two, three, four };
-
-var contPoint: ptr[] = aContainer;
-var pointerPoint: ptr[shared] = &amp;contPoint;
-</code></pre>
-<p>Dereferencing (step-by-step):</p>
-<pre><code>var apointerValue = *pointerPoint
-var lastpointerValue = *apointer
-</code></pre>
-<p>Dereferencing (all-in-one):</p>
-<pre><code>var lastpointer = *(*pointerPoint)
-</code></pre>
-<h2 id="raw-pointer"><a class="header" href="#raw-pointer">Raw pointer</a></h2>
-<p>Lastly, pointers can be raw too. This is the base of ALL POINTERS AND VARIABLES. Pointers of this type need to MANUALLY GET DELETED. If a pointer gets deleted before the new pointer that points at it, we get can get memory corruptions:</p>
-<pre><code>var aContainer: arr[int, 5] = { zero, one, two, three, four };
-
-var contPoint: ptr[raw] = aContainer;
-var pointerPoint: ptr[raw] = &amp;contPoint;
-</code></pre>
-<p>Deleting:</p>
-<pre><code>!(pointerPoint)
-!(contPoint)
-</code></pre>
+<p>This lowers to an optional <code>Rc&lt;Node&gt;</code> edge. Shared recursion is legal, but V3
+does not ship weak references or a cycle collector. A reference cycle therefore
+leaks. Programs should keep shared structures acyclic unless a later interop
+milestone adds an explicit weak-reference contract.</p>
+<p><code>Rc</code> is not thread-safe and cannot cross a processor spawn boundary. The V3
+processor pillar enforces that boundary.</p>
+<h2 id="raw-pointers-are-out"><a class="header" href="#raw-pointers-are-out">Raw pointers are out</a></h2>
+<p><code>ptr[raw, T]</code> is reserved but rejected with an explicit V4 interop diagnostic.
+V3 does not provide raw pointer construction, manual <code>.free()</code>, unsafe delete,
+or user-defined destructors. The <code>!x</code> prefix remains borrow give-back only; it
+never deletes a pointer.</p>
+<h2 id="sigil-alignment"><a class="header" href="#sigil-alignment">Sigil alignment</a></h2>
+<ul>
+<li><code>#owner</code> creates a lexical borrow without allocation</li>
+<li><code>!borrow</code> gives that borrow back early</li>
+<li><code>&amp;value</code> constructs a typed allocating pointer</li>
+<li><code>*pointer</code> clones a clone-safe pointee, consumes a unique pointer when its
+pointee is move-only, or writes through a direct mutable unique pointer</li>
+</ul>
+<p>Borrowing is compile-time-only and legal in <code>core</code>. Pointer type declarations
+can be analyzed in <code>core</code>, but evaluating <code>&amp;value</code> is rejected there because it
+allocates.</p>
 
                     </main>
 

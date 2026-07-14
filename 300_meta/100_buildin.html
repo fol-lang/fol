@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,21 +178,29 @@
 <p>Intrinsics are compiler-owned language operations.</p>
 <p>They are not ordinary library functions, and they are not imported through
 <code>use</code>.</p>
-<p>FOL currently keeps three layers separate:</p>
+<p>FOL currently keeps compiler intrinsics and three API tiers separate:</p>
 <ul>
 <li>intrinsics:
 compiler-owned operations such as <code>.eq(...)</code>, <code>.len(...)</code>, <code>check(...)</code>, and
 <code>panic(...)</code></li>
 <li><code>core</code>:
-the minimal runtime model with no heap and no OS/runtime services</li>
+the minimal runtime model with no heap and no source-level hosted OS/runtime
+APIs</li>
 <li><code>memo</code>:
-heap-backed library/runtime support without OS/runtime services</li>
+alloc-like heap-backed library/runtime support without source-level hosted
+OS/runtime APIs</li>
 <li><code>std</code>:
-hosted/runtime services on top of <code>memo</code>, such as console, filesystem,
-networking, serialization, and other richer services</li>
+the hosted API tier layered on <code>memo</code> by an explicit bundled internal
+dependency, with shipped services such as console I/O</li>
 </ul>
 <p>This split is not a source-level import trick and not an object-system feature.
-It is an artifact runtime model selected through <code>build.fol</code>.</p>
+<code>core</code> and <code>memo</code> are artifact capability models selected through <code>fol_model</code>
+in <code>build.fol</code>. Bundled <code>std</code> is not a third model; it is declared separately
+with <code>build.add_dep({ alias = "std", source = "internal", target = "standard" })</code>
+for a <code>memo</code> artifact that needs hosted source APIs.</p>
+<p>Whether an artifact can be launched is orthogonal. Host-compatible <code>core</code> and
+<code>memo</code> programs can use <code>fol code run</code> or <code>fol code test</code> without bundled
+<code>std</code>; the frontend launching them does not expose extra intrinsics.</p>
 <p>If an operation can live as an ordinary library API, that is usually the better
 home for it. Intrinsics are reserved for surfaces the compiler must understand
 directly.</p>
@@ -225,13 +233,18 @@ compiler.</p>
 lowering.</p>
 <p>For current <code>V1</code>, backend execution of the implemented intrinsic set still goes
 through the current runtime layer where policy matters. The runtime contract is
-being split by <code>fol-model</code>, so the rule is:</p>
+split by the artifact’s <code>fol_model</code> and active bundled dependency, so the rule
+is:</p>
 <ul>
-<li><code>core</code> artifacts must not rely on heap-backed or hosted facilities</li>
-<li><code>memo</code> artifacts may use heap-backed facilities but not hosted services</li>
+<li><code>core</code> artifacts must not rely on heap-backed or source-level hosted APIs</li>
+<li><code>memo</code> artifacts may use heap-backed facilities but not source-level hosted
+APIs</li>
 <li>bundled <code>std</code> wrappers require a <code>memo</code> artifact plus explicit internal
 <code>standard</code> dependency</li>
 </ul>
+<p>All three API tiers may back executable artifacts. Process entry and
+recoverable outcome adaptation are backend-only support, not bundled-std
+intrinsics.</p>
 <p>In the current implementation that means:</p>
 <ul>
 <li><code>.len(...)</code> uses the runtime length helper</li>
@@ -281,18 +294,21 @@ families, the compiler reports an intrinsic-specific type error.</p>
 </ul>
 <p>In the current compiler, <code>.len(...)</code> is the only implemented query intrinsic.
 Under the runtime model split, array <code>.len(...)</code> belongs to <code>core</code>, while
-string and dynamic-container <code>.len(...)</code> belongs to <code>memo</code>/<code>std</code>.</p>
+string and dynamic-container <code>.len(...)</code> belongs to <code>memo</code>. It remains
+available when a <code>memo</code> artifact also declares bundled <code>std</code> because the hosted
+tier layers on top of <code>memo</code>; <code>.len(...)</code> does not itself require <code>std</code>.</p>
 <h3 id="diagnostic"><a class="header" href="#diagnostic">Diagnostic</a></h3>
 <pre><code class="language-fol">.echo(value)
 </code></pre>
 <p>Current <code>V1</code> rule:</p>
 <ul>
 <li><code>.echo(...)</code> accepts exactly one argument</li>
-<li>it emits the value through the <code>std</code> runtime hook</li>
+<li>it requires a <code>memo</code> artifact with the explicit bundled <code>std</code> dependency</li>
+<li>it emits the value through the hosted runtime hook</li>
 <li>it then forwards the same value unchanged</li>
 </ul>
 <p><code>.echo(...)</code> belongs to <code>std</code>, not <code>core</code> or <code>memo</code>.</p>
-<p>So this is valid:</p>
+<p>With that build contract, this is valid:</p>
 <pre><code class="language-fol">fun[] main(flag: bol): bol = {
     return .echo(flag)
 }
@@ -303,7 +319,9 @@ panic("fatal")
 </code></pre>
 <p>Current <code>V1</code> rule:</p>
 <ul>
-<li><code>check(expr)</code> asks whether a recoverable routine call failed and returns <code>bol</code></li>
+<li><code>check(expr)</code> asks whether a recoverable <code>/ ErrorType</code> expression failed and
+returns <code>bol</code>; that expression may be a direct routine call or, in V3, an
+awaited recoverable eventual</li>
 <li><code>panic(...)</code> aborts control flow immediately</li>
 </ul>
 <p>These are described in more detail in the recoverable-error chapter.</p>
@@ -333,15 +351,14 @@ compiler rejects them with explicit milestone-boundary diagnostics.</p>
 <p>These are intentionally reserved now so the language can grow without
 accidental user-space name collisions, but they are not part of the current
 <code>V1</code> compiler.</p>
-<h3 id="reserved-for-later-v3"><a class="header" href="#reserved-for-later-v3">Reserved for later <code>V3</code></a></h3>
+<h3 id="reserved-for-v4-interop"><a class="header" href="#reserved-for-v4-interop">Reserved for <code>V4</code> interop</a></h3>
 <ul>
 <li><code>.de_alloc(...)</code></li>
-<li><code>.give_back(...)</code></li>
-<li><code>.address_of(...)</code></li>
-<li><code>.pointer_value(...)</code></li>
-<li><code>.borrow_from(...)</code></li>
 </ul>
-<p>These depend on later ownership, pointer, and low-level systems semantics.</p>
+<p>Explicit deallocation is not part of the V3 memory model. Unique heap values
+drop implicitly, borrowing uses <code>#owner</code> and <code>!borrow</code>, and typed pointers use
+<code>&amp;value</code> and <code>*pointer</code>. The old dot-root memory spellings are not reserved or
+supported aliases.</p>
 <h2 id="library-preferred-surfaces"><a class="header" href="#library-preferred-surfaces">Library-preferred surfaces</a></h2>
 <p>Some names are kept in the registry roadmap only as placeholders while the
 language decides whether they should really stay compiler-owned.</p>
@@ -383,7 +400,7 @@ fun[] unwrap_failure(value: Failure): str = {
 <p>Likewise, recoverable routine calls such as:</p>
 <pre><code class="language-fol">fun[] read_code(path: str): int / str = { ... }
 </code></pre>
-<p>are handled with:</p>
+<p>and V3 recoverable results produced by <code>eventual | await</code> are handled with:</p>
 <ul>
 <li><code>check(expr)</code></li>
 <li><code>expr || fallback</code></li>

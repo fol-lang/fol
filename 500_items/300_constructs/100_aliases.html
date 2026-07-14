@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-5e2af248.js"></script>
+        <script src="../../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -241,21 +241,11 @@ pro main(): non = {
 }
 </code></pre>
 <p>The call <code>5.print()</code> is still just receiver sugar for <code>print(5)</code>.</p>
-<p>Another example turns a string into a vector of characters through a
-receiver-qualified routine:</p>
-<pre><code class="language-fol">typ[ext] str: str;
-
-fun (str)to_array(): vec[chr] = {
-    loop(x in self) {
-        yield x;
-    }
-}
-
-pro main(): non = {
-    var characters: vec[chr] = "a random str".to_array();
-    .echo(characters)
-}
-</code></pre>
+<p>An older version of this chapter used a string-to-vector extension containing
+<code>yield</code>. That mixed future generator design into the current alias contract.
+Language <code>yield</code> is parsed and retained for future work, but the current
+typechecker and lowerer reject it; it is not part of V3. Alias and extension
+support therefore does not imply generator support.</p>
 
                     </main>
 

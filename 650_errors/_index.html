@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -205,8 +205,10 @@ as secondary labels</li>
 <li>JSON diagnostics preserve the same structured information with labels, notes,
 helps, and stable producer-owned diagnostic codes</li>
 <li>the parser recovers after failed declarations instead of cascading errors</li>
-<li>duplicate diagnostics on the same line are suppressed, with a hard cap at 50</li>
-<li>LSP diagnostics are deduplicated by line and code before reaching the editor</li>
+<li>exact consecutive diagnostic duplicates are suppressed in compiler reports,
+with a hard cap at 50</li>
+<li>LSP publishing removes only exact wire-identical duplicates; diagnostics that
+merely share a line and code remain distinct</li>
 </ul>
 <p>The exact wording of messages is still implementation detail, but the current
 compiler contract is that locations, codes, and structured diagnostic shape are

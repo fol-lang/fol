@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -189,7 +189,8 @@ compiler surface</li>
 <li>the <code>axi[...]</code> axiom container and <code>.add(...)</code> mutation shown later are not
 implemented; they are later design work, not current behavior</li>
 <li>the <code>set[...]</code> tuple-member form typechecks, but only single-member sets are
-executable today (backend boundary)</li>
+executable today; those homogeneous runtime sets support <code>.len(...)</code>,
+deterministic positional lookup, and ordinary iteration</li>
 </ul>
 <p>Containers are of compound types. They contain other primitive or constructed types. To access the types in container those brackets are used: <code>[]</code>, so:</p>
 <pre><code>var container: type = { element, element, element }             // declaring a container
@@ -209,9 +210,10 @@ var varable: type = container[2]                                // accessing the
     .echo(element)                                            // prints: 3
 }
 </code></pre>
-<p>To allocate memory on heap, the <code>var[new]</code> is used <a href="/std/spec/050_pointers/"> more about memory, ownreship and pointer </a>:</p>
+<p>To give a value unique heap ownership, use <code>var[new]</code> in a <code>memo</code> artifact. See
+<a href="../800_memory/100_ownership.html">Ownership</a>:</p>
 <pre><code>pro[] main: int = {
-    var[new] aSequence: arr[str] = { "get", "over", "it" };   // this array is stored in stack
+    var[new] values: arr[int, 3] = { 1, 2, 3 };   // uniquely owned heap array
 }
 </code></pre>
 <h3 id="dynamic-arrays"><a class="header" href="#dynamic-arrays">Dynamic arrays</a></h3>
@@ -226,13 +228,17 @@ deferred surfaces, not active <code>V1</code> intrinsics</li>
 <p>Current <code>V1</code> runtime note:</p>
 <ul>
 <li><code>arr[...]</code> remains the fixed-size container family</li>
-<li><code>vec[...]</code> and <code>seq[...]</code> are lowered onto dedicated runtime container types</li>
-<li><code>set[...]</code> and <code>map[...]</code> also use runtime-backed container types</li>
+<li><code>arr[...]</code> itself is available in <code>core</code>, provided its element type is also
+legal there</li>
+<li><code>vec[...]</code>, <code>seq[...]</code>, <code>set[...]</code>, and <code>map[...]</code> are heap-backed <code>memo</code>
+families and remain available when bundled <code>std</code> layers hosted APIs on top</li>
 <li>runtime-backed <code>set[...]</code> and <code>map[...]</code> preserve deterministic ordering for
 rendering and backend-visible behavior in the current compiler</li>
 </ul>
 <p>{{% notice tip %}}</p>
-<p>Dynamic arrays are a dynamically allocated (hence the name), thus if not allocated in heap but in stack, the size will be defined automatically in compile time and will be changed to static array.</p>
+<p>Dynamic containers remain heap-backed. FOL does not silently convert a
+<code>vec[...]</code> or <code>seq[...]</code> into <code>arr[...]</code> to make it legal in <code>core</code>; choose an
+explicit fixed-size array when the program needs the <code>core</code> model.</p>
 <p>{{% /notice %}}</p>
 <p>There are two implementations of dynamic arrays:</p>
 <ul>
@@ -320,7 +326,8 @@ container rendering as part of the <code>fol-runtime</code> contract rather than
 re-deriving container policy per backend.
 The comparison operators <code>==</code> and <code>!=</code> must be fully defined for operands of the key type; thus the key type must not be a function, map, or sequence.</p>
 <p>{{% notice tip %}}</p>
-<p>Maps are a growable containers too, thus if not allocated in heap but in stack, the size will be defined automatically in compile time and will be changet to static containers</p>
+<p>Maps are heap-backed <code>memo</code> containers. They are not silently converted into a
+static <code>core</code> container based on their initializer.</p>
 <p>{{% /notice %}}</p>
 <h3 id="axiom"><a class="header" href="#axiom">Axiom</a></h3>
 <pre><code>axi[typ, typ]

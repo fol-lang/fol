@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -212,7 +212,7 @@ human renderer</li>
 <ul>
 <li>severity</li>
 <li>main message</li>
-<li>a stable diagnostic code (e.g. <code>P1001</code>, <code>R1003</code>, <code>T1003</code>)</li>
+<li>a stable diagnostic code (e.g. <code>P1001</code>, <code>R1003</code>, <code>T1003</code>, <code>O1001</code>)</li>
 <li>one primary location</li>
 <li>zero or more related locations</li>
 <li>notes</li>
@@ -235,6 +235,8 @@ error family and specific failure without relying on message text.</p>
 <tr><td><code>K1xxx</code></td><td>package loading</td><td><code>K1001</code> metadata, <code>K1002</code> layout</td></tr>
 <tr><td><code>R1xxx</code></td><td>resolver</td><td><code>R1003</code> unresolved, <code>R1005</code> ambiguous</td></tr>
 <tr><td><code>T1xxx</code></td><td>type checker</td><td><code>T1003</code> type mismatch</td></tr>
+<tr><td><code>O1xxx</code></td><td>ownership checker</td><td><code>O1001</code> move, task, or resource-state violation</td></tr>
+<tr><td><code>O2xxx</code></td><td>lexical borrow checker</td><td><code>O2001</code> owner borrowed, <code>O2002</code> conflict, <code>O2003</code> mutability, <code>O2004</code> returned borrow reused</td></tr>
 <tr><td><code>L1xxx</code></td><td>lowering</td><td><code>L1001</code> unsupported surface</td></tr>
 <tr><td><code>F1xxx</code></td><td>frontend</td><td><code>F1001</code> invalid input, <code>F1002</code> workspace not found</td></tr>
 <tr><td><code>K11xx</code></td><td>build evaluator</td><td><code>K1101</code> build failure</td></tr>
@@ -274,7 +276,9 @@ parameter names) now extract file/line/column from the current token position.</
 <li>a package-loading error at the control file or package root that failed</li>
 <li>a resolver error at the unresolved identifier or ambiguous reference</li>
 <li>a typecheck error at the expression or declaration whose types do not match</li>
-<li>a lowering error at the typed surface that has no current <code>V1</code> lowering rule</li>
+<li>an ownership error at the transfer, borrow, task, channel, or delayed-effect
+boundary that made the value inaccessible</li>
+<li>a lowering error at a typed surface with no current lowering rule</li>
 </ul>
 <h2 id="related-locations"><a class="header" href="#related-locations">Related locations</a></h2>
 <p>Some compiler failures are not well described by one location alone.</p>
@@ -320,8 +324,10 @@ good declaration still parses correctly</li>
 <p>Even with parser recovery, edge cases in any pipeline stage can cascade.</p>
 <p>The diagnostic report layer applies two safety nets:</p>
 <ul>
-<li><strong>same-code, same-line dedup</strong>: if the most recently added diagnostic has the
-same code and same line as a new one, the new one is suppressed</li>
+<li><strong>exact consecutive dedup</strong>: if the most recently added diagnostic is fully
+identical to a new one, the new one is suppressed; a shared line/code alone
+is not enough, so distinct ranges, messages, labels, and related sites remain
+visible</li>
 <li><strong>hard cap</strong>: the report accepts at most 50 diagnostics total and shows
 “(output truncated)” when the limit is reached</li>
 </ul>
@@ -334,8 +340,8 @@ flag. Both render from the same structured diagnostic model.</p>
 <p>The default renderer prints a framed, colored report:</p>
 <ul>
 <li>a family chip that names the problem in plain language (<code>PARSER</code>, <code>NAMES</code>,
-<code>TYPES</code>, <code>LOWERING</code>, <code>PACKAGE</code>, <code>BUILD</code>, <code>BACKEND</code>), the bold message, and the
-diagnostic code</li>
+<code>TYPES</code>, <code>OWNERSHIP</code>, <code>LOWERING</code>, <code>PACKAGE</code>, <code>BUILD</code>, <code>BACKEND</code>), the bold
+message, and the diagnostic code</li>
 <li>a framed source snippet (<code>┌─ file:line:column</code>) with the offending line and a
 caret under the primary span</li>
 <li>secondary labels for related sites</li>
@@ -474,39 +480,69 @@ structured fields are first-class rather than reverse-engineered from text.</p>
 <li>unresolved names</li>
 <li>duplicate names</li>
 <li>ambiguous references</li>
-<li>type mismatches and unsupported semantic surfaces inside <code>V1</code></li>
-<li>unsupported lowered <code>V1</code> surfaces before target emission</li>
-<li>backend emission and build failures when lowered <code>V1</code> workspaces cannot become
+<li>type mismatches and unsupported capability surfaces in the shipped V1, V2,
+and V3 contracts</li>
+<li>V2 generic/protocol conformance failures for the checked-in shipped subset</li>
+<li>V3 move/resource-state failures (<code>O1xxx</code>) and lexical borrow failures
+(<code>O2xxx</code>)</li>
+<li>V3 processor tier, direct-task-target, channel lifecycle, thread-boundary,
+eventual must-handle, and deferred mutex-effect failures</li>
+<li>unsupported lowered surfaces before target emission</li>
+<li>backend emission and build failures when lowered workspaces cannot become
 runnable artifacts</li>
 <li>build graph evaluation failures</li>
 </ul>
+<p>Runtime-capability and execution-routing failures remain distinct. Using
+heap-backed values from <code>core</code>, or hosted APIs without a <code>memo</code> artifact and its
+declared bundled <code>std</code>, is a compiler-owned capability diagnostic. Trying to
+run or test a foreign selected target is a frontend target-compatibility
+diagnostic. Merely running or testing a host-compatible <code>core</code> or <code>memo</code>
+artifact is not a missing-<code>std</code> error.</p>
 <p>This is the important boundary for the current compiler stage:</p>
 <ul>
-<li>the compiler can now parse, resolve, type-check, and lower the supported <code>V1</code>
-subset</li>
+<li>the compiler can parse, resolve, type-check, lower, and execute the supported
+V1 contract, the explicitly shipped V2 subset, and both shipped V3 pillars</li>
 <li>diagnostics already cover failures from each of those stages plus backend
 emission/build failures</li>
-<li>the project now does promise a finished first backend for the current <code>V1</code>
-subset, while later targets, optimizations, C ABI work, and Rust interop
-work remain outside
-this chapter</li>
+<li>current hard boundaries are diagnosed rather than silently accepted: for
+example unique-pointer field dereference without place-aware projection IR,
+moved-owner deferred reinitialization, terminating <code>report</code> inside deferred
+cleanup, indirect spawn/async targets, unhandled recoverable eventuals,
+channel endpoint lifecycle violations, and deferred mutex guard effects</li>
+<li>later targets, optimizations, C ABI work, and Rust interop remain outside the
+current V1/V2/V3 contract</li>
 </ul>
+<p>V3 diagnostic completeness is inventory-driven. Every checked-in <code>fail_mem_*</code>
+and <code>fail_proc_*</code> package must appear in the shared
+<code>test/v3_example_inventory.rs</code> table with its expected producer code, message
+fragment, and related-site requirement. Compiler integration and LSP tests
+consume that same table, so the editor cannot silently weaken a boundary or
+replace a structured compiler failure with an editor-only guess. The published
+directory lists live in the memory and processor section indexes.</p>
 <h2 id="what-diagnostics-do-not-guarantee"><a class="header" href="#what-diagnostics-do-not-guarantee">What diagnostics do not guarantee</a></h2>
-<p>Diagnostics are strong, but they are not a substitute for the later semantic
-phases.</p>
+<p>Diagnostics are strong, but a structured error family is not a promise that
+every future language design is implemented.</p>
 <p>Current limits still matter:</p>
 <ul>
 <li>parser diagnostics do not imply type checking has happened</li>
-<li><code>report</code> compatibility still belongs to later semantic work</li>
-<li>type mismatch, coercion, and conversion diagnostics are future type-checker work</li>
-<li>ownership and borrowing diagnostics are future semantic work</li>
+<li>V2 diagnostics cover only the explicitly shipped generic/protocol subset, not
+every standards, blueprint, or generic design in the book</li>
+<li>V3 ownership diagnostics do not imply place-aware partial moves, general
+thread-safety contracts for unconstrained generics, or a flow-sensitive/NLL
+borrow checker</li>
+<li>V3 processor diagnostics do not imply indirect task dispatch, nameable
+eventual types, arbitrary channel composites, deferred mutex guard effects,
+cancellation, or an async runtime</li>
+<li>coercion and conversion diagnostics only cover conversions the current
+compiler actually implements</li>
 <li>C ABI diagnostics are future <code>V4</code> package/type/backend work</li>
 <li>Rust interop diagnostics are future <code>V4</code> package/type/backend work</li>
 </ul>
 <p>So the current guarantee is:</p>
 <ul>
-<li>if stream, lexer, parser, package loading, resolver, typechecker, or lowering
-can identify the problem now, diagnostics should be structured and exact</li>
+<li>if stream, lexer, parser, package loading, resolver, typechecker (including
+ownership/borrowing), lowering, backend, build evaluation, or frontend can
+identify the problem now, diagnostics should be structured and exact</li>
 </ul>
 <p>But not:</p>
 <ul>

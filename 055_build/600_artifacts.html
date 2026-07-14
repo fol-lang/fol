@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -196,10 +196,15 @@ artifacts, modules, and generated files.</p>
 <pre><code class="language-fol">var app = graph.add_exe({
     name     = "app",      // required: output name
     root     = "src/main.fol",  // required: entry-point source file
+    fol_model = "core",    // optional: core or memo (memo if omitted)
     target   = target,     // optional: Target handle
     optimize = optimize,   // optional: Optimize handle
 });
 </code></pre>
+<p><code>fol_model</code> governs source-visible capabilities, not whether the artifact is a
+binary. Both <code>core</code> and <code>memo</code> can produce runnable executables and test
+bundles. A <code>memo</code> artifact declares bundled <code>std</code> separately only when its
+source needs hosted APIs.</p>
 <p><code>name</code> must be lowercase. Allowed characters: <code>a-z</code>, <code>0-9</code>, <code>-</code>, <code>_</code>, <code>.</code>.</p>
 <h3 id="artifact-name-validation"><a class="header" href="#artifact-name-validation">Artifact Name Validation</a></h3>
 <p>The build system validates artifact names at evaluation time. Invalid names
@@ -333,6 +338,9 @@ docs.depend_on(compile);
 <p>When only one executable exists in a package, the build system automatically
 binds it to the default <code>build</code> and <code>run</code> steps. When multiple executables
 exist, explicit step bindings are required via <code>graph.add_run(artifact)</code>.</p>
+<p>These bindings select what the frontend launches; they do not upgrade the
+artifact to hosted <code>std</code>. <code>fol code run</code> and <code>fol code test</code> accept std-free
+<code>core</code> and <code>memo</code> artifacts when the evaluated target matches the host.</p>
 <h3 id="selecting-steps-at-the-command-line"><a class="header" href="#selecting-steps-at-the-command-line">Selecting Steps at the Command Line</a></h3>
 <pre><code class="language-text">fol code build         # run the install steps
 fol code build docs    # run the "docs" step
@@ -340,6 +348,9 @@ fol code run           # run the default run step
 fol code run --step serve  # run the "serve" step
 fol code test          # run test steps
 </code></pre>
+<p>Cross-target artifacts can still be built. The current frontend has no runner
+configuration, so <code>run</code> and <code>test</code> reject a foreign selected target before
+launch instead of treating bundled <code>std</code> as execution permission.</p>
 <h2 id="graph-validation"><a class="header" href="#graph-validation">Graph Validation</a></h2>
 <p>After the build program executes, the graph is validated:</p>
 <ul>

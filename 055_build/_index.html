@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -208,13 +208,22 @@ reached through <code>build.graph()</code>.</p>
     var build = .build();
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
-    var app = graph.add_exe({ name = "app", root = "src/main.fol" });
+    var app = graph.add_exe({
+        name = "app",
+        root = "src/main.fol",
+        fol_model = "core",
+    });
     graph.install(app);
     graph.add_run(app);
 }
 </code></pre>
 <p>This registers package metadata, adds an executable, marks it for installation,
-and binds a default run step.</p>
+and binds a default run step. The artifact uses <code>core</code>, so its source has no
+heap-backed or hosted APIs. It can nevertheless be launched with <code>fol code run</code>
+on a compatible host; no bundled <code>std</code> dependency is needed just to execute it.</p>
+<p><code>fol_model</code> is an artifact capability choice. <code>graph.add_run</code> and
+<code>graph.add_test</code> only register tool actions; they neither widen that capability
+nor require bundled <code>std</code>.</p>
 <h2 id="what-fol-build-owns"><a class="header" href="#what-fol-build-owns">What <code>fol-build</code> Owns</a></h2>
 <ul>
 <li><code>graph.rs</code> — build graph IR (steps, artifacts, modules, options, generated files)</li>
@@ -274,17 +283,22 @@ public <code>Graph</code> or <code>Build</code> type.</p>
 </ul>
 <p>Runtime-model reminder:</p>
 <ul>
-<li>examples that rely on hosted behavior such as <code>.echo(...)</code> or routed
-execution should spell <code>fol_model = "memo"</code></li>
-<li><code>core</code> and <code>memo</code> examples in the build book should stay free of hosted
-assumptions</li>
+<li>examples that rely on hosted language APIs such as <code>.echo(...)</code> or V3
+processor facilities should spell <code>fol_model = "memo"</code> and declare bundled
+<code>std</code></li>
+<li><code>core</code> and <code>memo</code> examples may be executable and use routed <code>run</code> / <code>test</code>;
+they should stay free of source-level hosted API assumptions</li>
+<li>frontend host-tool and artifact launching is separate from language
+capability tiering</li>
+<li>the current frontend has no cross-target runner configuration, so routed
+<code>run</code> / <code>test</code> reject foreign targets even though those targets may be built</li>
 </ul>
 <p>Bundled std reminder:</p>
 <ul>
 <li><code>std</code> ships with FOL under <code>lang/library/std</code></li>
-<li>hosted packages add bundled std explicitly through:
+<li>packages using hosted APIs add bundled std explicitly through:
 <code>.build().add_dep({ alias = "std", source = "internal", target = "standard" })</code></li>
-<li>normal hosted packages should rely on the bundled shipped <code>std</code>, not an
+<li>normal hosted-API packages should rely on the bundled shipped <code>std</code>, not an
 external replacement package</li>
 </ul>
 

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -196,6 +196,8 @@
 <li><code>fol tool rename &lt;PATH&gt; --line &lt;LINE&gt; --character &lt;CHARACTER&gt; &lt;NEW_NAME&gt;</code></li>
 <li><code>fol tool semantic-tokens &lt;PATH&gt;</code></li>
 <li><code>fol tool tree generate &lt;PATH&gt;</code></li>
+<li><code>fol tool clean</code></li>
+<li><code>fol tool completion [bash|zsh|fish]</code></li>
 </ul>
 <p>This keeps editor workflows under the same <code>fol</code> binary rather than introducing
 a second public tool.</p>
@@ -215,34 +217,27 @@ a second public tool.</p>
 <li>open-document state</li>
 <li>compiler-backed diagnostics</li>
 <li>hover</li>
-<li>go-to-definition</li>
+<li>go-to-definition, go-to-type-definition, and go-to-implementation</li>
+<li>current-document symbol highlights</li>
 <li>whole-document formatting</li>
 <li>code actions for exact compiler suggestions
 The current shipped inventory is intentionally one diagnostic family:
 unresolved-name replacements where the compiler attached an exact replacement.</li>
 <li>signature help for plain and qualified routine calls</li>
 <li>references</li>
-<li>rename for same-file local and current-package top-level symbols</li>
+<li>prepare-rename and rename for same-file local bindings, routine parameters,
+and current-package top-level symbols</li>
 <li>semantic tokens</li>
+<li>inferred-type inlay hints</li>
+<li>brace-block folding ranges and word/block/file selection ranges</li>
 <li>document symbols</li>
 <li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
-<li>completion</li>
+<li>completion and completion-item resolve</li>
 </ul>
-<p>The currently supported v1 LSP surface is:</p>
-<ul>
-<li>diagnostics</li>
-<li>hover</li>
-<li>definition</li>
-<li>formatting</li>
-<li>code actions for exact compiler suggestions</li>
-<li>signature help for plain and qualified routine calls</li>
-<li>references</li>
-<li>rename for same-file local and current-package top-level symbols</li>
-<li>semantic tokens</li>
-<li>document symbols</li>
-<li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
-<li>completion</li>
-</ul>
+<p>These general editor services cover the implemented V1 contract and the
+checked-in shipped V2 and V3 example matrices. The exact capability list and
+version-bounded semantic expectations live in
+<a href="./500_lsp.html">Language Server</a>.</p>
 <p>The server keeps diagnostics and semantic snapshots separately.</p>
 <p>Formatting is intentionally whole-document only right now.
 <code>textDocument/rangeFormatting</code> stays unsupported until there is a safe
@@ -250,9 +245,12 @@ structure-preserving boundary instead of a partial line-rewriter.</p>
 <p>The current formatter contract is intentionally narrow but explicit:</p>
 <ul>
 <li>indentation is four spaces per brace depth</li>
-<li>lines are trimmed before indentation is re-applied</li>
-<li>leading blank lines are removed and repeated blank lines collapse to one</li>
-<li>trailing blank lines are removed</li>
+<li>ordinary code lines are trimmed before indentation is re-applied</li>
+<li>braces inside cooked/raw quotes or any compiler-recognized comment form do
+not affect indentation depth</li>
+<li>multiline quote/comment payload lines retain their original content</li>
+<li>outside protected multiline payloads, leading blank lines are removed,
+repeated blank lines collapse to one, and trailing blank lines are removed</li>
 <li>output always ends with one final newline when the document is non-empty</li>
 <li>line endings are normalized to <code>\n</code></li>
 <li><code>build.fol</code> follows the same formatter entrypoint and indentation rules as
@@ -260,9 +258,10 @@ ordinary source files</li>
 </ul>
 <p>Diagnostics refresh on <code>didOpen</code> and <code>didChange</code>.</p>
 <p>Semantic requests keep one semantic snapshot per open document version and
-reuse it for hover, definition, signature help, references, rename, semantic
-tokens, document symbols, workspace symbols, and completion until the document
-changes or closes.</p>
+reuse it for hover, definition, type definition, implementation, document
+highlight, signature help, references, prepare rename, rename, semantic tokens,
+document/workspace symbols, completion, inlay hints, folding ranges, and
+selection ranges until the document changes or closes.</p>
 <h2 id="compiler-truth"><a class="header" href="#compiler-truth">Compiler Truth</a></h2>
 <p><code>fol-editor</code> does not create a second semantic engine.</p>
 <p>Semantic truth still comes from:</p>
@@ -301,6 +300,21 @@ fol tool rename path/to/file.fol --line 12 --character 8 total
 fol tool semantic-tokens path/to/file.fol
 </code></pre>
 <p>for parser/query debugging and validation.</p>
+<p>The three Tree-sitter inspection commands use the checked-in generated parser
+and execute queries in-process:</p>
+<ul>
+<li><code>parse</code> returns the real S-expression, node counts, and recovered
+<code>ERROR</code>/missing-node ranges</li>
+<li><code>highlight</code> executes the shipped highlight query and returns every actual
+capture with its zero-based range and source text</li>
+<li><code>symbols</code> executes the shipped symbol query and returns every actual symbol
+capture plus the number of captured scopes</li>
+</ul>
+<p>All three include <code>parse_status=ok</code> or <code>parse_status=ERROR</code>. Syntax errors do
+not prevent inspection of the recovered tree, so dead syntax examples can be
+used to verify that a removed form still produces an <code>ERROR</code> node. The normal
+inspection path does not shell out to the Tree-sitter CLI; only bundle
+generation does.</p>
 
                     </main>
 

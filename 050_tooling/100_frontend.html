@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -200,9 +200,15 @@
 </ul>
 <p>Bundled std reminder:</p>
 <ul>
-<li>hosted binary scaffolds should default to <code>fol_model = "memo"</code></li>
-<li>scaffolded projects should rely on bundled <code>std</code></li>
-<li>scaffolding should not teach manual std dependency setup</li>
+<li>the current binary scaffold defaults to <code>fol_model = "memo"</code> and bundled
+<code>std</code> because its generated source uses hosted <code>std.io</code></li>
+<li>a bare executable may use <code>core</code> or <code>memo</code> and does not need bundled <code>std</code></li>
+<li>scaffolding writes the dependency automatically when its generated source
+needs <code>std</code>; users should not have to repair an incomplete scaffold manually</li>
+<li>running and testing host-compatible artifacts is frontend/toolchain behavior,
+not a bundled-std capability</li>
+<li>cross-target <code>run</code> / <code>test</code> remain rejected until the frontend has a runner
+configuration, independently of the artifact’s API tier</li>
 </ul>
 <p>Compiler truth remains in the compiler crates.</p>
 <h2 id="public-command-groups"><a class="header" href="#public-command-groups">Public Command Groups</a></h2>

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Coroutines - FOL Language Specification</title>
+        <title>Tasks, Channels, and Mutexes - FOL Language Specification</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -174,80 +174,161 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="coroutines"><a class="header" href="#coroutines">Coroutines</a></h1>
-<p>This chapter is future concurrency/runtime design.</p>
-<p>Current milestone note:</p>
+                        <h1 id="tasks-channels-and-mutexes"><a class="header" href="#tasks-channels-and-mutexes">Tasks, Channels, and Mutexes</a></h1>
+<p>The processor surface is a <code>V3</code> systems feature. Every processor construct is
+<code>std</code>-only: a package must declare the bundled internal <code>standard</code> dependency.
+Choosing <code>core</code> or <code>memo</code> alone does not provide threads or hosted services.
+The artifact itself uses <code>fol_model = "memo"</code>; there is no <code>std</code> model.
+This dependency gates processor APIs, not process execution: std-free <code>core</code>
+and <code>memo</code> artifacts may still run on a compatible host.</p>
+<h2 id="spawn"><a class="header" href="#spawn">Spawn</a></h2>
+<p><code>[&gt;]call()</code> starts one operating-system thread and lets the current routine
+continue. FOL has no worker pool, scheduler settings, Rust async runtime, or
+Tokio dependency. Every spawned task is registered with the process and the
+program joins all outstanding tasks before its entry point exits.</p>
+<pre><code class="language-fol">use std: pkg = {"std"};
+
+fun[] worker(): int = {
+    return std::io::echo_int(17);
+};
+
+fun[] main(): int = {
+    [&gt;]worker();
+    return 0;
+};
+</code></pre>
+<p>A bare spawn is always fire-and-forget: <code>[&gt;]call()</code> creates no eventual and
+cannot be awaited. It must therefore call an infallible routine. To run a
+recoverable routine asynchronously, omit <code>[&gt;]</code>, write <code>call() | async</code>, then
+consume the eventual with <code>| await</code> and handle the result with <code>check(...)</code> or
+<code>||</code>.
+The call form must resolve directly to a named routine declaration. Both an
+unqualified call such as <code>[&gt;]worker()</code> and a qualified call such as
+<code>[&gt;]workers::worker()</code> are supported. Stored routine values, stored anonymous
+routines, and routine parameters remain indirect calls and are not spawn
+targets in <code>V3</code>. The explicit zero-parameter anonymous spawn form remains
+available for explicit channel sender-endpoint captures; it is not a general
+closure-capture surface. Receiver-method call syntax is not a named
+spawn-target form; use a free routine name or qualified path instead.</p>
+<p>The spawn boundary follows the <code>V3</code> memory rules:</p>
 <ul>
-<li>coroutine, channel, and mutex semantics are not part of the implemented <code>V1</code>
-compiler</li>
-<li>this material belongs to the later <code>V3</code> systems milestone</li>
+<li>clone-safe values clone into the task</li>
+<li>thread-safe move-only values, including <code>@</code> ownership and unique pointers,
+move into the task and leave the sender moved-out</li>
+<li>borrowed values do not cross the thread boundary</li>
+<li><code>ptr[shared, T]</code> values do not cross the boundary because their <code>Rc</code> backing
+is not thread-safe</li>
+<li>unresolved generic parameters do not cross until FOL has a thread-safety and
+lifetime contract for generics; concrete thread-safe instantiations can cross</li>
+<li>omitted defaults are checked as task arguments under the same rules as
+explicit arguments</li>
 </ul>
-<p>A coroutine is a task given form the main thread, similar to a routine, that can be in concurrent execution with other tasks of the same program though other routines.  A <strong>worker</strong> takes the task and runs it, concurrently. Each task in a program can be assigned to one or multiple workers.</p>
-<p>Three characteristics of coroutine distinguish them from normal routines:</p>
-<ul>
-<li>First, a task may be implicitly started, whereas a routine must be explicitly called.</li>
-<li>Second, when a program unit invokes a task, in some cases it need not wait for the task to complete its execution before continuing its own.</li>
-<li>Third, when the execution of a task is completed, control may or may not return to the unit that started that execution.</li>
-<li>Fourth and most importantly, the execution of the routine is entirely independent from main thread.</li>
-</ul>
-<p>In fol to assign a task to a worker, we use the symbols <code>[&gt;]</code></p>
+<p>Cross-thread shared mutation belongs to <code>[mux]</code> parameters, not <code>Rc</code>.</p>
+<p>The exact positive and negative spawn examples are maintained in the
+<a href="./_index.html#shipped-example-inventory">canonical shipped processor inventory</a>.</p>
 <h2 id="channels"><a class="header" href="#channels">Channels</a></h2>
-<p>FOL provides asynchronous channels for communication between threads. Channels allow a unidirectional flow of information between two end-points: the Transmitter and the Receiver. It creates a new asynchronous channel, returning the tx/tx halves. All data sent on the Tx (transmitter) will become available on the Rx (receiver) in the same order as it was sent. The data is sent in a sequence of a specifies type <code>seq[type]</code>. <code>tx</code> will not block the calling thread while <code>rx</code> will block until a message is available.</p>
-<pre><code>pro main(): int = {
-    var channel: chn[str];
-    for (0 ... 4) {
-        [&gt;]doItFast() | channel[tx]                                             // sending the output of four routines to a channel transmitter
-                                                                                // each transmitter at the end sends the close signal
-    }
-    var fromCh1 = channel[rx][0]                                                // reciveing data from one transmitter, `0`
-}
-
-fun doItFast(i: int; found: bol): str = {
-    return "hello"
-}
+<p>Channels are an implemented processor surface. The contract is an unbounded
+MPSC <code>chn[T]</code> backed by <code>std::sync::mpsc</code>: <code>c[tx]</code> sends without blocking,
+<code>c[rx]</code> performs a blocking pull, and receiver iteration runs until all sender
+handles are dropped. The old sequence-index spelling <code>c[rx][i]</code> is not part of
+the contract.</p>
+<p><code>T</code> may be a thread-safe move-only value. Sending consumes that value, and a
+blocking receive, receiver iteration, or selected arm transfers the payload to
+its destination without cloning it. Unique pointers are supported this way;
+values containing <code>ptr[shared, T]</code> remain barred from OS-thread boundaries.</p>
+<p>The first <code>c[rx]</code> acquisition relinquishes that channel binding’s local
+transmitter capability. Clone or capture every needed <code>c[tx]</code> handle before
+receiving. Sender handles acquired earlier remain valid and the channel closes
+when the last of those handles is dropped; trying to acquire <code>c[tx]</code> after the
+receiver is active is an ownership error, not a runtime panic. This explicit
+endpoint lifecycle lets pull loops and <code>select</code> observe closure without keeping
+an invisible transmitter alive.</p>
+<p>Channel endpoint acquisition is not allowed inside <code>dfr</code> or <code>edf</code>, including
+endpoint captures on anonymous spawned routines in a deferred body. Acquire all
+sender handles before entering the deferred block, and keep receiver operations
+in ordinary control flow; delayed endpoint acquisition cannot be ordered safely
+against the first receiver acquisition.</p>
+<p>V3 endpoint access is restricted to a direct local, parameter, or capture
+binding owned by the current routine. Projected channel fields, channel
+container elements, and implicit references to an outer routine’s channel are
+not part of the shipped lifecycle model; keep the channel in a direct binding
+before using <code>[tx]</code>, <code>[rx]</code>, iteration, or <code>select</code>. Top-level/global channel
+bindings are also rejected; a channel belongs to the routine that owns its
+receiver.</p>
+<p>Full <code>chn[T]</code> values also cannot be embedded in records, entries, containers,
+or ownership/error/optional wrappers in V3. This keeps the single receiver and
+its endpoint lifecycle attached to one direct routine-local binding. Sender
+handles that were acquired earlier remain independently cloneable.</p>
+<p>Anonymous routines cannot declare <code>chn[T]</code> parameters in V3 because they do not
+participate in named-routine sender/receiver effect refinement. Use a named
+routine, or capture an already-existing sender explicitly with <code>c[tx]</code>.</p>
+<p>Spawned anonymous routines can clone a transmitter explicitly with
+<code>[&gt;]fun()[c[tx]] = { ... }</code>. Receiver endpoints are not cloned: MPSC retains a
+single consuming side.</p>
+<p>The exact positive, ownership-boundary, lifecycle, and tier-failure channel
+examples are maintained in the
+<a href="./_index.html#shipped-example-inventory">canonical shipped processor inventory</a>.</p>
+<h2 id="select"><a class="header" href="#select">Select</a></h2>
+<p>The chosen multiplexing form is a multi-arm statement:</p>
+<pre><code class="language-fol">select {
+    when first as value { consume(value); }
+    when second as value { consume(value); }
+};
 </code></pre>
-<p>If we want to use the channel within the function, we have to clone the channel’s tx and capture with an ananymus routine: Once the channels transmitter goes out of scope, it gets disconnected too.</p>
-<pre><code>pro main(): int = {
-    var channel: chn[str];                                                      // a channel with four buffer transmitters
-    var sequence: seq[str];
-
-    for (0 ... 4) {
-        [&gt;]fun()[channel[tx]] = {                                               // capturin gthe pipe tx from four coroutines
-            for(0 ... 4){
-                "hello" | channel[tx]                                           // the result are sent fom withing the funciton eight times
-            }
-        }                                                                       // when out of scope a signal to close the `tx` is sent
-    }
-
-    select(channel as c){
-        sequence.push(channel[rx][c])                                           // select statement will check for errors and check which routine is sending data
-    }
-}
+<p>The old single-channel <code>select(channel as name) { ... }</code> form is not retained.
+The runtime polls arms in source order with <code>try_recv()</code>. Closed arms are
+skipped and a blocking select completes, continuing after the statement, when
+all arms are closed. An optional <code>*</code> arm runs immediately when no receiver is
+ready. Simultaneously-ready arms therefore have source-order bias in V3; no
+fairness guarantee is promised.</p>
+<p>A blocking select without <code>*</code> must contain at least one channel arm.
+<code>select {}</code> is invalid and is rejected during typecheck rather than being left
+for lowering. A default-only select is non-blocking because its <code>*</code> body runs
+immediately.</p>
+<h2 id="mutex-parameters"><a class="header" href="#mutex-parameters">Mutex parameters</a></h2>
+<p>The chosen mutex surface uses the ordinary parameter-option seam:</p>
+<pre><code class="language-fol">fun[] update(value[mux]: Counter): int = {
+    value.lock();
+    value.total = value.total + 1;
+    var result: int = value.total;
+    value.unlock();
+    return result;
+};
 </code></pre>
-<h2 id="locks---mutex"><a class="header" href="#locks---mutex">Locks - Mutex</a></h2>
-<p>Mutex is a locking mechanism that makes sure only one task can acquire the mutexed varaible at a time and enter the critical section. This task only releases the mutex when it exits the critical section. It is a mutual exclusion object that synchronizes access to a resource.</p>
-<p>In FOL mutexes can be passed only through a routine. When declaring a routine, instead of using the borrow form with <code>( // borrowing variable )</code>, we use double brackets <code>(( // mutex ))</code>. When we expect a mutex, then that variable, in turn has two method more:</p>
-<ul>
-<li>the <code>lock()</code> which unwraps the variable from mutex and locks it for writing and</li>
-<li>the <code>unlock()</code> which releases the lock and makes the file avaliable to other tasks</li>
-</ul>
-<pre><code>
-fun loadMesh(path: str, ((meshes)): vec[mesh]) = {                              // declaring a *mutex and *atomic reference counter with double "(( //declaration ))"
-    var aMesh: mesh = mesh.loadMesh(path) 
-    meshes.lock()
-    meshes.push(aMesh)                                                          // there is no need to unlock(), FOL automatically drops at the end of funciton
-                                                                                // if the function is longer, then we can unlock to not keep other tasks waiting
-}
-
-pro main(): int = {
-    ~var meshPath: vec[str];
-    ~var meshes: vec[mesh];
-    var aFile = file.readfile(filepath) || .panic("cant open the file")
-
-    each( line in aFile.line() ) { meshPath.push(line) };
-    for(m in meshPath) { [&gt;]loadMesh(m, meshes) };
-}
-</code></pre>
+<p><code>[mux]</code> lowers to <code>Arc&lt;Mutex&lt;T&gt;&gt;</code>. A routine acquires the guard with <code>.lock()</code>;
+guarded fields are accessible only while that guard is active. The guard is
+released automatically at the end of the lexical scope that acquired it, or
+early with <code>.unlock()</code> in that same scope. Locking the same parameter twice is
+rejected, as is unlocking without a guard acquired in the current lexical
+scope. The historical <code>((name))</code> parameter spelling is not retained.</p>
+<p>Mutex field access and <code>.lock()</code>/<code>.unlock()</code> are not allowed inside <code>dfr</code> or
+<code>edf</code> bodies in <code>V3</code>. Guard transitions are tracked for immediate lexical
+execution and are not replayed as delayed effects at scope exit. Forwarding a
+mutex handle from a deferred body to another <code>[mux]</code> routine is rejected for
+the same reason.</p>
+<p>The guarded <code>T</code> cannot be copied, returned, embedded, or passed to an ordinary
+<code>T</code> parameter as a whole value. Passing the mutex handle directly to another
+<code>[mux]</code> parameter is allowed, including through spawn; data access still
+requires that receiving routine to acquire its own guard.</p>
+<p>For a synchronous call, the caller must unlock a handle before forwarding it
+to another <code>[mux]</code> parameter; otherwise the callee could block trying to acquire
+the caller’s guard. One call also cannot pass the same handle to two <code>[mux]</code>
+parameters because those aliases can self-deadlock. Spawn and async calls are
+task boundaries and may receive the cloned handle while the caller still holds
+its guard; the new task waits until the caller releases it.</p>
+<p>The <code>[mux]</code> calling convention is currently available only on named routines
+that are called directly, through either unqualified or qualified names. A
+named routine with <code>[mux]</code> parameters cannot be stored or passed as a
+first-class routine value, and anonymous routines cannot declare <code>[mux]</code>
+parameters. Those routine-value forms do not yet retain the mutex ABI metadata
+needed to preserve <code>Arc&lt;Mutex&lt;T&gt;&gt;</code>; use a named direct call instead.</p>
+<p>Despite this chapter’s historical filename, the shipped surface is OS-thread
+tasks, channels, select, and mutexes—not resumable coroutines or generators.
+Generator <code>yield</code> is parser-recognized but remains rejected by typecheck and
+lowering in <code>V3</code>.</p>
+<p>The exact positive, removed-syntax, deferred-effect, and tier-failure examples
+for <code>select</code> and mutexes are maintained in the
+<a href="./_index.html#shipped-example-inventory">canonical shipped processor inventory</a>.</p>
 
                     </main>
 

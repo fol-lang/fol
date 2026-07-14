@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,7 +187,8 @@
 <li>diagnostics</li>
 <li>hover</li>
 <li>go-to-definition</li>
-<li>go-to-type-definition (a value’s declared type, unwrapping optional/container shells)</li>
+<li>go-to-type-definition (a value’s declared type, unwrapping optional,
+container, ownership/borrow, pointer, channel, and eventual shells)</li>
 <li>go-to-implementation (a protocol standard’s conforming types)</li>
 <li>document highlight (occurrences of the symbol under the cursor, current file)</li>
 <li>whole-document formatting</li>
@@ -199,7 +200,6 @@ top-level symbols, with prepare-rename validation</li>
 <li>semantic tokens</li>
 <li>inlay hints (inferred type for <code>var</code>/<code>lab</code>/<code>con</code> bindings without an explicit
 annotation)</li>
-<li>code lens (a “Run” action above <code>fun[] main</code>)</li>
 <li>folding ranges (brace blocks)</li>
 <li>selection ranges (word -&gt; enclosing block -&gt; file)</li>
 <li>document symbols</li>
@@ -207,11 +207,18 @@ annotation)</li>
 <li>completion, including language-keyword suggestions and completion-item resolve</li>
 <li>the same compiler-backed behavior for ordinary source files and <code>build.fol</code></li>
 </ul>
-<p>This is still primarily a V1 surface.
-The editor only claims shipped V2-aware behavior for the checked-in
-generic-routine, generic-type, constrained-generic, and protocol-standard
-examples, and it does not claim broad rename outside the documented safe
-classes or range formatting.</p>
+<p>The general editor UX above is shared across language versions. Semantic
+coverage claims are deliberately bounded to the implemented V1 contract, the
+checked-in V2 generic-routine, generic-type, constrained-generic, and protocol-standard
+example subset, and the checked-in V3 memory and processor inventories. The
+server does not claim broad rename outside the documented safe classes, range
+formatting, or editor-owned semantics beyond what compiler-backed analysis
+supplies.</p>
+<p>The server also does not advertise <code>workspace/executeCommand</code>, so it does not
+emit a dead run code lens. Package execution remains the explicit
+<code>fol code run</code> CLI path. That path still enforces compiler-owned API legality,
+but bundled std is not an execution permission: host-compatible <code>core</code> and
+<code>memo</code> artifacts can run without it.</p>
 <p>That means build files should not need a separate editor mode.
 <code>build.fol</code> goes through the same language server entrypoint as the rest of the
 package.</p>
@@ -223,8 +230,10 @@ Full-document sync remains an explicit opt-in for clients/configs that need it.<
 <p>Formatting is intentionally limited to <code>textDocument/formatting</code>.
 <code>textDocument/rangeFormatting</code> remains unsupported until the formatter can
 preserve surrounding structure safely instead of guessing at partial blocks.</p>
-<p>Current whole-document formatting also normalizes blank-line runs:
-leading blank lines are removed and repeated blank lines collapse to one.</p>
+<p>Current whole-document formatting also normalizes blank-line runs outside
+multiline quote/comment payloads: leading blank lines are removed and repeated
+blank lines collapse to one. Payload lines are preserved, and braces inside
+quotes or compiler-recognized comments do not affect indentation.</p>
 <h2 id="analysis-model"><a class="header" href="#analysis-model">Analysis Model</a></h2>
 <p>The server works like this:</p>
 <ol>
@@ -236,28 +245,42 @@ leading blank lines are removed and repeated blank lines collapse to one.</p>
 </ol>
 <p>Package/workspace root discovery is cached for the current session once a
 document directory has been mapped.</p>
+<p>When evaluated <code>build.fol</code> state activates a bundled internal <code>standard</code>
+dependency, the disposable analysis overlay materializes that dependency under
+its active declared alias. Conditional declarations that are inactive for the
+selected target/options do not become resolvable merely because their text is
+present in <code>build.fol</code>. Hosted examples therefore resolve in a fresh checkout;
+editor tests and users do not need to pre-populate <code>.fol/pkg</code> first.</p>
+<p>The same evaluated state supplies the artifact’s <code>core</code> or <code>memo</code> contract to
+compiler-backed analysis. The LSP never widens that contract because an
+artifact has a run or test step: execution registration is not semantic input.</p>
 <p>That means diagnostics and navigation are compiler-backed, not guessed from
 Tree-sitter alone.</p>
 <p>For open documents, diagnostics and semantic snapshots are cached separately.</p>
 <p><code>didOpen</code> and <code>didChange</code> refresh diagnostics for the current in-memory text.</p>
-<p>Hover, definition, signature help, references, rename, semantic tokens,
-document symbols, workspace symbols, and completion use a semantic snapshot
-keyed by document version and reuse it until <code>didChange</code> or <code>didClose</code>
-invalidates it.</p>
+<p>Hover, definition, type definition, implementation, document highlight,
+signature help, references, prepare rename, rename, semantic tokens, document
+symbols, workspace symbols, completion, inlay hints, folding ranges, and
+selection ranges use a semantic snapshot keyed by document version
+and reuse it until <code>didChange</code> or <code>didClose</code> invalidates it.</p>
 <h2 id="diagnostics"><a class="header" href="#diagnostics">Diagnostics</a></h2>
 <p>Compiler diagnostics remain canonical.</p>
 <p>The server adapts them into LSP diagnostics for the currently open document.</p>
 <p>LSP diagnostics include the diagnostic code in the message (e.g.
 <code>[R1003] could not resolve name 'answer'</code>) so editors display the code inline.</p>
-<p>The server deduplicates diagnostics by <code>(line, code)</code> before publishing. This
-means a parse cascade that produces many identical errors on the same line will
-show at most one diagnostic per line per code in the editor.</p>
+<p>The server removes only exact wire-identical diagnostics before publishing.
+Diagnostics that share a line and code but differ in range, message, severity,
+or related information remain visible. This catches true cross-stage
+duplicates without hiding distinct failures that happen to occupy one line.</p>
 <h2 id="expected-behavior"><a class="header" href="#expected-behavior">Expected Behavior</a></h2>
 <p>If the LSP client is attached correctly, you should expect:</p>
 <ul>
 <li>source-file diagnostics in the open file</li>
 <li>hover on resolved symbols</li>
 <li>go-to-definition across current-package and imported symbols where supported</li>
+<li>go-to-type-definition for values with a compiler-known declared type</li>
+<li>go-to-implementation from protocol standards to conforming types</li>
+<li>current-document highlights for a resolved symbol’s declaration and uses</li>
 <li>whole-document formatting edits from <code>textDocument/formatting</code></li>
 <li>code actions only when the compiler attached an exact replacement suggestion
 The current shipped code-action inventory is intentionally narrow:
@@ -265,8 +288,10 @@ unresolved-name replacements only.</li>
 <li>signature help for supported routine call sites</li>
 <li>references for the supported symbol classes</li>
 <li>rename for same-file local bindings, routine parameters, and current-package
-top-level symbols only</li>
+top-level symbols only, with <code>prepareRename</code> enforcing the same eligibility</li>
 <li>semantic tokens for semantic identifier categories</li>
+<li>inferred-type inlay hints for unannotated <code>var</code>/<code>lab</code>/<code>con</code> bindings</li>
+<li>brace-block folding ranges and word/block/file selection ranges</li>
 <li>document symbols for the current file</li>
 <li>workspace symbols across discovered <code>.fol</code> files under the mapped workspace root</li>
 <li>completion in ordinary source files and <code>build.fol</code>, including language
@@ -288,7 +313,26 @@ plain positions</li>
 <li><code>examples/standards_protocol_m2</code></li>
 </ul>
 </li>
+<li>compiler-backed V3 diagnostics and navigation for the checked-in ownership,
+borrowing, pointer, <code>dfr</code>/<code>edf</code>, spawn, channel, <code>select</code>, <code>[mux]</code>, async, and
+await examples</li>
+<li>positive V3 roots in LSP/open/navigation inventory sweeps and <code>fail_mem_*</code> /
+<code>fail_proc_*</code> roots in the guarded diagnostic inventory; the exact processor
+list is maintained in the
+<a href="../900_processor/_index.html#shipped-example-inventory">shipped processor inventory</a></li>
+<li>model-aware completion and semantic-token coverage for the shipped V3 type,
+declaration-sigil, channel, mutex, and processor syntax, without suggesting
+hosted processor surfaces in <code>core</code> or unhosted <code>memo</code></li>
 </ul>
+<p>The LSP does not independently decide ownership, thread safety, channel
+lifecycle, or delayed mutex effects. Those rules come from compiler analysis.
+Current negative coverage includes unique-pointer field dereference without
+place-aware projection IR, moved-owner reinitialization inside <code>dfr</code>/<code>edf</code>,
+terminating <code>report</code> inside deferred cleanup, indirect stored/parameter routine
+targets for spawn and async, implicit nested-routine capture of outer locals,
+recoverable eventuals left live at fallthrough or an exiting
+<code>break</code>/<code>return</code>/<code>report</code>, awaiting an eventual inside <code>edf</code>, and mutex field,
+guard, or <code>[mux]</code> forwarding effects inside deferred bodies.</p>
 <p>If the client is attached but you see no diagnostics at all, the likely issue is
 not Tree-sitter. It is the LSP request/attach path.</p>
 <p>For the compiler-owned contracts behind diagnostics and semantic editor

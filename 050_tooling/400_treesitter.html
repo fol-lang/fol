@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,7 +181,8 @@
 <p>The editor crate carries:</p>
 <ul>
 <li>the grammar source</li>
-<li>corpus fixtures</li>
+<li>executable corpus cases with expected syntax trees</li>
+<li>a raw showcase fixture kept outside the corpus directory</li>
 <li>query files on disk</li>
 </ul>
 <p>Canonical query assets live as real files, not just embedded Rust strings:</p>
@@ -192,12 +193,32 @@
 </ul>
 <p>This is intentional because editors such as Neovim expect query files on disk in
 the standard Tree-sitter layout.</p>
+<p>The checked-in generated C parser is also compiled into <code>fol-editor</code>. Therefore
+<code>fol tool parse</code>, <code>fol tool highlight</code>, and <code>fol tool symbols</code> use the same
+parser and query assets directly in-process. Their reported trees, captures,
+symbols, scopes, and <code>ERROR</code> nodes are runtime results, not grammar/query byte
+counts or source-text approximations. These inspection commands do not require
+an external Tree-sitter installation.</p>
 <h2 id="generated-bundle"><a class="header" href="#generated-bundle">Generated Bundle</a></h2>
 <p>To generate a Neovim-consumable bundle, run:</p>
 <pre><code class="language-text">fol tool tree generate /tmp/fol
 </code></pre>
-<p>That writes a bundle containing the grammar and query assets under the target
-directory.</p>
+<p>That writes a bundle containing the grammar, query assets, executable corpus
+cases, and <code>test/fixtures/showcase.fol</code> under the target directory. The
+showcase is intentionally a raw <code>.fol</code> fixture rather than a corpus case.
+Generated file ownership is recorded in <code>.fol-tree-generated</code>: later runs
+remove retired manifest-owned assets while preserving files the user added to
+the destination. Unsafe absolute or parent-traversing manifest entries are
+rejected rather than removed. The generator also rejects a symlink at the
+destination root or anywhere along a managed asset path, so generated writes
+and retired-file cleanup cannot escape the selected bundle root.</p>
+<p>Generation and parser validation happen in a temporary staging directory.
+Only a complete bundle is committed to the destination; a generator or commit
+failure leaves an existing bundle unchanged, including its ownership manifest
+and retired assets.</p>
+<p>Bundle generation is the one public Tree-sitter command that invokes the
+external <code>tree-sitter</code> CLI. The checked-in parser used by ordinary inspection
+commands remains available without that executable.</p>
 <p>The intended consumer path is:</p>
 <ul>
 <li>generate bundle</li>
@@ -217,7 +238,7 @@ directory.</p>
 <tr><td><code>queries/fol/highlights.scm</code></td><td>Highlight capture groups and query patterns</td><td>Editor/syntax maintainer</td></tr>
 <tr><td><code>queries/fol/locals.scm</code></td><td>Scope and definition tracking</td><td>Editor/syntax maintainer</td></tr>
 <tr><td><code>queries/fol/symbols.scm</code></td><td>Symbol navigation captures</td><td>Editor/syntax maintainer</td></tr>
-<tr><td><code>test/corpus/*.txt</code></td><td>Corpus fixtures for grammar validation</td><td>Editor/syntax maintainer</td></tr>
+<tr><td><code>test/corpus/*.txt</code></td><td>Corpus programs plus their expected node trees</td><td>Editor/syntax maintainer</td></tr>
 </tbody>
 </table>
 </div>
@@ -297,9 +318,26 @@ these tests fail until the tree-sitter files are updated to match.</p>
 <tr><td><code>declarations.txt</code></td><td><code>use</code>, <code>ali</code>, <code>typ</code>, <code>fun</code>, <code>log</code>, <code>var</code> declarations</td></tr>
 <tr><td><code>expressions.txt</code></td><td>Intrinsic calls, <code>when</code>/<code>loop</code> control flow, <code>break</code>/<code>return</code></td></tr>
 <tr><td><code>recoverable.txt</code></td><td>Error propagation (<code>/</code>), <code>report</code>, pipe-or (<code>||</code>)</td></tr>
+<tr><td><code>v3_ownership.txt</code></td><td>owned allocation, borrow options, <code>~var</code>, and give-back</td></tr>
+<tr><td><code>v3_pointers.txt</code></td><td>nested <code>ptr[...]</code> / <code>chn[...]</code> types, <code>@</code> types, address-of, and dereference</td></tr>
+<tr><td><code>v3_deferred.txt</code></td><td><code>dfr</code> and error-only <code>edf</code> blocks</td></tr>
+<tr><td><code>v3_channels_select_mutex.txt</code></td><td>spawn, channel endpoints, multi-arm <code>select</code>, and <code>[mux]</code> parameters</td></tr>
+<tr><td><code>v3_eventuals.txt</code></td><td>spawn plus <code>| async</code> and <code>| await</code> stages</td></tr>
+<tr><td><code>v3_lexical_boundaries.txt</code></td><td>multiline backtick/slash-block comments, exact <code>[doc]</code>, and raw single-quoted character/string boundaries</td></tr>
 </tbody>
 </table>
 </div>
+<p>Every file in this directory is a real Tree-sitter corpus case: the FOL source
+appears before <code>---</code>, and the exact expected node tree appears after it. A raw
+fixture without an expected tree belongs under <code>tree-sitter/test/fixtures/</code>,
+not under <code>test/corpus/</code>.</p>
+<p>Regenerate the checked-in bundle and execute the external corpus runner with:</p>
+<pre><code class="language-text">make tree-test
+</code></pre>
+<p>This lane fails when zero corpus cases execute, when any expected tree drifts,
+or when any case fails. Ordinary Rust editor tests also export the bundle to a
+temporary root and require the external runner to execute every registered
+case successfully.</p>
 <p>When a new syntax family is added, it should have corpus coverage. The expected
 families that should each have at least one corpus example:</p>
 <ul>
@@ -312,7 +350,23 @@ families that should each have at least one corpus example:</p>
 <li>Container and shell types</li>
 <li>Record and entry types</li>
 <li>Error handling (<code>report</code>, pipe-or, <code>check</code>)</li>
+<li>V3 ownership and pointer sigils in both expression and nested type positions</li>
+<li>V3 deferred blocks (<code>dfr</code> / <code>edf</code>)</li>
+<li>V3 processor syntax (<code>[&gt;]</code>, <code>chn[...]</code>, channel endpoints, <code>select</code>, <code>[mux]</code>,
+<code>\| async</code>, and <code>\| await</code>)</li>
+<li>compiler-recognized lexical protection boundaries, especially multiline
+comments and raw single-quoted literals containing V3 sigils or braces</li>
 </ul>
+<p>Tree-sitter keeps the compiler lexer’s four comment classes visible: ordinary
+backtick, exact <code>`[doc]...`</code> documentation comments, <code>//</code>, and non-nested
+<code>/* ... */</code>. Backtick, documentation, and slash-block comments may span lines.
+Single quotes remain raw: backslashes do not introduce escapes, one Unicode
+scalar is a character, and empty or multi-scalar payloads are raw strings.</p>
+<p>The removed single-header <code>select(channel as value) { ... }</code> and
+double-parenthesis mutex-parameter forms are not alternate current syntax.
+Their <code>fail_proc_*</code> examples guard rejection; if either spelling appears in a
+tree-sitter corpus, it must be an explicit parse-error expectation rather than
+a second accepted grammar path.</p>
 <h2 id="what-tree-sitter-is-for"><a class="header" href="#what-tree-sitter-is-for">What Tree-sitter Is For</a></h2>
 <p>Use the Tree-sitter layer for:</p>
 <ul>
@@ -323,6 +377,17 @@ families that should each have at least one corpus example:</p>
 </ul>
 <p>Do not use it as a substitute for typechecking or resolution.</p>
 <p>Those remain compiler tasks.</p>
+<p>In particular, tree-sitter does not decide whether a unique-pointer field can
+be dereferenced, whether a moved owner can be reinitialized in deferred work,
+whether deferred cleanup may initiate <code>report</code>, whether a call is a legal
+direct spawn/async target, whether a nested routine implicitly captures an
+outer local, whether a recoverable eventual remains live across fallthrough or
+an exiting <code>break</code>/<code>return</code>/<code>report</code>, whether <code>await</code> is used inside <code>edf</code>, or
+whether mutex effects can occur inside <code>dfr</code>/<code>edf</code>. The LSP reports compiler
+diagnostics for those semantic boundaries. Tree-sitter is responsible only for
+the corresponding syntax shape, highlighting/query captures, and corpus
+coverage. The exact positive and negative processor package matrix lives in the
+<a href="../900_processor/_index.html#shipped-example-inventory">shipped processor inventory</a>.</p>
 <p>When a language feature changes syntax, use the
 <a href="./450_feature_checklist.html">Feature Update Checklist</a> to decide whether the
 grammar, queries, corpus, or generated language facts also need updates.</p>

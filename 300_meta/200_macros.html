@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,14 +182,10 @@ planned for a future release; none of it is part of the current compiler
 surface</li>
 <li>everything below describes intended design, not current behavior</li>
 </ul>
-<p>Are a very complicated system, and yet can be used as simply as in-place replacement. A lot of build-in macros exist in the language to make the code more easy to type. Below are some system defined macros.</p>
-<p>For example, wherever <code>$</code> is before <code>any</code> variable name, its replaced with <code>.to_string</code>. Or wherever <code>!</code> is before <code>bol</code> name, its replaced with <code>.not</code> but when the same <code>!</code> is placed before <code>ptr</code> it is replaced with <code>.delete_pointer</code>.</p>
-<pre><code>def '$'(a: any): mac = '.to_string'
-def '!'(a: bol): mac = '.not '
-def '!'(a: ptr): mac = '.delete_pointer';
-def '*'(a: ptr): mac = '.pointer_value';
-def '#'(a: any): mac = '.borrow_from';
-def '&amp;'(a: any): mac = '.address_of';
+<p>Macros are intended to support source-level replacement. They will not be able
+to redefine the compiler-owned memory sigils <code>@</code>, <code>#</code>, <code>!</code>, <code>&amp;</code>, or <code>*</code>; those
+spellings already have fixed ownership, borrowing, and pointer semantics.</p>
+<pre><code class="language-fol">def '$'(a: any): mac = '.to_string'
 </code></pre>
 
                     </main>

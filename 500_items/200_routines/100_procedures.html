@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-5e2af248.js"></script>
+        <script src="../../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -188,12 +188,15 @@
 <ul>
 <li>ordinary procedure declarations are part of <code>V1</code></li>
 <li>recoverable procedure errors (<code>Result / Error</code>) are part of <code>V1</code></li>
-<li>ownership-, borrowing-, and heap-move-specific calling conventions are later
-systems-language work</li>
+<li>ownership-aware transfers, unique heap moves, and explicit <code>[bor]</code> parameters
+are part of the shipped <code>V3</code> memory contract</li>
+<li><code>[mux]</code> parameters and the direct named-routine task boundary are part of the
+shipped <code>V3</code> processor contract</li>
 </ul>
-<p>So this chapter describes the routine surface that exists now, while any
-pointer/borrowing examples should be read as future design rather than current
-compiler behavior.</p>
+<p>Pointer and borrowing examples in this chapter therefore describe current V3
+behavior when the artifact’s capability mode permits the underlying value.
+Broader indirect task dispatch and future ownership/interop designs remain
+outside that shipped surface.</p>
 <p>Procedures can also declare a custom recoverable error type with <code>/</code> after the result type:</p>
 <pre><code>pro[] write(path: str): int / io_err = {
     report "permission denied";
@@ -209,40 +212,32 @@ compiler behavior.</p>
 <li>keep postfix <code>!</code> for <code>opt[...]</code> and <code>err[...]</code> shell values only</li>
 </ul>
 <h3 id="passing-values"><a class="header" href="#passing-values">Passing values</a></h3>
-<p>In the current <code>V1</code> compiler, procedure parameters are ordinary typed inputs.
-You pass values to them exactly as you would pass values to any other routine.</p>
-<p>The more ambitious ownership- and borrowing-specific parameter rules described
-in older drafts are not part of the current <code>V1</code> procedure contract yet.</p>
+<p>Procedure parameters are ordinary typed inputs unless the parameter has an
+explicit ownership option. Values passed to ordinary parameters follow the
+type’s transfer rule. A parameter written as <code>name[bor]: T</code> borrows its
+argument for the call without taking ownership.</p>
 <p>Simple example:</p>
-<pre><code>pro[] write_line(text: str): non = {
-    .echo(text)
-}
+<pre><code class="language-fol">pro[] inspect(value[bor]: int): int = {
+    return value;
+};
 
 pro[] main(): int = {
-    var message: str = "hello"
-    write_line(message)
-    return 0
-}
+    var value: int = 7;
+    return inspect(value);
+};
 </code></pre>
 <h3 id="ownership-and-borrowing"><a class="header" href="#ownership-and-borrowing">Ownership and borrowing</a></h3>
-<p>Ownership-, borrowing-, and pointer-specific procedure semantics are part of the
-later <code>V3</code> systems milestone, not the current <code>V1</code> compiler surface.</p>
-<p>Older drafts used several experimental spellings for those ideas, including:</p>
-<ul>
-<li>all-caps borrowable parameter names</li>
-<li><code>.give_back(...)</code></li>
-<li>double-parenthesis routine parameters</li>
-</ul>
-<p>Those forms should be read as future design notes, not as current language
-guarantees.</p>
-<p>The current authoritative split is:</p>
+<p>The authoritative version split is:</p>
 <ul>
 <li>ordinary procedures and functions are part of <code>V1</code></li>
 <li>recoverable routine errors are part of <code>V1</code></li>
-<li>ownership/borrowing calling conventions are part of <code>V3</code></li>
+<li>explicit <code>name[bor]: T</code> borrow parameters are part of the shipped <code>V3</code>
+memory contract</li>
+<li>typed pointers and unique heap ownership are also part of that <code>V3</code> contract</li>
 </ul>
-<p>See the memory chapters and <a href="../../../VERSIONS.html">VERSIONS.md</a> for the version
-boundary.</p>
+<p>Borrow give-back uses the <code>!borrow</code> prefix. Ownership behavior never depends on
+identifier casing, and there is no alternate parenthesized parameter grammar.</p>
+<p>See the memory chapters and <code>plan/VERSIONS.md</code> for the version boundary.</p>
 
                     </main>
 

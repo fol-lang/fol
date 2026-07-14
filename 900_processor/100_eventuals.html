@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,25 +175,80 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="eventuals"><a class="header" href="#eventuals">Eventuals</a></h1>
-<p>This chapter is future concurrency/runtime design.</p>
-<p>Current milestone note:</p>
-<ul>
-<li>async/eventual semantics are not part of the implemented <code>V1</code> compiler</li>
-<li>this material belongs to the later <code>V3</code> systems milestone</li>
-</ul>
-<p>Eventuals describe an object that acts as a proxy for a result that is initially unknown, usually because the computation of its value is not yet complete.</p>
-<h2 id="asyncawait"><a class="header" href="#asyncawait">Async/Await</a></h2>
-<p>Async methods are intended to be non-blocking operations. An await expression in an async routine doesn’t block the current thread while the awaited task is running. Instead, the expression signs up the rest of the routine as a continuation and returns control to the caller of the async routine and it means “Once this is done, execute this function”. It’s basically a “when done” hook for your code, and what is happening here is an async routine, when executed, returns a coroutine which can then be awaited. This is done usually in one thread, but can be done in multiple threads too, but thread invocations are invisible to the programmer in this case.</p>
-<pre><code>pro main(): int = {
-    doItFast() | async                                             // compiler knows that this routine has an await routine, thus continue when await rises
-    .echo("dosomething to echo")
-                                                                   // the main program does not exit until the await is resolved
-}
-fun doItFast(): str = {
-    result = client.get(address).send() | await                    // this tells the routine that it might take time
-    .echo(result)
-}
+<p>Eventuals are a <code>V3</code> processor feature and are <code>std</code>-only. They use operating-
+system threads; FOL does not use Rust <code>async</code>/<code>await</code>, futures, Tokio,
+continuations, or colored routines.</p>
+<p>The package therefore selects <code>fol_model = "memo"</code> for the artifact and
+declares the bundled internal <code>standard</code> dependency. That declaration enables
+the processor API; it is not what makes the executable runnable.</p>
+<p>The chosen pipe surface is:</p>
+<pre><code class="language-fol">var pending = calculate() | async;
+var value = pending | await;
 </code></pre>
+<p><code>| async</code> starts the call on an OS thread and produces an internal eventual.
+<code>| await</code> blocks the current OS thread until that computation finishes. The
+eventual type is not nameable in <code>V3</code>; <code>evt[T]</code> is only a possible later design
+slot.</p>
+<p>The call to the left of <code>| async</code> must resolve directly to a named routine
+declaration. Both <code>calculate()</code> and a qualified call such as
+<code>workers::calculate()</code> are supported; qualification selects a declaration and
+does not introduce runtime dispatch. Stored routine values, stored anonymous
+routines, and routine parameters are indirect calls and are not async task
+targets in <code>V3</code>. Receiver-method call syntax is also excluded from the task
+target surface; call a free named routine directly instead.</p>
+<p>Nested routine bodies cannot implicitly capture outer locals. Pass ordinary
+outer values through declared parameters instead of relying on a hidden closure
+environment. An outer eventual cannot use that workaround because its type is
+internal and generic crossings are forbidden; await and handle it in the outer
+routine.</p>
+<p>Eventual bindings are move-only. A plain binding or assignment transfers the
+eventual and makes the source binding unavailable. An eventual may be consumed
+at most once: <code>| await</code> consumes the current binding, so a second await is a
+use-after-consume error. An infallible eventual need not be awaited and is joined
+at process exit; a recoverable eventual has the stronger must-handle rule below.
+<code>V3</code> does not embed eventuals in composite values or pass them through generic
+parameters, because generic bodies do not yet carry a move-only contract. Await
+the value before crossing either boundary.</p>
+<p>Arguments sent into <code>| async</code> obey the same thread boundary as <code>[&gt;]</code>: borrowed
+values, <code>ptr[shared, T]</code>, and unresolved generic parameters cannot cross it.
+Omitted defaults are arguments too and are checked against that boundary before
+the task starts. A generic call remains allowed when inference produces only
+concrete thread-safe parameter types.</p>
+<p>Thread-safe move-only results can cross back through an eventual. The producer
+transfers the result into the eventual and <code>| await</code> transfers it to the
+awaiting routine; neither step clones it. Unique pointers are one shipped
+example of this rule. A result containing <code>ptr[shared, T]</code> is still rejected
+because its <code>Rc</code> representation cannot cross the OS-thread boundary.</p>
+<p>Error behavior stays identical to the synchronous call. An infallible call
+awaits to <code>T</code>. A routine declared as <code>T / E</code> remains recoverable after await and
+must be handled with the existing <code>check(...)</code> or <code>||</code> surfaces. Async and await
+do not introduce a second error channel. A recoverable eventual is a must-handle
+value: its final owner must await it and immediately handle the result. Moving it
+to another binding moves that obligation. Lexical fallthrough and any <code>break</code>,
+<code>return</code>, or <code>report</code> that exits a scope with a live obligation are rejected. At
+a branch join, all continuing branches must leave compatible state: they may
+all preserve the same owner for handling after the join, transfer consistently,
+or discharge the obligation. Consuming or transferring on only some paths is
+rejected. Dropping it as a statement, overwriting it while live, or discarding
+the awaited result is also rejected.</p>
+<p><code>| await</code> is not allowed inside <code>edf</code>, and an existing eventual binding cannot
+be accessed there. Error-only deferred cleanup does not run on normal exits, so
+it cannot be used to discharge eventual ownership. This restriction remains in
+force through nested blocks, including a <code>dfr</code> declared inside the <code>edf</code>. Await
+or transfer the value in ordinary control flow instead.</p>
+<p>Program exit joins outstanding async work just as it joins bare <code>[&gt;]</code> tasks.
+This includes an <strong>infallible</strong> eventual that was created and then never
+awaited: it is not detached merely because no source-level binding consumes it.
+Joining is not error handling, so a recoverable eventual cannot use that path to
+discard its error. Cancellation, worker pools, and runtime scheduling controls
+are not part of <code>V3</code>.</p>
+<p>An eventual is a one-shot task result, not a resumable generator or coroutine.
+<code>V3</code> does not execute generator <code>yield</code>; that statement remains recognized by
+the parser but is rejected by semantic analysis and lowering. <code>async</code> also does
+not color the called routine or change its declaration.</p>
+<p>The eventual slice is implemented end to end. Its exact positive, tier-failure,
+must-handle failure, and unnameable-<code>evt[T]</code> example set is maintained in the
+<a href="./_index.html#shipped-example-inventory">canonical shipped processor inventory</a>.</p>
 
                     </main>
 

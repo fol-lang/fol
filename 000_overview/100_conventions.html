@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -241,8 +241,32 @@ a syntactic reference to a type</li>
 <li>type definition:
 a declaration form that creates a new named type</li>
 <li>source kind:
-an import/source locator family such as <code>loc</code>, <code>pkg</code>, or <code>std</code></li>
+an import/source locator family; the current public kinds are <code>loc</code> and <code>pkg</code></li>
 </ul>
+<h2 id="runtime-capability-convention"><a class="header" href="#runtime-capability-convention">Runtime Capability Convention</a></h2>
+<p>Examples in this book do not repeat a complete <code>build.fol</code> beside every source
+snippet. Read their runtime requirements using this mapping:</p>
+<ul>
+<li><code>fol_model = "core"</code> selects the no-heap, no-source-level-hosted-API mode</li>
+<li><code>fol_model = "memo"</code> adds heap-backed values such as <code>str</code>, <code>vec</code>, <code>seq</code>,
+<code>set</code>, and <code>map</code>, but still does not expose hosted APIs</li>
+<li>a package whose <code>memo</code> artifact needs shipped hosted APIs declares
+<code>build.add_dep({ alias = "std", source = "internal", target = "standard" })</code>
+and imports that alias with <code>use std: pkg = {"std"};</code></li>
+</ul>
+<p><code>std</code> is not an accepted <code>fol_model</code> value, and it is not an import source kind.
+Bundled <code>std</code> is an explicit dependency that widens the source-visible API tier
+of a <code>memo</code> artifact; it is not a third artifact model.</p>
+<p>An example that calls <code>.echo(...)</code>, a <code>std::io</code> routine, or a V3 processor
+construct therefore assumes <code>memo</code> plus that explicit bundled dependency.
+Examples that only use <code>core</code> or <code>memo</code> facilities do not need <code>std</code> merely
+because they produce an executable.</p>
+<p>Execution is a separate tool concern. <code>graph.add_run</code>, <code>graph.add_test</code>,
+<code>fol code run</code>, and <code>fol code test</code> do not grant hosted APIs and do not require
+bundled <code>std</code>. They may execute a <code>core</code> or <code>memo</code> artifact when its selected
+target is compatible with the build host. A foreign target is buildable, but
+the current frontend rejects running or testing it because FOL does not yet
+provide a cross-target runner configuration.</p>
 <h2 id="examples-vs-grammar"><a class="header" href="#examples-vs-grammar">Examples vs Grammar</a></h2>
 <p>Examples are illustrative, not exhaustive.</p>
 <p>When a chapter gives one or two examples, that does not imply the syntax is limited to only those exact spellings. The normative rule is the chapter text plus the grammar intent described there.</p>

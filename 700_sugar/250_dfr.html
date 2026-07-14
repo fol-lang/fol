@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Defer - FOL Language Specification</title>
+        <title>Dfr - FOL Language Specification</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -174,40 +174,65 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="defer"><a class="header" href="#defer">Defer</a></h1>
-<p><code>defer</code> is scope-exit cleanup sugar.</p>
-<p>In current <code>V1</code>, it is intentionally narrow:</p>
+                        <h1 id="dfr"><a class="header" href="#dfr">Dfr</a></h1>
+<p><code>dfr</code> is scope-exit cleanup sugar. <code>edf</code> is its error-only V3 counterpart.</p>
+<p>The shipped forms are intentionally narrow:</p>
 <ul>
-<li>only <code>defer { ... }</code> block form is supported</li>
-<li>it registers work to run when the current lexical scope exits</li>
-<li>it runs on normal fallthrough</li>
-<li>it runs before <code>return</code> leaves the current scope</li>
+<li>only the <code>dfr { ... }</code> and <code>edf { ... }</code> block forms are supported</li>
+<li>each block registers work on the current lexical scope</li>
+<li><code>dfr</code> runs when that scope exits by fallthrough or <code>break</code>, and before a
+<code>return</code>, recoverable <code>report</code>, or <code>panic</code> leaves it</li>
 <li>multiple deferred blocks run in reverse registration order</li>
+<li><code>edf</code> runs only on a recoverable <code>report</code> exit, not on normal return or panic</li>
 </ul>
 <p>This is control-flow sugar.</p>
-<p>It is not an ownership system, destructor system, object system, or async
+<p>It is not a destructor system, user-defined drop hook, object system, or async
 cleanup system.</p>
 <p>Model reminder:</p>
 <ul>
-<li>the <code>.echo(...)</code> examples below assume <code>fol_model = "memo"</code></li>
-<li><code>defer</code> itself is not std-only; it is valid in <code>core</code>, <code>memo</code>, and <code>std</code>
-within the current V1 surface</li>
+<li>
+<p><code>memo</code> alone does not expose the hosted <code>.echo(...)</code> substrate</p>
+</li>
+<li>
+<p>the printing examples below use <code>fol_model = "memo"</code>, declare the bundled
+standard library explicitly in <code>build.fol</code>, and call its <code>std.io</code> wrappers:</p>
+<pre><code class="language-fol">build.add_dep({ alias = "std", source = "internal", target = "standard" });
+</code></pre>
+</li>
+<li>
+<p>source files then import that dependency with <code>use std: pkg = {"std"};</code></p>
+</li>
+<li>
+<p>the explicit dependency upgrades the effective tier to hosted; <code>std</code> is not a
+third <code>fol_model</code></p>
+</li>
+<li>
+<p><code>dfr</code> and <code>edf</code> are not std-only; both remain valid in <code>core</code> and <code>memo</code></p>
+</li>
+<li>
+<p>a <code>core</code> or unhosted <code>memo</code> program using them can still run; bundled <code>std</code>
+appears here only because these examples print from source</p>
+</li>
 </ul>
 <h2 id="basic-form"><a class="header" href="#basic-form">Basic form</a></h2>
-<pre><code class="language-fol">pro[] main(): int = {
-    defer {
-        .echo("closing");
+<pre><code class="language-fol">use std: pkg = {"std"};
+
+pro[] main(): int = {
+    dfr {
+        std::io::echo_str("closing");
     };
 
-    .echo("work");
+    std::io::echo_str("work");
     return 7;
 }
 </code></pre>
 <p>The deferred body runs before control leaves <code>main</code>.</p>
 <h2 id="reverse-order"><a class="header" href="#reverse-order">Reverse order</a></h2>
-<pre><code class="language-fol">pro[] main(): non = {
-    defer { .echo(1); };
-    defer { .echo(2); };
+<pre><code class="language-fol">use std: pkg = {"std"};
+
+pro[] main(): non = {
+    dfr { std::io::echo_int(1); };
+    dfr { std::io::echo_int(2); };
 }
 </code></pre>
 <p>This executes as:</p>
@@ -217,12 +242,14 @@ within the current V1 surface</li>
 </ul>
 <h2 id="nested-scopes"><a class="header" href="#nested-scopes">Nested scopes</a></h2>
 <p>Deferred bodies belong to the scope where they are declared:</p>
-<pre><code class="language-fol">pro[] main(flag: bol): non = {
-    defer { .echo("outer"); };
+<pre><code class="language-fol">use std: pkg = {"std"};
+
+pro[] main(flag: bol): non = {
+    dfr { std::io::echo_str("outer"); };
 
     when(flag) {
         case(true) {
-            defer { .echo("inner"); };
+            dfr { std::io::echo_str("inner"); };
             return;
         }
         * { }
@@ -231,18 +258,91 @@ within the current V1 surface</li>
 </code></pre>
 <p>If the inner scope exits first, its deferred bodies run before the outer
 scope’s deferred bodies.</p>
-<h2 id="current-milestone-boundary"><a class="header" href="#current-milestone-boundary">Current milestone boundary</a></h2>
-<p>The narrow scope-exit <code>defer</code> described above belongs in <code>V1</code>.</p>
-<p>More complicated <code>defer</code> behavior belongs later:</p>
+<h2 id="error-only-cleanup"><a class="header" href="#error-only-cleanup">Error-only cleanup</a></h2>
+<p><code>edf</code> registers a body for recoverable error exits only:</p>
+<pre><code class="language-fol">use std: pkg = {"std"};
+
+fun[] load(fail: bol): int / int = {
+    edf {
+        std::io::echo_int(2);
+    };
+    dfr {
+        std::io::echo_int(1);
+    };
+    when(fail) {
+        case(true) { report 7; }
+        * { return 0; }
+    }
+};
+</code></pre>
+<p>On success, only <code>dfr</code> runs. On <code>report</code>, both registrations run in reverse
+registration order. On panic, <code>dfr</code> runs but <code>edf</code> does not, because panic is
+not a recoverable error-shell exit.</p>
+<h2 id="deferred-body-limits"><a class="header" href="#deferred-body-limits">Deferred-body limits</a></h2>
+<p>The registered body is checked now but executed later. V3 therefore rejects
+effects that the current lowering cannot replay safely:</p>
 <ul>
-<li>ownership-aware cleanup</li>
-<li>borrowing/pointer/resource cleanup</li>
-<li>async/task/channel cleanup</li>
-<li>native/foreign resource cleanup</li>
-<li>error-only variants such as <code>errdefer</code></li>
+<li><code>return</code>, <code>break</code>, <code>report</code>, and <code>panic</code> cannot appear inside a <code>dfr</code> or
+<code>edf</code> body; deferred cleanup cannot initiate another exit while the
+surrounding exit is being replayed</li>
+<li>a moved binding cannot be reinitialized there</li>
+<li>channel sender or receiver endpoints cannot be acquired there</li>
+<li><code>| await</code> and access to an existing eventual binding cannot occur inside
+<code>edf</code>; an error-only body cannot discharge eventual ownership on normal exits,
+and the restriction remains active inside a <code>dfr</code> nested within that <code>edf</code></li>
+<li>a <code>[mux]</code> handle cannot be locked, unlocked, used for guarded field access,
+or forwarded to another <code>[mux]</code> parameter there</li>
 </ul>
-<p>Those later forms should be treated as <code>V3</code>/<code>V4</code> work, not as part of the
-current <code>V1</code> contract.</p>
+<p>These are compile-time boundaries, not cleanup operations that are silently
+skipped. An outer <code>report</code> still triggers registered <code>dfr</code> and <code>edf</code> bodies;
+only a new <code>report</code> from inside one of those bodies is rejected. An all-exit
+<code>dfr</code> may await and handle a recoverable eventual, because it runs on every
+modeled exit. Error-only <code>edf</code> cannot. Put the other affected control flow,
+channel acquisition, owner reinitialization, or mutex work in ordinary code.</p>
+<h2 id="ownership-ordering"><a class="header" href="#ownership-ordering">Ownership ordering</a></h2>
+<p>At lexical scope exit FOL applies this order:</p>
+<ol>
+<li>select the registered blocks for the exit kind (<code>dfr</code>, plus <code>edf</code> for a
+recoverable error)</li>
+<li>run those blocks in reverse registration order</li>
+<li>release any still-active borrows</li>
+<li>free still-owned heap values by ordinary scope drop</li>
+</ol>
+<p>A moved value is no longer in the source binding’s owned set, so it is not
+freed twice. Deferred work always runs before the scope drops its remaining
+owned heap values.</p>
+<p>A <code>dfr</code> or <code>edf</code> body that references a move-only binding from an enclosing
+scope reserves that binding through the exit of the registration scope. The
+binding cannot be transferred after the deferred block is registered, because
+the deferred body still needs its value. Moving the value before registration
+instead makes the reference inside the deferred body an ordinary use-after-move
+error. A reservation registered in a nested block ends after that block’s
+deferred work has run, so the owner may be transferred afterward.</p>
+<p>Mutex guard effects are not deferred in <code>V3</code>. A <code>dfr</code> or <code>edf</code> body cannot
+call <code>.lock()</code> or <code>.unlock()</code> on a <code>[mux]</code> parameter, and it cannot access
+mutex-guarded fields even when the surrounding scope currently holds the
+guard. It also cannot forward the mutex handle to another <code>[mux]</code> routine,
+because that would hide delayed guard transitions behind the call. Perform
+guarded work in ordinary control flow before registering deferred cleanup.</p>
+<p>Channel endpoint acquisition is similarly rejected inside <code>dfr</code> and <code>edf</code>.
+Acquire any sender handle before registration and perform receiver operations
+in ordinary control flow.</p>
+<p>The same delayed-effect boundary applies to owner reinitialization. A moved
+binding cannot be reinitialized inside <code>dfr</code> or <code>edf</code>: typechecking that write
+as immediate would make the binding look usable before the deferred assignment
+actually runs. Reinitialize the binding in ordinary control flow before the
+deferred block is registered.</p>
+<h2 id="current-milestone-boundary"><a class="header" href="#current-milestone-boundary">Current milestone boundary</a></h2>
+<p>The basic <code>dfr</code> form belongs to V1. Ownership-aware ordering and <code>edf</code> are the
+shipped V3 memory contract. V3 processor resources do not become generalized
+deferred-cleanup hooks: outstanding tasks join at process exit, channels close
+through endpoint ownership/lifecycle, and an eventual can be consumed at most
+once by <code>| await</code>. Recoverable eventuals must be awaited and handled on every
+exit path; an all-exit <code>dfr</code> may do so, while an error-only <code>edf</code> may not.
+Infallible eventuals may instead remain outstanding for the process-exit join.
+Await inside <code>edf</code>—including inside a nested <code>dfr</code>—channel endpoint acquisition,
+and mutex guard effects inside <code>dfr</code>/<code>edf</code> are rejected. Native/foreign resource
+cleanup remains V4 interop work.</p>
 
                     </main>
 

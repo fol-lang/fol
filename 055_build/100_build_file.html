@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5e2af248.js"></script>
+        <script src="../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -188,8 +188,11 @@ handle methods</li>
 <li>It can define local helper <code>fun[]</code>, <code>pro[]</code>, and <code>typ</code> declarations</li>
 <li>Those local declarations are not exported to the package</li>
 <li>It must declare exactly one <code>pro[] build(): non</code> entry</li>
-<li>Additional <code>use</code> imports from the FOL stdlib are allowed</li>
 </ul>
+<p>The implicit build stdlib is the restricted API used to evaluate <code>build.fol</code>.
+It is not the bundled source package named <code>std</code>, does not change an artifact’s
+<code>fol_model</code>, and does not expose hosted language APIs to ordinary package
+sources.</p>
 <h2 id="compilation-pipeline"><a class="header" href="#compilation-pipeline">Compilation Pipeline</a></h2>
 <p><code>build.fol</code> goes through the full FOL compiler pipeline:</p>
 <pre><code>build.fol
@@ -251,6 +254,7 @@ parameter form, or explicit <code>Graph</code> type syntax are compile errors.</
     var app = graph.add_exe({
         name = "app",
         root = "src/main.fol",
+        fol_model = "memo",
     });
     graph.install(app);
     graph.add_run(app);
@@ -265,6 +269,17 @@ parameter form, or explicit <code>Graph</code> type syntax are compile errors.</
 <code>build.export_step({...})</code>, and <code>build.export_output({...})</code> for the
 dependency-facing build surface this package exposes</li>
 <li><code>build.graph()</code> for artifact and step graph work</li>
+</ul>
+<p>Capability selection and dependency declaration are separate:</p>
+<ul>
+<li>each artifact selects <code>fol_model = "core"</code> or <code>fol_model = "memo"</code>; omitting
+the field currently selects the default <code>memo</code> model</li>
+<li>a <code>memo</code> source scope that uses hosted names declares bundled <code>std</code> with
+<code>build.add_dep({ alias = "std", source = "internal", target = "standard" })</code></li>
+<li><code>std</code> is not a valid <code>fol_model</code>, and the dependency is not needed merely
+because an artifact is executable or registered with <code>graph.add_run</code></li>
+<li><code>fol code run</code> and <code>fol code test</code> launch host-compatible artifacts using the
+evaluated graph; their target check is independent of source API capability</li>
 </ul>
 <p>The public surface includes:</p>
 <ul>

@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-91c53c3f.js";
+            window.path_to_searchindex_js = "../../searchindex-72f9860b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-5e2af248.js"></script>
+        <script src="../../toc-7f3fcfec.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -188,16 +188,20 @@ when(variable){ is (value){}; is (value){}; * {}; };
 when(variable){ in (iterator){}; in (iterator){}; * {}; };
 when(iterable){ has (member){}; has (member){}; * {}; };
 when(generic){ of (type){}; of (type){}; * {}; };
-when(type){ on (channel){}; on (channel){}; };
 </code></pre>
 <p>Current boundary:</p>
 <ul>
 <li><code>case</code> and <code>is</code> arms (plus the required <code>*</code> default) are the current <code>V1</code>
 surface, in both statement bodies and the arrow expression form
 (<code>is 3 -&gt; 7;</code>)</li>
+<li>a <code>when</code> with no <code>case</code>/<code>is</code> arms is a statement-only boolean gate: its
+default body runs only when the selector is <code>true</code>; arbitrary values are not
+coerced to truth values</li>
 <li><code>in</code> (range/set matching), <code>has</code> (membership), <code>of</code> (type matching), and
-<code>on</code> (channels) are declared syntax whose semantics are later-milestone
-work; the compiler rejects them with explicit boundary diagnostics</li>
+<code>on</code> are declared matching syntax whose semantics are later-milestone work;
+the compiler rejects them with explicit boundary diagnostics</li>
+<li>channel multiplexing is not an <code>on</code>-arm variant of ordinary <code>when</code>; the
+shipped V3 processor form is the separate <code>select { when channel as value { ... } }</code> statement shown below</li>
 </ul>
 <h3 id="condition"><a class="header" href="#condition">Condition</a></h3>
 <pre><code>when(true) {
@@ -234,13 +238,26 @@ work; the compiler rejects them with explicit boundary diagnostics</li>
     * { // default implementation }
 }
 </code></pre>
-<h3 id="channel"><a class="header" href="#channel">Channel</a></h3>
-<pre><code>when(str) {
-    on (channel){ // implementation }
-    on (channel){ // implementation } 
-    * { // default implementation }
-}
+<h3 id="channel-multiplexing-v3"><a class="header" href="#channel-multiplexing-v3">Channel multiplexing (<code>V3</code>)</a></h3>
+<p><code>select</code> waits on direct channel bindings. Each <code>when</code> arm names one channel
+and binds the payload received from it:</p>
+<pre><code class="language-fol">select {
+    when first as value {
+        consume(value);
+    }
+    when second as value {
+        consume(value);
+    }
+    * {
+        handle_not_ready();
+    }
+};
 </code></pre>
+<p>The optional <code>*</code> arm runs immediately when no receiver is ready. Without it,
+the statement polls until one source-order arm receives a value or every arm
+has closed. The processor surface is hosted <code>std</code>-only. See
+<a href="../../900_processor/200_corutines.html">Tasks, Channels, and Mutexes</a> for the
+endpoint lifecycle and fairness contract.</p>
 <h2 id="loop-type"><a class="header" href="#loop-type">Loop type</a></h2>
 <pre><code>loop(condition){};
 loop(iterable){};
