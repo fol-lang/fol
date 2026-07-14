@@ -198,19 +198,22 @@ pub(crate) fn lower_default_call_argument(
     checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
     decl_index: &WorkspaceDeclIndex,
     cursor: &mut RoutineCursor<'_>,
+    callee_identity: &PackageIdentity,
     callee: crate::LoweredRoutineId,
     param_index: usize,
     expected: Option<LoweredTypeId>,
 ) -> Result<LoweredValue, LoweringError> {
-    let default_info = decl_index.routine_param_defaults(callee).ok_or_else(|| {
-        LoweringError::with_kind(
-            LoweringErrorKind::InvalidInput,
-            format!(
-                "call target {} does not retain lowered default arguments",
-                callee.0
-            ),
-        )
-    })?;
+    let default_info = decl_index
+        .routine_param_defaults(callee_identity, callee)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "call target {}:{} does not retain lowered default arguments",
+                    callee_identity.display_name, callee.0
+                ),
+            )
+        })?;
     let default_expr = default_info
         .defaults
         .get(param_index)
@@ -219,8 +222,8 @@ pub(crate) fn lower_default_call_argument(
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
                 format!(
-                    "call target {} does not retain a default for parameter {}",
-                    callee.0, param_index
+                    "call target {}:{} does not retain a default for parameter {}",
+                    callee_identity.display_name, callee.0, param_index
                 ),
             )
         })?;
@@ -953,7 +956,7 @@ pub(crate) fn lower_function_call(
         ));
     };
     let param_types = decl_index
-        .routine_param_types(callee)
+        .routine_param_types(&owning_identity, callee)
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
@@ -961,14 +964,16 @@ pub(crate) fn lower_function_call(
             )
         })?
         .to_vec();
-    let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
-        LoweringError::with_kind(
-            LoweringErrorKind::InvalidInput,
-            format!("call target '{display_name}' does not retain lowered parameter names"),
-        )
-    })?;
+    let param_names = decl_index
+        .routine_param_names(&owning_identity, callee)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("call target '{display_name}' does not retain lowered parameter names"),
+            )
+        })?;
     let param_defaults = decl_index
-        .routine_param_defaults(callee)
+        .routine_param_defaults(&owning_identity, callee)
         .cloned()
         .ok_or_else(|| {
             LoweringError::with_kind(
@@ -1006,6 +1011,7 @@ pub(crate) fn lower_function_call(
                     checked_type_map,
                     decl_index,
                     cursor,
+                    &owning_identity,
                     callee,
                     *param_index,
                     expected,
@@ -1277,7 +1283,7 @@ pub(crate) fn lower_spawn_call(
             )
         })?;
     let param_types = decl_index
-        .routine_param_types(callee)
+        .routine_param_types(&owning_identity, callee)
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
@@ -1288,17 +1294,19 @@ pub(crate) fn lower_spawn_call(
             )
         })?
         .to_vec();
-    let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
-        LoweringError::with_kind(
-            LoweringErrorKind::InvalidInput,
-            format!(
-                "spawn target '{}' does not retain parameter names",
-                direct.display_name
-            ),
-        )
-    })?;
+    let param_names = decl_index
+        .routine_param_names(&owning_identity, callee)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "spawn target '{}' does not retain parameter names",
+                    direct.display_name
+                ),
+            )
+        })?;
     let param_defaults = decl_index
-        .routine_param_defaults(callee)
+        .routine_param_defaults(&owning_identity, callee)
         .cloned()
         .ok_or_else(|| {
             LoweringError::with_kind(
@@ -1341,6 +1349,7 @@ pub(crate) fn lower_spawn_call(
                     checked_type_map,
                     decl_index,
                     cursor,
+                    &owning_identity,
                     callee,
                     *param_index,
                     expected,
@@ -1413,7 +1422,7 @@ pub(crate) fn lower_async_call(
             )
         })?;
     let param_types = decl_index
-        .routine_param_types(callee)
+        .routine_param_types(&owning_identity, callee)
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
@@ -1424,17 +1433,19 @@ pub(crate) fn lower_async_call(
             )
         })?
         .to_vec();
-    let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
-        LoweringError::with_kind(
-            LoweringErrorKind::InvalidInput,
-            format!(
-                "async target '{}' does not retain parameter names",
-                direct.display_name
-            ),
-        )
-    })?;
+    let param_names = decl_index
+        .routine_param_names(&owning_identity, callee)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "async target '{}' does not retain parameter names",
+                    direct.display_name
+                ),
+            )
+        })?;
     let param_defaults = decl_index
-        .routine_param_defaults(callee)
+        .routine_param_defaults(&owning_identity, callee)
         .cloned()
         .ok_or_else(|| {
             LoweringError::with_kind(
@@ -1477,6 +1488,7 @@ pub(crate) fn lower_async_call(
                     checked_type_map,
                     decl_index,
                     cursor,
+                    &owning_identity,
                     callee,
                     *param_index,
                     expected,
@@ -1576,7 +1588,7 @@ pub(crate) fn lower_statement_free_call(
     };
     let result_type = resolve_reference_type_id(typed_package, checked_type_map, syntax_id, kind);
     let param_types = decl_index
-        .routine_param_types(callee)
+        .routine_param_types(&owning_identity, callee)
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
@@ -1584,14 +1596,16 @@ pub(crate) fn lower_statement_free_call(
             )
         })?
         .to_vec();
-    let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
-        LoweringError::with_kind(
-            LoweringErrorKind::InvalidInput,
-            format!("call target '{display_name}' does not retain lowered parameter names"),
-        )
-    })?;
+    let param_names = decl_index
+        .routine_param_names(&owning_identity, callee)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("call target '{display_name}' does not retain lowered parameter names"),
+            )
+        })?;
     let param_defaults = decl_index
-        .routine_param_defaults(callee)
+        .routine_param_defaults(&owning_identity, callee)
         .cloned()
         .ok_or_else(|| {
             LoweringError::with_kind(
@@ -1629,6 +1643,7 @@ pub(crate) fn lower_statement_free_call(
                     checked_type_map,
                     decl_index,
                     cursor,
+                    &owning_identity,
                     callee,
                     *param_index,
                     expected,
@@ -1756,7 +1771,7 @@ pub(crate) fn resolve_method_target(
     method: &str,
     receiver_type: LoweredTypeId,
     call_syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
-) -> Result<crate::LoweredRoutineId, LoweringError> {
+) -> Result<(PackageIdentity, crate::LoweredRoutineId), LoweringError> {
     // Fast path: typecheck already resolved the method symbol for this call
     // site (including generic receiver unification). Prefer that when present.
     if let Some(syntax_id) = call_syntax_id {
@@ -1776,7 +1791,7 @@ pub(crate) fn resolve_method_target(
             if let Some(routine_id) =
                 decl_index.routine_id_for_symbol(&owning_identity, owning_symbol_id)
             {
-                return Ok(routine_id);
+                return Ok((owning_identity, routine_id));
             }
         }
     }
@@ -1807,7 +1822,7 @@ pub(crate) fn resolve_method_target(
         else {
             continue;
         };
-        matches.push(routine_id);
+        matches.push((owning_identity, routine_id));
     }
 
     match matches.len() {

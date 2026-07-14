@@ -188,6 +188,20 @@ pub(crate) const V3_MEM_M3_FAILURES: &[V3FailureExample] = &[
         false,
         false
     ),
+    v3_failure!(
+        "examples/fail_mem_shared_ptr_move_deref_m3",
+        "O1001",
+        "cannot move a move-only pointee out of ptr[shared, T]",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_borrowed_ptr_move_deref_m3",
+        "O1001",
+        "cannot move a move-only pointee through a borrowed pointer",
+        false,
+        false
+    ),
 ];
 
 pub(crate) const V3_PROC_M1_FAILURES: &[V3FailureExample] = &[
@@ -294,6 +308,13 @@ pub(crate) const V3_PROC_M3_FAILURES: &[V3FailureExample] = &[
         "T1002",
         "select requires hosted std support",
         false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_select_empty_m3",
+        "T1001",
+        "blocking select requires at least one channel arm",
+        true,
         false
     ),
     v3_failure_codes!(
@@ -425,7 +446,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/mem_borrow_param_m2", "inspect", 2, Some(4)),
     ("examples/mem_mut_borrow_m2", "view", 2, Some(6)),
     ("examples/mem_edf_m2", "probe", 2, Some(2)),
-    ("examples/mem_ptr_unique_m3", "pointer", 2, Some(2)),
+    ("examples/mem_ptr_unique_m3", "outer", 2, Some(3)),
     ("examples/mem_ptr_shared_m3", "first", 2, Some(2)),
     (
         "examples/mem_ptr_shared_recursive_m3",

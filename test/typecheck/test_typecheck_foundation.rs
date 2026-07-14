@@ -3227,6 +3227,37 @@ fn guarded_mutex_handles_can_cross_spawn_and_async_task_boundaries() {
     assert!(typed
         .typed_node(find_named_routine_syntax_id(&typed, "launch"))
         .is_some());
+
+    let qualified = typecheck_fixture_folder_with_config(
+        &[
+            (
+                "workers/tasks.fol",
+                "typ[exp] Counter: rec = { value: int };\n\
+                 fun[exp] worker(counter[mux]: Counter): int = {\n\
+                     counter.lock();\n\
+                     var value: int = counter.value;\n\
+                     counter.unlock();\n\
+                     return value;\n\
+                 };\n",
+            ),
+            (
+                "main.fol",
+                "fun[] launch(counter[mux]: workers::Counter): int = {\n\
+                     counter.lock();\n\
+                     [>]workers::worker(counter);\n\
+                     var pending = workers::worker(counter) | async;\n\
+                     counter.unlock();\n\
+                     return pending | await;\n\
+                 };\n",
+            ),
+        ],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(qualified
+        .typed_node(find_named_routine_syntax_id(&qualified, "launch"))
+        .is_some());
 }
 
 #[test]
@@ -3937,6 +3968,60 @@ fn omitted_shared_pointer_defaults_cannot_cross_processor_boundaries() {
                         .contains("values containing shared Rc pointers cannot cross")
             }),
             "{surface} should reject an omitted shared-pointer default, got {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn qualified_omitted_defaults_preserve_processor_boundaries() {
+    for (surface, statement, parameter, expected) in [
+        (
+            "spawn borrowed default",
+            "[>]workers::inspect();",
+            "value[bor]: int = 7",
+            "borrowed values cannot cross a spawn or async thread boundary",
+        ),
+        (
+            "async borrowed default",
+            "var pending = workers::inspect() | async;",
+            "value[bor]: int = 7",
+            "borrowed values cannot cross a spawn or async thread boundary",
+        ),
+        (
+            "spawn shared-pointer default",
+            "[>]workers::inspect();",
+            "value: ptr[shared, int] = &7",
+            "values containing shared Rc pointers cannot cross",
+        ),
+        (
+            "async shared-pointer default",
+            "var pending = workers::inspect() | async;",
+            "value: ptr[shared, int] = &7",
+            "values containing shared Rc pointers cannot cross",
+        ),
+    ] {
+        let worker = format!(
+            "fun[] inspect({parameter}): int = {{ return 0; }};\n"
+        );
+        let main = format!(
+            "fun[] main(): int = {{\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[
+                ("workers/tasks.fol", worker.as_str()),
+                ("main.fol", main.as_str()),
+            ],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+
+        assert!(
+            errors.iter().any(|error| error.message().contains(expected)),
+            "{surface} should retain its omitted-argument boundary, got {errors:?}"
         );
     }
 }

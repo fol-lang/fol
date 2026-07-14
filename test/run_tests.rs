@@ -513,6 +513,10 @@ mod integration_tests {
     mod editor_sync;
 
     #[cfg(test)]
+    #[path = "integration_v3_runtime_proofs.rs"]
+    mod v3_runtime_proofs;
+
+    #[cfg(test)]
     #[path = "integration_diagnostics_pipeline.rs"]
     mod diagnostics_pipeline;
 

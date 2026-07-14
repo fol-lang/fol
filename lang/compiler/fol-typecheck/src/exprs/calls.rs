@@ -946,7 +946,28 @@ fn routine_signature_for_symbol(
     use crate::CheckedType;
     let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
     match typed.type_table().get(type_id) {
-        Some(CheckedType::Routine(signature)) => Ok(signature.clone()),
+        Some(CheckedType::Routine(signature)) => {
+            let mut signature = signature.clone();
+            signature.param_defaults = typed
+                .typed_symbol(symbol_id)
+                .map(|symbol| symbol.param_defaults.clone())
+                .ok_or_else(|| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::SymbolTableCorrupted,
+                        format!(
+                            "routine symbol {} lost its declaration-owned defaults",
+                            symbol_id.0
+                        ),
+                        origin.clone().unwrap_or(SyntaxOrigin {
+                            file: None,
+                            line: 1,
+                            column: 1,
+                            length: 1,
+                        }),
+                    )
+                })?;
+            Ok(signature)
+        }
         _ => Err(TypecheckError::with_origin(
             TypecheckErrorKind::InvalidInput,
             format!("resolved routine symbol {} is not callable", symbol_id.0),

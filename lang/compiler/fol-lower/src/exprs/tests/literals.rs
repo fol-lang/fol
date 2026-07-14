@@ -2,8 +2,8 @@ use super::{lower_fixture_workspace, lower_folder_fixture_workspace};
 use super::super::cursor::{RoutineCursor, WorkspaceDeclIndex};
 use crate::{
     types::{LoweredBuiltinType, LoweredTypeTable},
-    LoweredBlock, LoweredGlobal, LoweredInstrKind, LoweredOperand, LoweredPackage,
-    LoweredRoutine, LoweredTerminator, LoweredWorkspace, LoweringErrorKind,
+    LoweredBlock, LoweredGlobal, LoweredInstrKind, LoweredLocal, LoweredOperand,
+    LoweredPackage, LoweredRoutine, LoweredTerminator, LoweredWorkspace, LoweringErrorKind,
 };
 use fol_parser::ast::AstParser;
 use fol_parser::ast::Literal;
@@ -856,4 +856,80 @@ fn declaration_index_tracks_globals_and_routines_by_owning_package() {
         index.routine_id_for_symbol(&identity, fol_resolver::SymbolId(2)),
         Some(crate::LoweredRoutineId(0))
     );
+}
+
+#[test]
+fn declaration_index_keeps_colliding_routine_metadata_package_local() {
+    let app_identity = PackageIdentity {
+        source_kind: PackageSourceKind::Entry,
+        canonical_root: "/workspace/app".to_string(),
+        display_name: "app".to_string(),
+    };
+    let dep_identity = PackageIdentity {
+        source_kind: PackageSourceKind::Local,
+        canonical_root: "/workspace/dep".to_string(),
+        display_name: "dep".to_string(),
+    };
+    let routine_id = crate::LoweredRoutineId(0);
+
+    let mut app_routine = LoweredRoutine::new(routine_id, "app_task", crate::LoweredBlockId(0));
+    let app_param = app_routine.locals.push(LoweredLocal {
+        id: crate::LoweredLocalId(0),
+        type_id: Some(crate::LoweredTypeId(10)),
+        name: Some("app_value".to_string()),
+    });
+    app_routine.params.push(app_param);
+
+    let mut dep_routine = LoweredRoutine::new(routine_id, "dep_task", crate::LoweredBlockId(0));
+    dep_routine.receiver_type = Some(crate::LoweredTypeId(20));
+    let dep_param = dep_routine.locals.push(LoweredLocal {
+        id: crate::LoweredLocalId(0),
+        type_id: Some(crate::LoweredTypeId(20)),
+        name: Some("dep_receiver".to_string()),
+    });
+    dep_routine.params.push(dep_param);
+
+    let mut app_package =
+        LoweredPackage::new(crate::LoweredPackageId(0), app_identity.clone());
+    app_package.routine_decls.insert(routine_id, app_routine);
+    let mut dep_package =
+        LoweredPackage::new(crate::LoweredPackageId(1), dep_identity.clone());
+    dep_package.routine_decls.insert(routine_id, dep_routine);
+
+    let mut packages = BTreeMap::new();
+    packages.insert(app_identity.clone(), app_package);
+    packages.insert(dep_identity.clone(), dep_package);
+    let mut type_table = crate::LoweredTypeTable::new();
+    let recoverable_abi = crate::LoweredRecoverableAbi::v1(
+        type_table.intern_builtin(crate::LoweredBuiltinType::Bool),
+    );
+    let workspace = LoweredWorkspace::new(
+        app_identity.clone(),
+        packages,
+        Vec::new(),
+        type_table,
+        crate::LoweredSourceMap::new(),
+        recoverable_abi,
+    );
+
+    let index = WorkspaceDeclIndex::build(&workspace);
+
+    assert_eq!(
+        index.routine_param_types(&app_identity, routine_id),
+        Some([crate::LoweredTypeId(10)].as_slice())
+    );
+    assert_eq!(
+        index.routine_param_names(&app_identity, routine_id),
+        Some(["app_value".to_string()].as_slice())
+    );
+    assert!(!index.routine_has_receiver(&app_identity, routine_id));
+    assert_eq!(
+        index.routine_param_types(&dep_identity, routine_id),
+        Some([crate::LoweredTypeId(20)].as_slice())
+    );
+    assert_eq!(
+        index.routine_param_names(&dep_identity, routine_id),
+        Some(["dep_receiver".to_string()].as_slice())
+    );
+    assert!(index.routine_has_receiver(&dep_identity, routine_id));
 }

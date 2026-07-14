@@ -1002,13 +1002,17 @@ fn lower_named_routine_signature(
         )?;
         record_symbol_type(typed, self_symbol_id, receiver_checked)?;
     }
+    let param_defaults = params
+        .iter()
+        .map(|param| param.default.clone())
+        .collect::<Vec<_>>();
     let routine_type = typed
         .type_table_mut()
         .intern(CheckedType::Routine(RoutineType {
             generic_params,
             generic_constraints: generic_constraints.clone(),
             param_names: params.iter().map(|param| param.name.clone()).collect(),
-            param_defaults: params.iter().map(|param| param.default.clone()).collect(),
+            param_defaults: param_defaults.clone(),
             variadic_index: params.iter().position(|param| param.is_variadic),
             mutex_params: params
                 .iter()
@@ -1022,6 +1026,7 @@ fn lower_named_routine_signature(
     record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
     record_symbol_type(typed, symbol_id, routine_type)?;
     record_symbol_receiver_type(typed, symbol_id, lowered_receiver)?;
+    record_symbol_param_defaults(typed, symbol_id, param_defaults)?;
     Ok(signature_scope)
 }
 
@@ -3515,6 +3520,24 @@ fn record_symbol_receiver_type(
         )
     })?;
     symbol.receiver_type = type_id;
+    Ok(())
+}
+
+fn record_symbol_param_defaults(
+    typed: &mut TypedProgram,
+    symbol_id: SymbolId,
+    param_defaults: Vec<Option<AstNode>>,
+) -> Result<(), TypecheckError> {
+    let symbol = typed.typed_symbol_mut(symbol_id).ok_or_else(|| {
+        TypecheckError::new(
+            TypecheckErrorKind::SymbolTableCorrupted,
+            format!(
+                "symbol table corrupted: symbol {} is missing while recording parameter defaults",
+                symbol_id.0,
+            ),
+        )
+    })?;
+    symbol.param_defaults = param_defaults;
     Ok(())
 }
 

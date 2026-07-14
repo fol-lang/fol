@@ -293,6 +293,14 @@ pub(crate) fn require_named_processor_call_target(
     ))
 }
 
+fn processor_call_syntax_id(task: &AstNode) -> Option<fol_parser::ast::SyntaxNodeId> {
+    match helpers::strip_comments(task) {
+        AstNode::FunctionCall { syntax_id, .. } => *syntax_id,
+        AstNode::QualifiedFunctionCall { path, .. } => path.syntax_id(),
+        _ => None,
+    }
+}
+
 pub(crate) fn apply_spawn_argument_boundary(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -627,7 +635,7 @@ fn type_node_with_expectation_inner(
                 resolved,
                 TypeContext {
                     error_call_mode: ErrorCallMode::Observe,
-                    processor_task_call: helpers::strip_comments(task).syntax_id(),
+                    processor_task_call: processor_call_syntax_id(task),
                     ..context
                 },
                 task,

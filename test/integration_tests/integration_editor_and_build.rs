@@ -1327,7 +1327,7 @@ fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
             );
             assert!(
                 emitted.lines().any(|line| {
-                    line.trim_start().starts_with("*l__") && line.contains("__pointer =")
+                    line.trim_start().starts_with("*l__") && line.contains("__extracted =")
                 }),
                 "unique pointer example should emit a dereference store"
             );
@@ -1494,6 +1494,68 @@ fn test_v3_qualified_spawn_and_async_targets_execute() {
     );
     assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "7\n");
     std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_v3_imported_qualified_processor_targets_execute() {
+    let temp_root = unique_temp_root("imported_qualified_processor_targets");
+    let store_root = temp_root.join("store");
+    let app_root = temp_root.join("app");
+    write_formal_model_package(
+        &store_root.join("workers"),
+        "workers",
+        "core",
+        "lib.fol",
+        "fun[exp] launch(value: int = 7): int = { return value; };\n\
+         fun[exp] compute(value: int = 41): int = { return value + 1; };\n",
+    );
+    write_model_app_package(
+        &app_root,
+        "app",
+        "hosted",
+        "use workers: pkg = {\"workers\"};\n\
+         use std: pkg = {\"std\"};\n\
+         fun[] main(): int = {\n\
+             [>]workers::src::launch();\n\
+             var pending = workers::src::compute() | async;\n\
+             return std::io::echo_int(pending | await);\n\
+         };\n",
+        false,
+    );
+    let bundled_std_root =
+        fol_package::available_bundled_std_root().expect("bundled std root should exist");
+    copy_dir_all(&bundled_std_root, &store_root.join("std"));
+
+    let build = run_fol_with_store_in_dir(
+        &app_root,
+        &store_root,
+        &["code", "build", "--keep-build-dir"],
+    );
+    assert!(
+        build.status.success(),
+        "imported qualified processor targets should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(emitted.contains("rt::spawn_task(move ||"));
+    assert!(emitted.contains("rt::spawn_eventual(move ||"));
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("imported qualified processor binary should run");
+    assert!(
+        run.status.success(),
+        "imported qualified processor binary should succeed: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "42\n");
+    std::fs::remove_dir_all(temp_root).ok();
 }
 
 #[test]

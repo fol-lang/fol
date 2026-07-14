@@ -873,7 +873,7 @@ fn lower_expression_observed_inner(
                     recoverable_error_type: error_type,
                 });
             }
-            let callee = resolve_method_target(
+            let (callee_identity, callee) = resolve_method_target(
                 typed_package,
                 checked_type_map,
                 current_identity,
@@ -898,7 +898,8 @@ fn lower_expression_observed_inner(
             let error_type = typed_node
                 .and_then(|node| node.recoverable_effect)
                 .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
-            let callee_has_receiver = decl_index.routine_has_receiver(callee);
+            let callee_has_receiver =
+                decl_index.routine_has_receiver(&callee_identity, callee);
             let mut lowered_args = if callee_has_receiver {
                 vec![receiver.local_id]
             } else {
@@ -906,7 +907,7 @@ fn lower_expression_observed_inner(
             };
             let receiver_skip: usize = if callee_has_receiver { 1 } else { 0 };
             let param_types = decl_index
-                .routine_param_types(callee)
+                .routine_param_types(&callee_identity, callee)
                 .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
@@ -914,14 +915,16 @@ fn lower_expression_observed_inner(
                     )
                 })?
                 .to_vec();
-            let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
-                LoweringError::with_kind(
-                    LoweringErrorKind::InvalidInput,
-                    format!("method '{method}' does not retain lowered parameter names"),
-                )
-            })?;
+            let param_names = decl_index
+                .routine_param_names(&callee_identity, callee)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("method '{method}' does not retain lowered parameter names"),
+                    )
+                })?;
             let param_defaults = decl_index
-                .routine_param_defaults(callee)
+                .routine_param_defaults(&callee_identity, callee)
                 .cloned()
                 .ok_or_else(|| {
                     LoweringError::with_kind(
@@ -965,8 +968,9 @@ fn lower_expression_observed_inner(
                                     checked_type_map,
                                     decl_index,
                                     cursor,
+                                    &callee_identity,
                                     callee,
-                                    param_index + 1,
+                                    param_index + receiver_skip,
                                     expected,
                                 )
                             }

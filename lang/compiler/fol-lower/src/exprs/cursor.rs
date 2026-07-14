@@ -60,10 +60,11 @@ pub(crate) struct WorkspaceDeclIndex {
     typed_packages: BTreeMap<PackageIdentity, fol_typecheck::TypedPackage>,
     globals: BTreeMap<(PackageIdentity, SymbolId), LoweredGlobalId>,
     routines: BTreeMap<(PackageIdentity, SymbolId), LoweredRoutineId>,
-    routine_params: BTreeMap<LoweredRoutineId, Vec<LoweredTypeId>>,
-    routine_param_names: BTreeMap<LoweredRoutineId, Vec<String>>,
-    routine_param_defaults: BTreeMap<LoweredRoutineId, RoutineDefaultLowering>,
-    routine_has_receiver: BTreeMap<LoweredRoutineId, bool>,
+    routine_params: BTreeMap<(PackageIdentity, LoweredRoutineId), Vec<LoweredTypeId>>,
+    routine_param_names: BTreeMap<(PackageIdentity, LoweredRoutineId), Vec<String>>,
+    routine_param_defaults:
+        BTreeMap<(PackageIdentity, LoweredRoutineId), RoutineDefaultLowering>,
+    routine_has_receiver: BTreeMap<(PackageIdentity, LoweredRoutineId), bool>,
     entry_variants: BTreeMap<(PackageIdentity, SymbolId, String), EntryVariantLowering>,
     record_fields: BTreeMap<(PackageIdentity, SymbolId, String), LoweredTypeId>,
     record_runtime_types: BTreeMap<(PackageIdentity, SymbolId), LoweredTypeId>,
@@ -117,8 +118,12 @@ impl WorkspaceDeclIndex {
                             .and_then(|local| local.name.clone())
                     })
                     .collect::<Vec<_>>();
-                index.routine_params.insert(routine.id, params);
-                index.routine_param_names.insert(routine.id, param_names);
+                let routine_key = (package.identity.clone(), routine.id);
+                index.routine_params.insert(routine_key.clone(), params);
+                index.routine_param_names.insert(routine_key.clone(), param_names);
+                index
+                    .routine_has_receiver
+                    .insert(routine_key, routine.receiver_type.is_some());
             }
         }
         index
@@ -143,14 +148,14 @@ impl WorkspaceDeclIndex {
                         .and_then(|type_id| typed_package.program.type_table().get(type_id))
                     {
                         if let fol_typecheck::CheckedType::Routine(signature) = signature_type {
-                            let mut defaults = signature.param_defaults.clone();
+                            let mut defaults = typed_symbol.param_defaults.clone();
                             let mut variadic_index = signature.variadic_index;
                             if typed_symbol.receiver_type.is_some() {
                                 defaults.insert(0, None);
                                 variadic_index = variadic_index.map(|index| index + 1);
                             }
                             self.routine_param_defaults.insert(
-                                routine.id,
+                                (package.identity.clone(), routine.id),
                                 RoutineDefaultLowering {
                                     package_identity: package.identity.clone(),
                                     source_unit_id: typed_symbol.source_unit_id,
@@ -178,10 +183,12 @@ impl WorkspaceDeclIndex {
                         .and_then(|local| local.name.clone())
                 })
                 .collect::<Vec<_>>();
-            self.routine_params.insert(routine.id, params);
-            self.routine_param_names.insert(routine.id, param_names);
+            let routine_key = (package.identity.clone(), routine.id);
+            self.routine_params.insert(routine_key.clone(), params);
+            self.routine_param_names
+                .insert(routine_key.clone(), param_names);
             self.routine_has_receiver
-                .insert(routine.id, routine.receiver_type.is_some());
+                .insert(routine_key, routine.receiver_type.is_some());
         }
         self.extend_entry_variants(typed_package, package);
         for (symbol_id, type_decl) in &package.type_decls {
@@ -200,9 +207,13 @@ impl WorkspaceDeclIndex {
         }
     }
 
-    pub(crate) fn routine_has_receiver(&self, routine_id: LoweredRoutineId) -> bool {
+    pub(crate) fn routine_has_receiver(
+        &self,
+        identity: &PackageIdentity,
+        routine_id: LoweredRoutineId,
+    ) -> bool {
         self.routine_has_receiver
-            .get(&routine_id)
+            .get(&(identity.clone(), routine_id))
             .copied()
             .unwrap_or(false)
     }
@@ -225,20 +236,31 @@ impl WorkspaceDeclIndex {
 
     pub(crate) fn routine_param_types(
         &self,
+        identity: &PackageIdentity,
         routine_id: LoweredRoutineId,
     ) -> Option<&[LoweredTypeId]> {
-        self.routine_params.get(&routine_id).map(Vec::as_slice)
+        self.routine_params
+            .get(&(identity.clone(), routine_id))
+            .map(Vec::as_slice)
     }
 
-    pub(crate) fn routine_param_names(&self, routine_id: LoweredRoutineId) -> Option<&[String]> {
-        self.routine_param_names.get(&routine_id).map(Vec::as_slice)
+    pub(crate) fn routine_param_names(
+        &self,
+        identity: &PackageIdentity,
+        routine_id: LoweredRoutineId,
+    ) -> Option<&[String]> {
+        self.routine_param_names
+            .get(&(identity.clone(), routine_id))
+            .map(Vec::as_slice)
     }
 
     pub(crate) fn routine_param_defaults(
         &self,
+        identity: &PackageIdentity,
         routine_id: LoweredRoutineId,
     ) -> Option<&RoutineDefaultLowering> {
-        self.routine_param_defaults.get(&routine_id)
+        self.routine_param_defaults
+            .get(&(identity.clone(), routine_id))
     }
 
     pub(crate) fn typed_package(

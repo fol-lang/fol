@@ -127,7 +127,7 @@ pub(crate) fn type_binary_op(
                 resolved,
                 TypeContext {
                     error_call_mode: super::ErrorCallMode::Observe,
-                    processor_task_call: super::helpers::strip_comments(left).syntax_id(),
+                    processor_task_call: super::processor_call_syntax_id(left),
                     ..context
                 },
                 left,

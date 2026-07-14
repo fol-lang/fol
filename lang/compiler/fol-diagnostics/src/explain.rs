@@ -119,9 +119,13 @@ static REGISTRY: &[Explanation] = &[
         "O1001",
         "ownership violation",
         "A value was used after its ownership moved, or while ownership rules made it inaccessible.\n\n\
-         V3 heap-owned and other unique values move when transferred, including when a\n\
-         value-producing expression is evaluated and its result is discarded; stack values clone.\n\n\
+         V3 clone-safe values clone when transferred. Heap-owned values, unique pointers, and\n\
+         aggregates containing unique ownership move, including when a value-producing expression\n\
+         is evaluated and its result is discarded.\n\n\
          This code also covers ownership boundaries that cannot be represented safely yet:\n\
+         - dereferencing a unique pointer clones a clone-safe pointee, but transfers a move-only\n\
+           pointee and consumes that pointer; shared and borrowed pointer dereferences are\n\
+           read-only and therefore require clone-safe pointees\n\
          - dereferencing a unique pointer reached through a field would partially observe a\n\
            move-only place, so it requires place-aware projection IR\n\
          - a moved whole binding may be reinitialized in ordinary control flow, but not inside\n\
@@ -307,9 +311,11 @@ static REGISTRY: &[Explanation] = &[
          expression or declaration.\n\n\
          Why it happens:\n\
          - an expression is malformed for the position it appears in\n\
-         - an operand or argument shape does not match what the checker expects\n\n\
+         - an operand or argument shape does not match what the checker expects\n\
+         - a blocking `select {}` has no channel arm and no default arm\n\n\
          How to fix:\n\
-         - re-read the reported span and adjust the expression to a valid form"
+         - re-read the reported span and adjust the expression to a valid form\n\
+         - add at least one `when channel as binding` arm, or add a default `*` arm, to `select`"
     ),
     explanation!(
         "T1002",
@@ -585,14 +591,27 @@ mod tests {
     fn ownership_explanation_covers_v3_resource_boundaries() {
         let explanation = explanation("O1001").expect("O1001 should be registered");
         assert!(explanation.body.contains("result is discarded"));
+        assert!(explanation.body.contains("clone-safe values clone"));
+        assert!(explanation
+            .body
+            .contains("aggregates containing unique ownership move"));
         assert!(explanation.body.contains("reinitialize"));
         assert!(explanation.body.contains("place-aware projection IR"));
+        assert!(explanation.body.contains("transfers a move-only"));
+        assert!(explanation.body.contains("shared and borrowed pointer"));
         assert!(explanation
             .body
             .contains("spawn or async OS-thread boundary"));
         assert!(explanation.body.contains("channel endpoint acquisition"));
         assert!(explanation.body.contains("eventuals are move-only"));
         assert!(explanation.body.contains("`dfr` or `edf`"));
+    }
+
+    #[test]
+    fn invalid_input_explanation_covers_empty_blocking_select() {
+        let explanation = explanation("T1001").expect("T1001 should be registered");
+        assert!(explanation.body.contains("blocking `select {}`"));
+        assert!(explanation.body.contains("at least one `when channel as binding` arm"));
     }
 
     #[test]

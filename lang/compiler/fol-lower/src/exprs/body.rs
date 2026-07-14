@@ -999,7 +999,7 @@ pub(crate) fn lower_body_node(
                         recoverable_error_type: error_type,
                     }));
             }
-            let callee = resolve_method_target(
+            let (callee_identity, callee) = resolve_method_target(
                 typed_package,
                 checked_type_map,
                 current_identity,
@@ -1018,7 +1018,7 @@ pub(crate) fn lower_body_node(
                 .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
             let mut lowered_args = vec![receiver.local_id];
             let param_types = decl_index
-                .routine_param_types(callee)
+                .routine_param_types(&callee_identity, callee)
                 .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
@@ -1026,14 +1026,16 @@ pub(crate) fn lower_body_node(
                     )
                 })?
                 .to_vec();
-            let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
-                LoweringError::with_kind(
-                    LoweringErrorKind::InvalidInput,
-                    format!("method '{method}' does not retain lowered parameter names"),
-                )
-            })?;
+            let param_names = decl_index
+                .routine_param_names(&callee_identity, callee)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("method '{method}' does not retain lowered parameter names"),
+                    )
+                })?;
             let param_defaults = decl_index
-                .routine_param_defaults(callee)
+                .routine_param_defaults(&callee_identity, callee)
                 .cloned()
                 .ok_or_else(|| {
                     LoweringError::with_kind(
@@ -1077,6 +1079,7 @@ pub(crate) fn lower_body_node(
                                     checked_type_map,
                                     decl_index,
                                     cursor,
+                                    &callee_identity,
                                     callee,
                                     param_index + 1,
                                     expected,

@@ -27,7 +27,7 @@ pub struct TypedSourceUnit {
     pub top_level_nodes: Vec<SyntaxNodeId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypedSymbol {
     pub symbol_id: SymbolId,
     pub kind: SymbolKind,
@@ -35,6 +35,10 @@ pub struct TypedSymbol {
     pub source_unit_id: SourceUnitId,
     pub declared_type: Option<CheckedTypeId>,
     pub receiver_type: Option<CheckedTypeId>,
+    /// Declaration-owned default expressions. Routine types are interned by
+    /// callable shape, so the concrete AST must remain attached to the symbol
+    /// instead of relying on whichever equal signature was interned first.
+    pub param_defaults: Vec<Option<AstNode>>,
     pub generic_params: Vec<SymbolId>,
     pub generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
     /// Mirrors the resolver's binding mutability (`var[mut]`/`lab[mut]`).
@@ -625,6 +629,7 @@ impl TypedProgram {
                         source_unit_id: symbol.source_unit,
                         declared_type: None,
                         receiver_type: None,
+                        param_defaults: Vec::new(),
                         generic_params: Vec::new(),
                         generic_constraints: BTreeMap::new(),
                         is_mutable: symbol.is_mutable,

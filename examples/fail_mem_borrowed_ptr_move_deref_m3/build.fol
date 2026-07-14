@@ -1,9 +1,9 @@
 pro[] build(): non = {
     var build = .build();
-    build.meta({ name = "mem_borrow_param_m2", version = "0.1.0" });
+    build.meta({ name = "fail_mem_borrowed_ptr_move_deref_m3", version = "0.1.0" });
     var graph = build.graph();
     var app = graph.add_exe({
-        name = "mem-borrow-param-m2",
+        name = "fail-mem-borrowed-ptr-move-deref-m3",
         root = "src/main.fol",
         fol_model = "memo",
     });

@@ -70,12 +70,12 @@ pub struct RoutineType {
 
 impl RoutineType {
     /// Which parameters carry a default. Part of the routine's callable
-    /// identity together with `param_names`: named-argument binding and
-    /// default filling both read the interned signature, so two routines
-    /// that differ only in parameter names or defaultedness must not
-    /// collapse to one interned type. The default *expressions* are not
-    /// hashable (`AstNode` is `PartialEq`-only), but the defaultedness
-    /// pattern is what call-arity binding depends on.
+    /// identity together with `param_names`, so routines that differ only in
+    /// parameter names or defaultedness must not collapse to one interned
+    /// type. Concrete default ASTs are declaration-owned on `TypedSymbol` and
+    /// are overlaid before named-call binding/lowering; equal callable shapes
+    /// may legitimately carry different expressions. The default expressions
+    /// are also not hashable (`AstNode` is `PartialEq`-only).
     fn default_flags(&self) -> Vec<bool> {
         self.param_defaults
             .iter()
