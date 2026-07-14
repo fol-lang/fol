@@ -1435,6 +1435,68 @@ fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
 }
 
 #[test]
+fn test_v3_qualified_spawn_and_async_targets_execute() {
+    let root = write_temp_app(
+        "qualified_processor_targets",
+        "fun[] main(): int = {\n\
+             [>]workers::launch();\n\
+             var pending = workers::compute() | async;\n\
+             var value: int = pending | await;\n\
+             return value - 42;\n\
+         };\n",
+    );
+    let build_path = root.join("build.fol");
+    let build_source = std::fs::read_to_string(&build_path)
+        .expect("qualified processor build source should read")
+        .replace(
+            "    var graph = build.graph();",
+            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n\n    var graph = build.graph();",
+        );
+    std::fs::write(&build_path, build_source)
+        .expect("qualified processor build source should update");
+    std::fs::create_dir_all(root.join("src/workers"))
+        .expect("qualified processor namespace should exist");
+    std::fs::write(
+        root.join("src/workers/tasks.fol"),
+        "use std: pkg = {\"std\"};\n\
+         fun[] launch(value: int = 7): int = {\n\
+             return std::io::echo_int(value);\n\
+         };\n\
+         fun[] compute(value: int = 41): int = {\n\
+             return value + 1;\n\
+         };\n",
+    )
+    .expect("qualified processor routines should write");
+
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "qualified spawn/async targets should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(emitted.contains("rt::spawn_task(move ||"));
+    assert!(emitted.contains("rt::spawn_eventual(move ||"));
+
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("qualified processor binary should run");
+    assert!(
+        run.status.success(),
+        "qualified processor binary should succeed: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "7\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn test_v3_processor_m1_spawn_negative_examples_reject() {
     for &failure in V3_PROC_M1_FAILURES {
         assert_v3_failure(failure);

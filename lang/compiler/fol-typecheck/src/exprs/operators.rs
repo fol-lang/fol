@@ -111,13 +111,13 @@ pub(crate) fn type_binary_op(
             }
             if !matches!(
                 super::helpers::strip_comments(left),
-                AstNode::FunctionCall { .. }
+                AstNode::FunctionCall { .. } | AstNode::QualifiedFunctionCall { .. }
             ) {
                 return Err(unsupported_binary_surface(
                     resolved,
                     left,
                     right,
-                    "| async currently requires a direct routine call on its left side",
+                    "| async requires a direct named routine call on its left side",
                 ));
             }
             super::require_named_processor_call_target(resolved, left, "| async")?;

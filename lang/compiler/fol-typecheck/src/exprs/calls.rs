@@ -704,7 +704,7 @@ pub(crate) fn type_qualified_function_call(
         origin_for(resolved, syntax_id),
         true,
         true,
-        false,
+        context.processor_task_call == Some(syntax_id),
     )?;
     let call_effect = merge_recoverable_effects(
         typed,
@@ -717,6 +717,10 @@ pub(crate) fn type_qualified_function_call(
                 .map(|error_type| RecoverableCallEffect { error_type }),
         ],
     )?;
+    // Keep qualified calls on the same processor-boundary path as plain
+    // calls. In particular, omitted defaults must be validated against the
+    // concrete post-inference parameter types before spawn/async lowering.
+    typed.record_call_signature(syntax_id, signature.clone());
     if let Some(return_type) = signature.return_type {
         let typed_reference = typed
             .typed_reference_mut(reference_id)

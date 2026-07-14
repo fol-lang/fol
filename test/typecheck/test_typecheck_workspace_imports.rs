@@ -219,7 +219,7 @@ fn qualified_imported_spawns_keep_receiver_and_rc_boundaries() {
 }
 
 #[test]
-fn qualified_imported_spawn_is_rejected_before_lowering() {
+fn qualified_imported_spawn_is_accepted_before_lowering() {
     let root = unique_temp_dir("workspace_qualified_spawn_surface");
     create_dir_all(&root).expect("Fixture root should be creatable");
     write_fixture_files(
@@ -242,7 +242,7 @@ fn qualified_imported_spawn_is_rejected_before_lowering() {
         ],
     );
 
-    let errors = typecheck_fixture_workspace_with_models(
+    typecheck_fixture_workspace_with_models(
         &root,
         "app",
         ResolverConfig::default(),
@@ -250,14 +250,11 @@ fn qualified_imported_spawn_is_rejected_before_lowering() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     )
-    .expect_err("qualified spawn should be rejected by typecheck");
-    assert!(errors.iter().any(|error| error
-        .message()
-        .contains("spawn requires a direct unqualified routine call")));
+    .expect("qualified direct spawn targets should typecheck");
 }
 
 #[test]
-fn qualified_imported_async_is_rejected_before_lowering() {
+fn qualified_imported_async_is_accepted_before_lowering() {
     let root = unique_temp_dir("workspace_qualified_async_surface");
     create_dir_all(&root).expect("Fixture root should be creatable");
     write_fixture_files(
@@ -280,7 +277,7 @@ fn qualified_imported_async_is_rejected_before_lowering() {
         ],
     );
 
-    let errors = typecheck_fixture_workspace_with_models(
+    typecheck_fixture_workspace_with_models(
         &root,
         "app",
         ResolverConfig::default(),
@@ -288,10 +285,7 @@ fn qualified_imported_async_is_rejected_before_lowering() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     )
-    .expect_err("qualified async should be rejected by typecheck");
-    assert!(errors.iter().any(|error| error
-        .message()
-        .contains("| async currently requires a direct routine call on its left side")));
+    .expect("qualified direct async targets should typecheck");
 }
 
 #[test]

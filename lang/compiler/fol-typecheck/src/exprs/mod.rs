@@ -16,6 +16,7 @@ use fol_parser::ast::{
     AstNode, CallSurface, ChannelEndpoint, FolType, ParsedSourceUnitKind, UnaryOperator,
 };
 use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use helpers::{
@@ -258,18 +259,24 @@ pub(crate) fn require_named_processor_call_target(
     task: &AstNode,
     surface: &str,
 ) -> Result<(), TypecheckError> {
-    let AstNode::FunctionCall {
-        syntax_id: Some(syntax_id),
-        ..
-    } = helpers::strip_comments(task)
-    else {
-        return Ok(());
+    let (syntax_id, reference_kind) = match helpers::strip_comments(task) {
+        AstNode::FunctionCall {
+            syntax_id: Some(syntax_id),
+            ..
+        } => (*syntax_id, ReferenceKind::FunctionCall),
+        AstNode::QualifiedFunctionCall { path, .. } => {
+            let Some(syntax_id) = path.syntax_id() else {
+                return Ok(());
+            };
+            (syntax_id, ReferenceKind::QualifiedFunctionCall)
+        }
+        _ => return Ok(()),
     };
     let target_kind = resolved
         .references
         .iter()
         .find(|reference| {
-            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::FunctionCall
+            reference.syntax_id == Some(syntax_id) && reference.kind == reference_kind
         })
         .and_then(|reference| reference.resolved)
         .and_then(|symbol| resolved.symbol(symbol))
@@ -298,18 +305,24 @@ pub(crate) fn apply_spawn_argument_boundary(
     // defaults cross exactly the same processor boundary as explicit values.
     // Reading the instantiated signature also distinguishes a safe concrete
     // generic call from forwarding an unresolved generic value.
-    if let AstNode::FunctionCall {
-        syntax_id: Some(syntax_id),
-        name,
-        args,
-        ..
-    } = task
-    {
-        if let Some(signature) = typed.call_signature(*syntax_id).cloned() {
+    let direct_call: Option<(_, Cow<'_, str>, &[AstNode])> = match task {
+        AstNode::FunctionCall {
+            syntax_id: Some(syntax_id),
+            name,
+            args,
+            ..
+        } => Some((*syntax_id, Cow::Borrowed(name.as_str()), args.as_slice())),
+        AstNode::QualifiedFunctionCall { path, args } => path
+            .syntax_id()
+            .map(|syntax_id| (syntax_id, Cow::Owned(path.joined()), args.as_slice())),
+        _ => None,
+    };
+    if let Some((syntax_id, name, args)) = direct_call {
+        if let Some(signature) = typed.call_signature(syntax_id).cloned() {
             let bound_args = calls::bind_call_arguments(
                 &signature,
                 args,
-                name,
+                name.as_ref(),
                 node_origin(resolved, task),
                 true,
                 true,
@@ -461,7 +474,8 @@ fn reject_unsupported_spawn_task_surface(
         AstNode::FunctionCall {
             surface: CallSurface::Plain,
             ..
-        } => Ok(()),
+        }
+        | AstNode::QualifiedFunctionCall { .. } => Ok(()),
         AstNode::AnonymousFun { params, .. }
         | AstNode::AnonymousPro { params, .. }
         | AstNode::AnonymousLog { params, .. }
@@ -479,7 +493,7 @@ fn reject_unsupported_spawn_task_surface(
         _ => Err(unsupported_node_surface(
             resolved,
             task,
-            "spawn requires a direct unqualified routine call or a zero-parameter anonymous routine in V3; qualified calls, method calls, and other expressions are not supported",
+            "spawn requires a direct named routine call or a zero-parameter anonymous routine in V3; method calls and other expressions are not supported",
         )),
     }
 }

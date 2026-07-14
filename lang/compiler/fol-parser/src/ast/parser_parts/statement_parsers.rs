@@ -34,13 +34,6 @@ impl AstParser {
             let token = tokens.curr(false)?;
             if matches!(token.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
                 let _ = tokens.bump();
-                if arms.is_empty() && default.is_none() {
-                    return Err(ParseError::from_token(
-                        &token,
-                        "select requires at least one 'when channel as binding' arm or a default arm"
-                            .to_string(),
-                    ));
-                }
                 return Ok(AstNode::Select {
                     syntax_id,
                     arms,

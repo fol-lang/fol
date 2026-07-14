@@ -3527,6 +3527,29 @@ fn channel_send_consumes_move_only_payloads() {
 }
 
 #[test]
+fn empty_blocking_select_rejects_during_typecheck() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n\
+                 select {};\n\
+                 return 0;\n\
+             };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::InvalidInput
+            && error
+                .message()
+                .contains("blocking select requires at least one channel arm")
+    }));
+}
+
+#[test]
 fn select_merges_ownership_from_mutually_exclusive_arms() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
@@ -3762,6 +3785,34 @@ fn concrete_generic_calls_can_cross_spawn_and_async_boundaries() {
 }
 
 #[test]
+fn direct_qualified_calls_can_cross_processor_boundaries() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[
+            (
+                "workers/tasks.fol",
+                "fun[] launch(value: int = 7): int = { return value; };\n\
+                 fun[] compute(value: int = 41): int = { return value + 1; };\n",
+            ),
+            (
+                "main.fol",
+                "fun[] main(): int = {\n\
+                     [>]workers::launch();\n\
+                     var pending = workers::compute() | async;\n\
+                     return pending | await;\n\
+                 };\n",
+            ),
+        ],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
 fn processor_boundaries_reject_indirect_routine_value_calls() {
     for (value_surface, program_prefix, program_suffix) in [
         (
@@ -3896,12 +3947,12 @@ fn spawn_rejects_method_non_call_and_parameterized_anonymous_tasks() {
         (
             "method call",
             "worker.run()",
-            "spawn requires a direct unqualified routine call",
+            "spawn requires a direct named routine call",
         ),
         (
             "non-call expression",
             "42",
-            "spawn requires a direct unqualified routine call",
+            "spawn requires a direct named routine call",
         ),
         (
             "parameterized anonymous routine",

@@ -8,6 +8,7 @@ use crate::{control::LoweredInstrKind, ids::LoweredTypeId, LoweringError, Loweri
 use fol_intrinsics::{select_intrinsic, IntrinsicEntry, IntrinsicSurface};
 use fol_parser::ast::{AstNode, ContainerType};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 pub(crate) enum BoundLoweredCallArg<'a> {
@@ -15,6 +16,42 @@ pub(crate) enum BoundLoweredCallArg<'a> {
     Default(usize),
     VariadicPack(Vec<&'a AstNode>),
     VariadicUnpack(&'a AstNode),
+}
+
+struct DirectProcessorCall<'a> {
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
+    kind: ReferenceKind,
+    display_name: Cow<'a, str>,
+    args: &'a [AstNode],
+}
+
+fn direct_processor_call<'a>(
+    task: &'a AstNode,
+    surface: &str,
+) -> Result<DirectProcessorCall<'a>, LoweringError> {
+    match task {
+        AstNode::FunctionCall {
+            syntax_id,
+            name,
+            args,
+            ..
+        } => Ok(DirectProcessorCall {
+            syntax_id: *syntax_id,
+            kind: ReferenceKind::FunctionCall,
+            display_name: Cow::Borrowed(name),
+            args,
+        }),
+        AstNode::QualifiedFunctionCall { path, args } => Ok(DirectProcessorCall {
+            syntax_id: path.syntax_id(),
+            kind: ReferenceKind::QualifiedFunctionCall,
+            display_name: Cow::Owned(path.joined()),
+            args,
+        }),
+        _ => Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            format!("{surface} requires a direct named routine call"),
+        )),
+    }
 }
 
 /// The variadic pack is built at the call site from the concrete argument
@@ -1216,20 +1253,13 @@ pub(crate) fn lower_spawn_call(
         return Ok(());
     }
 
-    let AstNode::FunctionCall {
-        syntax_id,
-        name,
-        args,
-        ..
-    } = task
-    else {
-        return Err(LoweringError::with_kind(
-            LoweringErrorKind::Unsupported,
-            "spawn currently requires a direct routine call",
-        ));
-    };
-    let resolved_symbol =
-        resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::FunctionCall, name)?;
+    let direct = direct_processor_call(task, "spawn")?;
+    let resolved_symbol = resolve_reference_symbol(
+        typed_package,
+        direct.syntax_id,
+        direct.kind,
+        direct.display_name.as_ref(),
+    )?;
     let (owning_identity, owning_symbol_id) = canonical_symbol_key(
         current_identity,
         resolved_symbol.mounted_from.as_ref(),
@@ -1240,7 +1270,10 @@ pub(crate) fn lower_spawn_call(
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                format!("spawn target '{name}' does not map to a lowered routine"),
+                format!(
+                    "spawn target '{}' does not map to a lowered routine",
+                    direct.display_name
+                ),
             )
         })?;
     let param_types = decl_index
@@ -1248,14 +1281,20 @@ pub(crate) fn lower_spawn_call(
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                format!("spawn target '{name}' does not retain parameter types"),
+                format!(
+                    "spawn target '{}' does not retain parameter types",
+                    direct.display_name
+                ),
             )
         })?
         .to_vec();
     let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
         LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            format!("spawn target '{name}' does not retain parameter names"),
+            format!(
+                "spawn target '{}' does not retain parameter names",
+                direct.display_name
+            ),
         )
     })?;
     let param_defaults = decl_index
@@ -1264,15 +1303,18 @@ pub(crate) fn lower_spawn_call(
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                format!("spawn target '{name}' does not retain default arguments"),
+                format!(
+                    "spawn target '{}' does not retain default arguments",
+                    direct.display_name
+                ),
             )
         })?;
     let ordered_args = bind_lowered_call_arguments(
-        args,
+        direct.args,
         param_names,
         &param_defaults.defaults,
         param_defaults.variadic_index,
-        name,
+        direct.display_name.as_ref(),
     )?;
     let lowered_args = ordered_args
         .iter()
@@ -1347,20 +1389,13 @@ pub(crate) fn lower_async_call(
     scope_id: ScopeId,
     task: &AstNode,
 ) -> Result<LoweredValue, LoweringError> {
-    let AstNode::FunctionCall {
-        syntax_id,
-        name,
-        args,
-        ..
-    } = task
-    else {
-        return Err(LoweringError::with_kind(
-            LoweringErrorKind::Unsupported,
-            "| async currently requires a direct routine call",
-        ));
-    };
-    let resolved_symbol =
-        resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::FunctionCall, name)?;
+    let direct = direct_processor_call(task, "| async")?;
+    let resolved_symbol = resolve_reference_symbol(
+        typed_package,
+        direct.syntax_id,
+        direct.kind,
+        direct.display_name.as_ref(),
+    )?;
     let (owning_identity, owning_symbol_id) = canonical_symbol_key(
         current_identity,
         resolved_symbol.mounted_from.as_ref(),
@@ -1371,7 +1406,10 @@ pub(crate) fn lower_async_call(
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                format!("async target '{name}' does not map to a lowered routine"),
+                format!(
+                    "async target '{}' does not map to a lowered routine",
+                    direct.display_name
+                ),
             )
         })?;
     let param_types = decl_index
@@ -1379,14 +1417,20 @@ pub(crate) fn lower_async_call(
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                format!("async target '{name}' does not retain parameter types"),
+                format!(
+                    "async target '{}' does not retain parameter types",
+                    direct.display_name
+                ),
             )
         })?
         .to_vec();
     let param_names = decl_index.routine_param_names(callee).ok_or_else(|| {
         LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            format!("async target '{name}' does not retain parameter names"),
+            format!(
+                "async target '{}' does not retain parameter names",
+                direct.display_name
+            ),
         )
     })?;
     let param_defaults = decl_index
@@ -1395,15 +1439,18 @@ pub(crate) fn lower_async_call(
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                format!("async target '{name}' does not retain default arguments"),
+                format!(
+                    "async target '{}' does not retain default arguments",
+                    direct.display_name
+                ),
             )
         })?;
     let ordered_args = bind_lowered_call_arguments(
-        args,
+        direct.args,
         param_names,
         &param_defaults.defaults,
         param_defaults.variadic_index,
-        name,
+        direct.display_name.as_ref(),
     )?;
     let lowered_args = ordered_args
         .iter()
@@ -1456,14 +1503,19 @@ pub(crate) fn lower_async_call(
             .map(|value| value.local_id)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let typed_node = syntax_id.and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
+    let typed_node = direct
+        .syntax_id
+        .and_then(|syntax_id| typed_package.program.typed_node(syntax_id));
     let value_type = typed_node
         .and_then(|node| node.inferred_type)
         .and_then(|checked| checked_type_map.get(&checked).copied())
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                format!("async target '{name}' does not retain a result type"),
+                format!(
+                    "async target '{}' does not retain a result type",
+                    direct.display_name
+                ),
             )
         })?;
     let error_type = typed_node

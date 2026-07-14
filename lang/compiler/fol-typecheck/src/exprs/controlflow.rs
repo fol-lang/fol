@@ -416,6 +416,14 @@ pub(crate) fn type_select(
             "select requires hosted std support; declare the bundled internal standard dependency",
         ));
     }
+    if arms.is_empty() && default.is_none() {
+        return Err(with_node_origin(
+            resolved,
+            node,
+            TypecheckErrorKind::InvalidInput,
+            "blocking select requires at least one channel arm",
+        ));
+    }
     let entry_flow = typed.ownership_flow_state();
     let mut branch_flows = Vec::new();
     let mut used_scopes = std::collections::BTreeSet::new();
