@@ -95,6 +95,23 @@ Use `code` for:
 - emitting backend/debug artifacts
 - explaining a diagnostic code emitted by `fol code check`
 
+### Capability vs execution
+
+`fol code run` and `fol code test` evaluate `build.fol`, select the requested
+artifact or step, compile it, and launch it when its target is compatible with
+the host. That tool action is not a source capability:
+
+- `core` and `memo` artifacts can run and test without bundled `std`
+- declaring bundled `std` only makes hosted source APIs available to a `memo`
+  artifact; it does not grant execution permission
+- the compiler still rejects heap-backed or hosted APIs that exceed the
+  artifact's evaluated capability contract
+- a foreign selected target is rejected before launch because the frontend has
+  no cross-target runner configuration yet
+
+`graph.add_run` and `graph.add_test` choose graph actions. They do not change
+the selected `fol_model`.
+
 ### Explain
 
 `fol code explain <CODE>` prints an extended, plain-language explanation for a

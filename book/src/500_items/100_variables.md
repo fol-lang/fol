@@ -4,7 +4,8 @@ Current boundary:
 
 - ordinary `var`, `con`, and `lab` declarations are the current compiler surface
 - `@var` and `var[new]` are the shipped V3 unique-heap forms and require
-  `fol_model = "memo"` or bundled `std`
+  `fol_model = "memo"`; a `memo` artifact with bundled `std` remains
+  heap-capable too
 - the pipe-ternary and many-to-many assignment forms shown below are later
   design work, not current behavior
 

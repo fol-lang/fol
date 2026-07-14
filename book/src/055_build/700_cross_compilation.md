@@ -81,6 +81,10 @@ fail early with a diagnostic instead of trying to execute the foreign binary.
 source-language capability tier: host-compatible `core` and `memo` artifacts
 can execute without bundled `std`.
 
+There is no public cross-target runner configuration yet. When such a runner is
+added, it will be an execution-tool setting, not a reason to expose bundled
+`std` APIs to the target program.
+
 ## Output Layout
 
 Compiled binaries are target-scoped so host and cross builds do not overwrite

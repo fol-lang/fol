@@ -367,6 +367,13 @@ That means diagnostics are already strong across:
   runnable artifacts
 - build graph evaluation failures
 
+Runtime-capability and execution-routing failures remain distinct. Using
+heap-backed values from `core`, or hosted APIs without a `memo` artifact and its
+declared bundled `std`, is a compiler-owned capability diagnostic. Trying to
+run or test a foreign selected target is a frontend target-compatibility
+diagnostic. Merely running or testing a host-compatible `core` or `memo`
+artifact is not a missing-`std` error.
+
 This is the important boundary for the current compiler stage:
 
 - the compiler can parse, resolve, type-check, lower, and execute the supported

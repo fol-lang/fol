@@ -86,14 +86,24 @@ For the current user-facing tool workflow, read
 
 ## Example
 
+This example uses the hosted `std.io` surface. Its artifact therefore selects
+`fol_model = "memo"`, and its `build.fol` explicitly declares:
+
 ```fol
-use log: pkg = {"std/fmt/log"};
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+The dependency is required by the source-level hosted calls, not because
+`main` is executable.
+
+```fol
+use std: pkg = {"std"};
 
 var[hid] prefix: str = "arith";
 
 fun[] main(): int = {
-    .echo(prefix);
-    .echo(add(3, 5));
+    std::io::echo_str(prefix);
+    std::io::echo_int(add(3, 5));
     return 0;
 }
 

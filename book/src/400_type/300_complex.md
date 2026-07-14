@@ -3,7 +3,8 @@
 ## Strings
 
 `str` is the heap-backed UTF-8 string type. It requires the `memo` capability
-model or bundled `std`; it is not available in `core`.
+model; a `memo` artifact with bundled `std` remains heap-capable. It is not
+available in `core`.
 
 ```fol
 var label: str = "fol";
@@ -27,8 +28,9 @@ var shared: ptr[shared, int] = &value;
 `ptr[T]` is uniquely owned and writable through a mutable pointer binding.
 `ptr[shared, T]` is reference-counted and read-only. Pointer types can be
 analyzed in `core`, but `&value` constructs an allocation and therefore
-requires `memo` or bundled `std`. Raw `ptr[raw, T]` remains a V4 interop
-boundary.
+requires `memo`. A `memo` artifact may additionally declare bundled `std`, but
+the pointer operation itself does not require hosted APIs. Raw `ptr[raw, T]`
+remains a V4 interop boundary.
 
 See [Pointers](../800_memory/200_pointers.md) for transfer, dereference, shared
 recursion, and current place-projection rules.

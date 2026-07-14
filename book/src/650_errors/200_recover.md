@@ -155,4 +155,9 @@ For backend work:
   `fol_runtime::process` seam in every runtime model; it does not require
   bundled `std`
 
+That process adapter translates the entry outcome for the generated host
+wrapper. It is not importable source API, does not promote `core` or `memo` to
+the hosted tier, and is present for execution support regardless of whether the
+program declares bundled `std`.
+
 Those two categories are intentionally not merged.

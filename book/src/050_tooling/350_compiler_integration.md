@@ -45,6 +45,9 @@ That means:
 - definition should be derived from resolved symbol data
 - document symbols should prefer compiler symbol ownership where practical
 - completion should prefer compiler facts over text heuristics
+- effective capability comes from the evaluated artifact `fol_model` plus any
+  active bundled-standard dependency, not from whether a run/test command was
+  requested
 
 The LSP should not invent a parallel semantic model.
 
@@ -156,6 +159,18 @@ For V3 specifically, this rule covers every ownership, borrow, pointer, `dfr` /
 `edf`, spawn, channel, `select`, `[mux]`, async, and await boundary. Reusing the
 typechecker is necessary, but it is not permission to skip an explicit syntax,
 tooling, inventory, or documentation audit.
+
+Runtime-model synchronization must preserve two independent questions across
+all of those layers:
+
+- does this source stay within its evaluated `core`, `memo`, or hosted
+  (`memo` plus bundled `std`) API tier?
+- can the frontend execute the selected target on this host (or through a future
+  configured runner)?
+
+The first is compiler-owned capability truth. The second is frontend execution
+routing. Neither the LSP nor Tree-sitter should infer hosted source permission
+from `graph.add_run`, `graph.add_test`, `fol code run`, or `fol code test`.
 
 ## Current Practical Rule
 

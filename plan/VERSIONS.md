@@ -52,7 +52,8 @@ FOL uses a build-selected runtime model:
   adds alloc-like heap-backed facilities, still no source-level hosted OS APIs
 
 Those are the only public `fol_model` values. Bundled `std` is a shipped
-internal dependency, not a third `fol_model`; `fol_model = "std"` is invalid.
+internal dependency, not a third model; `std` is not accepted as a
+`fol_model` value.
 The build graph declares the hosted library explicitly:
 
 ```fol

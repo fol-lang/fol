@@ -44,14 +44,24 @@ pro[] build(): non = {
     var build = .build();
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
-    var app = graph.add_exe({ name = "app", root = "src/main.fol" });
+    var app = graph.add_exe({
+        name = "app",
+        root = "src/main.fol",
+        fol_model = "core",
+    });
     graph.install(app);
     graph.add_run(app);
 }
 ```
 
 This registers package metadata, adds an executable, marks it for installation,
-and binds a default run step.
+and binds a default run step. The artifact uses `core`, so its source has no
+heap-backed or hosted APIs. It can nevertheless be launched with `fol code run`
+on a compatible host; no bundled `std` dependency is needed just to execute it.
+
+`fol_model` is an artifact capability choice. `graph.add_run` and
+`graph.add_test` only register tool actions; they neither widen that capability
+nor require bundled `std`.
 
 ## What `fol-build` Owns
 
@@ -123,6 +133,8 @@ Runtime-model reminder:
   they should stay free of source-level hosted API assumptions
 - frontend host-tool and artifact launching is separate from language
   capability tiering
+- the current frontend has no cross-target runner configuration, so routed
+  `run` / `test` reject foreign targets even though those targets may be built
 
 Bundled std reminder:
 

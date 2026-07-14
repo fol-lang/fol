@@ -104,6 +104,11 @@ app.add_generated(schema);
 The `Run` handle is returned by `graph.add_run`. All `Run` methods are
 chainable and return `Run`.
 
+A `Run` handle describes a build-host action. Creating it does not expose
+hosted source APIs and does not require bundled `std`; the referenced artifact
+keeps its declared `core` or `memo` capability contract. Execution still
+requires a host-compatible target.
+
 ### `run.add_arg`
 
 Appends a literal string argument to the run command.

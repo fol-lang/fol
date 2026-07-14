@@ -3,6 +3,9 @@
 The processor surface is a `V3` systems feature. Every processor construct is
 `std`-only: a package must declare the bundled internal `standard` dependency.
 Choosing `core` or `memo` alone does not provide threads or hosted services.
+The artifact itself uses `fol_model = "memo"`; there is no `std` model.
+This dependency gates processor APIs, not process execution: std-free `core`
+and `memo` artifacts may still run on a compatible host.
 
 ## Spawn
 

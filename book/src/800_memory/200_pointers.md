@@ -1,7 +1,9 @@
 # Pointers
 
 FOL V3 has typed unique and shared pointers. Pointer construction allocates, so
-it requires the `memo` capability model or bundled `std`.
+it requires the `memo` capability model. A `memo` artifact with bundled `std`
+remains heap-capable, but pointer construction does not itself require hosted
+APIs.
 
 ## Unique pointers
 

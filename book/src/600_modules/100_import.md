@@ -119,6 +119,12 @@ build.add_dep({
 });
 ```
 
+This dependency is valid for a `memo` artifact and exposes the hosted API tier.
+It is not a third artifact model: `std` is not an accepted `fol_model` value.
+It is also not an execution switch. A `core` or unhosted `memo` executable can
+use `fol code run` and `fol code test` without declaring this dependency;
+declare it only when source code needs a shipped hosted API.
+
 Then import from the `std` dependency alias with `pkg`:
 
 ```

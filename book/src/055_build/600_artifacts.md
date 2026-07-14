@@ -20,10 +20,16 @@ All artifact constructors accept the same base config record:
 var app = graph.add_exe({
     name     = "app",      // required: output name
     root     = "src/main.fol",  // required: entry-point source file
+    fol_model = "core",    // optional: core or memo (memo if omitted)
     target   = target,     // optional: Target handle
     optimize = optimize,   // optional: Optimize handle
 });
 ```
+
+`fol_model` governs source-visible capabilities, not whether the artifact is a
+binary. Both `core` and `memo` can produce runnable executables and test
+bundles. A `memo` artifact declares bundled `std` separately only when its
+source needs hosted APIs.
 
 `name` must be lowercase. Allowed characters: `a-z`, `0-9`, `-`, `_`, `.`.
 
@@ -208,6 +214,10 @@ When only one executable exists in a package, the build system automatically
 binds it to the default `build` and `run` steps. When multiple executables
 exist, explicit step bindings are required via `graph.add_run(artifact)`.
 
+These bindings select what the frontend launches; they do not upgrade the
+artifact to hosted `std`. `fol code run` and `fol code test` accept std-free
+`core` and `memo` artifacts when the evaluated target matches the host.
+
 ### Selecting Steps at the Command Line
 
 ```text
@@ -217,6 +227,10 @@ fol code run           # run the default run step
 fol code run --step serve  # run the "serve" step
 fol code test          # run test steps
 ```
+
+Cross-target artifacts can still be built. The current frontend has no runner
+configuration, so `run` and `test` reject a foreign selected target before
+launch instead of treating bundled `std` as execution permission.
 
 ## Graph Validation
 

@@ -5,7 +5,7 @@ Intrinsics are compiler-owned language operations.
 They are not ordinary library functions, and they are not imported through
 `use`.
 
-FOL currently keeps three layers separate:
+FOL currently keeps compiler intrinsics and three API tiers separate:
 
 - intrinsics:
   compiler-owned operations such as `.eq(...)`, `.len(...)`, `check(...)`, and
@@ -17,11 +17,18 @@ FOL currently keeps three layers separate:
   alloc-like heap-backed library/runtime support without source-level hosted
   OS/runtime APIs
 - `std`:
-  hosted/runtime services on top of `memo`, such as console, filesystem,
-  networking, serialization, and other richer services
+  the hosted API tier layered on `memo` by an explicit bundled internal
+  dependency, with shipped services such as console I/O
 
 This split is not a source-level import trick and not an object-system feature.
-It is an artifact runtime model selected through `build.fol`.
+`core` and `memo` are artifact capability models selected through `fol_model`
+in `build.fol`. Bundled `std` is not a third model; it is declared separately
+with `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
+for a `memo` artifact that needs hosted source APIs.
+
+Whether an artifact can be launched is orthogonal. Host-compatible `core` and
+`memo` programs can use `fol code run` or `fol code test` without bundled
+`std`; the frontend launching them does not expose extra intrinsics.
 
 If an operation can live as an ordinary library API, that is usually the better
 home for it. Intrinsics are reserved for surfaces the compiler must understand
@@ -75,7 +82,8 @@ lowering.
 
 For current `V1`, backend execution of the implemented intrinsic set still goes
 through the current runtime layer where policy matters. The runtime contract is
-being split by `fol-model`, so the rule is:
+split by the artifact's `fol_model` and active bundled dependency, so the rule
+is:
 
 - `core` artifacts must not rely on heap-backed or source-level hosted APIs
 - `memo` artifacts may use heap-backed facilities but not source-level hosted
@@ -143,7 +151,9 @@ Current `V1` rule:
 
 In the current compiler, `.len(...)` is the only implemented query intrinsic.
 Under the runtime model split, array `.len(...)` belongs to `core`, while
-string and dynamic-container `.len(...)` belongs to `memo`/`std`.
+string and dynamic-container `.len(...)` belongs to `memo`. It remains
+available when a `memo` artifact also declares bundled `std` because the hosted
+tier layers on top of `memo`; `.len(...)` does not itself require `std`.
 
 ### Diagnostic
 
@@ -154,12 +164,13 @@ string and dynamic-container `.len(...)` belongs to `memo`/`std`.
 Current `V1` rule:
 
 - `.echo(...)` accepts exactly one argument
-- it emits the value through the `std` runtime hook
+- it requires a `memo` artifact with the explicit bundled `std` dependency
+- it emits the value through the hosted runtime hook
 - it then forwards the same value unchanged
 
 `.echo(...)` belongs to `std`, not `core` or `memo`.
 
-So this is valid:
+With that build contract, this is valid:
 
 ```fol
 fun[] main(flag: bol): bol = {

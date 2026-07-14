@@ -341,7 +341,7 @@ pro[] build(): non = {
 ```
 
 The hosted source then imports the declared alias with
-`use std: pkg = {"std"};`. There is no valid `fol_model = "std"` form.
+`use std: pkg = {"std"};`. `std` is not an accepted `fol_model` value.
 
 Direct boundary reminder:
 

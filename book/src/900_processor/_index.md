@@ -5,6 +5,12 @@ model. Every processor surface is hosted `std`-only and is implemented with OS
 threads and Rust standard-library synchronization; FOL does not use a separate
 async runtime.
 
+Here `std`-only describes source capability: the artifact uses
+`fol_model = "memo"` and the package explicitly declares the bundled internal
+`standard` dependency. It does not mean FOL needs `std` merely to launch a
+program. Host-compatible `core` and unhosted `memo` executables can run too;
+they simply cannot use processor constructs.
+
 The current chapter split is:
 
 - eventuals
@@ -14,7 +20,7 @@ Together they define the language-level model for task execution, coordination,
 and concurrent ownership boundaries.
 
 The processor pillar is not complete at compiler acceptance. Each row below is
-also guarded through lowering/runtime behavior, evaluated frontend hosted-tier
+also guarded through lowering/runtime behavior, evaluated frontend capability
 routing, structured diagnostics and explanations, formatter/tool commands, LSP
 diagnostics/navigation/completion/tokens, Tree-sitter grammar/queries/corpus,
 tests, docs, and the book. The exact cross-layer mapping lives in

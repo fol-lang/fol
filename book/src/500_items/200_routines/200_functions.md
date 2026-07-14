@@ -91,6 +91,10 @@ fun[] (a, b: int) = {                                                   `define 
 ### Closures
 Functions can appear at the top level in a module as well as inside other scopes, in which case they are called nested functions. A nested function can access local variables from its enclosing scope and if it does so it becomes a closure. Any captured variables are stored in a hidden additional argument to the closure (its environment) and they are accessed by reference by both the closure and its enclosing scope (i.e. any modifications made to them are visible in both places). The closure environment may be allocated on the heap or on the stack if the compiler determines that this would be safe. 
 
+This remains future design. Any eventual heap-allocated closure environment
+must require `memo`; an implementation must not hide a source-visible heap
+capability inside `core` merely as an optimization.
+
 There are two types of closures:
 - anonymous
 - named

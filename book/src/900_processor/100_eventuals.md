@@ -4,6 +4,10 @@ Eventuals are a `V3` processor feature and are `std`-only. They use operating-
 system threads; FOL does not use Rust `async`/`await`, futures, Tokio,
 continuations, or colored routines.
 
+The package therefore selects `fol_model = "memo"` for the artifact and
+declares the bundled internal `standard` dependency. That declaration enables
+the processor API; it is not what makes the executable runnable.
+
 The chosen pipe surface is:
 
 ```fol

@@ -54,9 +54,14 @@ ownership. It is just a shorter way to call a receiver-qualified routine.
 Accessing namespaces is done through the double-colon operator `::`:
 
 ```fol
-use log: pkg = {"std/fmt/log"};
-log::io::console::write_out.echo();
+use std: pkg = {"std"};
+var shown: int = std::fmt::math::answer();
 ```
+
+This particular namespace is part of bundled `std`, so the package must use a
+`memo` artifact and declare the internal `standard` dependency in `build.fol`.
+The `pkg` target is the declared alias (`"std"`); nested namespaces are reached
+with `::`, not by embedding `std/...` in the import target.
 
 
 ## Container Access
