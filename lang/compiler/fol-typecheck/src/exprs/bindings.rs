@@ -784,7 +784,12 @@ pub(crate) fn reject_repeated_outer_move(
     }))
 }
 
-pub(crate) fn ownership_moves_on_transfer(
+/// Whether transferring a checked value consumes its source.
+///
+/// Lowering also uses this compiler-owned classification when an operation's
+/// value category cannot be recovered faithfully from structural lowered
+/// types alone (notably nominal pointer pointees).
+pub fn ownership_moves_on_transfer(
     typed: &TypedProgram,
     type_id: crate::CheckedTypeId,
 ) -> bool {

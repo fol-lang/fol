@@ -465,10 +465,45 @@ pub fn render_core_instruction_in_workspace(
                 if *shared { "std::rc::Rc" } else { "Box" }
             ))
         }
-        LoweredInstrKind::DerefPointer { pointer } => {
+        LoweredInstrKind::DerefPointer { pointer, consuming } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            let pointer = render_local_name(package_identity, routine, *pointer)?;
-            Ok(format!("{result} = (*{pointer}).clone();"))
+            let pointer_id = *pointer;
+            let pointer = render_local_name(package_identity, routine, pointer_id)?;
+            let mut pointer_type = routine
+                .locals
+                .get(pointer_id)
+                .and_then(|local| local.type_id)
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        "pointer dereference operand does not retain a lowered type",
+                    )
+                })?;
+            let mut wrapper_dereferences = 0usize;
+            while let Some(LoweredType::Owned { inner } | LoweredType::Borrowed { inner, .. }) =
+                type_table.get(pointer_type)
+            {
+                pointer_type = *inner;
+                wrapper_dereferences += 1;
+            }
+            if !matches!(type_table.get(pointer_type), Some(LoweredType::Pointer { .. })) {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    "pointer dereference operand is not pointer-backed storage",
+                ));
+            }
+            let dereferences = "*".repeat(wrapper_dereferences + 1);
+            if *consuming {
+                // Generated control flow keeps named locals structurally
+                // initialized across dispatch blocks. Replace the consumed
+                // unique pointer with its backend-only default sentinel before
+                // moving T out of the allocation.
+                Ok(format!(
+                    "{result} = {dereferences}std::mem::take(&mut {pointer});"
+                ))
+            } else {
+                Ok(format!("{result} = ({dereferences}{pointer}).clone();"))
+            }
         }
         LoweredInstrKind::StoreDeref { pointer, value } => {
             let pointer = render_local_name(package_identity, routine, *pointer)?;

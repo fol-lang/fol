@@ -453,8 +453,76 @@ pub(super) fn verify_instruction(
             );
             verify_local_reference(routine, instr.id.0, "pointer value", *value, errors);
         }
-        crate::LoweredInstrKind::DerefPointer { pointer } => {
+        crate::LoweredInstrKind::DerefPointer { pointer, consuming } => {
             verify_local_reference(routine, instr.id.0, "pointer operand", *pointer, errors);
+            let mut pointer_type_id = routine
+                .locals
+                .get(*pointer)
+                .and_then(|local| local.type_id);
+            let mut borrowed_pointer = false;
+            while let Some(type_id) = pointer_type_id {
+                match workspace.type_table().get(type_id) {
+                    Some(crate::LoweredType::Owned { inner }) => pointer_type_id = Some(*inner),
+                    Some(crate::LoweredType::Borrowed { inner, .. }) => {
+                        borrowed_pointer = true;
+                        pointer_type_id = Some(*inner);
+                    }
+                    _ => break,
+                }
+            }
+            let pointer_type =
+                pointer_type_id.and_then(|type_id| workspace.type_table().get(type_id));
+            match pointer_type {
+                Some(crate::LoweredType::Pointer { target, shared }) => {
+                    let result_type = instr
+                        .result
+                        .and_then(|result| routine.locals.get(result))
+                        .and_then(|local| local.type_id);
+                    if result_type != Some(*target) {
+                        errors.push(LoweringError::with_kind(
+                            LoweringErrorKind::InvalidInput,
+                            format!(
+                                "lowered routine '{}' instruction {} must write the pointer target type",
+                                routine.name, instr.id.0
+                            ),
+                        ));
+                    }
+                    if *consuming && *shared {
+                        errors.push(LoweringError::with_kind(
+                            LoweringErrorKind::InvalidInput,
+                            format!(
+                                "lowered routine '{}' instruction {} cannot consume a pointee through a shared pointer",
+                                routine.name, instr.id.0
+                            ),
+                        ));
+                    }
+                    if *consuming && borrowed_pointer {
+                        errors.push(LoweringError::with_kind(
+                            LoweringErrorKind::InvalidInput,
+                            format!(
+                                "lowered routine '{}' instruction {} cannot consume a pointee through a borrowed pointer",
+                                routine.name, instr.id.0
+                            ),
+                        ));
+                    }
+                    if !*consuming && workspace.type_table().moves_on_transfer(*target) {
+                        errors.push(LoweringError::with_kind(
+                            LoweringErrorKind::InvalidInput,
+                            format!(
+                                "lowered routine '{}' instruction {} must consume its move-only pointer target",
+                                routine.name, instr.id.0
+                            ),
+                        ));
+                    }
+                }
+                _ => errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' instruction {} dereferences a non-pointer local",
+                        routine.name, instr.id.0
+                    ),
+                )),
+            }
         }
         crate::LoweredInstrKind::StoreDeref { pointer, value } => {
             verify_local_reference(

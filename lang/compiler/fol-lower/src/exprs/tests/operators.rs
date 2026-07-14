@@ -91,6 +91,68 @@ fn ref_deref_unary_operators_reject_at_typecheck() {
 }
 
 #[test]
+fn move_only_unique_pointer_deref_lowers_as_consuming() {
+    let workspace = lower_fixture_workspace(
+        "fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var inner: ptr[int] = &seed;\n\
+             var outer: ptr[ptr[int]] = &inner;\n\
+             var extracted: ptr[int] = *outer;\n\
+             return *extracted;\n\
+         };\n",
+    );
+    let routine = workspace
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine");
+    let dereferences = routine
+        .instructions
+        .iter()
+        .filter_map(|instruction| match instruction.kind {
+            LoweredInstrKind::DerefPointer { consuming, .. } => Some(consuming),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        dereferences,
+        vec![true, false],
+        "moving ptr[int] out of ptr[ptr[int]] must consume only the outer pointer"
+    );
+}
+
+#[test]
+fn borrowed_pointer_deref_lowers_as_observation() {
+    let workspace = lower_fixture_workspace(
+        "fun[] read(pointer[bor]: ptr[int]): int = {\n\
+             return *pointer;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var pointer: ptr[int] = &seed;\n\
+             return read(#pointer);\n\
+         };\n",
+    );
+    let read = workspace
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "read")
+        .expect("read routine");
+    assert!(read.instructions.iter().any(|instruction| {
+        matches!(
+            instruction.kind,
+            LoweredInstrKind::DerefPointer {
+                consuming: false,
+                ..
+            }
+        )
+    }));
+}
+
+#[test]
 fn float_arithmetic_operators_lower_correctly() {
     let workspace = lower_fixture_workspace(
         "fun[] main(a: flt, b: flt): flt = {\n    return a + b;\n};\n",

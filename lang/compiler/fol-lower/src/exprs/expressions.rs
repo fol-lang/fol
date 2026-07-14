@@ -2269,7 +2269,13 @@ fn lower_pointer_deref(
         },
         Ok,
     )?;
-    let target = match type_table.get(pointer.type_id) {
+    let mut pointer_type = pointer.type_id;
+    while let Some(LoweredType::Owned { inner } | LoweredType::Borrowed { inner, .. }) =
+        type_table.get(pointer_type)
+    {
+        pointer_type = *inner;
+    }
+    let target = match type_table.get(pointer_type) {
         Some(LoweredType::Pointer { target, .. }) => *target,
         _ => {
             return Err(LoweringError::with_kind(
@@ -2278,11 +2284,33 @@ fn lower_pointer_deref(
             ))
         }
     };
+    // Nominal lowered types intentionally preserve their declaration identity
+    // rather than expanding their fields, so LoweredTypeTable alone cannot
+    // always tell whether a pointee contains unique ownership. Recover the
+    // compiler-owned checked classification for this exact pointer type.
+    let consuming = checked_type_map
+        .iter()
+        .filter(|(_, lowered)| **lowered == pointer_type)
+        .filter_map(
+            |(checked, _)| match typed_package.program.type_table().get(*checked) {
+                Some(fol_typecheck::CheckedType::Pointer {
+                    target,
+                    shared: false,
+                }) => Some(fol_typecheck::exprs::bindings::ownership_moves_on_transfer(
+                    &typed_package.program,
+                    *target,
+                )),
+                _ => None,
+            },
+        )
+        .any(|moves| moves)
+        || type_table.moves_on_transfer(target);
     let result_local = cursor.allocate_local(target, None);
     cursor.push_instr(
         Some(result_local),
         LoweredInstrKind::DerefPointer {
             pointer: pointer.local_id,
+            consuming,
         },
     )?;
     Ok(LoweredValue {

@@ -2010,6 +2010,104 @@ fn dereference_rejects_move_only_field_projections() {
 }
 
 #[test]
+fn unique_pointer_deref_transfers_move_only_pointees() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var inner: ptr[int] = &seed;\n\
+             var outer: ptr[ptr[int]] = &inner;\n\
+             var extracted: ptr[int] = *outer;\n\
+             return *extracted;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+
+    let moved_errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var inner: ptr[int] = &seed;\n\
+             var outer: ptr[ptr[int]] = &inner;\n\
+             var extracted: ptr[int] = *outer;\n\
+             return **outer;\n\
+         };\n",
+    )]);
+    assert!(
+        moved_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'outer'")
+        }),
+        "consuming a move-only pointee must consume its unique pointer: {moved_errors:#?}"
+    );
+}
+
+#[test]
+fn shared_pointer_deref_rejects_move_only_pointees() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var inner: ptr[int] = &seed;\n\
+             var shared: ptr[shared, ptr[int]] = &inner;\n\
+             var invalid: ptr[int] = *shared;\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message().contains(
+                    "cannot move a move-only pointee out of ptr[shared, T]"
+                )
+                && error
+                    .message()
+                    .contains("requires a clone-safe pointee")
+        }),
+        "Rc-backed pointers must not move their pointee: {errors:#?}"
+    );
+}
+
+#[test]
+fn borrowed_pointer_deref_is_read_only() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] read(pointer[bor]: ptr[int]): int = {\n\
+             return *pointer;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var pointer: ptr[int] = &seed;\n\
+             return read(#pointer);\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "read"))
+        .is_some());
+
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] take(pointer[bor]: ptr[ptr[int]]): ptr[int] = {\n\
+             return *pointer;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("cannot move a move-only pointee through a borrowed pointer")
+                && error.message().contains("dereference is read-only")
+        }),
+        "a borrowed pointer must not surrender its move-only pointee: {errors:#?}"
+    );
+}
+
+#[test]
 fn when_cases_require_matching_equality_safe_types() {
     for (surface, source, expected_type) in [
         (
@@ -2173,7 +2271,7 @@ fn len_observes_move_only_locals_but_rejects_field_projections() {
 }
 
 #[test]
-fn pointer_deref_rejects_move_only_pointees_before_lowering() {
+fn pointer_deref_accepts_move_only_unique_pointees() {
     for (surface, source) in [
         (
             "unique pointer pointee",
@@ -2192,15 +2290,12 @@ fn pointer_deref_rejects_move_only_pointees_before_lowering() {
              };\n",
         ),
     ] {
-        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        let typed = typecheck_fixture_folder(&[("main.fol", source)]);
         assert!(
-            errors.iter().any(|error| {
-                error.kind() == TypecheckErrorKind::Ownership
-                    && error
-                        .message()
-                        .contains("dereferencing a pointer to a move-only value")
-            }),
-            "{surface} must not reach clone-based lowering: {errors:#?}"
+            typed
+                .typed_node(find_named_routine_syntax_id(&typed, "take"))
+                .is_some(),
+            "{surface} should transfer out of its unique pointer"
         );
     }
 }
@@ -2479,12 +2574,13 @@ fn borrow_bindings_cannot_borrow_an_owner_after_it_moves() {
 
 #[test]
 fn move_only_values_cannot_be_transferred_out_of_borrows() {
-    for (surface, source) in [
+    for (surface, source, binding) in [
         (
             "direct pointer",
             "fun[] steal(value[bor]: ptr[int]): ptr[int] = {\n\
                  return value;\n\
              };\n",
+            "value",
         ),
         (
             "record containing a pointer",
@@ -2492,12 +2588,14 @@ fn move_only_values_cannot_be_transferred_out_of_borrows() {
              fun[] steal(value[bor]: Holder): Holder = {\n\
                  return value;\n\
              };\n",
+            "value",
         ),
         (
             "pointer placed in an array",
             "fun[] steal(value[bor]: ptr[int]): arr[ptr[int], 1] = {\n\
                  return { value };\n\
              };\n",
+            "value",
         ),
         (
             "pointer placed in a positional record",
@@ -2505,15 +2603,27 @@ fn move_only_values_cannot_be_transferred_out_of_borrows() {
              fun[] steal(value[bor]: ptr[int]): Holder = {\n\
                  return { value };\n\
              };\n",
+            "value",
+        ),
+        (
+            "borrow passed to an owned parameter",
+            "fun[] consume(value: ptr[int]): int = { return 0; };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var owner: ptr[int] = &seed;\n\
+                 var[bor] view: ptr[int] = owner;\n\
+                 return consume(view);\n\
+             };\n",
+            "view",
         ),
     ] {
         let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
         assert!(
             errors.iter().any(|error| {
                 error.kind() == TypecheckErrorKind::Ownership
-                    && error.message().contains(
-                        "move-only value cannot be transferred out of borrow binding 'value'",
-                    )
+                    && error.message().contains(&format!(
+                        "move-only value cannot be transferred out of borrow binding '{binding}'"
+                    ))
             }),
             "{surface} must not clone a unique value through a borrow: {errors:#?}"
         );
@@ -2580,6 +2690,25 @@ fn compatible_shared_call_borrows_end_when_the_call_returns() {
                  var two: int = inspect(#owner);\n\
              };\n\
              return owner.value;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
+}
+
+#[test]
+fn existing_borrow_of_move_only_value_can_flow_to_borrow_parameter() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] inspect(value[bor]: ptr[int]): int = { return 0; };\n\
+         fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var owner: ptr[int] = &seed;\n\
+             var[bor] view: ptr[int] = owner;\n\
+             var first: int = inspect(view);\n\
+             var second: int = inspect(view);\n\
+             !view;\n\
+             return *owner + first + second;\n\
          };\n",
     )]);
     let main = find_named_routine_syntax_id(&typed, "main");

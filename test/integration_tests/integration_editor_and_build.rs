@@ -1340,6 +1340,56 @@ fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
 }
 
 #[test]
+fn test_unique_pointer_deref_moves_move_only_pointee_end_to_end() {
+    let root = write_temp_app(
+        "move_only_pointer_deref",
+        "fun[] read(pointer[bor]: ptr[int]): int = {\n\
+             return *pointer;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var seed: int = 41;\n\
+             var inner: ptr[int] = &seed;\n\
+             var outer: ptr[ptr[int]] = &inner;\n\
+             var extracted: ptr[int] = *outer;\n\
+             var[bor] view: ptr[int] = extracted;\n\
+             var observed: int = read(view);\n\
+             !view;\n\
+             return observed - 41;\n\
+         };\n",
+    );
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "move-only pointer dereference should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        emitted.contains("*std::mem::take(&mut") && emitted.contains("__outer"),
+        "consuming dereference should move through the unique pointer: {emitted}"
+    );
+    assert!(
+        emitted.contains("(**") && emitted.contains("__pointer).clone()"),
+        "borrowed pointer dereference should observe through the borrow: {emitted}"
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("move-only pointer dereference binary should run");
+    assert!(
+        run.status.success(),
+        "move-only pointer dereference should execute: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn test_v3_memory_m3_negative_examples_reject_at_the_chosen_boundaries() {
     for &failure in V3_MEM_M3_FAILURES {
         assert_v3_failure(failure);

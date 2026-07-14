@@ -104,6 +104,88 @@ fn core_loads_take_move_only_slots_for_later_reinitialization() {
 }
 
 #[test]
+fn consuming_pointer_deref_moves_pointee_and_replaces_owner() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let inner_pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let outer_pointer_id = table.intern(LoweredType::Pointer {
+        target: inner_pointer_id,
+        shared: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "main", LoweredBlockId(0));
+    let outer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(outer_pointer_id),
+        name: Some("outer".to_string()),
+    });
+    let extracted = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(inner_pointer_id),
+        name: Some("extracted".to_string()),
+    });
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(extracted),
+        kind: LoweredInstrKind::DerefPointer {
+            pointer: outer,
+            consuming: true,
+        },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("consuming pointer dereference");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__extracted = *std::mem::take(&mut l__pkg__entry__app__r0__l0__outer);"
+    );
+}
+
+#[test]
+fn borrowed_pointer_deref_reads_through_both_indirections() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let pointer_id = table.intern(LoweredType::Pointer {
+        target: int_id,
+        shared: false,
+    });
+    let borrowed_pointer_id = table.intern(LoweredType::Borrowed {
+        inner: pointer_id,
+        mutable: false,
+    });
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "read", LoweredBlockId(0));
+    let pointer = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(borrowed_pointer_id),
+        name: Some("pointer".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: None,
+    });
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(result),
+        kind: LoweredInstrKind::DerefPointer {
+            pointer,
+            consuming: false,
+        },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("borrowed pointer dereference");
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__tmp = (**l__pkg__entry__app__r0__l0__pointer).clone();"
+    );
+}
+
+#[test]
 fn core_loads_clone_mutex_handles_with_move_only_inner_values() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();

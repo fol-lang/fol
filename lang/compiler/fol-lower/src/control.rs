@@ -207,6 +207,9 @@ pub enum LoweredInstrKind {
     },
     DerefPointer {
         pointer: LoweredLocalId,
+        /// True when dereferencing transfers a move-only pointee out of its
+        /// unique pointer. False is an observational, clone-safe read.
+        consuming: bool,
     },
     StoreDeref {
         pointer: LoweredLocalId,

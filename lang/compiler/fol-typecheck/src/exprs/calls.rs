@@ -1330,7 +1330,17 @@ pub(crate) fn check_call_arguments(
                         }),
                     ) if expected == actual
                 );
-                if !extracts_sender && !forwards_mutex_handle {
+                let preserves_borrow = matches!(
+                    (
+                        typed.type_table().get(*expected),
+                        typed.type_table().get(actual),
+                    ),
+                    (
+                        Some(CheckedType::Borrowed { .. }),
+                        Some(CheckedType::Borrowed { .. }),
+                    )
+                );
+                if !extracts_sender && !forwards_mutex_handle && !preserves_borrow {
                     super::bindings::track_value_transfer(
                         typed,
                         resolved,

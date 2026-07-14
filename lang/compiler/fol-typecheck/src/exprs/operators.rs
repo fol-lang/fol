@@ -678,9 +678,10 @@ pub(crate) fn type_unary_op(
             });
             Ok(TypedExpr::value(pointer))
         }
-        UnaryOperator::Deref => match typed.type_table().get(operand_type) {
-            Some(CheckedType::Pointer { target, .. }) => {
+        UnaryOperator::Deref => match typed.type_table().get(apparent) {
+            Some(CheckedType::Pointer { target, shared }) => {
                 let target = *target;
+                let shared = *shared;
                 if super::bindings::ownership_moves_on_transfer(typed, operand_type)
                     && matches!(
                         super::helpers::strip_comments(operand),
@@ -695,12 +696,37 @@ pub(crate) fn type_unary_op(
                     ));
                 }
                 if super::bindings::ownership_moves_on_transfer(typed, target) {
-                    return Err(with_node_origin(
+                    if matches!(
+                        typed.type_table().get(operand_type),
+                        Some(CheckedType::Borrowed { .. })
+                    ) {
+                        return Err(with_node_origin(
+                            resolved,
+                            node,
+                            TypecheckErrorKind::Ownership,
+                            "cannot move a move-only pointee through a borrowed pointer; borrowed pointer dereference is read-only",
+                        ));
+                    }
+                    if shared {
+                        return Err(with_node_origin(
+                            resolved,
+                            node,
+                            TypecheckErrorKind::Ownership,
+                            "cannot move a move-only pointee out of ptr[shared, T]; shared pointer dereference is read-only and requires a clone-safe pointee",
+                        ));
+                    }
+                    // A unique pointer is the sole owner of its pointee. A
+                    // by-value dereference of a move-only T therefore consumes
+                    // the pointer and transfers T out of its allocation, just
+                    // as moving out of a Box<T> does. Clone-safe pointees keep
+                    // the existing observational dereference behavior.
+                    super::bindings::track_value_transfer(
+                        typed,
                         resolved,
-                        node,
-                        TypecheckErrorKind::Ownership,
-                        "dereferencing a pointer to a move-only value is not supported in V3; consuming pointer dereference is not implemented",
-                    ));
+                        context,
+                        Some(operand),
+                        operand_type,
+                    )?;
                 }
                 Ok(TypedExpr::value(target))
             }
