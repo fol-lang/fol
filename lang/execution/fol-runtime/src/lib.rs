@@ -20,11 +20,18 @@
 //! - a capability-neutral backend process-outcome adapter
 //! - hosted V3 task, channel, mutex, and eventual substrate
 //!
-//! The runtime model is converging on explicit internal tiers:
+//! The runtime implementation has three internal tiers:
 //!
 //! - [`core`]
 //! - [`memo`]
 //! - [`std`]
+//!
+//! The public `fol_model` surface still has only `core` and `memo`. Declaring
+//! the bundled internal `standard` dependency upgrades a `memo` artifact to
+//! the effective hosted [`std`] tier; `std` is not a third public model.
+//! Host-compatible `core` and `memo` artifacts can still be executed and
+//! tested without that dependency. The dependency gates hosted source APIs,
+//! not the frontend's ability to launch a compatible binary.
 //!
 //! The heap-backed runtime families now belong to [`memo`], while [`containers`]
 //! remains the helper layer for indexing, slicing, and rendering.
@@ -63,11 +70,12 @@
 //! - `.not`
 //!   - lower to native Rust boolean negation
 //! - `.len`
-//!   - lower through the active model module's `len(...)`
+//!   - lower through the active effective runtime tier's `len(...)`
 //! - `.echo`
 //!   - lower through [`std::echo`]
 //! - `check`
-//!   - lower through the active model module's `check_recoverable(...)`
+//!   - lower through the active effective runtime tier's
+//!     `check_recoverable(...)`
 //! - recoverable top-level result handling
 //!   - lower through [`process::outcome_from_recoverable`]
 //!
@@ -94,11 +102,12 @@
 //! Runtime-backed instructions or lowered surfaces:
 //!
 //! - `LengthOf`
-//!   - must call the active model module's `len(...)`
+//!   - must call the active effective runtime tier's `len(...)`
 //! - `RuntimeHook`
 //!   - currently `.echo(...)`, which must call [`std::echo`]
 //! - `CheckRecoverable`
-//!   - must inspect [`abi::FolRecover`] through the active model module
+//!   - must inspect [`abi::FolRecover`] through the active effective runtime
+//!     tier
 //! - `UnwrapRecoverable`
 //!   - must unwrap the success lane of [`abi::FolRecover`]
 //! - `ExtractRecoverableError`
@@ -151,7 +160,9 @@
 //!   hyphen-to-underscore rule
 //! - prefer one stable model alias per emitted module, such as
 //!   `use fol_runtime::core as rt;`
-//!   - or `memo` / `std` depending on the artifact's `fol_model`
+//!   - use `memo` for a public `fol_model = "memo"` artifact without bundled
+//!     std, or `std` when its evaluated bundled dependency selects the hosted
+//!     effective tier
 //! - use fully qualified imports for less-common runtime modules when needed,
 //!   for example:
 //!   - `fol_runtime::memo::FolSeq`
@@ -178,8 +189,8 @@
 //! 1. Lower a full workspace through `fol-lower` and treat that lowered
 //!    workspace as the only backend input.
 //! 2. Create one generated Rust crate for that lowered workspace.
-//! 3. Add `fol-runtime` as a dependency and import the artifact's model module
-//!    as `rt` in each emitted module.
+//! 3. Add `fol-runtime` as a dependency and import the artifact's effective
+//!    runtime tier module as `rt` in each emitted module.
 //! 4. Emit backend-authored Rust structs and enums for lowered records and
 //!    entries, then implement [`aggregate::FolRecord`] or [`aggregate::FolEntry`]
 //!    where runtime formatting needs to stay stable.
@@ -192,8 +203,8 @@
 //!    - [`shell::FolOption`]
 //!    - [`shell::FolError`]
 //!    - [`abi::FolRecover`]
-//! 6. Lower builtin/runtime-sensitive operations through the model helpers
-//!    instead of inlining policy:
+//! 6. Lower builtin/runtime-sensitive operations through effective
+//!    runtime-tier helpers instead of inlining policy:
 //!    - `rt::len(...)`
 //!    - `rt::echo(...)`
 //!    - `rt::check_recoverable(...)`
@@ -261,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_modules_expose_expected_capabilities() {
+    fn internal_runtime_tier_modules_expose_expected_capabilities() {
         assert_eq!(core::tier_name(), "core");
         assert!(!core::HAS_HEAP);
         assert!(!core::HAS_OS);
@@ -276,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_module_exports_stay_intentionally_distinct() {
+    fn internal_runtime_tier_exports_stay_intentionally_distinct() {
         assert!(!CORE_SOURCE.contains("FolStr("));
         assert!(!CORE_SOURCE.contains("FolVec("));
         assert!(!CORE_SOURCE.contains("FolSeq("));
@@ -299,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_flags_and_helpers_freeze_backend_contract() {
+    fn internal_runtime_tier_flags_and_helpers_freeze_backend_contract() {
         assert_eq!(core::capabilities().name, "core");
         assert_eq!(memo::capabilities().name, "memo");
         assert_eq!(std::capabilities().name, "std");

@@ -1,5 +1,11 @@
 //! Rust backend for turning lowered FOL workspaces into runnable artifacts
 //! across the shipped V1, V2, and V3 language surfaces.
+//!
+//! Runnable output does not imply hosted source capabilities. Public
+//! `fol_model` remains `core` or `memo`; an evaluated bundled `standard`
+//! dependency selects the backend's effective hosted runtime tier. A
+//! host-compatible artifact can run without that dependency, while executing
+//! a cross-target artifact requires an external runner.
 
 mod config;
 mod control;

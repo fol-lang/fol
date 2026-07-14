@@ -1,4 +1,6 @@
-//! Hosted runtime tier surface, including console-facing formatting hooks.
+//! Effective hosted runtime tier selected when a public `memo` artifact
+//! declares the bundled internal `standard` dependency. This is not a third
+//! public `fol_model`.
 
 use crate::core::RuntimeTier;
 use std::sync::atomic::{AtomicBool, Ordering};

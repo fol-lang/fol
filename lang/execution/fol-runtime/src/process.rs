@@ -4,6 +4,9 @@
 //! use it to translate a recoverable FOL entry result into the process status
 //! expected by the frontend. Keeping that adapter outside [`crate::std`]
 //! prevents process launching from accidentally granting hosted FOL APIs.
+//! Host-compatible `core` and `memo` binaries can therefore bridge a
+//! recoverable `main` without bundled std; executing a cross-target binary
+//! still requires an external runner.
 
 use crate::abi::FolRecover;
 use crate::aggregate::FolEchoFormat;

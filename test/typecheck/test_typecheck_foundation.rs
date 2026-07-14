@@ -1349,7 +1349,7 @@ fn expression_typing_accepts_unpack_for_variadic_method_calls() {
 }
 
 #[test]
-fn echo_intrinsic_requires_std_fol_model_in_core() {
+fn echo_intrinsic_requires_bundled_std_effective_tier_in_core() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
@@ -1391,6 +1391,32 @@ fn owned_heap_binding_requires_memo_model() {
             "core must reject heap allocation for '{declaration}': {errors:#?}"
         );
     }
+}
+
+#[test]
+fn core_pointer_guidance_names_only_the_public_memo_model() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            concat!(
+                "fun[] main(): int = {\n",
+                "    var value: int = 7;\n",
+                "    var pointer: ptr[int] = &value;\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Core,
+        },
+    );
+
+    let error = errors
+        .iter()
+        .find(|error| error.message().contains("pointer construction requires heap support"))
+        .expect("core pointer construction should report its capability guidance");
+    assert!(error.message().contains("choose fol_model = 'memo'"));
+    assert!(!error.message().contains("add bundled std"));
 }
 
 #[test]
@@ -2561,7 +2587,7 @@ fn compatible_shared_call_borrows_end_when_the_call_returns() {
 }
 
 #[test]
-fn echo_intrinsic_requires_std_fol_model_in_mem() {
+fn echo_intrinsic_requires_bundled_std_effective_tier_in_memo() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
@@ -2581,7 +2607,7 @@ fn echo_intrinsic_requires_std_fol_model_in_mem() {
 }
 
 #[test]
-fn public_runtime_model_matrix_keeps_mem_between_core_and_std() {
+fn typecheck_capability_tiers_keep_memo_between_core_and_hosted_std() {
     let core_errors = typecheck_fixture_folder_errors_with_config(
         &[("main.fol", "fun[] main(): str = {\n    return \"heap\";\n};\n")],
         TypecheckConfig {

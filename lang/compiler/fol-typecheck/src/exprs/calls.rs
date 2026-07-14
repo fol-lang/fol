@@ -429,7 +429,7 @@ fn type_query_intrinsic(
         );
     if core_dynamic_length_query {
         let message = format!(
-            "'.len(...)' over heap-backed strings and containers requires 'fol_model = memo' or 'std'; current artifact model is '{}'",
+            "'.len(...)' over heap-backed strings and containers requires 'fol_model = memo'; current artifact model is '{}'",
             typed.capability_model().as_str()
         );
         return Err(match origin {

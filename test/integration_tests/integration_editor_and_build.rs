@@ -1741,17 +1741,17 @@ fn run_fol_with_store_in_dir(
 fn write_formal_model_package(
     root: &std::path::Path,
     name: &str,
-    fol_model: &str,
+    runtime_contract: &str,
     source_name: &str,
     source: &str,
 ) {
-    let (fol_model, std_dep) = if fol_model == "std" {
+    let (fol_model, std_dep) = if runtime_contract == "hosted" {
         (
             "memo",
             "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
         )
     } else {
-        (fol_model, "")
+        (runtime_contract, "")
     };
     std::fs::create_dir_all(root.join("src")).expect("should create package source root");
     std::fs::write(
@@ -1781,17 +1781,17 @@ fn write_formal_model_package(
 fn write_model_app_package(
     root: &std::path::Path,
     name: &str,
-    fol_model: &str,
+    runtime_contract: &str,
     source: &str,
     add_run: bool,
 ) {
-    let (fol_model, std_dep) = if fol_model == "std" {
+    let (fol_model, std_dep) = if runtime_contract == "hosted" {
         (
             "memo",
             "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
         )
     } else {
-        (fol_model, "")
+        (runtime_contract, "")
     };
     std::fs::create_dir_all(root.join("src")).expect("should create app source root");
     let run_line = if add_run {
@@ -2464,7 +2464,7 @@ fn test_build_fixture_mem_model_supports_full_heap_surface() {
 }
 
 #[test]
-fn test_build_fixture_std_model_runs_echo_programs() {
+fn test_build_fixture_bundled_std_effective_tier_runs_echo_programs() {
     let root = build_fixture_root("model_std_echo");
 
     let build = run_fol_with_store_in_dir(
@@ -2512,7 +2512,7 @@ fn test_build_fixture_std_model_runs_echo_programs() {
 }
 
 #[test]
-fn test_build_fixture_std_model_supports_hosted_mem_surfaces() {
+fn test_build_fixture_bundled_std_effective_tier_supports_hosted_memo_surfaces() {
     let root = build_fixture_root("model_std_hosted_alloc");
 
     let build = run_fol_with_store_in_dir(
@@ -2750,14 +2750,14 @@ fn test_core_artifact_rejects_transitive_mem_pkg_dependency() {
 }
 
 #[test]
-fn test_core_artifact_rejects_transitive_std_pkg_dependency() {
+fn test_core_artifact_rejects_transitive_hosted_pkg_dependency() {
     let temp_root = unique_temp_root("model_core_dep_std");
     let store_root = temp_root.join("store");
     let app_root = temp_root.join("app");
     write_formal_model_package(
         &store_root.join("stdlib"),
         "stdlib",
-        "std",
+        "hosted",
         "lib.fol",
         "fun[exp] helper(): int = {\n    return .echo(1);\n};\n",
     );
@@ -2778,7 +2778,7 @@ fn test_core_artifact_rejects_transitive_std_pkg_dependency() {
     let stderr = String::from_utf8_lossy(&build.stderr);
     assert!(
         !build.status.success(),
-        "core->std pkg dependency should fail: stdout=\n{}\nstderr=\n{}",
+        "core->hosted pkg dependency should fail: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         stderr
     );
@@ -2830,14 +2830,14 @@ fn test_mem_artifact_accepts_transitive_mem_pkg_dependency() {
 }
 
 #[test]
-fn test_mem_artifact_rejects_transitive_std_echo_dependency() {
+fn test_memo_artifact_rejects_transitive_hosted_echo_dependency() {
     let temp_root = unique_temp_root("model_memo_dep_std");
     let store_root = temp_root.join("store");
     let app_root = temp_root.join("app");
     write_formal_model_package(
         &store_root.join("stdlib"),
         "stdlib",
-        "std",
+        "hosted",
         "lib.fol",
         "fun[exp] helper(): int = {\n    return .echo(1);\n};\n",
     );
@@ -2858,7 +2858,7 @@ fn test_mem_artifact_rejects_transitive_std_echo_dependency() {
     let stderr = String::from_utf8_lossy(&build.stderr);
     assert!(
         !build.status.success(),
-        "memo should reject transitive std echo dependency: stdout=\n{}\nstderr=\n{}",
+        "memo should reject transitive hosted echo dependency: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         stderr
     );
@@ -2869,7 +2869,7 @@ fn test_mem_artifact_rejects_transitive_std_echo_dependency() {
 }
 
 #[test]
-fn test_std_artifact_accepts_mixed_core_and_mem_pkg_dependencies() {
+fn test_memo_plus_bundled_std_artifact_accepts_core_and_memo_pkg_dependencies() {
     let temp_root = unique_temp_root("model_std_dep_core_mem");
     let store_root = temp_root.join("store");
     let app_root = temp_root.join("app");
@@ -2895,7 +2895,7 @@ fn test_std_artifact_accepts_mixed_core_and_mem_pkg_dependencies() {
     write_model_app_package(
         &app_root,
         "app",
-        "std",
+        "hosted",
         concat!(
             "use corelib: pkg = {\"corelib\"};\n",
             "use memolib: pkg = {\"memolib\"};\n",
@@ -2918,7 +2918,7 @@ fn test_std_artifact_accepts_mixed_core_and_mem_pkg_dependencies() {
     let build_stdout = String::from_utf8_lossy(&build.stdout);
     assert!(
         build.status.success(),
-        "std mixed pkg dependency graph should build: stdout=\n{}\nstderr=\n{}",
+        "memo+bundled-std dependency graph should build: stdout=\n{}\nstderr=\n{}",
         build_stdout,
         String::from_utf8_lossy(&build.stderr)
     );
@@ -2932,15 +2932,15 @@ fn test_std_artifact_accepts_mixed_core_and_mem_pkg_dependencies() {
                 None
             }
         })
-        .expect("std mixed dependency build should report a binary path")
+        .expect("memo+bundled-std build should report a binary path")
         .trim()
         .to_string();
     let run = Command::new(&binary)
         .output()
-        .expect("std mixed dependency binary should execute");
+        .expect("memo+bundled-std binary should execute");
     assert!(
         run.status.success(),
-        "std mixed dependency binary should run: stdout=\n{}\nstderr=\n{}",
+        "memo+bundled-std binary should run: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
@@ -2950,7 +2950,7 @@ fn test_std_artifact_accepts_mixed_core_and_mem_pkg_dependencies() {
 }
 
 #[test]
-fn test_std_consumer_of_mem_pkg_dependency_emits_std_runtime_only() {
+fn test_memo_plus_bundled_std_consumer_emits_effective_std_runtime_only() {
     let temp_root = unique_temp_root("model_std_dep_mem_emit");
     let store_root = temp_root.join("store");
     let app_root = temp_root.join("app");
@@ -2969,7 +2969,7 @@ fn test_std_consumer_of_mem_pkg_dependency_emits_std_runtime_only() {
     write_model_app_package(
         &app_root,
         "app",
-        "std",
+        "hosted",
         concat!(
             "use memolib: pkg = {\"memolib\"};\n",
             "use std: pkg = {\"std\"};\n",
@@ -2990,12 +2990,12 @@ fn test_std_consumer_of_mem_pkg_dependency_emits_std_runtime_only() {
     );
     assert!(
         build.status.success(),
-        "std memo-consumer build should succeed: stdout=\n{}\nstderr=\n{}",
+        "memo+bundled-std consumer build should succeed: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
     let emitted = find_file_by_name(&app_root.join(".fol/build"), "main.rs")
-        .expect("std memo-consumer should emit main.rs");
+        .expect("memo+bundled-std consumer should emit main.rs");
     let source = std::fs::read_to_string(&emitted).expect("generated main should load");
     assert!(source.contains("use fol_runtime::std as rt;"));
     assert!(!source.contains("use fol_runtime::memo as rt;"));
@@ -3050,7 +3050,7 @@ fn test_core_illegal_dependency_failure_happens_before_emission() {
 }
 
 #[test]
-fn test_build_fixtures_emit_runtime_imports_for_each_model() {
+fn test_build_fixtures_emit_runtime_imports_for_each_effective_tier() {
     let cases = [
         (
             "core",
@@ -3121,7 +3121,7 @@ fn test_build_fixtures_emit_runtime_imports_for_each_model() {
         };
         assert!(
             build.status.success(),
-            "model '{label}' should build: stdout=\n{}\nstderr=\n{}",
+            "runtime contract '{label}' should build: stdout=\n{}\nstderr=\n{}",
             String::from_utf8_lossy(&build.stdout),
             String::from_utf8_lossy(&build.stderr)
         );
@@ -3134,7 +3134,7 @@ fn test_build_fixtures_emit_runtime_imports_for_each_model() {
 
         assert!(
             source.contains(&expected_import),
-            "model '{label}' should emit '{expected_import}' in {:?}:\n{}",
+            "runtime contract '{label}' should emit '{expected_import}' in {:?}:\n{}",
             generated,
             source
         );
@@ -3144,7 +3144,7 @@ fn test_build_fixtures_emit_runtime_imports_for_each_model() {
 }
 
 #[test]
-fn test_cli_build_emits_rust_for_model_examples() {
+fn test_cli_build_emits_rust_for_runtime_contract_examples() {
     let cases = [
         ("examples/build_dep_handles", "use fol_runtime::memo as rt;"),
         ("examples/build_dep_args", "use fol_runtime::memo as rt;"),
@@ -3223,7 +3223,7 @@ fn test_cli_build_emits_rust_for_model_examples() {
 }
 
 #[test]
-fn test_cli_example_build_summaries_surface_expected_models() {
+fn test_cli_example_builds_emit_expected_effective_runtime_tiers() {
     let cases = [
         ("examples/build_dep_handles", "memo"),
         ("examples/build_dep_args", "memo"),
@@ -3525,7 +3525,7 @@ fn test_bundled_std_alias_example_builds_with_materialized_alias_root() {
 }
 
 #[test]
-fn test_bundled_std_package_root_builds_under_the_current_model() {
+fn test_bundled_std_package_root_checks_under_its_internal_hosted_tier() {
     let root = repo_root().join("lang/library/std");
     let build = run_fol_in_dir(&root, &["code", "check"]);
     assert!(
@@ -4709,7 +4709,7 @@ fn test_cli_run_executes_explicit_core_run_step_without_std() {
 }
 
 #[test]
-fn test_cli_run_reports_missing_entry_step_separately_from_model_rejection() {
+fn test_cli_run_reports_a_missing_entry_step_directly() {
     let temp_root = unique_temp_root("run_missing_entry_step");
     let root = temp_root.join("demo");
     std::fs::create_dir_all(root.join("src")).expect("should create source root");
@@ -4789,7 +4789,7 @@ fn test_cli_examples_emit_runtime_imports_in_generated_package_sources() {
 }
 
 #[test]
-fn test_model_examples_keep_runtime_imports_clean_across_emitted_rust_trees() {
+fn test_runtime_contract_examples_keep_imports_clean_across_emitted_rust_trees() {
     let cases = [
         (
             "examples/core_records",
@@ -4986,7 +4986,7 @@ fn test_std_logtiny_git_example_supports_branch_tag_commit_and_hash_fields() {
 }
 
 #[test]
-fn test_mixed_model_example_keeps_graph_models_and_std_emission() {
+fn test_mixed_model_example_keeps_graph_models_and_effective_std_emission() {
     let root = temp_example_root("examples/mixed_models_workspace");
 
     let build_path = root.join("build.fol");
@@ -6280,14 +6280,14 @@ fn test_bundled_std_bootstrap_contract_matrix_stays_coherent() {
 }
 
 #[test]
-fn test_positive_runtime_model_examples_build_with_expected_models_and_runtime_imports() {
+fn test_positive_runtime_contract_examples_build_with_expected_runtime_imports() {
     for (path, expected_model) in positive_runtime_model_examples() {
         let root = temp_example_root(path);
         let build = run_example_compile(&root, true);
         let stdout = String::from_utf8_lossy(&build.stdout);
         assert!(
             build.status.success(),
-            "positive runtime model example '{path}' should build: stdout=\n{}\nstderr=\n{}",
+            "positive runtime contract example '{path}' should build: stdout=\n{}\nstderr=\n{}",
             stdout,
             String::from_utf8_lossy(&build.stderr)
         );
@@ -6299,7 +6299,7 @@ fn test_positive_runtime_model_examples_build_with_expected_models_and_runtime_i
             let expected_import = expected_runtime_import_for_model(expected_model);
             assert!(
                 source.contains(&expected_import),
-                "positive runtime model example '{path}' should emit '{expected_import}' in {:?}:\n{}",
+                "positive runtime contract example '{path}' should emit '{expected_import}' in {:?}:\n{}",
                 generated,
                 source
             );
@@ -6308,7 +6308,7 @@ fn test_positive_runtime_model_examples_build_with_expected_models_and_runtime_i
 }
 
 #[test]
-fn test_negative_runtime_model_examples_fail_with_expected_boundary_class() {
+fn test_negative_runtime_contract_examples_fail_with_expected_boundary_class() {
     let cases = [
         (
             "examples/fail_core_heap_reject",
@@ -6361,13 +6361,13 @@ fn test_negative_runtime_model_examples_fail_with_expected_boundary_class() {
         let stderr = String::from_utf8_lossy(&build.stderr);
         assert!(
             !build.status.success(),
-            "negative runtime model example '{path}' should fail: stdout=\n{}\nstderr=\n{}",
+            "negative runtime contract example '{path}' should fail: stdout=\n{}\nstderr=\n{}",
             String::from_utf8_lossy(&build.stdout),
             stderr
         );
         assert!(
             stderr.contains(expected_message),
-            "negative runtime model example '{path}' should report '{expected_message}': stdout=\n{}\nstderr=\n{}",
+            "negative runtime contract example '{path}' should report '{expected_message}': stdout=\n{}\nstderr=\n{}",
             String::from_utf8_lossy(&build.stdout),
             stderr
         );
@@ -6378,7 +6378,7 @@ fn test_negative_runtime_model_examples_fail_with_expected_boundary_class() {
 }
 
 #[test]
-fn test_runtime_model_regression_matrix_stays_coherent_across_layers() {
+fn test_runtime_contract_regression_matrix_stays_coherent_across_layers() {
     let direct_cases = [
         (
             "test/app/build/model_core_surface_full",
@@ -7074,7 +7074,7 @@ fn test_cli_code_build_keeps_core_dynamic_len_boundary_diagnostic() {
 }
 
 #[test]
-fn test_cli_code_build_and_run_keep_std_model_runtime_path() {
+fn test_cli_code_build_and_run_keep_effective_std_runtime_path() {
     let temp_root = unique_temp_root("build_std_model_runtime");
     let root = temp_root.join("demo");
     std::fs::create_dir_all(root.join("src")).expect("should create source root");

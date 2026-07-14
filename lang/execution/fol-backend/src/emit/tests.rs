@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn main_rs_emission_keeps_std_model_import_and_entry_metadata() {
+    fn main_rs_emission_keeps_effective_std_tier_import_and_entry_metadata() {
         let session = BackendSession::new(sample_lowered_workspace());
 
         let emitted = emit_main_rs(&session).expect("main.rs");
@@ -1540,7 +1540,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_backend_std_model_main_runs_hosted_entry_after_runtime_move() {
+    fn executable_backend_std_tier_main_runs_hosted_entry_after_runtime_move() {
         let fixture_root = temp_root("std_hosted_entry");
         let fixture = write_fixture(
             &fixture_root,
@@ -1563,7 +1563,7 @@ mod tests {
             },
             &fixture_root,
         )
-        .expect("backend std artifact");
+        .expect("backend std-tier artifact");
         let BackendArtifact::CompiledBinary {
             binary_path,
             crate_root: emitted_crate_root,

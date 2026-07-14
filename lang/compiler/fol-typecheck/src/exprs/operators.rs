@@ -654,7 +654,7 @@ pub(crate) fn type_unary_op(
                     resolved,
                     node,
                     TypecheckErrorKind::Unsupported,
-                    "pointer construction requires heap support; choose fol_model = 'memo' or add bundled std",
+                    "pointer construction requires heap support; choose fol_model = 'memo'",
                 ));
             }
             // Pointer construction stores the operand by value. Unique values

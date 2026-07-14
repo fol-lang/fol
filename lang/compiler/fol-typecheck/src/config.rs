@@ -1,3 +1,8 @@
+/// Compiler-internal capability tier used after build evaluation.
+///
+/// Public `fol_model` accepts only `core` and `memo`. `Std` represents the
+/// effective hosted tier derived when a `memo` artifact declares the bundled
+/// internal `standard` dependency; it is not a legal third public model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TypecheckCapabilityModel {
     Core,

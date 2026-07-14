@@ -330,8 +330,8 @@ static REGISTRY: &[Explanation] = &[
          - a feature is outside the current release boundary (for example raw\n\
            pointers or explicit deallocation at the V4/FFI boundary)\n\n\
          How to fix:\n\
-         - move to `fol_model = memo` for heap-backed values, or add bundled `std`\n\
-           for hosted facilities and the processor surface\n\
+         - move to `fol_model = memo` for heap-backed values; for hosted facilities and\n\
+           the processor surface, also declare bundled `std` on that memo artifact\n\
          - call a named routine directly for spawn/async, keep channels in direct routine-local\n\
            bindings, and perform mutex guard work in ordinary control flow; spawn captures may\n\
            instead use the explicit zero-parameter anonymous spawn form\n\
