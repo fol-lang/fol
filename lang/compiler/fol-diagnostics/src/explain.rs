@@ -354,8 +354,8 @@ static REGISTRY: &[Explanation] = &[
            the processor surface, also declare bundled `std` on that memo artifact\n\
          - call a named routine directly for spawn/async, keep channels in direct routine-local\n\
            bindings, pass outer values to nested routines explicitly, and perform mutex guard or\n\
-           eventual work in ordinary control flow; spawn captures may instead use the explicit\n\
-           zero-parameter anonymous spawn form\n\
+           eventual work in ordinary control flow; explicit channel sender-endpoint captures may\n\
+           instead use the zero-parameter anonymous spawn form\n\
          - otherwise use a construct inside the currently shipped V1/V2/V3 boundary"
     ),
     explanation!(
