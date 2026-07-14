@@ -644,7 +644,10 @@ mod tests {
         assert!(explanation
             .body
             .contains("recoverable eventual is discarded"));
-        assert!(explanation.body.contains("left unawaited"));
+        assert!(explanation.body.contains("left live at lexical fallthrough"));
+        assert!(explanation.body.contains("`break`"));
+        assert!(explanation.body.contains("`return`"));
+        assert!(explanation.body.contains("`report`"));
         assert!(explanation.body.contains("overwritten"));
         assert!(explanation
             .body
