@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var values: vec[int] = {1, 2};
+    return values[0];
+};

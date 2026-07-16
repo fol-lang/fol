@@ -1,0 +1,8 @@
+fun[] main(): int = {
+    var value: int = 7;
+    var inner: ptr[int] = &value;
+    var outer: ptr[ptr[int]] = &inner;
+    var[mut] extracted: ptr[int] = *outer;
+    *extracted = 9;
+    return *extracted;
+};

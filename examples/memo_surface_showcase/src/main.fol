@@ -1,0 +1,10 @@
+fun[] label(prefix: str = "memo", extras: ... str): str = {
+    return prefix + extras[0] + extras[1];
+};
+
+fun[] main(): int = {
+    var parts: seq[str] = {"-heap", "-surface"};
+    var values: vec[int] = {1, 2, 3};
+    var text: str = label(...parts);
+    return .len(text) + .len(values) + .len(parts);
+};

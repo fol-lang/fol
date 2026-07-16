@@ -1,3 +1,7 @@
-pro[] build(graph: Graph): non = {
-    return graph;
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "math",
+        version = "0.1.0",
+    });
 };

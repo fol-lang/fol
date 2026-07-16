@@ -14,6 +14,74 @@ fn temp_root(label: &str) -> PathBuf {
     ))
 }
 
+fn write_rename_fixture_package(root: &PathBuf) {
+    fs::create_dir_all(root.join("src")).expect("should create rename fixture src dir");
+    fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+            "    graph.install(app);\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write rename fixture build file");
+    fs::write(
+        root.join("src/main.fol"),
+        concat!(
+            "fun[] helper(): int = {\n",
+            "    return 7;\n",
+            "};\n",
+            "\n",
+            "fun[] main(): int = {\n",
+            "    return helper();\n",
+            "};\n",
+        ),
+    )
+    .expect("should write rename fixture entry");
+}
+
+fn write_cross_package_rename_fixture(root: &PathBuf) {
+    fs::create_dir_all(root.join("app/src")).expect("should create app root");
+    fs::create_dir_all(root.join("shared")).expect("should create shared root");
+    fs::write(root.join("fol.work.yaml"), "members:\n  - app\n")
+        .expect("should write workspace manifest");
+    fs::write(
+        root.join("app/build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\", fol_model = \"core\" });\n",
+            "    graph.install(app);\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write app build source");
+    fs::write(
+        root.join("app/src/main.fol"),
+        concat!(
+            "use shared: loc = {\"../../shared\"};\n",
+            "\n",
+            "fun[] main(): int = {\n",
+            "    return shared::helper();\n",
+            "};\n",
+        ),
+    )
+    .expect("should write main source");
+    fs::write(
+        root.join("shared/lib.fol"),
+        concat!("fun[exp] helper(): int = {\n", "    return 7;\n", "};\n",),
+    )
+    .expect("should write shared source");
+}
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
@@ -87,9 +155,11 @@ fn editor_lsp_command_is_publicly_dispatchable() {
     assert!(result.summary.contains("semantic tokens"));
     assert!(result.summary.contains("symbols"));
     assert!(result.summary.contains("completion"));
+    assert!(result.summary.contains("folding"));
+    assert!(result.summary.contains("selection"));
     assert!(result
         .summary
-        .contains("features=diagnostics,hover,definition,formatting,codeAction,signatureHelp,references,rename,semanticTokens,symbols,completion"));
+        .contains("features=diagnostics,hover,definition,typeDefinition,implementation,documentHighlight,formatting,codeAction,signatureHelp,references,prepareRename,rename,semanticTokens,documentSymbols,workspaceSymbols,completion,inlayHint,foldingRange,selectionRange"));
 }
 
 #[test]
@@ -102,8 +172,8 @@ fn editor_surface_stays_under_tool_not_a_parallel_editor_group() {
     })
     .render_error(&error)
     .expect("json render should succeed");
-    assert!(json.contains("\"kind\": \"FrontendInvalidInput\""));
-    assert!(json.contains("unrecognized subcommand"));
+    assert!(json.contains("\"code\": \"F1004\""));
+    assert!(json.contains("File not found"));
     assert!(json.contains("editor"));
 }
 
@@ -120,8 +190,8 @@ fn editor_tool_surface_rejects_placeholder_future_commands() {
         .render_error(&error)
         .expect("json render should succeed");
 
-        assert!(json.contains("\"kind\": \"FrontendInvalidInput\""));
-        assert!(json.contains("unrecognized subcommand"));
+        assert!(json.contains("\"code\": \"F1001\""));
+        assert!(json.contains("unknown tool subcommand"));
         assert!(json.contains(command[2]));
     }
 }
@@ -223,7 +293,7 @@ fn editor_format_cli_matches_lsp_for_build_files() {
     let root = temp_root("format_parity_build");
     fs::create_dir_all(&root).expect("should create temp root");
     let file = root.join("build.fol");
-    let source = "pro[] build(graph: Graph): non = {\nvar target = graph.standard_target();\nvar app = graph.add_exe({\nname = \"demo\",\nroot = \"src/main.fol\",\n});\ngraph.install(app);\n};\n";
+    let source = "pro[] build(): non = {\nvar graph = .graph();\nvar target = graph.standard_target();\nvar app = graph.add_exe({\nname = \"demo\",\nroot = \"src/main.fol\",\n});\ngraph.install(app);\n};\n";
     fs::write(&file, source).expect("should write build source");
 
     let lsp_formatted = lsp_format_text(&file, source);
@@ -242,7 +312,9 @@ fn editor_format_cli_matches_lsp_for_build_files() {
 #[test]
 fn editor_file_commands_dispatch_against_real_fol_fixtures() {
     let root = repo_root();
-    let fixture = "test/apps/fixtures/record_flow/main.fol";
+    let fixture_path = root.join("test/apps/fixtures/record_flow/main.fol");
+    let fixture = fixture_path.to_string_lossy();
+    let fixture = fixture.as_ref();
 
     let (_, parse) = run_command_from_args_in_dir(["fol", "tool", "parse", fixture], &root)
         .expect("editor parse should dispatch");
@@ -264,35 +336,41 @@ fn editor_file_commands_dispatch_against_real_fol_fixtures() {
         &root,
     )
     .expect("editor references should dispatch");
+    let rename_root = temp_root("editor_dispatch_rename");
+    write_rename_fixture_package(&rename_root);
+    let rename_path = rename_root.join("src/main.fol");
     let (_, rename) = run_command_from_args_in_dir(
         [
             "fol",
             "tool",
             "rename",
-            fixture,
+            rename_path.to_string_lossy().as_ref(),
             "--line",
             "5",
             "--character",
             "11",
             "count",
         ],
-        &root,
+        &rename_root,
     )
     .expect("editor rename should dispatch");
-    let (_, semantic_tokens) = run_command_from_args_in_dir(
-        ["fol", "tool", "semantic-tokens", fixture],
-        &root,
-    )
-    .expect("editor semantic-tokens should dispatch");
+    fs::remove_dir_all(&rename_root).ok();
+    let (_, semantic_tokens) =
+        run_command_from_args_in_dir(["fol", "tool", "semantic-tokens", fixture], &root)
+            .expect("editor semantic-tokens should dispatch");
 
     assert_eq!(parse.command, "parse");
-    assert!(parse.summary.contains("grammar_bytes="));
+    assert!(parse.summary.contains("parse_status=ok"));
+    assert!(parse.summary.contains("syntax_tree=(source_file"));
     assert_eq!(highlight.command, "highlight");
     assert!(highlight.summary.contains("capture_count="));
-    assert!(highlight.summary.contains("captures="));
+    assert!(highlight.summary.contains("capture="));
+    assert!(highlight.summary.contains("capture_kinds="));
     assert!(highlight.summary.contains("intrinsic_names="));
     assert_eq!(symbols.command, "symbols");
-    assert!(symbols.summary.contains("query_snapshots=3"));
+    assert!(symbols.summary.contains("symbol_count="));
+    assert!(symbols.summary.contains("scope_count="));
+    assert!(symbols.summary.contains("symbol=symbol."));
     assert_eq!(references.command, "references");
     assert!(references.summary.contains("reference_count="));
     assert!(references.summary.contains("include_declaration=true"));
@@ -305,23 +383,115 @@ fn editor_file_commands_dispatch_against_real_fol_fixtures() {
 }
 
 #[test]
+fn hosted_v3_semantic_commands_dispatch_without_a_fetched_package_store() {
+    let root = repo_root();
+    let path = root.join("examples/proc_spawn_m1/src/main.fol");
+    let path = path.to_string_lossy();
+
+    let (_, semantic_tokens) =
+        run_command_from_args_in_dir(["fol", "tool", "semantic-tokens", path.as_ref()], &root)
+            .expect("hosted V3 semantic tokens should dispatch");
+    let (_, references) = run_command_from_args_in_dir(
+        [
+            "fol",
+            "tool",
+            "references",
+            path.as_ref(),
+            "--line",
+            "8",
+            "--character",
+            "25",
+        ],
+        &root,
+    )
+    .expect("hosted V3 references should dispatch");
+    let (_, rename) = run_command_from_args_in_dir(
+        [
+            "fol",
+            "tool",
+            "rename",
+            path.as_ref(),
+            "--line",
+            "8",
+            "--character",
+            "25",
+            "task",
+        ],
+        &root,
+    )
+    .expect("hosted V3 rename should dispatch");
+
+    assert!(semantic_tokens.summary.contains("token_count="));
+    assert!(!semantic_tokens.summary.contains("token_count=0"));
+    assert!(references.summary.contains("reference_count=2"));
+    assert!(rename.summary.contains("edit_count=2"));
+}
+
+#[test]
+fn public_semantic_commands_reject_did_open_diagnostics() {
+    let root = temp_root("semantic_command_diagnostics");
+    write_rename_fixture_package(&root);
+    let path = root.join("src/main.fol");
+    fs::write(&path, "fun[] main(: int = {\n    return missing;\n};\n").unwrap();
+    let path = path.to_string_lossy();
+
+    let errors = [
+        run_command_from_args_in_dir(["fol", "tool", "semantic-tokens", path.as_ref()], &root)
+            .unwrap_err(),
+        run_command_from_args_in_dir(
+            [
+                "fol",
+                "tool",
+                "references",
+                path.as_ref(),
+                "--line",
+                "1",
+                "--character",
+                "11",
+            ],
+            &root,
+        )
+        .unwrap_err(),
+        run_command_from_args_in_dir(
+            [
+                "fol",
+                "tool",
+                "rename",
+                path.as_ref(),
+                "--line",
+                "1",
+                "--character",
+                "11",
+                "renamed",
+            ],
+            &root,
+        )
+        .unwrap_err(),
+    ];
+
+    for error in errors {
+        let rendered = fol_frontend::FrontendOutput::new(fol_frontend::FrontendOutputConfig {
+            mode: fol_frontend::OutputMode::Json,
+        })
+        .render_error(&error)
+        .unwrap();
+        assert!(rendered.contains("\"code\": \"F1004\""));
+        assert!(rendered.contains("semantic analysis reported"));
+        assert!(rendered.contains("P1001"));
+    }
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn editor_build_file_commands_dispatch_through_public_cli() {
     let root = temp_root("build_cli_surface");
-    fs::create_dir_all(root.join("src")).expect("should create src root");
+    write_rename_fixture_package(&root);
     let build = root.join("build.fol");
-    fs::write(&root.join("package.yaml"), "name: demo\nversion: 0.1.0\n")
-        .expect("should write package manifest");
-    fs::write(
-        &build,
-        "pro[] build(graph: Graph): non = {\n    return graph\n};\n",
-    )
-    .expect("should write build source");
-    fs::write(
-        root.join("src/main.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
-    )
-    .expect("should write entry source");
 
+    // `graph` is declared on line 3 and used on lines 4 and 5; the resolver
+    // now records local binding declaration origins, so references cover the
+    // declaration plus both use sites.
     let (_, references) = run_command_from_args_in_dir(
         [
             "fol",
@@ -329,9 +499,9 @@ fn editor_build_file_commands_dispatch_through_public_cli() {
             "references",
             build.to_string_lossy().as_ref(),
             "--line",
-            "1",
+            "4",
             "--character",
-            "11",
+            "14",
         ],
         &root,
     )
@@ -348,7 +518,7 @@ fn editor_build_file_commands_dispatch_through_public_cli() {
     .expect("editor semantic-tokens should dispatch on build files");
 
     assert_eq!(references.command, "references");
-    assert!(references.summary.contains("reference_count=2"));
+    assert!(references.summary.contains("reference_count=3"));
     assert_eq!(semantic_tokens.command, "semantic-tokens");
     assert!(semantic_tokens.summary.contains("token_count="));
 
@@ -374,11 +544,12 @@ fn editor_build_file_commands_dispatch_through_public_cli() {
     .expect("json render should succeed");
     let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("stderr should be json");
 
-    assert_eq!(parsed["kind"], "FrontendCommandFailed");
-    assert!(parsed["message"]
+    let diagnostic = &parsed["diagnostics"][0];
+    assert_eq!(diagnostic["code"], "F1004");
+    assert!(diagnostic["message"]
         .as_str()
         .expect("message should be a string")
-        .contains("same-file local and current-package top-level symbols only"));
+        .contains("does not support build entry symbols"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -386,14 +557,15 @@ fn editor_build_file_commands_dispatch_through_public_cli() {
 #[test]
 fn editor_references_command_can_exclude_declarations() {
     let root = repo_root();
-    let fixture = "test/apps/fixtures/record_flow/main.fol";
+    let fixture_path = root.join("test/apps/fixtures/record_flow/main.fol");
+    let fixture = fixture_path.to_string_lossy();
 
     let (_, references) = run_command_from_args_in_dir(
         [
             "fol",
             "tool",
             "references",
-            fixture,
+            fixture.as_ref(),
             "--line",
             "5",
             "--character",
@@ -411,37 +583,7 @@ fn editor_references_command_can_exclude_declarations() {
 #[test]
 fn editor_rename_command_surfaces_safe_boundary_failures() {
     let root = temp_root("rename_multipackage_boundary");
-    fs::create_dir_all(root.join("app/src")).expect("should create app root");
-    fs::create_dir_all(root.join("shared/src")).expect("should create shared root");
-    fs::write(
-        &root.join("fol.work.yaml"),
-        "members:\n  - app\n  - shared\n",
-    )
-    .expect("should write workspace manifest");
-    fs::write(&root.join("app/package.yaml"), "name: app\nversion: 0.1.0\n")
-        .expect("should write app package manifest");
-    fs::write(
-        root.join("app/build.fol"),
-        "pro[] build(graph: Graph): non = {\n    return graph\n};\n",
-    )
-    .expect("should write app build source");
-    fs::write(&root.join("shared/package.yaml"), "name: shared\nversion: 0.1.0\n")
-        .expect("should write shared package manifest");
-    fs::write(
-        root.join("shared/build.fol"),
-        "pro[] build(graph: Graph): non = {\n    return graph\n};\n",
-    )
-    .expect("should write shared build source");
-    fs::write(
-        root.join("app/src/main.fol"),
-        "use shared: loc = {\"../shared\"};\n\nfun[] main(): int = {\n    return shared::helper()\n}\n",
-    )
-    .expect("should write main source");
-    fs::write(
-        root.join("shared/src/lib.fol"),
-        "fun[exp] helper(): int = {\n    return 7\n}\n",
-    )
-    .expect("should write namespaced helper");
+    write_cross_package_rename_fixture(&root);
     let error = run_command_from_args_in_dir(
         [
             "fol",
@@ -463,35 +605,37 @@ fn editor_rename_command_surfaces_safe_boundary_failures() {
     .render_error(&error)
     .expect("json render should succeed");
 
-    assert!(json.contains("\"kind\": \"FrontendCommandFailed\""));
-    assert!(json.contains("multi-package symbols"));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json).expect("rendered error should be json");
+    assert_eq!(parsed["diagnostics"][0]["code"], "F1004");
+    assert!(json.contains("same-file symbols only"));
 
     fs::remove_dir_all(root).ok();
 }
 
 #[test]
-fn editor_rename_command_supports_same_package_namespaced_symbols() {
+fn editor_rename_command_refuses_same_package_namespaced_symbols() {
     let root = temp_root("rename_same_package_namespace_cli");
+    write_rename_fixture_package(&root);
+    // `src/api` is part of the executable artifact's source scope, but rename
+    // deliberately remains limited to same-file symbols.
     fs::create_dir_all(root.join("src/api")).expect("should create api root");
-    fs::write(&root.join("package.yaml"), "name: demo\nversion: 0.1.0\n")
-        .expect("should write package manifest");
-    fs::write(
-        root.join("build.fol"),
-        "pro[] build(graph: Graph): non = {\n    return graph\n};\n",
-    )
-    .expect("should write build source");
     fs::write(
         root.join("src/main.fol"),
-        "fun[] main(): int = {\n    return api::helper()\n}\n",
+        concat!(
+            "fun[] main(): int = {\n",
+            "    return api::helper();\n",
+            "};\n",
+        ),
     )
     .expect("should write main source");
     fs::write(
         root.join("src/api/lib.fol"),
-        "fun[exp] helper(): int = {\n    return 7\n}\n",
+        concat!("fun[exp] helper(): int = {\n", "    return 7;\n", "};\n",),
     )
     .expect("should write namespaced helper");
 
-    let (_, result) = run_command_from_args_in_dir(
+    let error = run_command_from_args_in_dir(
         [
             "fol",
             "tool",
@@ -505,11 +649,17 @@ fn editor_rename_command_supports_same_package_namespaced_symbols() {
         ],
         &root,
     )
-    .expect("same-package namespace rename should stay inside the safe boundary");
+    .expect_err("same-package namespace rename should stay outside the safe boundary");
+    let json = fol_frontend::FrontendOutput::new(fol_frontend::FrontendOutputConfig {
+        mode: fol_frontend::OutputMode::Json,
+    })
+    .render_error(&error)
+    .expect("json render should succeed");
 
-    assert_eq!(result.command, "rename");
-    assert!(result.summary.contains("edit_count=2"));
-    assert!(result.summary.contains("touched_files=2"));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json).expect("rendered error should be json");
+    assert_eq!(parsed["diagnostics"][0]["code"], "F1004");
+    assert!(json.contains("same-file symbols only"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -517,9 +667,17 @@ fn editor_rename_command_supports_same_package_namespaced_symbols() {
 #[test]
 fn editor_commands_respect_requested_output_mode() {
     let root = repo_root();
-    let fixture = "test/apps/fixtures/record_flow/main.fol";
+    let fixture_path = root.join("test/apps/fixtures/record_flow/main.fol");
+    let fixture = fixture_path.to_string_lossy();
     let (output, result) = run_command_from_args_in_dir(
-        ["fol", "tool", "--output", "plain", "parse", fixture],
+        [
+            "fol",
+            "tool",
+            "--output",
+            "plain",
+            "parse",
+            fixture.as_ref(),
+        ],
         &root,
     )
     .expect("editor parse should support output mode");
@@ -528,7 +686,8 @@ fn editor_commands_respect_requested_output_mode() {
         .expect("plain output should render");
 
     assert!(rendered.contains("command: parse"));
-    assert!(rendered.contains("summary: loaded"));
+    assert!(rendered.contains("summary: tree-sitter parsed"));
+    assert!(rendered.contains("parse_status=ok"));
     assert!(rendered.contains("bytes="));
 }
 
@@ -557,8 +716,7 @@ fn editor_format_command_does_not_require_workspace_discovery() {
     let root = temp_root("format_no_workspace");
     fs::create_dir_all(&root).expect("should create temp root");
     let file = root.join("sample.fol");
-    fs::write(&file, "fun[] main(): int = {\nreturn 0;\n};\n")
-        .expect("should write sample source");
+    fs::write(&file, "fun[] main(): int = {\nreturn 0;\n};\n").expect("should write sample source");
 
     let (_, result) = run_command_from_args_in_dir(
         ["fol", "tool", "format", file.to_string_lossy().as_ref()],
@@ -584,11 +742,8 @@ fn editor_format_command_does_not_mutate_unrelated_files() {
     let sibling = root.join("sibling.fol");
     fs::write(&target, "fun[] main(): int = {\nreturn 0;\n};\n")
         .expect("should write target source");
-    fs::write(
-        &sibling,
-        "fun[] keep(): int = {\n    return 7\n}\n",
-    )
-    .expect("should write sibling source");
+    fs::write(&sibling, "fun[] keep(): int = {\n    return 7\n}\n")
+        .expect("should write sibling source");
 
     let (_, result) = run_command_from_args_in_dir(
         ["fol", "tool", "format", target.to_string_lossy().as_ref()],
@@ -612,9 +767,17 @@ fn editor_format_command_does_not_mutate_unrelated_files() {
 #[test]
 fn editor_command_plain_output_stays_snapshot_stable_for_real_fixtures() {
     let root = repo_root();
-    let fixture = "xtra/logtiny/src/log.fol";
+    let fixture_path = root.join("xtra/logtiny/src/log.fol");
+    let fixture = fixture_path.to_string_lossy();
     let (output, result) = run_command_from_args_in_dir(
-        ["fol", "tool", "--output", "plain", "symbols", fixture],
+        [
+            "fol",
+            "tool",
+            "--output",
+            "plain",
+            "symbols",
+            fixture.as_ref(),
+        ],
         &root,
     )
     .expect("editor symbols should support plain output");
@@ -624,7 +787,10 @@ fn editor_command_plain_output_stays_snapshot_stable_for_real_fixtures() {
 
     assert_eq!(
         rendered,
-        "command: symbols\nsummary: symbol query ready with 803 bytes (lines=52, path=xtra/logtiny/src/log.fol, query_snapshots=3, symbol_candidates=8)"
+        format!(
+            "command: symbols\nsummary: tree-sitter symbol query matched 14 symbols in 14 scopes (error_count=0, lines=64, missing_count=0, named_node_count=415, node_count=665, parse_status=ok, path={}, query_bytes=1022, root_kind=source_file, scope_count=14, symbol=symbol.function@19:9-19:13:make, symbol=symbol.function@27:9-27:23:enable_verbose, symbol=symbol.function@35:9-35:19:level_code, symbol=symbol.function@39:9-39:19:level_name, symbol=symbol.function@48:9-48:15:allows, symbol=symbol.function@52:9-52:13:emit, symbol=symbol.function@61:9-61:21:emit_default, symbol=symbol.type@0:4-0:9:Level, symbol=symbol.type@7:9-7:15:Logger, symbol=symbol.variable@13:9-13:16:DEFAULT, symbol=symbol.variable@2:9-2:14:DEBUG, symbol=symbol.variable@3:9-3:13:INFO, symbol=symbol.variable@4:9-4:13:WARN, symbol=symbol.variable@5:9-5:14:ERROR, symbol_count=14, symbol_kinds=symbol.function,symbol.type,symbol.variable)",
+            fixture_path.display()
+        )
     );
 }
 
@@ -633,8 +799,7 @@ fn editor_format_plain_output_stays_snapshot_stable() {
     let root = temp_root("format_plain_snapshot");
     fs::create_dir_all(&root).expect("should create temp root");
     let file = root.join("sample.fol");
-    fs::write(&file, "fun[] main(): int = {\nreturn 0;\n};\n")
-        .expect("should write sample source");
+    fs::write(&file, "fun[] main(): int = {\nreturn 0;\n};\n").expect("should write sample source");
 
     let (output, result) = run_command_from_args_in_dir(
         [
@@ -655,7 +820,7 @@ fn editor_format_plain_output_stays_snapshot_stable() {
     assert_eq!(
         rendered,
         format!(
-            "command: format\nsummary: formatted {} (path={}, lines=3, changed=true, changed_lines=1, style=hybrid-line)",
+            "command: format\nsummary: formatted {} (changed=true, changed_lines=1, lines=3, path={}, style=hybrid-line)",
             file.display(),
             file.display()
         )
@@ -684,12 +849,13 @@ fn editor_command_json_errors_keep_stable_shapes() {
     .render_error(&error)
     .expect("json render should succeed");
     let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("stderr should be json");
-    assert_eq!(parsed["kind"], "FrontendCommandFailed");
-    assert!(parsed["message"]
+    let diagnostic = &parsed["diagnostics"][0];
+    assert_eq!(diagnostic["code"], "F1004");
+    assert!(diagnostic["message"]
         .as_str()
         .expect("message should be a string")
         .contains("failed to read"));
-    assert!(parsed["notes"].is_array());
+    assert!(diagnostic["notes"].is_array());
 }
 
 #[test]
@@ -705,8 +871,9 @@ fn editor_lsp_reports_workspace_guidance_when_no_root_is_present() {
     .expect("json render should succeed");
     let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("stderr should be json");
 
-    assert_eq!(parsed["kind"], "FrontendWorkspaceNotFound");
-    let notes = parsed["notes"]
+    let diagnostic = &parsed["diagnostics"][0];
+    assert_eq!(diagnostic["code"], "F1002");
+    let notes = diagnostic["notes"]
         .as_array()
         .expect("notes should be an array");
     assert!(notes.iter().any(|note| note
@@ -720,37 +887,7 @@ fn editor_lsp_reports_workspace_guidance_when_no_root_is_present() {
 #[test]
 fn editor_rename_json_error_stays_snapshot_stable() {
     let root = temp_root("rename_json_error_snapshot");
-    fs::create_dir_all(root.join("app/src")).expect("should create app root");
-    fs::create_dir_all(root.join("shared/src")).expect("should create shared root");
-    fs::write(
-        &root.join("fol.work.yaml"),
-        "members:\n  - app\n  - shared\n",
-    )
-    .expect("should write workspace manifest");
-    fs::write(&root.join("app/package.yaml"), "name: app\nversion: 0.1.0\n")
-        .expect("should write app package manifest");
-    fs::write(
-        root.join("app/build.fol"),
-        "pro[] build(graph: Graph): non = {\n    return graph\n};\n",
-    )
-    .expect("should write app build source");
-    fs::write(&root.join("shared/package.yaml"), "name: shared\nversion: 0.1.0\n")
-        .expect("should write shared package manifest");
-    fs::write(
-        root.join("shared/build.fol"),
-        "pro[] build(graph: Graph): non = {\n    return graph\n};\n",
-    )
-    .expect("should write shared build source");
-    fs::write(
-        root.join("app/src/main.fol"),
-        "use shared: loc = {\"../shared\"};\n\nfun[] main(): int = {\n    return shared::helper()\n}\n",
-    )
-    .expect("should write main source");
-    fs::write(
-        root.join("shared/src/lib.fol"),
-        "fun[exp] helper(): int = {\n    return 7\n}\n",
-    )
-    .expect("should write shared source");
+    write_cross_package_rename_fixture(&root);
     let error = run_command_from_args_in_dir(
         [
             "fol",
@@ -775,9 +912,12 @@ fn editor_rename_json_error_stays_snapshot_stable() {
     .expect("json render should succeed");
     let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("stderr should be json");
 
-    assert_eq!(parsed["kind"], "FrontendCommandFailed");
-    assert_eq!(parsed["message"], "rename currently refuses multi-package symbols");
-    assert_eq!(parsed["notes"], serde_json::json!([]));
+    let diagnostic = &parsed["diagnostics"][0];
+    assert_eq!(diagnostic["code"], "F1004");
+    assert_eq!(
+        diagnostic["message"],
+        "rename currently supports same-file symbols only"
+    );
 
     fs::remove_dir_all(root).ok();
 }

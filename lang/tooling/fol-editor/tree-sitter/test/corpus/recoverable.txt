@@ -2,15 +2,87 @@
 Recoverable
 ==================
 
-use shared: loc = {shared::lib}
+use shared: loc = {"../shared"};
 
 fun load(flag: bol): int / str = {
     when(flag) {
-        report "bad-input"
+        case(true) { report "bad-input"; }
+        * { return 7; }
     }
-    return 7
-}
+};
 
 fun demo(flag: bol): int = {
-    return load(flag) || 0
-}
+    return load(flag) || 0;
+};
+
+---
+
+(source_file
+  (use_decl
+    (identifier)
+    (source_kind)
+    (string_literal))
+  (fun_decl
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (error_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (when_expr
+            (expr
+              (expr_atom
+                (identifier)))
+            (when_block
+              (case_clause
+                (expr
+                  (expr_atom
+                    (boolean_literal)))
+                (block
+                  (stmt
+                    (report_stmt
+                      (expr
+                        (expr_atom
+                          (string_literal)))))))
+              (default_clause
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal)))))))))))))
+  (fun_decl
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (pipe_or_expr
+                (expr_atom
+                  (call_expr
+                    (identifier)
+                    (call_arg
+                      (expr
+                        (expr_atom
+                          (identifier))))))
+                (expr
+                  (expr_atom
+                    (integer_literal)))))))))))

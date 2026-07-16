@@ -1,5 +1,8 @@
 // Main test runner for FOL compiler components
 
+#[path = "v3_example_inventory.rs"]
+mod v3_example_inventory;
+
 mod stream {
     include!("stream/test_stream.rs");
 }
@@ -84,6 +87,121 @@ mod integration_tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     }
 
+    fn collect_files_with_suffixes(root: &Path, suffixes: &[&str], out: &mut Vec<PathBuf>) {
+        if root.is_file() {
+            let path_text = root.to_string_lossy();
+            if suffixes.iter().any(|suffix| path_text.ends_with(suffix)) {
+                out.push(root.to_path_buf());
+            }
+            return;
+        }
+
+        for entry in std::fs::read_dir(root).expect("Should read fixture directory") {
+            let entry = entry.expect("Should read fixture directory entry");
+            let path = entry.path();
+            if entry.file_type().expect("Should read file type").is_dir() {
+                collect_files_with_suffixes(&path, suffixes, out);
+            } else {
+                let path_text = path.to_string_lossy();
+                if suffixes.iter().any(|suffix| path_text.ends_with(suffix)) {
+                    out.push(path);
+                }
+            }
+        }
+    }
+
+    fn collect_unquoted_use_target_lines(
+        paths: &[PathBuf],
+        suffixes: &[&str],
+        ignored_snippets: &[&str],
+    ) -> Vec<String> {
+        let mut files = Vec::new();
+        for path in paths {
+            collect_files_with_suffixes(path, suffixes, &mut files);
+        }
+        files.sort();
+
+        let mut offenders = Vec::new();
+        for file in files {
+            let text = std::fs::read_to_string(&file).expect("Should read source fixture file");
+            for (index, line) in text.lines().enumerate() {
+                if ignored_snippets
+                    .iter()
+                    .any(|snippet| line.contains(snippet))
+                {
+                    continue;
+                }
+                if line_has_unquoted_use_target(line) {
+                    offenders.push(format!("{}:{}:{}", file.display(), index + 1, line.trim()));
+                }
+            }
+        }
+        offenders
+    }
+
+    fn collect_lines_containing_any(
+        paths: &[PathBuf],
+        suffixes: &[&str],
+        needles: &[&str],
+    ) -> Vec<String> {
+        let mut files = Vec::new();
+        for path in paths {
+            collect_files_with_suffixes(path, suffixes, &mut files);
+        }
+        files.sort();
+
+        let mut offenders = Vec::new();
+        for file in files {
+            let text = std::fs::read_to_string(&file).expect("Should read source fixture file");
+            for (index, line) in text.lines().enumerate() {
+                if needles.iter().any(|needle| line.contains(needle)) {
+                    offenders.push(format!("{}:{}:{}", file.display(), index + 1, line.trim()));
+                }
+            }
+        }
+        offenders
+    }
+
+    fn line_has_unquoted_use_target(line: &str) -> bool {
+        let mut remainder = line;
+        while let Some(use_index) = remainder.find("use ") {
+            let use_slice = &remainder[use_index..];
+            for marker in ["= {", "={"] {
+                if let Some(index) = use_slice.find(marker) {
+                    let after_brace = &use_slice[index + marker.len()..];
+                    let trimmed = after_brace.trim_start();
+                    if !trimmed.starts_with('"')
+                        && !trimmed.starts_with('\'')
+                        && !trimmed.starts_with("\\\"")
+                        && !trimmed.starts_with("\\'")
+                    {
+                        return true;
+                    }
+                    break;
+                }
+            }
+
+            remainder = &use_slice["use ".len()..];
+        }
+
+        false
+    }
+
+    fn copy_dir_all(src: &Path, dst: &Path) {
+        std::fs::create_dir_all(dst).expect("Should create copied directory root");
+        for entry in std::fs::read_dir(src).expect("Should read source directory") {
+            let entry = entry.expect("Should read source directory entry");
+            let file_type = entry.file_type().expect("Should read source file type");
+            let from = entry.path();
+            let to = dst.join(entry.file_name());
+            if file_type.is_dir() {
+                copy_dir_all(&from, &to);
+            } else {
+                std::fs::copy(&from, &to).expect("Should copy source file");
+            }
+        }
+    }
+
     fn example_package_roots() -> Vec<PathBuf> {
         let root = repo_root().join("test/app/formal");
         vec![
@@ -97,7 +215,12 @@ mod integration_tests {
     }
 
     fn build_fixture_root(name: &str) -> PathBuf {
-        repo_root().join("test/app/build").join(name)
+        let source = repo_root().join("test/app/build").join(name);
+        let temp_root = unique_temp_root(&format!("build_fixture_{name}"));
+        let target = temp_root.join("workspace");
+        copy_dir_all(&source, &target);
+        std::fs::remove_dir_all(target.join(".fol")).ok();
+        target
     }
 
     fn parse_cli_json(output: &std::process::Output) -> Value {
@@ -109,6 +232,15 @@ mod integration_tests {
     }
 
     fn open_lsp_document(server: &mut EditorLspServer, uri: String, text: &str) {
+        if let Some(path) = uri.strip_prefix("file://").map(std::path::PathBuf::from) {
+            let parent = path.parent().unwrap_or(path.as_path());
+            let root = parent
+                .ancestors()
+                .find(|candidate| candidate.join("build.fol").is_file())
+                .unwrap_or(parent);
+            std::fs::create_dir_all(root.join(".git"))
+                .expect("LSP test workspace marker should be creatable");
+        }
         let diagnostics = server
             .handle_notification(JsonRpcNotification {
                 jsonrpc: "2.0".to_string(),
@@ -261,7 +393,10 @@ mod integration_tests {
     fn semantic_bin_build(name: &str) -> String {
         format!(
             concat!(
-                "pro[] build(graph: Graph): non = {{\n",
+                "pro[] build(): non = {{\n",
+                "    var build = .build();\n",
+                "    build.meta({{ name = \"{name}\", version = \"0.1.0\" }});\n",
+                "    var graph = build.graph();\n",
                 "    var app = graph.add_exe({{ name = \"{name}\", root = \"src/main.fol\" }});\n",
                 "    graph.install(app);\n",
                 "    graph.add_run(app);\n",
@@ -271,27 +406,25 @@ mod integration_tests {
         )
     }
 
-    fn semantic_lib_build(name: &str) -> String {
-        format!(
-            concat!(
-                "pro[] build(graph: Graph): non = {{\n",
-                "    var lib = graph.add_static_lib({{ name = \"{name}\", root = \"src/lib.fol\" }});\n",
-                "    graph.install(lib);\n",
-                "}};\n",
-            ),
-            name = name
-        )
-    }
-
     fn create_git_package_repo(root: &Path, name: &str, version: &str) {
         std::fs::create_dir_all(root.join("src")).expect("Should create git package source dir");
         std::fs::write(
-            root.join("package.yaml"),
-            format!("name: {name}\nversion: {version}\n"),
+            root.join("build.fol"),
+            format!(
+                concat!(
+                    "pro[] build(): non = {{\n",
+                    "    var build = .build();\n",
+                    "    build.meta({{ name = \"{name}\", version = \"{version}\" }});\n",
+                    "    var graph = build.graph();\n",
+                    "    var lib = graph.add_static_lib({{ name = \"{name}\", root = \"src/lib.fol\" }});\n",
+                    "    graph.install(lib);\n",
+                    "}};\n",
+                ),
+                name = name,
+                version = version
+            ),
         )
-        .expect("Should write git package metadata");
-        std::fs::write(root.join("build.fol"), semantic_lib_build(name))
-            .expect("Should write git package build");
+        .expect("Should write git package build");
         std::fs::write(root.join("src/lib.fol"), "var[exp] level: int = 1;\n")
             .expect("Should write git package source");
 
@@ -313,20 +446,29 @@ mod integration_tests {
 
     fn create_app_with_git_dependency(app_root: &Path, remote_root: &Path) {
         std::fs::create_dir_all(app_root.join("src")).expect("Should create app source dir");
+        let name = app_root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("app");
         std::fs::write(
-            app_root.join("package.yaml"),
+            app_root.join("build.fol"),
             format!(
-                "name: {}\nversion: 0.1.0\ndep.logtiny: git:git+file://{}\n",
-                app_root
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("app"),
-                remote_root.display()
+                concat!(
+                    "pro[] build(): non = {{\n",
+                    "    var build = .build();\n",
+                    "    build.meta({{ name = \"{name}\", version = \"0.1.0\" }});\n",
+                    "    build.add_dep({{ alias = \"logtiny\", source = \"git\", target = \"git+file://{remote}\" }});\n",
+                    "    var graph = build.graph();\n",
+                    "    var app = graph.add_exe({{ name = \"{name}\", root = \"src/main.fol\" }});\n",
+                    "    graph.install(app);\n",
+                    "    graph.add_run(app);\n",
+                    "}};\n",
+                ),
+                name = name,
+                remote = remote_root.display()
             ),
         )
-        .expect("Should write app manifest");
-        std::fs::write(app_root.join("build.fol"), semantic_bin_build("app"))
-            .expect("Should write app build");
+        .expect("Should write app build");
         std::fs::write(
             app_root.join("src/main.fol"),
             "fun[] main(): int = {\n    return 0;\n};\n",
@@ -341,7 +483,6 @@ mod integration_tests {
         .expect("Lockfile should parse");
         parsed.entries[0].selected_revision.clone()
     }
-
 
     #[cfg(test)]
     #[path = "integration_pipeline.rs"]
@@ -366,6 +507,14 @@ mod integration_tests {
     #[cfg(test)]
     #[path = "integration_editor_and_build.rs"]
     mod editor_and_build;
+
+    #[cfg(test)]
+    #[path = "integration_editor_sync.rs"]
+    mod editor_sync;
+
+    #[cfg(test)]
+    #[path = "integration_v3_runtime_proofs.rs"]
+    mod v3_runtime_proofs;
 
     #[cfg(test)]
     #[path = "integration_diagnostics_pipeline.rs"]
@@ -398,10 +547,7 @@ mod integration_tests {
         #[test]
         fn source_kind_names_are_canonical() {
             let kinds = fol_parser::SOURCE_KIND_NAMES;
-            assert_eq!(kinds.len(), 3);
-            assert!(kinds.contains(&"loc"));
-            assert!(kinds.contains(&"std"));
-            assert!(kinds.contains(&"pkg"));
+            assert_eq!(kinds, &["loc", "pkg"]);
         }
 
         #[test]
@@ -430,8 +576,7 @@ mod integration_tests {
         use std::collections::BTreeSet;
 
         fn highlights_scm() -> String {
-            let path = repo_root()
-                .join("lang/tooling/fol-editor/queries/fol/highlights.scm");
+            let path = repo_root().join("lang/tooling/fol-editor/queries/fol/highlights.scm");
             std::fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("should read highlights.scm: {e}"))
         }
@@ -453,7 +598,11 @@ mod integration_tests {
             names
         }
 
-        fn extract_node_label_names(text: &str, node_type: &str, capture: &str) -> BTreeSet<String> {
+        fn extract_node_label_names(
+            text: &str,
+            node_type: &str,
+            capture: &str,
+        ) -> BTreeSet<String> {
             let mut names = BTreeSet::new();
             for line in text.lines() {
                 let trimmed = line.trim();

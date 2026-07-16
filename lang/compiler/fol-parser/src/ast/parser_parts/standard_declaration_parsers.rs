@@ -46,10 +46,30 @@ impl AstParser {
             return false;
         }
 
-        matches!(
-            significant.next().map(|token| token.key().clone()),
-            Some(KEYWORD::Symbol(SYMBOL::Colon))
-        )
+        // Optional generic-parameter header after the name, e.g.
+        // `std Iterator(T): pro`.
+        let mut next = significant.next().map(|token| token.key().clone());
+        if matches!(next, Some(KEYWORD::Symbol(SYMBOL::RoundO))) {
+            let mut depth = 1usize;
+            loop {
+                let Some(token_key) = significant.next().map(|token| token.key().clone()) else {
+                    return false;
+                };
+                match token_key {
+                    KEYWORD::Symbol(SYMBOL::RoundO) => depth += 1,
+                    KEYWORD::Symbol(SYMBOL::RoundC) => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            next = significant.next().map(|token| token.key().clone());
+        }
+
+        matches!(next, Some(KEYWORD::Symbol(SYMBOL::Colon)))
     }
 
     pub(super) fn parse_std_decl(
@@ -74,6 +94,11 @@ impl AstParser {
         let _ = tokens.bump();
 
         self.skip_ignorable(tokens)?;
+        // Optional generic parameters after the standard name, e.g.
+        // `std Iterator(T): pro = { ... }`.
+        let generics = self.parse_type_generic_header(tokens)?;
+        self.skip_ignorable(tokens)?;
+
         let colon = tokens.curr(false)?;
         if !matches!(colon.key(), KEYWORD::Symbol(SYMBOL::Colon)) {
             return Err(ParseError::from_token(
@@ -136,8 +161,10 @@ impl AstParser {
         };
 
         Ok(AstNode::StdDecl {
+            syntax_id: self.record_syntax_origin(&std_token),
             options,
             name,
+            generics,
             kind,
             kind_options,
             body,
@@ -179,7 +206,7 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::Pro)
             ) {
                 let member_anchor = self.peek_standard_member_anchor_token(tokens);
-                let member = self.parse_standard_routine_signature(tokens)?;
+                let member = self.parse_standard_requirement_signature(tokens)?;
                 self.consume_required_semicolon(tokens)?;
                 let key = self.standard_member_key(&member);
                 if !seen_members.insert(self.standard_member_comparison_key(&member)) {
@@ -360,7 +387,7 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::Pro)
             ) {
                 let member_anchor = self.peek_standard_member_anchor_token(tokens);
-                let member = self.parse_standard_routine_signature(tokens)?;
+                let member = self.parse_standard_requirement_signature(tokens)?;
                 self.consume_required_semicolon(tokens)?;
                 let key = self.standard_member_key(&member);
                 if !seen_members.insert(self.standard_member_comparison_key(&member)) {
@@ -469,7 +496,7 @@ impl AstParser {
                     | KEYWORD::Keyword(BUILDIN::Pro)
             ) {
                 let member_anchor = self.peek_standard_member_anchor_token(tokens);
-                let member = self.parse_standard_routine_signature(tokens)?;
+                let member = self.parse_standard_requirement_signature(tokens)?;
                 self.consume_required_semicolon(tokens)?;
                 let key = self.standard_member_key(&member);
                 if !seen_members.insert(self.standard_member_comparison_key(&member)) {
@@ -597,6 +624,55 @@ impl AstParser {
         ))
     }
 
+    pub(super) fn parse_standard_requirement_signature(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<AstNode, ParseError> {
+        let anchor_token = tokens.curr(false)?;
+        let member = self.parse_standard_routine_signature(tokens)?;
+        match &member {
+            AstNode::FunDecl {
+                generics,
+                receiver_type,
+                captures,
+                ..
+            }
+            | AstNode::ProDecl {
+                generics,
+                receiver_type,
+                captures,
+                ..
+            }
+            | AstNode::LogDecl {
+                generics,
+                receiver_type,
+                captures,
+                ..
+            } => {
+                if receiver_type.is_some() {
+                    return Err(ParseError::from_token(
+                        &anchor_token,
+                        "Standard routine requirements cannot declare a receiver; conformance is already tied to the conforming type".to_string(),
+                    ));
+                }
+                if !generics.is_empty() {
+                    return Err(ParseError::from_token(
+                        &anchor_token,
+                        "Standard routine requirements cannot declare their own generic parameters; parameterize the standard itself instead".to_string(),
+                    ));
+                }
+                if !captures.is_empty() {
+                    return Err(ParseError::from_token(
+                        &anchor_token,
+                        "Standard routine requirements cannot declare captures; capturing is an implementation detail of the conformer".to_string(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+        Ok(member)
+    }
+
     pub(super) fn parse_standard_routine_signature(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
@@ -608,7 +684,7 @@ impl AstParser {
         let options = self.parse_routine_options(tokens)?;
         self.skip_ignorable(tokens)?;
 
-        let (receiver_type, name) = self.parse_routine_name_with_optional_receiver(
+        let (receiver_type, name, _name_token) = self.parse_routine_name_with_optional_receiver(
             tokens,
             "Expected routine name in standard signature",
         )?;

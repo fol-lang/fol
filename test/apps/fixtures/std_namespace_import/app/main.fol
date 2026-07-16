@@ -1,5 +1,5 @@
-use fmt: std = {"fmt"};
+use std: pkg = {"std"};
 
 fun[] main(): int = {
-    return fmt::math::answer();
+    return std::fmt::answer();
 };

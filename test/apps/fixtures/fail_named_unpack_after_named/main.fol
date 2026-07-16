@@ -1,0 +1,8 @@
+fun[] score(base: int, step: int = 2, extras: ... int): int = {
+    return base;
+};
+
+fun[] main(): int = {
+    var extras: seq[int] = {4, 5};
+    return score(base = 3, ...extras, 7);
+};

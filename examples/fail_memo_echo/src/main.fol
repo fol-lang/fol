@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var shown: int = .echo(7);
+    return shown;
+};

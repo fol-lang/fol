@@ -1,0 +1,8 @@
+fun[] sum(head: int, tail: ... int): int = {
+    return head;
+};
+
+fun[] main(): int = {
+    var value: int = 7;
+    return sum(1, ...value);
+};

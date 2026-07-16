@@ -1,5 +1,16 @@
 use super::*;
 
+#[test]
+fn test_internal_runtime_tier_modules_compile_through_root_integration_graph() {
+    assert_eq!(fol_runtime::core::tier_name(), "core");
+    assert_eq!(fol_runtime::memo::tier_name(), "memo");
+    assert_eq!(fol_runtime::std::tier_name(), "std");
+
+    assert_eq!(fol_runtime::memo::base_core_tier(), fol_runtime::core::TIER);
+    assert_eq!(fol_runtime::std::base_core_tier(), fol_runtime::core::TIER);
+    assert_eq!(fol_runtime::std::base_memo_tier(), fol_runtime::memo::TIER);
+}
+
     #[test]
     fn test_stream_to_lexer_integration() {
         use fol_lexer::lexer::stage3::Elements;
@@ -212,7 +223,7 @@ use super::*;
         .expect("Should write the imported namespace fixture");
         fs::write(
             temp_root.join("main.fol"),
-            "use http: loc = {net::http};\nfun[] main(): int = {\n    return http;\n};\n",
+            "use http: loc = {\"net::http\"};\nfun[] main(): int = {\n    return http;\n};\n",
         )
         .expect("Should write the importing source unit fixture");
 
@@ -241,11 +252,10 @@ use super::*;
                     .target_scope
                     .and_then(|scope_id| resolved.scope(scope_id))
                     .map(|scope| &scope.kind),
-                Some(fol_resolver::ScopeKind::ProgramRoot { package }) if package == "http"
+                Some(fol_resolver::ScopeKind::NamespaceRoot { namespace }) if namespace.ends_with("http")
             ),
-            "Cross-file full pipeline runs should mount exact loc directories as imported root scopes"
+            "Cross-file full pipeline runs should resolve intra-package loc imports to the existing namespace scope"
         );
 
         fs::remove_dir_all(&temp_root).ok();
     }
-

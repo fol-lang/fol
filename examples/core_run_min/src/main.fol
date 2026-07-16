@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var values: arr[int, 2] = {1, 2};
+    return 0;
+};

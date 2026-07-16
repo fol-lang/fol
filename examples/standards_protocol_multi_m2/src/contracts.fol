@@ -1,0 +1,7 @@
+std geo: pro = {
+    fun area(): int;
+};
+
+std sized: pro = {
+    fun size(): int;
+};

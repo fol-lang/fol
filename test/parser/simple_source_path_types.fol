@@ -1,2 +1,2 @@
-use math: loc = {core::math};
+use math: loc = {"core::math"};
 typ PkgPath: loc[core];

@@ -1,0 +1,9 @@
+use logtiny: pkg = {"logtiny"};
+
+fun[] main(): int = {
+    var ready: bol = logtiny::src::smoke();
+    when(ready) {
+        case(true) { return 0; }
+        * { return 1; }
+    }
+};

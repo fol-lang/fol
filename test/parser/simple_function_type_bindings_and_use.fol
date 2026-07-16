@@ -1,8 +1,8 @@
-use callback: {fun loader(path: str): int} = {pkg::loader};
+use callback: {fun loader(path: str): int} = {"pkg::loader"};
 
 var transform: {fun (value: int): int};
 
 fun local_binding(): int = {
-    let formatter: {fun (source: str): str} = callback;
+    var[imu] formatter: {fun (source: str): str} = callback;
     return 0;
 };

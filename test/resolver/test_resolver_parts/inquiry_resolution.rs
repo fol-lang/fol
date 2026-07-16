@@ -126,7 +126,7 @@ fn test_resolver_resolves_qualified_inquiry_targets_against_non_matching_import_
     .expect("Should write the imported inquiry namespace fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use tools: loc = {math};\nfun[] main(input: int): int = {\n    return tools::emit(input);\n    where(tools::emit) {\n        tools::emit(input);\n    };\n};\n",
+        "use tools: loc = {\"math\"};\nfun[] main(input: int): int = {\n    return tools::emit(input);\n    where(tools::emit) {\n        tools::emit(input);\n    };\n};\n",
     )
     .expect("Should write the qualified non-matching import-alias inquiry fixture");
 

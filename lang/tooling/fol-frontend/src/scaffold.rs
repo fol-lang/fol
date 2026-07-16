@@ -36,8 +36,7 @@ pub fn init_package_root(
         root.join("src").join(source_file),
         starter_source_template(target),
     )?;
-    fs::write(root.join("package.yaml"), starter_package_manifest(root))?;
-    fs::write(root.join("build.fol"), starter_build_file(target))?;
+    fs::write(root.join("build.fol"), starter_build_file(root, target))?;
 
     Ok(
         FrontendCommandResult::new("init", "initialized current directory").with_artifact(
@@ -102,10 +101,6 @@ fn starter_source_template(target: PackageTargetKind) -> &'static str {
     }
 }
 
-fn starter_package_manifest(root: &Path) -> String {
-    format!("name: {}\nversion: 0.1.0\n", starter_package_name(root))
-}
-
 fn starter_package_name(root: &Path) -> String {
     let raw = root
         .file_name()
@@ -131,22 +126,36 @@ fn starter_package_name(root: &Path) -> String {
     }
 }
 
-fn starter_build_file(target: PackageTargetKind) -> &'static str {
+fn starter_build_file(root: &Path, target: PackageTargetKind) -> String {
+    let package_name = starter_package_name(root);
     match target {
-        PackageTargetKind::Bin => concat!(
-            "// build.fol is the package build entry file.\n",
-            "pro[] build(graph: Graph): non = {\n",
-            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
-            "    graph.install(app);\n",
-            "    graph.add_run(app);\n",
-            "}\n",
+        PackageTargetKind::Bin => format!(
+            concat!(
+                "// build.fol is the package build entry file.\n",
+                "pro[] build(): non = {{\n",
+                "    var build = .build();\n",
+                "    build.meta({{ name = \"{package_name}\", version = \"0.1.0\" }});\n",
+                "    build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }});\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({{ name = \"{package_name}\", root = \"src/main.fol\", fol_model = \"memo\" }});\n",
+                "    graph.install(app);\n",
+                "    graph.add_run(app);\n",
+                "}};\n",
+            ),
+            package_name = package_name,
         ),
-        PackageTargetKind::Lib => concat!(
-            "// build.fol is the package build entry file.\n",
-            "pro[] build(graph: Graph): non = {\n",
-            "    var lib = graph.add_static_lib({ name = \"demo\", root = \"src/lib.fol\" });\n",
-            "    graph.install(lib);\n",
-            "}\n",
+        PackageTargetKind::Lib => format!(
+            concat!(
+                "// build.fol is the package build entry file.\n",
+                "pro[] build(): non = {{\n",
+                "    var build = .build();\n",
+                "    build.meta({{ name = \"{package_name}\", version = \"0.1.0\" }});\n",
+                "    var graph = build.graph();\n",
+                "    var lib = graph.add_static_lib({{ name = \"{package_name}\", root = \"src/lib.fol\" }});\n",
+                "    graph.install(lib);\n",
+                "}};\n",
+            ),
+            package_name = package_name,
         ),
     }
 }
@@ -182,24 +191,30 @@ mod tests {
 
         assert!(root.join("src").is_dir());
         assert!(root.join("src/main.fol").is_file());
-        assert!(root.join("package.yaml").is_file());
         assert!(root.join("build.fol").is_file());
         assert_eq!(
-            fs::read_to_string(root.join("package.yaml")).unwrap(),
-            "name: fol_frontend_init_pkg_".to_string()
-                + &std::process::id().to_string()
-                + "\nversion: 0.1.0\n"
-        );
-        assert_eq!(
             fs::read_to_string(root.join("build.fol")).unwrap(),
-            concat!(
-                "// build.fol is the package build entry file.\n",
-                "pro[] build(graph: Graph): non = {\n",
-                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
-                "    graph.install(app);\n",
-                "    graph.add_run(app);\n",
-                "}\n",
+            format!(
+                concat!(
+                    "// build.fol is the package build entry file.\n",
+                    "pro[] build(): non = {{\n",
+                    "    var build = .build();\n",
+                    "    build.meta({{ name = \"fol_frontend_init_pkg_{pid}\", version = \"0.1.0\" }});\n",
+                    "    build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }});\n",
+                    "    var graph = build.graph();\n",
+                    "    var app = graph.add_exe({{ name = \"fol_frontend_init_pkg_{pid}\", root = \"src/main.fol\", fol_model = \"memo\" }});\n",
+                    "    graph.install(app);\n",
+                    "    graph.add_run(app);\n",
+                    "}};\n",
+                ),
+                pid = std::process::id(),
             )
+        );
+        assert!(
+            !fs::read_to_string(root.join("build.fol"))
+                .unwrap()
+                .contains("fol_model = \"alloc\""),
+            "scaffolded build.fol should not emit the stale alloc model spelling"
         );
 
         fs::remove_dir_all(root).ok();
@@ -251,13 +266,20 @@ mod tests {
 
         assert_eq!(
             fs::read_to_string(root.join("build.fol")).unwrap(),
-            concat!(
-                "// build.fol is the package build entry file.\n",
-                "pro[] build(graph: Graph): non = {\n",
-                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
-                "    graph.install(app);\n",
-                "    graph.add_run(app);\n",
-                "}\n",
+            format!(
+                concat!(
+                    "// build.fol is the package build entry file.\n",
+                    "pro[] build(): non = {{\n",
+                    "    var build = .build();\n",
+                    "    build.meta({{ name = \"fol_frontend_bin_build_template_{pid}\", version = \"0.1.0\" }});\n",
+                    "    build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }});\n",
+                    "    var graph = build.graph();\n",
+                    "    var app = graph.add_exe({{ name = \"fol_frontend_bin_build_template_{pid}\", root = \"src/main.fol\", fol_model = \"memo\" }});\n",
+                    "    graph.install(app);\n",
+                    "    graph.add_run(app);\n",
+                    "}};\n",
+                ),
+                pid = std::process::id(),
             )
         );
 
@@ -276,12 +298,18 @@ mod tests {
 
         assert_eq!(
             fs::read_to_string(root.join("build.fol")).unwrap(),
-            concat!(
-                "// build.fol is the package build entry file.\n",
-                "pro[] build(graph: Graph): non = {\n",
-                "    var lib = graph.add_static_lib({ name = \"demo\", root = \"src/lib.fol\" });\n",
-                "    graph.install(lib);\n",
-                "}\n",
+            format!(
+                concat!(
+                    "// build.fol is the package build entry file.\n",
+                    "pro[] build(): non = {{\n",
+                    "    var build = .build();\n",
+                    "    build.meta({{ name = \"fol_frontend_lib_build_template_{pid}\", version = \"0.1.0\" }});\n",
+                    "    var graph = build.graph();\n",
+                    "    var lib = graph.add_static_lib({{ name = \"fol_frontend_lib_build_template_{pid}\", root = \"src/lib.fol\" }});\n",
+                    "    graph.install(lib);\n",
+                    "}};\n",
+                ),
+                pid = std::process::id(),
             )
         );
 
@@ -316,20 +344,20 @@ mod tests {
 
         assert_eq!(result.command, "new");
         assert!(root.join("src").is_dir());
-        assert!(root.join("package.yaml").is_file());
-        assert_eq!(
-            fs::read_to_string(root.join("package.yaml")).unwrap(),
-            "name: demo\nversion: 0.1.0\n"
-        );
+        assert!(root.join("build.fol").is_file());
         assert_eq!(
             fs::read_to_string(root.join("build.fol")).unwrap(),
             concat!(
                 "// build.fol is the package build entry file.\n",
-                "pro[] build(graph: Graph): non = {\n",
-                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
                 "    graph.install(app);\n",
                 "    graph.add_run(app);\n",
-                "}\n",
+                "};\n",
             )
         );
 

@@ -22,7 +22,7 @@ fn test_package_parser_accepts_canonical_build_procedures() {
     let file_path = temp_root.join("build.fol");
     fs::write(
         &file_path,
-        "pro[] build(graph: Graph): non = {\n    return graph;\n};\n",
+        "pro[] build(): non = {\n    return;\n};\n",
     )
     .expect("Should write the canonical build fixture");
 
@@ -45,8 +45,7 @@ fn test_package_parser_accepts_canonical_build_procedures() {
                     params,
                     return_type: Some(FolType::None),
                     ..
-                } if name == "build"
-                    && matches!(params.as_slice(), [param] if param.name == "graph")
+                } if name == "build" && params.is_empty()
             )
         }),
         "Package parser should accept canonical build procedures for build surfaces",
@@ -65,7 +64,7 @@ fn test_package_parser_accepts_helper_declarations_alongside_the_build_entry() {
         &file_path,
         concat!(
             "fun[] helper(): int = {\n    return 1;\n};\n",
-            "pro[] build(graph: Graph): non = {\n    return graph;\n};\n",
+            "pro[] build(): non = {\n    return;\n};\n",
         ),
     )
     .expect("Should write the helper build fixture");
@@ -92,6 +91,37 @@ fn test_package_parser_accepts_helper_declarations_alongside_the_build_entry() {
         }),
         "Package parser should accept helper declarations in build surfaces",
     );
+
+    fs::remove_dir_all(&temp_root)
+        .expect("Temporary parser fixture root should be removable after the test");
+}
+
+#[test]
+fn test_package_parser_accepts_build_local_meta_calls_in_build_files() {
+    let temp_root = unique_temp_root("build_local_meta_calls");
+    fs::create_dir_all(&temp_root).expect("Should create temporary parser fixture root");
+    let file_path = temp_root.join("build.fol");
+    fs::write(
+        &file_path,
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({\n",
+            "        name = \"json\",\n",
+            "        version = \"1.0.0\",\n",
+            "    });\n",
+            "};\n",
+        ),
+    )
+    .expect("Should write the local build metadata fixture");
+
+    let parsed = parse_package_from_file(
+        file_path
+            .to_str()
+            .expect("Temporary parser fixture path should be valid UTF-8"),
+    );
+
+    assert_eq!(parsed.source_units.len(), 1);
 
     fs::remove_dir_all(&temp_root)
         .expect("Temporary parser fixture root should be removable after the test");

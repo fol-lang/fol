@@ -11,7 +11,7 @@ fn test_resolver_resolves_plain_identifiers_against_imported_exported_values() {
         .expect("Should write the imported exported value fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(): int = {\n    return answer;\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(): int = {\n    return answer;\n};\n",
     )
     .expect("Should write the plain imported-value lookup fixture");
 
@@ -65,7 +65,7 @@ fn test_resolver_resolves_plain_free_calls_against_imported_exported_routines() 
     .expect("Should write the imported exported routine fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(value: int): int = {\n    return emit(value);\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(value: int): int = {\n    return emit(value);\n};\n",
     )
     .expect("Should write the plain imported-routine call fixture");
 
@@ -116,7 +116,7 @@ fn test_resolver_resolves_plain_named_types_against_imported_exported_types() {
         .expect("Should write the imported exported type fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(value: Number): Number = {\n    return value;\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(value: Number): Number = {\n    return value;\n};\n",
     )
     .expect("Should write the plain imported-type lookup fixture");
 
@@ -167,7 +167,7 @@ fn test_resolver_plain_import_exposure_rejects_non_exported_members() {
         .expect("Should write the non-exported imported value fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(): int = {\n    return answer;\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(): int = {\n    return answer;\n};\n",
     )
     .expect("Should write the non-exported import lookup fixture");
 
@@ -199,7 +199,7 @@ fn test_resolver_plain_import_exposure_rejects_hidden_members() {
         .expect("Should write the hidden imported value fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(): int = {\n    return answer;\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(): int = {\n    return answer;\n};\n",
     )
     .expect("Should write the hidden import lookup fixture");
 
@@ -235,7 +235,7 @@ fn test_resolver_plain_import_exposure_reports_ambiguity_for_multiple_visible_im
         .expect("Should write the second imported exported value fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use alpha: loc = {alpha};\nuse beta: loc = {beta};\nfun[] main(): int = {\n    return answer;\n};\n",
+        "use alpha: loc = {\"alpha\"};\nuse beta: loc = {\"beta\"};\nfun[] main(): int = {\n    return answer;\n};\n",
     )
     .expect("Should write the ambiguous imported plain-name fixture");
 
@@ -269,7 +269,7 @@ fn test_resolver_plain_import_exposure_still_yields_to_local_bindings() {
         .expect("Should write the imported exported value fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(): int = {\n    var answer = 7;\n    return answer;\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(): int = {\n    var answer = 7;\n    return answer;\n};\n",
     )
     .expect("Should write the local-shadowing import exposure fixture");
 
@@ -314,7 +314,7 @@ fn test_resolver_plain_import_exposure_dedupes_repeated_imports_of_the_same_dire
         .expect("Should write the shared imported exported value fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use alpha: loc = {shared};\nuse beta: loc = {shared};\nfun[] main(): int = {\n    return answer;\n};\n",
+        "use alpha: loc = {\"shared\"};\nuse beta: loc = {\"shared\"};\nfun[] main(): int = {\n    return answer;\n};\n",
     )
     .expect("Should write the repeated-import plain exposure fixture");
 

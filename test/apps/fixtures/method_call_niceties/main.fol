@@ -1,0 +1,22 @@
+typ Counter: rec = {
+    total: int
+};
+
+fun (Counter)read(by: int, step: int = 2): int = {
+    return by + step;
+};
+
+fun (Counter)shift(step: int = 2, extras: ... int): int = {
+    return step + extras[0] + extras[1] + .len(extras);
+};
+
+fun[] main(): int = {
+    var current: Counter = {
+        total = 9,
+    };
+    var extras: seq[int] = {4, 5};
+    var use_named_default: int = current.read(by = 3);
+    var use_named_unpack: int = current.shift(step = 3, ...extras);
+
+    return .echo(use_named_default + use_named_unpack);
+};

@@ -1,1 +1,1 @@
-use results: map[str, pkg::Value] = {core::results};
+use results: map[str, pkg::Value] = {"core::results"};

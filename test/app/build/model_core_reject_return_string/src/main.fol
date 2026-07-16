@@ -1,0 +1,7 @@
+fun[] label(): str = {
+    return "core-return";
+};
+
+fun[] main(): int = {
+    return 0;
+};

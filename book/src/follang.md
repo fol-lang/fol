@@ -17,7 +17,7 @@ That pattern appears across:
 - routines
 - type declarations
 - module-like declarations
-- standards and implementations
+- standards
 
 ## Main Declaration Families
 
@@ -27,10 +27,8 @@ The main declaration families are:
 use    // import declarations
 def    // named definitions such as modules, blocks, and tests
 seg    // segment/module-like declarations
-imp    // implementation declarations
 
-var    // mutable bindings
-let    // immutable local bindings
+var    // bindings; use var[imu] for immutability
 con    // constants
 lab    // labels and label-like bindings
 
@@ -88,14 +86,24 @@ For the current user-facing tool workflow, read
 
 ## Example
 
+This example uses the hosted `std.io` surface. Its artifact therefore selects
+`fol_model = "memo"`, and its `build.fol` explicitly declares:
+
 ```fol
-use log: std = {"fmt/log"};
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+The dependency is required by the source-level hosted calls, not because
+`main` is executable.
+
+```fol
+use std: pkg = {"std"};
 
 var[hid] prefix: str = "arith";
 
 fun[] main(): int = {
-    .echo(prefix);
-    .echo(add(3, 5));
+    std::io::echo_str(prefix);
+    std::io::echo_int(add(3, 5));
     return 0;
 }
 

@@ -154,9 +154,11 @@ use super::*;
         let human_output = run_fol(&[temp_root.to_str().expect("path should be utf-8")]);
         let human_stdout = String::from_utf8_lossy(&human_output.stdout);
 
+        // Pretty human mode shows the code as a chip suffix (`R1003`) rather
+        // than the `error[R1003]:` prefix, but it's the same code as the JSON.
         assert!(
-            human_stdout.contains(&format!("error[{json_code}]:")),
-            "human output should contain the same code [{json_code}] as JSON output"
+            human_stdout.contains(&json_code),
+            "human output should contain the same code {json_code} as JSON output"
         );
 
         fs::remove_dir_all(&temp_root).ok();

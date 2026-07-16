@@ -68,7 +68,7 @@ fn test_resolver_allows_nested_blocks_to_shadow_import_aliases() {
         .expect("Should write the imported namespace fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use http: loc = {net::http};\nfun[] main(): int = {\n    {\n        var http = 1;\n        return http;\n    };\n};\n",
+        "use http: loc = {\"net::http\"};\nfun[] main(): int = {\n    {\n        var http = 1;\n        return http;\n    };\n};\n",
     )
     .expect("Should write the import shadowing fixture");
 

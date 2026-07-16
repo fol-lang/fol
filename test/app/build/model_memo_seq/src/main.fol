@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var values: seq[int] = {3, 4, 5};
+    return .len(values);
+};

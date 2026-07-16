@@ -1,5 +1,6 @@
 use crate::{
-    plan_namespace_layouts, BackendError, BackendErrorKind, BackendResult, BackendSession,
+    plan_namespace_layouts, BackendConfig, BackendError, BackendErrorKind, BackendResult,
+    BackendSession,
 };
 use fol_lower::LoweredSourceSymbol;
 use fol_parser::ast::SyntaxOrigin;
@@ -102,9 +103,26 @@ pub fn build_emitted_source_map(
     Ok(map)
 }
 
-pub fn build_backend_trace(session: &BackendSession) -> BackendResult<BackendTrace> {
+pub fn build_backend_trace(
+    session: &BackendSession,
+    config: &BackendConfig,
+) -> BackendResult<BackendTrace> {
     let source_unit_paths = source_unit_output_paths(session)?;
     let mut trace = BackendTrace::new();
+    trace.push(BackendTraceRecord {
+        kind: BackendTraceKind::Session,
+        emitted_path: None,
+        package_identity: Some(session.entry_identity().clone()),
+        symbol: None,
+        detail: format!(
+            "target={} profile={} fol_model={} runtime_tier={} runtime_module={}",
+            config.machine_target.display_name(),
+            config.build_profile.as_str(),
+            config.fol_model.as_str(),
+            config.runtime_tier().as_str(),
+            config.runtime_tier().runtime_module_path()
+        ),
+    });
     for package in session.workspace().packages() {
         for source_unit in &package.source_units {
             let emitted_path = source_unit_paths.get(&source_unit.source_unit_id).cloned();
@@ -183,6 +201,7 @@ mod tests {
         build_backend_trace, build_emitted_source_map, BackendEmittedSourceMap,
         BackendEmittedSourceMapEntry, BackendTrace, BackendTraceKind, BackendTraceRecord,
     };
+    use crate::{BackendConfig, BackendFolModel};
     use crate::testing::{package_identity, sample_lowered_workspace};
     use fol_lower::{LoweredGlobalId, LoweredSourceSymbol};
     use fol_parser::ast::SyntaxOrigin;
@@ -228,7 +247,14 @@ mod tests {
         let session = crate::BackendSession::new(sample_lowered_workspace());
 
         let source_map = build_emitted_source_map(&session).expect("source map");
-        let trace = build_backend_trace(&session).expect("trace");
+        let trace = build_backend_trace(
+            &session,
+            &BackendConfig {
+                fol_model: BackendFolModel::Core,
+                ..BackendConfig::default()
+            },
+        )
+        .expect("trace");
 
         assert!(!source_map.entries().is_empty());
         assert!(source_map
@@ -240,9 +266,35 @@ mod tests {
             .iter()
             .any(|entry| entry.emitted_path.ends_with("root.rs")));
         assert!(!trace.records().is_empty());
+        assert_eq!(trace.records()[0].kind, BackendTraceKind::Session);
+        assert!(trace.records()[0].detail.contains("fol_model=core"));
+        assert!(trace.records()[0].detail.contains("runtime_tier=core"));
+        assert!(trace.records()[0]
+            .detail
+            .contains("runtime_module=fol_runtime::core"));
         assert!(trace
             .records()
             .iter()
+            .skip(1)
             .all(|record| matches!(record.kind, BackendTraceKind::Emission)));
+    }
+
+    #[test]
+    fn backend_trace_reports_public_memo_tier_with_internal_memo_runtime_module() {
+        let session = crate::BackendSession::new(sample_lowered_workspace());
+        let trace = build_backend_trace(
+            &session,
+            &BackendConfig {
+                fol_model: BackendFolModel::Memo,
+                ..BackendConfig::default()
+            },
+        )
+        .expect("trace");
+
+        assert!(trace.records()[0].detail.contains("fol_model=memo"));
+        assert!(trace.records()[0].detail.contains("runtime_tier=memo"));
+        assert!(trace.records()[0]
+            .detail
+            .contains("runtime_module=fol_runtime::memo"));
     }
 }

@@ -1,0 +1,8 @@
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var flag: bol = std::io::echo_bool(true);
+    var mark: chr = std::io::echo_chr('z');
+    var shown: str = std::io::echo_str("std-io");
+    return 7;
+};

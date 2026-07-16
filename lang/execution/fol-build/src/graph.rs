@@ -60,6 +60,7 @@ pub enum BuildGeneratedFileKind {
     Write,
     Copy,
     CaptureOutput,
+    GeneratedDir,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +86,7 @@ pub struct BuildStep {
     pub id: BuildStepId,
     pub kind: BuildStepKind,
     pub name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +94,8 @@ pub struct BuildArtifact {
     pub id: BuildArtifactId,
     pub kind: BuildArtifactKind,
     pub name: String,
+    pub library_paths: Vec<NativeLibraryPath>,
+    pub link_inputs: Vec<NativeLinkDirective>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +125,7 @@ pub struct BuildInstall {
     pub kind: BuildInstallKind,
     pub name: String,
     pub target: Option<BuildInstallTarget>,
+    pub projected_destination: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,12 +253,18 @@ impl BuildGraph {
         &self.artifact_dependencies
     }
 
-    pub fn add_step(&mut self, kind: BuildStepKind, name: impl Into<String>) -> BuildStepId {
+    pub fn add_step(
+        &mut self,
+        kind: BuildStepKind,
+        name: impl Into<String>,
+        description: Option<String>,
+    ) -> BuildStepId {
         let id = BuildStepId::from_index(self.steps.len());
         self.steps.push(BuildStep {
             id,
             kind,
             name: name.into(),
+            description,
         });
         id
     }
@@ -268,8 +279,14 @@ impl BuildGraph {
             id,
             kind,
             name: name.into(),
+            library_paths: Vec::new(),
+            link_inputs: Vec::new(),
         });
         id
+    }
+
+    pub fn artifact_mut(&mut self, artifact: BuildArtifactId) -> Option<&mut BuildArtifact> {
+        self.artifacts.get_mut(artifact.index())
     }
 
     pub fn add_module(&mut self, kind: BuildModuleKind, name: impl Into<String>) -> BuildModuleId {
@@ -311,7 +328,7 @@ impl BuildGraph {
         kind: BuildInstallKind,
         name: impl Into<String>,
     ) -> BuildInstallId {
-        self.add_install_with_target(kind, name, None)
+        self.add_install_with_target(kind, name, None, String::new())
     }
 
     pub fn add_install_with_target(
@@ -319,6 +336,7 @@ impl BuildGraph {
         kind: BuildInstallKind,
         name: impl Into<String>,
         target: Option<BuildInstallTarget>,
+        projected_destination: impl Into<String>,
     ) -> BuildInstallId {
         let id = BuildInstallId::from_index(self.installs.len());
         self.installs.push(BuildInstall {
@@ -326,6 +344,7 @@ impl BuildGraph {
             kind,
             name: name.into(),
             target,
+            projected_destination: projected_destination.into(),
         });
         id
     }
@@ -403,6 +422,32 @@ impl BuildGraph {
         }
     }
 
+    pub fn add_artifact_system_library(
+        &mut self,
+        artifact: BuildArtifactId,
+        request: &crate::native::SystemLibraryRequest,
+    ) {
+        let Some(artifact) = self.artifact_mut(artifact) else {
+            return;
+        };
+        if let Some(search_path) = request.search_path.as_ref() {
+            let path = NativeLibraryPath {
+                origin: NativeSearchPathOrigin::System,
+                relative_path: search_path.clone(),
+            };
+            if !artifact.library_paths.contains(&path) {
+                artifact.library_paths.push(path);
+            }
+        }
+        let directive = NativeLinkDirective {
+            input: request.link_input(),
+            mode: request.mode,
+        };
+        if !artifact.link_inputs.contains(&directive) {
+            artifact.link_inputs.push(directive);
+        }
+    }
+
     pub fn artifact_links_for(
         &self,
         artifact: BuildArtifactId,
@@ -413,11 +458,7 @@ impl BuildGraph {
             .map(|l| l.linked)
     }
 
-    pub fn add_artifact_module_import(
-        &mut self,
-        artifact: BuildArtifactId,
-        module: BuildModuleId,
-    ) {
+    pub fn add_artifact_module_import(&mut self, artifact: BuildArtifactId, module: BuildModuleId) {
         if !self
             .artifact_module_imports
             .iter()
@@ -438,18 +479,16 @@ impl BuildGraph {
             .map(|i| i.module)
     }
 
-    pub fn add_step_attachment(
-        &mut self,
-        step: BuildStepId,
-        generated_file: BuildGeneratedFileId,
-    ) {
+    pub fn add_step_attachment(&mut self, step: BuildStepId, generated_file: BuildGeneratedFileId) {
         if !self
             .step_attachments
             .iter()
             .any(|a| a.step == step && a.generated_file == generated_file)
         {
-            self.step_attachments
-                .push(BuildStepAttachment { step, generated_file });
+            self.step_attachments.push(BuildStepAttachment {
+                step,
+                generated_file,
+            });
         }
     }
 
@@ -543,6 +582,29 @@ impl BuildGraph {
                                 install.id, generated
                             ),
                         });
+                    }
+                }
+                (BuildInstallKind::Directory, Some(BuildInstallTarget::GeneratedFile(generated))) => {
+                    match self.generated_files.get(generated.index()) {
+                        None => {
+                            errors.push(BuildGraphValidationError {
+                                kind: BuildGraphValidationErrorKind::InvalidInstallTarget,
+                                message: format!(
+                                    "install {} references unknown generated file {}",
+                                    install.id, generated
+                                ),
+                            });
+                        }
+                        Some(file) if file.kind != BuildGeneratedFileKind::GeneratedDir => {
+                            errors.push(BuildGraphValidationError {
+                                kind: BuildGraphValidationErrorKind::InvalidInstallTarget,
+                                message: format!(
+                                    "install {} directory target {} is not a generated directory",
+                                    install.id, generated
+                                ),
+                            });
+                        }
+                        Some(_) => {}
                     }
                 }
                 (BuildInstallKind::Directory, Some(BuildInstallTarget::DirectoryPath(path))) => {
@@ -673,8 +735,8 @@ mod tests {
     fn build_graph_allocators_assign_dense_ids_per_node_family() {
         let mut graph = BuildGraph::new();
 
-        let compile_step = graph.add_step(BuildStepKind::Default, "compile");
-        let run_step = graph.add_step(BuildStepKind::Run, "run");
+        let compile_step = graph.add_step(BuildStepKind::Default, "compile", None);
+        let run_step = graph.add_step(BuildStepKind::Run, "run", None);
         let exe = graph.add_artifact(BuildArtifactKind::Executable, "app");
         let module = graph.add_module(BuildModuleKind::Source, "app.main");
         let generated = graph.add_generated_file(BuildGeneratedFileKind::Write, "version.rs");
@@ -694,7 +756,7 @@ mod tests {
     fn build_graph_storage_tables_preserve_inserted_records() {
         let mut graph = BuildGraph::new();
 
-        graph.add_step(BuildStepKind::Test, "test");
+        graph.add_step(BuildStepKind::Test, "test", None);
         graph.add_artifact(BuildArtifactKind::StaticLibrary, "support");
         graph.add_module(BuildModuleKind::Imported, "dep.math");
         graph.add_generated_file(BuildGeneratedFileKind::Copy, "config.json");
@@ -716,9 +778,9 @@ mod tests {
     #[test]
     fn build_graph_records_explicit_step_dependencies() {
         let mut graph = BuildGraph::new();
-        let compile = graph.add_step(BuildStepKind::Default, "compile");
-        let test = graph.add_step(BuildStepKind::Test, "test");
-        let run = graph.add_step(BuildStepKind::Run, "run");
+        let compile = graph.add_step(BuildStepKind::Default, "compile", None);
+        let test = graph.add_step(BuildStepKind::Test, "test", None);
+        let run = graph.add_step(BuildStepKind::Run, "run", None);
 
         graph.add_step_dependency(test, compile);
         graph.add_step_dependency(run, compile);
@@ -741,9 +803,9 @@ mod tests {
     #[test]
     fn build_graph_can_query_dependencies_for_one_step() {
         let mut graph = BuildGraph::new();
-        let compile = graph.add_step(BuildStepKind::Default, "compile");
-        let install = graph.add_step(BuildStepKind::Install, "install");
-        let run = graph.add_step(BuildStepKind::Run, "run");
+        let compile = graph.add_step(BuildStepKind::Default, "compile", None);
+        let install = graph.add_step(BuildStepKind::Install, "install", None);
+        let run = graph.add_step(BuildStepKind::Run, "run", None);
 
         graph.add_step_dependency(install, compile);
         graph.add_step_dependency(run, compile);
@@ -758,8 +820,8 @@ mod tests {
     #[test]
     fn build_graph_dedupes_repeated_step_dependencies() {
         let mut graph = BuildGraph::new();
-        let compile = graph.add_step(BuildStepKind::Default, "compile");
-        let run = graph.add_step(BuildStepKind::Run, "run");
+        let compile = graph.add_step(BuildStepKind::Default, "compile", None);
+        let run = graph.add_step(BuildStepKind::Run, "run", None);
 
         graph.add_step_dependency(run, compile);
         graph.add_step_dependency(run, compile);
@@ -845,7 +907,7 @@ mod tests {
     #[test]
     fn build_graph_validation_rejects_self_cycles() {
         let mut graph = BuildGraph::new();
-        let build = graph.add_step(BuildStepKind::Default, "build");
+        let build = graph.add_step(BuildStepKind::Default, "build", None);
 
         graph.add_step_dependency(build, build);
 
@@ -862,9 +924,9 @@ mod tests {
     #[test]
     fn build_graph_validation_rejects_multi_step_cycles() {
         let mut graph = BuildGraph::new();
-        let build = graph.add_step(BuildStepKind::Default, "build");
-        let test = graph.add_step(BuildStepKind::Test, "test");
-        let run = graph.add_step(BuildStepKind::Run, "run");
+        let build = graph.add_step(BuildStepKind::Default, "build", None);
+        let test = graph.add_step(BuildStepKind::Test, "test", None);
+        let run = graph.add_step(BuildStepKind::Run, "run", None);
 
         graph.add_step_dependency(build, test);
         graph.add_step_dependency(test, run);
@@ -906,11 +968,13 @@ mod tests {
             BuildInstallKind::Artifact,
             "install-wrong-shape",
             Some(BuildInstallTarget::DirectoryPath("bin".to_string())),
+            String::new(),
         );
         graph.add_install_with_target(
             BuildInstallKind::File,
             "install-unknown-generated",
             Some(BuildInstallTarget::GeneratedFile(BuildGeneratedFileId(44))),
+            String::new(),
         );
 
         let errors = graph.validate();
@@ -920,4 +984,41 @@ mod tests {
             .iter()
             .all(|error| error.kind == BuildGraphValidationErrorKind::InvalidInstallTarget));
     }
+
+    #[test]
+    fn build_graph_validation_accepts_generated_directory_installs() {
+        let mut graph = BuildGraph::new();
+        let generated_dir = graph.add_generated_file(
+            BuildGeneratedFileKind::GeneratedDir,
+            "assets",
+        );
+        graph.add_install_with_target(
+            BuildInstallKind::Directory,
+            "install-generated-dir",
+            Some(BuildInstallTarget::GeneratedFile(generated_dir)),
+            "assets".to_string(),
+        );
+
+        assert!(graph.validate().is_empty());
+
+        // A directory install pointing at a plain generated FILE is invalid.
+        let generated_file = graph.add_generated_file(
+            BuildGeneratedFileKind::Write,
+            "notes.txt",
+        );
+        graph.add_install_with_target(
+            BuildInstallKind::Directory,
+            "install-generated-file-as-dir",
+            Some(BuildInstallTarget::GeneratedFile(generated_file)),
+            "notes.txt".to_string(),
+        );
+
+        let errors = graph.validate();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].kind,
+            BuildGraphValidationErrorKind::InvalidInstallTarget
+        );
+    }
 }
+use crate::native::{NativeLibraryPath, NativeLinkDirective, NativeSearchPathOrigin};

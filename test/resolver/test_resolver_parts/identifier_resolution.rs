@@ -71,7 +71,7 @@ fn test_resolver_resolves_plain_identifiers_against_import_alias_symbols() {
         .expect("Should write the imported namespace fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(): int = {\n    return math;\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(): int = {\n    return math;\n};\n",
     )
     .expect("Should write the import-alias resolver fixture");
 

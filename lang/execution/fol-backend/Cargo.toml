@@ -2,7 +2,8 @@
 name = "fol-backend"
 version = "0.1.4"
 edition = "2021"
-description = "Backend code generation crate for executable FOL V1 programs"
+authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
+description = "Backend code generation for executable FOL programs"
 
 [lib]
 name = "fol_backend"

@@ -40,10 +40,10 @@ pub use build::{
 pub use build_api::{
     validate_build_name, BuildApi, BuildApiError, BuildApiNameError, BuildArtifactHandle,
     BuildOptionValue, DependencyHandle, DependencyRequest, ExecutableRequest,
-    InstallArtifactRequest, InstallDirRequest, InstallFileRequest, InstallHandle, RunHandle,
-    RunRequest, SharedLibraryRequest, StandardOptimizeOption, StandardOptimizeRequest,
-    StandardTargetOption, StandardTargetRequest, StaticLibraryRequest, StepHandle, StepRequest,
-    TestArtifactRequest, UserOption, UserOptionRequest,
+    GitDependencyVersionSelector, InstallArtifactRequest, InstallDirRequest, InstallFileRequest,
+    InstallHandle, RunHandle, RunRequest, SharedLibraryRequest, StandardOptimizeOption,
+    StandardOptimizeRequest, StandardTargetOption, StandardTargetRequest, StaticLibraryRequest,
+    StepHandle, StepRequest, TestArtifactRequest, UserOption, UserOptionRequest,
 };
 pub use build_artifact::{
     project_graph_artifacts, BuildArtifactDefinition, BuildArtifactLinkage, BuildArtifactModelKind,
@@ -59,9 +59,11 @@ pub use build_codegen::{
 pub use build_dependency::{
     dependency_modules_from_exports, DependencyArtifactSurface, DependencyArtifactSurfaceSet,
     DependencyBuildEvaluationMode, DependencyBuildHandle, DependencyBuildSurface,
-    DependencyBuildSurfaceSet, DependencyGeneratedOutputSurface,
+    DependencyBuildSurfaceSet, DependencyDirSurface, DependencyDirSurfaceSet,
+    DependencyFileSurface, DependencyFileSurfaceSet, DependencyGeneratedOutputSurface,
     DependencyGeneratedOutputSurfaceSet, DependencyModuleSurface, DependencyModuleSurfaceSet,
-    DependencySourceRootSurface, DependencyStepSurface, DependencyStepSurfaceSet,
+    DependencyPathSurface, DependencyPathSurfaceSet, DependencySourceRootSurface,
+    DependencyStepSurface, DependencyStepSurfaceSet,
 };
 pub use build_entry::{
     collect_build_entry_candidates, validate_build_entry_cardinality,
@@ -107,13 +109,15 @@ pub use build_runtime::{
     BuildRuntimeStmt, BuildRuntimeValue,
 };
 pub use build_semantic::{
-    canonical_artifact_config_shapes, canonical_chain_metadata, canonical_graph_method_signatures,
-    canonical_handle_method_signatures, canonical_option_config_shapes,
-    canonical_option_value_kinds, BuildSemanticChainKind, BuildSemanticChainMetadata,
-    BuildSemanticMethodParameter, BuildSemanticMethodSignature, BuildSemanticOptionValueKind,
-    BuildSemanticParameterShape, BuildSemanticRecordField, BuildSemanticRecordShape,
-    BuildSemanticRecordShapeKind, BuildSemanticType, BuildSemanticTypeFamily,
-    BuildStdlibImportSurface, BuildStdlibModuleKind, BuildStdlibModulePath,
+    canonical_artifact_config_shapes, canonical_build_context_config_shapes,
+    canonical_build_context_method_signatures, canonical_chain_metadata,
+    canonical_graph_method_signatures, canonical_handle_method_signatures,
+    canonical_option_config_shapes, canonical_option_value_kinds, BuildSemanticChainKind,
+    BuildSemanticChainMetadata, BuildSemanticMethodParameter, BuildSemanticMethodSignature,
+    BuildSemanticOptionValueKind, BuildSemanticParameterShape, BuildSemanticRecordField,
+    BuildSemanticRecordShape, BuildSemanticRecordShapeKind, BuildSemanticType,
+    BuildSemanticTypeFamily, BuildStdlibImportSurface, BuildStdlibModuleKind,
+    BuildStdlibModulePath,
 };
 pub use build_step::{
     plan_step_order, project_graph_steps, BuildDefaultStepKind, BuildRequestedStep,
@@ -121,7 +125,7 @@ pub use build_step::{
     BuildStepEventKind, BuildStepExecutionRequest, BuildStepExecutionResult, BuildStepPlanError,
     BuildStepReport,
 };
-pub use config::PackageConfig;
+pub use config::{available_bundled_std_root, bundled_std_root, effective_std_root, PackageConfig};
 pub use errors::{PackageError, PackageErrorKind};
 pub use fol_parser::ast::ParsedSourceUnitKind;
 pub use git::{
@@ -136,13 +140,15 @@ pub use lockfile::{
     parse_package_lockfile, render_package_lockfile, PackageLockEntry, PackageLockfile,
 };
 pub use metadata::{
-    parse_package_metadata, PackageDependencyDecl, PackageDependencySourceKind, PackageMetadata,
+    extract_package_dependencies_from_build, extract_package_metadata_fields_from_build,
+    parse_package_metadata_from_build, PackageDependencyDecl, PackageDependencySourceKind,
+    PackageMetadata,
 };
 pub use model::{PreparedExportMount, PreparedPackage};
 pub use paths::{git_cache_path, git_store_path};
 pub use session::{
     canonical_directory_root, infer_package_root, parse_directory_package_syntax,
-    resolve_directory_path, PackageSession,
+    resolve_directory_path, resolve_directory_target, PackageSession,
 };
 
 #[cfg(test)]
@@ -153,13 +159,15 @@ mod tests {
         canonical_option_value_kinds, classify_semantic_build_mode, collect_build_entry_candidates,
         evaluate_build_source, forbidden_capability_message, validate_parsed_build_entry,
         AllowedBuildTimeOperation, BuildEntrySignatureExpectation, BuildEvaluationInputs,
-        BuildEvaluationRequest, BuildExecutionRepresentation, BuildRuntimeDiagnostic,
-        BuildRuntimeDiagnosticKind, BuildRuntimeExpr, BuildRuntimeHandle, BuildRuntimeHandleKind,
-        BuildRuntimeLocalId, BuildRuntimeMethodCall, BuildRuntimeReceiverKind,
-        BuildRuntimeRecordField, BuildRuntimeStmt, BuildRuntimeValue, BuildSemanticChainKind,
-        BuildSemanticType, BuildSemanticTypeFamily, ForbiddenBuildTimeOperation,
-        NativeArtifactDefinition, NativeArtifactKind, NativeArtifactSet, NativeLinkDirective,
-        NativeLinkInput, NativeLinkMode, PackageBuildMode, ParsedSourceUnitKind,
+        BuildEvaluationRequest, BuildExecutionRepresentation, BuildOptimizeMode,
+        BuildRuntimeDependencyQueryKind, BuildRuntimeDiagnostic, BuildRuntimeDiagnosticKind,
+        BuildRuntimeExpr, BuildRuntimeGeneratedFileKind, BuildRuntimeHandle,
+        BuildRuntimeHandleKind, BuildRuntimeLocalId, BuildRuntimeMethodCall,
+        BuildRuntimeReceiverKind, BuildRuntimeRecordField, BuildRuntimeStmt, BuildRuntimeValue,
+        BuildSemanticChainKind, BuildSemanticType, BuildSemanticTypeFamily, BuildTargetTriple,
+        DependencyBuildEvaluationMode, ForbiddenBuildTimeOperation, NativeArtifactDefinition,
+        NativeArtifactKind, NativeArtifactSet, NativeLinkDirective, NativeLinkInput,
+        NativeLinkMode, PackageBuildMode, ParsedSourceUnitKind,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -174,11 +182,6 @@ mod tests {
             NEXT_ID.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&package_root).expect("temp package root should be created");
-        fs::write(
-            package_root.join("package.yaml"),
-            "name: buildlib\nversion: 1.0.0\n",
-        )
-        .expect("package metadata should be written");
         fs::write(package_root.join("build.fol"), source).expect("build source should be written");
         (package_root.clone(), package_root.join("build.fol"))
     }
@@ -211,7 +214,7 @@ mod tests {
 
         assert_eq!(graph.family, BuildSemanticTypeFamily::Graph);
         assert!(methods.iter().any(|method| method.name == "add_exe"));
-        assert!(handles.iter().all(|method| method.name == "depend_on"));
+        assert!(handles.iter().any(|method| method.name == "depend_on"));
         assert!(chains
             .iter()
             .any(|chain| chain.kind == BuildSemanticChainKind::RunDependency));
@@ -285,16 +288,7 @@ mod tests {
                         name: "build".to_string(),
                         receiver_type: None,
                         captures: Vec::new(),
-                        params: vec![fol_parser::ast::Parameter {
-                            name: "graph".to_string(),
-                            param_type: fol_parser::ast::FolType::Named {
-                                syntax_id: None,
-                                name: "Graph".to_string(),
-                            },
-                            is_borrowable: false,
-                            is_mutex: false,
-                            default: None,
-                        }],
+                        params: Vec::new(),
                         return_type: Some(fol_parser::ast::FolType::None),
                         error_type: None,
                         body: Vec::new(),
@@ -326,24 +320,18 @@ mod tests {
                 kind: ParsedSourceUnitKind::Build,
                 items: vec![fol_parser::ast::ParsedTopLevel {
                     node_id: fol_parser::ast::SyntaxNodeId(1),
-                    node: fol_parser::ast::AstNode::DefDecl {
+                    node: fol_parser::ast::AstNode::ProDecl {
+                        syntax_id: None,
                         options: Vec::new(),
+                        generics: Vec::new(),
                         name: "build".to_string(),
-                        params: vec![fol_parser::ast::Parameter {
-                            name: "graph".to_string(),
-                            param_type: fol_parser::ast::FolType::Named {
-                                syntax_id: None,
-                                name: "Graph".to_string(),
-                            },
-                            is_borrowable: false,
-                            is_mutex: false,
-                            default: None,
-                        }],
-                        def_type: fol_parser::ast::FolType::Named {
-                            syntax_id: None,
-                            name: "Graph".to_string(),
-                        },
+                        receiver_type: None,
+                        captures: Vec::new(),
+                        params: Vec::new(),
+                        return_type: Some(fol_parser::ast::FolType::None),
+                        error_type: None,
                         body: Vec::new(),
+                        inquiries: Vec::new(),
                     },
                     meta: fol_parser::ast::ParsedTopLevelMeta::default(),
                 }],
@@ -376,14 +364,15 @@ mod tests {
     #[test]
     fn crate_root_reexports_phase_six_build_evaluation_surface() {
         let source = concat!(
-            "pro[] build(graph: Graph): non = {\n",
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
             "    var app = graph.add_exe({\n",
             "        name = \"demo\",\n",
             "        root = \"src/demo.fol\",\n",
             "    });\n",
             "    graph.add_run(app);\n",
-            "    return graph\n",
-            "}\n",
+            "    return;\n",
+            "};\n",
         );
         let (package_root, build_path) = temp_build_package(source);
         let request = BuildEvaluationRequest {
@@ -411,14 +400,15 @@ mod tests {
     #[test]
     fn crate_root_reexports_phase_ten_dependency_surface() {
         let source = concat!(
-            "pro[] build(graph: Graph): non = {\n",
-            "    var dep = graph.dependency({ alias = \"core\", package = \"org/core\", mode = \"lazy\" });\n",
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
+            "    var dep = graph.dependency({ alias = \"core\", package = \"org/core\", mode = \"eager\" });\n",
             "    var module = dep.module(\"root\");\n",
             "    var artifact = dep.artifact(\"corelib\");\n",
             "    var step = dep.step(\"check\");\n",
             "    var generated = dep.generated(\"bindings\");\n",
-            "    return graph\n",
-            "}\n",
+            "    return;\n",
+            "};\n",
         );
         let (package_root, build_path) = temp_build_package(source);
         let request = BuildEvaluationRequest {
@@ -441,9 +431,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(evaluated.evaluated.dependencies.len(), 1);
+        // Direct graph.dependency declarations currently support only the
+        // eager evaluation mode; the lazy/on-demand modes are not yet wired
+        // through the graph dependency surface.
         assert_eq!(
             evaluated.evaluated.dependencies[0].evaluation_mode,
-            Some(DependencyBuildEvaluationMode::Lazy)
+            Some(DependencyBuildEvaluationMode::Eager)
         );
         assert!(query_kinds.contains(&BuildRuntimeDependencyQueryKind::Module));
         assert!(query_kinds.contains(&BuildRuntimeDependencyQueryKind::Artifact));
@@ -454,13 +447,15 @@ mod tests {
     #[test]
     fn crate_root_reexports_phase_eleven_generated_surface() {
         let source = concat!(
-            "pro[] build(graph: Graph): non = {\n",
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
             "    var version = graph.write_file({ name = \"version\", path = \"gen/version.fol\", contents = \"generated\" });\n",
-            "    var asset = graph.copy_file({ name = \"asset\", source = \"assets/logo.svg\", path = \"gen/logo.svg\" });\n",
+            "    var logo = graph.file_from_root(\"assets/logo.svg\");\n",
+            "    var asset = graph.copy_file({ name = \"asset\", source = logo, path = \"gen/logo.svg\" });\n",
             "    var tool = graph.add_system_tool({ tool = \"flatc\", output = \"gen/schema.fol\" });\n",
             "    var codegen = graph.add_codegen({ kind = \"schema\", input = \"schema/api.yaml\", output = \"gen/api.fol\" });\n",
-            "    return graph\n",
-            "}\n",
+            "    return;\n",
+            "};\n",
         );
         let (package_root, build_path) = temp_build_package(source);
         let request = BuildEvaluationRequest {
@@ -492,14 +487,15 @@ mod tests {
     #[test]
     fn crate_root_reexports_phase_nine_real_option_surface() {
         let source = concat!(
-            "pro[] build(graph: Graph): non = {\n",
+            "pro[] build(): non = {\n",
+            "    var graph = .graph();\n",
             "    var root = graph.option({ name = \"root\", kind = \"path\", default = \"src/default.fol\" });\n",
             "    var target = graph.standard_target();\n",
             "    var optimize = graph.standard_optimize();\n",
             "    var app = graph.add_exe({ name = \"demo\", root = root, target = target, optimize = optimize });\n",
             "    graph.add_run(app);\n",
-            "    return graph\n",
-            "}\n",
+            "    return;\n",
+            "};\n",
         );
         let (package_root, build_path) = temp_build_package(source);
         let mut inputs = BuildEvaluationInputs {

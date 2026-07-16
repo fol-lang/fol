@@ -1,0 +1,11 @@
+fun[] may_fail(fail: bol): int / int = {
+    when(fail) {
+        case(true) { report 9; }
+        * { return 0; }
+    }
+};
+
+fun[] main(): int = {
+    [>]may_fail(true);
+    return 0;
+};

@@ -167,7 +167,7 @@ mod tests {
         let nil = FolOption::<&str>::from(None);
 
         assert_eq!(Option::from(some), Some("Ada"));
-        assert_eq!(Option::from(nil), None);
+        assert_eq!(Option::<&str>::from(nil), None);
     }
 
     #[test]

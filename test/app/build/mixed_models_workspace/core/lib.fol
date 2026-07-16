@@ -1,0 +1,4 @@
+fun[exp] core_total(): int = {
+    var values: arr[int, 2] = {1, 2};
+    return values[0] + values[1];
+};

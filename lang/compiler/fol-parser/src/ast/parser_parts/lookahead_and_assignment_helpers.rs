@@ -5,6 +5,25 @@ impl AstParser {
         &self,
         tokens: &fol_lexer::lexer::stage3::Elements,
     ) -> bool {
+        if tokens
+            .curr(false)
+            .ok()
+            .is_some_and(|token| matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)))
+        {
+            let significant = tokens
+                .next_vec()
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|token| !Self::key_is_soft_ignorable(&token.key()))
+                .take(2)
+                .collect::<Vec<_>>();
+            return matches!(
+                significant.as_slice(),
+                [name, assign]
+                    if Self::token_can_be_logical_name(&name.key())
+                        && matches!(assign.key(), KEYWORD::Symbol(SYMBOL::Equal))
+            );
+        }
         let mut found_compound_symbol = false;
         let mut square_depth = 0usize;
         let mut round_depth = 0usize;
@@ -300,6 +319,9 @@ impl AstParser {
         match self.previous_significant_key(tokens) {
             None => true,
             Some(KEYWORD::Symbol(SYMBOL::CurlyO)) => true,
+            // Block-terminated statements (when/loop/for bodies) end at `}`
+            // with no `;`, so a following identifier starts a new statement.
+            Some(KEYWORD::Symbol(SYMBOL::CurlyC)) => true,
             Some(KEYWORD::Symbol(SYMBOL::Semi)) => true,
             Some(key) if key.is_terminal() => true,
             _ => false,
@@ -399,10 +421,7 @@ impl AstParser {
     ) -> Result<(), ParseError> {
         if let Ok(next) = tokens.curr(false) {
             if next.loc().row() > decl_line && next.key().is_assign() {
-                return Err(ParseError::from_token(
-                    decl_token,
-                    message.to_string(),
-                ));
+                return Err(ParseError::from_token(decl_token, message.to_string()));
             }
         }
         Ok(())
@@ -410,10 +429,7 @@ impl AstParser {
 
     /// Used for error recovery: after a failed declaration parse, advance
     /// past the junk so the main loop can re-enter on the next declaration.
-    pub(super) fn sync_to_next_declaration(
-        &self,
-        tokens: &mut fol_lexer::lexer::stage3::Elements,
-    ) {
+    pub(super) fn sync_to_next_declaration(&self, tokens: &mut fol_lexer::lexer::stage3::Elements) {
         for _ in 0..8_192 {
             match tokens.curr(false) {
                 Ok(token) => {
@@ -421,15 +437,13 @@ impl AstParser {
                     if key.is_eof() {
                         break;
                     }
-                    // is_assign() covers Use, Def, Seg, Var, Fun, Pro, Typ, Ali, Imp, Lab, Con.
-                    // Also stop on Std, Log, and Let which are declaration starters
+                    // is_assign() covers Use, Def, Seg, Var, Fun, Pro, Typ, Ali, Lab, Con.
+                    // Also stop on Std and Log, which are declaration starters
                     // not covered by is_assign().
                     if key.is_assign()
                         || matches!(
                             key,
-                            KEYWORD::Keyword(BUILDIN::Std)
-                                | KEYWORD::Keyword(BUILDIN::Log)
-                                | KEYWORD::Keyword(BUILDIN::Let)
+                            KEYWORD::Keyword(BUILDIN::Std) | KEYWORD::Keyword(BUILDIN::Log)
                         )
                     {
                         break;

@@ -1,23 +1,24 @@
 use super::*;
+use crate::ast::{ChannelEndpoint, RoutineCapture};
 
 impl AstParser {
     pub(super) fn ensure_unique_capture_names(
         &self,
-        captures: &[String],
+        captures: &[RoutineCapture],
         tokens: &fol_lexer::lexer::stage3::Elements,
     ) -> Result<(), ParseError> {
         let mut seen = HashSet::new();
         for capture in captures {
-            if !seen.insert(canonical_identifier_key(capture)) {
+            if !seen.insert(canonical_identifier_key(&capture.name)) {
                 let error = if let Ok(token) = tokens.curr(false) {
                     ParseError::from_token(
                         &token,
-                        format!("Duplicate capture name '{}'", capture),
+                        format!("Duplicate capture name '{}'", capture.name),
                     )
                 } else {
                     ParseError {
                         kind: ParseErrorKind::Syntax,
-                        message: format!("Duplicate capture name '{}'", capture),
+                        message: format!("Duplicate capture name '{}'", capture.name),
                         file: None,
                         line: 0,
                         column: 0,
@@ -34,7 +35,7 @@ impl AstParser {
     pub(super) fn parse_optional_routine_capture_list(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
-    ) -> Result<Vec<String>, ParseError> {
+    ) -> Result<Vec<RoutineCapture>, ParseError> {
         self.skip_ignorable(tokens)?;
         let open = match tokens.curr(false) {
             Ok(token) => token,
@@ -58,8 +59,46 @@ impl AstParser {
 
             let name =
                 Self::expect_named_label(&token, "Expected capture name in routine capture list")?;
-            captures.push(name);
+            let syntax_id = self.record_syntax_origin(&token);
             let _ = tokens.bump();
+
+            self.skip_ignorable(tokens)?;
+            let endpoint = if matches!(
+                tokens.curr(false).map(|token| token.key()),
+                Ok(KEYWORD::Symbol(SYMBOL::SquarO))
+            ) {
+                let _ = tokens.bump();
+                self.skip_ignorable(tokens)?;
+                let endpoint_token = tokens.curr(false)?;
+                let endpoint = match Self::token_to_named_label(&endpoint_token).as_deref() {
+                    Some("tx") => ChannelEndpoint::Tx,
+                    Some("rx") => ChannelEndpoint::Rx,
+                    _ => {
+                        return Err(ParseError::from_token(
+                            &endpoint_token,
+                            "Expected 'tx' or 'rx' in capture endpoint".to_string(),
+                        ));
+                    }
+                };
+                let _ = tokens.bump();
+                self.skip_ignorable(tokens)?;
+                let close = tokens.curr(false)?;
+                if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+                    return Err(ParseError::from_token(
+                        &close,
+                        "Expected ']' after capture endpoint".to_string(),
+                    ));
+                }
+                let _ = tokens.bump();
+                Some(endpoint)
+            } else {
+                None
+            };
+            captures.push(RoutineCapture {
+                name,
+                syntax_id,
+                endpoint,
+            });
 
             self.skip_ignorable(tokens)?;
             let sep = tokens.curr(false)?;

@@ -4,11 +4,14 @@ use std::path::PathBuf;
 
 fn semantic_bin_build() -> &'static str {
     concat!(
-        "pro[] build(graph: Graph): non = {\n",
+        "pro[] build(): non = {\n",
+        "    var build = .build();\n",
+        "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+        "    var graph = build.graph();\n",
         "    var app = graph.add_exe({ name = \"demo\", root = \"src/main.fol\" });\n",
         "    graph.install(app);\n",
         "    graph.add_run(app);\n",
-        "}\n",
+        "};\n",
     )
 }
 
@@ -28,8 +31,6 @@ fn temp_root(label: &str) -> PathBuf {
 fn build_and_emit_commands_report_explicit_root_artifacts() {
     let root = temp_root("build_emit");
     fs::create_dir_all(root.join("src")).expect("should create source root");
-    fs::write(root.join("package.yaml"), "name: demo\nversion: 0.1.0\n")
-        .expect("should write manifest");
     fs::write(root.join("build.fol"), semantic_bin_build()).expect("should write build");
     fs::write(
         root.join("src/main.fol"),
@@ -38,8 +39,8 @@ fn build_and_emit_commands_report_explicit_root_artifacts() {
     .expect("should write source");
 
     let (_, build) =
-        run_command_from_args_in_dir(["fol", "build"], &root).expect("build should pass");
-    let (_, emit) = run_command_from_args_in_dir(["fol", "emit", "rust"], &root)
+        run_command_from_args_in_dir(["fol", "code", "build"], &root).expect("build should pass");
+    let (_, emit) = run_command_from_args_in_dir(["fol", "code", "emit", "rust"], &root)
         .expect("emit rust should pass");
 
     assert!(build

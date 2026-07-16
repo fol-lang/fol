@@ -4,7 +4,8 @@ At least two linguistic mechanisms are necessary to make the computations in pro
 
 There are two types of control flow mechanisms:
 - choice - `when`
-- loop - `loop`
+- loop - `loop` (with `while`, `for`, and `each` as loop-header spellings of
+  the same mechanism)
 
 
 ## Choice type
@@ -14,8 +15,22 @@ when(variable){ is (value){}; is (value){}; * {}; };
 when(variable){ in (iterator){}; in (iterator){}; * {}; };
 when(iterable){ has (member){}; has (member){}; * {}; };
 when(generic){ of (type){}; of (type){}; * {}; };
-when(type){ on (channel){}; on (channel){}; };
 ```
+
+Current boundary:
+
+- `case` and `is` arms (plus the required `*` default) are the current `V1`
+  surface, in both statement bodies and the arrow expression form
+  (`is 3 -> 7;`)
+- a `when` with no `case`/`is` arms is a statement-only boolean gate: its
+  default body runs only when the selector is `true`; arbitrary values are not
+  coerced to truth values
+- `in` (range/set matching), `has` (membership), `of` (type matching), and
+  `on` are declared matching syntax whose semantics are later-milestone work;
+  the compiler rejects them with explicit boundary diagnostics
+- channel multiplexing is not an `on`-arm variant of ordinary `when`; the
+  shipped V3 processor form is the separate `select { when channel as value
+  { ... } }` statement shown below
 ### Condition
 ```
 when(true) {
@@ -57,14 +72,30 @@ when(T) {
     * { // default implementation }
 }
 ```
-### Channel
+### Channel multiplexing (`V3`)
+
+`select` waits on direct channel bindings. Each `when` arm names one channel
+and binds the payload received from it:
+
+```fol
+select {
+    when first as value {
+        consume(value);
+    }
+    when second as value {
+        consume(value);
+    }
+    * {
+        handle_not_ready();
+    }
+};
 ```
-when(str) {
-    on (channel){ // implementation }
-    on (channel){ // implementation } 
-    * { // default implementation }
-}
-```
+
+The optional `*` arm runs immediately when no receiver is ready. Without it,
+the statement polls until one source-order arm receives a value or every arm
+has closed. The processor surface is hosted `std`-only. See
+[Tasks, Channels, and Mutexes](../../900_processor/200_corutines.md) for the
+endpoint lifecycle and fairness contract.
 
 
 ## Loop type
@@ -102,4 +133,3 @@ loop( x in array ){
     // implementation
 }
 ```
-

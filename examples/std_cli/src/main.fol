@@ -1,0 +1,12 @@
+use std: pkg = {"std"};
+
+fun[] greet(prefix: str = "std", extras: ... str): str = {
+    return prefix + extras[0];
+};
+
+fun[] main(): int = {
+    var values: seq[str] = {"-ready"};
+    var message: str = greet(...values);
+    var shown: str = std::io::echo_str(message);
+    return 7;
+};

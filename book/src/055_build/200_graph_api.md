@@ -1,7 +1,25 @@
 # Graph API
 
-The `Graph` handle is the sole parameter to `pro[] build`. All build graph
-construction goes through method calls on it.
+`build.graph()` is the public access point to the build graph in `build.fol`.
+All graph construction goes through method calls on the returned handle.
+
+This layer is intentionally narrower than the whole build surface:
+
+- package metadata belongs on `build.meta({...})`
+- direct dependencies belong on `build.add_dep({...})`
+- future dependency queries and output handles sit above raw graph mutation and
+  should not collapse back into ad hoc string-only graph APIs
+
+The canonical shape is:
+
+```fol
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "app", version = "0.1.0" });
+    var graph = build.graph();
+    ...
+}
+```
 
 ## Artifacts
 
@@ -13,6 +31,7 @@ Adds an executable artifact.
 var app = graph.add_exe({
     name     = "app",
     root     = "src/main.fol",
+    fol_model = "memo",   // optional; memo is the default
     target   = target,    // optional
     optimize = optimize,  // optional
 });
@@ -21,10 +40,134 @@ var app = graph.add_exe({
 Returns an `Artifact` handle.
 
 Required fields: `name`, `root`.
-Optional fields: `target`, `optimize`.
+Optional fields: `fol_model`, `target`, `optimize`.
+
+An omitted `fol_model` currently defaults to `memo`. Spell `core` explicitly;
+an explicit `memo` remains useful when showing mixed-model intent, but omission
+and `fol_model = "memo"` select the same capability.
 
 `root` is the path to the entry-point `.fol` source file relative to the
 package root.
+
+The resolved root must be a real source file contained by that package. The
+frontend canonicalizes the path before checking containment, so neither `..`
+nor a symlink may make an artifact root escape the package.
+
+For an artifact-targeted build, the directory containing `root` is the source
+scope: FOL recursively parses that directory and checks every source in it
+under the artifact's `fol_model`. A package may declare both `core` and `memo`
+artifacts only when their source scopes are disjoint. The scopes overlap, and
+the graph is rejected, when they are the same directory or one contains the
+other. Put different-model artifacts in sibling directories or separate
+package members; do not put `core.fol` and `memo.fol` beside each other in one
+recursively parsed source directory.
+
+Package-wide commands that require one capability model reject mixed-model
+packages. Use an exact artifact or named build step when targeting one of the
+disjoint scopes.
+
+`fol_model` selects one of the two runtime capability modes for the artifact:
+
+- `core`
+  no heap and no source-level hosted OS/runtime APIs
+- `memo`
+  alloc-like heap-backed facilities, still no source-level hosted OS/runtime
+  APIs
+
+The division deliberately follows Rust's capability shape:
+
+- FOL `core` is analogous to `#![no_std]` with Rust `core`
+- FOL `memo` is analogous to `#![no_std]` with `core` plus `alloc`
+- FOL `memo` plus the bundled `standard` dependency is analogous to hosted
+  Rust `std`
+
+This is a capability analogy. It is independent from the build tool's ability
+to launch a resulting host executable. The current Rust backend is still
+hosted, so FOL `core` is a source/runtime contract and is not yet a claim of
+finished freestanding backend support.
+
+Bundled `std` is not a third `fol_model`. A `memo` artifact reaches the hosted
+API tier only when the package explicitly declares the bundled internal
+dependency:
+
+```fol
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+Source code reaches that dependency through its declared alias, for example
+`use std: pkg = {"std"};`.
+
+The important boundary is semantic and runtime-facing:
+
+- `core` artifacts must not use heap-backed `str`, `vec`, `seq`, `set`, or
+  `map`
+- `core` artifacts may still use arrays, records, routines, control flow, and
+  `dfr`
+- `memo` artifacts may use heap-backed runtime types but not hosted language
+  APIs
+- bundled `std` wrappers require an explicit internal `standard` dependency
+- hosted wrappers and processor features require `fol_model = "memo"` plus
+  that explicit bundled `std` dependency
+- executable `core` and `memo` artifacts may use `fol code run` and
+  `fol code test` without bundled `std`
+
+| Source requirement | `fol_model` | Bundled `standard` dependency |
+|---|---|---|
+| no heap-backed or hosted language APIs | `core` | no |
+| heap-backed values, no hosted APIs | `memo` | no |
+| shipped hosted or processor APIs | `memo` | yes |
+
+The last row is still a `memo` artifact. `std` is not an accepted `fol_model`
+value.
+
+The frontend invoking a host-compatible artifact, compiler, linker, or system
+tool is build-host behavior. It is not a source-visible hosted capability and
+does not promote an artifact to the bundled-std tier.
+
+Current implementation note:
+
+- `core` already means “no heap and no source-level hosted OS/runtime APIs” at
+  the language and runtime-contract level
+- `core` artifacts are still emitted through the current Rust backend pipeline
+- `core` artifacts can execute through that pipeline without bundled `std`
+- that means `core` is ready for semantic/runtime restriction work now, but it
+  should not yet be read as “finished embedded backend support”
+
+Mixed-model example:
+
+```fol
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "workspace_tools", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var corelib = graph.add_static_lib({
+        name = "corelib",
+        root = "core/lib.fol",
+        fol_model = "core",
+    });
+    var memolib = graph.add_static_lib({
+        name = "memolib",
+        root = "memo/lib.fol",
+        fol_model = "memo",
+    });
+    var tool = graph.add_exe({
+        name = "tool",
+        root = "app/main.fol",
+        fol_model = "memo",
+    });
+
+    graph.install(tool);
+    graph.add_run(tool);
+};
+```
+
+The separate `core/`, `memo/`, and `app/` directories above are semantic, not
+just organizational: they keep the recursively parsed artifact scopes
+disjoint. Moving those roots into the same directory would make the `core` and
+`memo` contracts overlap and the frontend would reject the targeted build.
+Only a `memo` source scope may import the declared `std` alias. Its presence in
+the package does not make `corelib` a hosted artifact.
 
 ### `graph.add_static_lib`
 
@@ -35,6 +178,12 @@ var core = graph.add_static_lib({ name = "core", root = "src/core/lib.fol" });
 ```
 
 Returns an `Artifact` handle.
+
+Library and test artifact config records follow the same optional fields:
+
+- `fol_model`
+- `target`
+- `optimize`
 
 ### `graph.add_shared_lib`
 
@@ -51,10 +200,19 @@ Returns an `Artifact` handle.
 Adds a test artifact.
 
 ```fol
-var tests = graph.add_test({ name = "tests", root = "src/tests.fol" });
+var tests = graph.add_test({
+    name = "tests",
+    root = "src/tests.fol",
+    fol_model = "core",
+});
 ```
 
 Returns an `Artifact` handle.
+
+The test artifact follows the same capability rules as every other artifact.
+`fol code test` may build and launch this `core` test on a compatible host
+without bundled `std`. Tests that call hosted APIs instead select `memo` and
+declare the bundled dependency for those API calls, not for the test harness.
 
 ### `graph.add_module`
 
@@ -78,25 +236,47 @@ graph.install(app);
 
 Returns an `Install` handle.
 
+Install projections use the selected install prefix. Artifact installs resolve
+under the prefix by kind:
+
+- executables under `bin/`
+- libraries under `lib/`
+
 ### `graph.install_file`
 
-Installs a file by path.
+Installs either a source-file handle or a generated output handle.
 
 ```fol
-graph.install_file("config/defaults.toml");
+var defaults = graph.file_from_root("config/defaults.toml");
+graph.install_file({ name = "defaults", source = defaults });
+```
+
+```fol
+var cfg = graph.write_file({
+    name = "cfg",
+    path = "config/generated.toml",
+    contents = "ok",
+});
+
+graph.install_file({ name = "generated-cfg", source = cfg });
 ```
 
 Returns an `Install` handle.
 
 ### `graph.install_dir`
 
-Installs a directory by path.
+Installs a source directory handle.
 
 ```fol
-graph.install_dir("assets/");
+var assets = graph.dir_from_root("assets");
+graph.install_dir({ name = "assets", source = assets });
 ```
 
 Returns an `Install` handle.
+
+The install prefix is selected by frontend/workspace configuration, not by the
+package itself. Changing the prefix should move projected install destinations
+without changing `build.fol`.
 
 ### `graph.add_run`
 
@@ -109,6 +289,12 @@ var run = graph.add_run(app);
 
 Returns a `Run` handle. See [Handle API](./300_handle_api.md) for `Run` methods.
 
+Registration does not alter the artifact's `fol_model` and does not imply a
+bundled `std` dependency. When the step is selected, the frontend verifies that
+the evaluated artifact target is host-compatible and then launches it. A
+foreign target is rejected because there is no configured runner, regardless
+of whether the artifact uses `core`, `memo`, or bundled `std` APIs.
+
 ## Steps
 
 ### `graph.step`
@@ -117,7 +303,7 @@ Creates a named custom step.
 
 ```fol
 var docs = graph.step("docs");
-var docs = graph.step("docs", "Generate documentation");  // with description
+var docs = graph.step("docs", "Generate documentation");
 ```
 
 Returns a `Step` handle. See [Handle API](./300_handle_api.md) for `Step` methods.
@@ -128,6 +314,105 @@ Named steps are selectable on the command line:
 fol code build docs
 fol code build --step docs
 ```
+
+When a description is present, frontend step planning and unknown-step
+diagnostics surface it as part of the available step catalog.
+
+## Native System Libraries
+
+### `graph.add_system_lib`
+
+Declares a typed system-library request that can be linked into an artifact.
+
+```fol
+var ssl = graph.add_system_lib({
+    name = "ssl",
+    mode = "dynamic",
+    search_path = "/usr/lib",
+});
+
+app.link(ssl);
+```
+
+Supported config fields:
+
+- `name`
+  required library or framework name
+- `mode`
+  optional, defaults to `dynamic`, also accepts `static`
+- `framework`
+  optional bool, defaults to `false`
+- `search_path`
+  optional system library search root
+
+Current scope is intentionally narrow:
+
+- library names are typed, not raw linker fragments
+- frameworks are expressed through `framework = true`
+- frameworks must use `dynamic`
+- the build graph records native link intent without exposing a linker-script DSL
+
+## Dependency Config Notes
+
+Forwarded dependency args are already best suited for stable build config:
+
+- `target`
+- `optimize`
+- named user options
+
+The current build story intentionally does not treat dependency config as a
+general environment-selection surface. Keep forwarded dependency args explicit
+and typed rather than mixing them with ad hoc environment shaping.
+
+## Generated Directories
+
+### `graph.add_system_tool_dir`
+
+Declares a typed system-tool step that produces a directory handle.
+
+```fol
+var assets = graph.add_system_tool_dir({
+    tool = "assetpack",
+    output_dir = "gen/assets",
+});
+
+graph.install_dir({ name = "assets", source = assets });
+```
+
+### `graph.add_codegen_dir`
+
+Declares a codegen step that produces a directory handle.
+
+```fol
+var docs = graph.add_codegen_dir({
+    kind = "asset",
+    input = "assets/raw",
+    output_dir = "gen/packed",
+});
+```
+
+Generated directory handles are valid in directory-oriented consumers:
+
+- `graph.install_dir`
+- `build.export_dir`
+
+## Current Execution Semantics
+
+Step execution is still serial today. The build graph keeps deterministic step
+ordering and explicit dependency edges, but it does not claim parallel
+execution yet.
+
+Current reporting distinguishes:
+
+- requested
+- executed
+- skipped-from-cache
+- skipped-by-foreign-run-policy
+- produced outputs
+
+That reporting is intended for frontend summaries and tests. Produced outputs
+now participate in step cache-key semantics, so generated-file changes can
+invalidate dependent steps predictably.
 
 ## Options
 
@@ -208,12 +493,13 @@ Returns a `GeneratedFile` handle.
 
 ### `graph.copy_file`
 
-Declares a file to be copied from a source path.
+Declares a file to be copied from a source-file handle.
 
 ```fol
+var template = graph.file_from_root("config/template.toml");
 var cfg = graph.copy_file({
     name   = "config",
-    source = "config/template.toml",
+    source = template,
     dest   = "gen/config.toml",
 });
 ```
@@ -226,9 +512,11 @@ Declares a system tool invocation that produces a file.
 
 ```fol
 var packed = graph.add_system_tool({
-    tool   = "wasm-pack",
-    args   = ["build", "--target", "web"],
-    output = "gen/app.wasm",
+    tool = "flatc",
+    args = { "--fol" },
+    file_args = { schema, defaults },
+    env = { MODE = "strict" },
+    output = "gen/schema.fol",
 });
 ```
 
@@ -236,6 +524,19 @@ Returns a `GeneratedFile` handle.
 
 The generated file is keyed by the output path. Use this handle with
 `step.attach(...)` or `artifact.add_generated(...)`.
+
+Typed fields:
+
+- `tool`
+  required tool name
+- `args`
+  optional string arguments
+- `file_args`
+  optional source-file or generated-output handles passed as file arguments
+- `env`
+  optional string-to-string environment map
+- `output`
+  required generated output path
 
 ### `graph.add_codegen`
 
@@ -255,15 +556,24 @@ Codegen kinds: `fol-to-fol`, `schema`, `asset-preprocess`.
 
 ## Path Utilities
 
-### `graph.path_from_root`
+### `graph.file_from_root`
 
-Returns an absolute path by joining the package root with a relative subpath.
+Returns a source-file handle rooted under the package root.
 
 ```fol
-var cfg = graph.path_from_root("config/default.toml");
+var cfg = graph.file_from_root("config/default.toml");
 ```
 
-Useful when passing file paths to `add_run` args.
+Useful when passing source files into `copy_file`, `install_file`, or
+`run.add_file_arg`.
+
+### `graph.dir_from_root`
+
+Returns a source-dir handle rooted under the package root.
+
+```fol
+var assets = graph.dir_from_root("assets");
+```
 
 ### `graph.build_root`
 
@@ -283,14 +593,7 @@ var prefix = graph.install_prefix();
 
 ## Dependencies
 
-### `graph.dependency`
-
-Declares a reference to another package in the workspace or as a fetched
-dependency. Returns a `Dependency` handle.
-
-```fol
-var deps = graph.dependency("mylib", "local:../mylib");
-```
+Direct dependencies are declared on `build.add_dep({...})`, not on `graph`.
 
 See [Handle API](./300_handle_api.md) for querying modules, artifacts, steps,
 and generated outputs from a `Dependency` handle.

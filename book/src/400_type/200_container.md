@@ -1,5 +1,22 @@
 # Container
 
+Model reminder:
+
+- examples here that call `.echo(...)` assume a `memo` artifact with bundled
+  `std` support available
+- `arr[...]` is valid in `core`
+- `vec[...]`, `seq[...]`, `set[...]`, and `map[...]` require `memo`
+
+Current boundary:
+
+- static `arr[...]`, `vec[...]`, `seq[...]`, and `map[...]` are the current
+  compiler surface
+- the `axi[...]` axiom container and `.add(...)` mutation shown later are not
+  implemented; they are later design work, not current behavior
+- the `set[...]` tuple-member form typechecks, but only single-member sets are
+  executable today; those homogeneous runtime sets support `.len(...)`,
+  deterministic positional lookup, and ordinary iteration
+
 Containers are of compound types. They contain other primitive or constructed types. To access the types in container those brackets are used: `[]`, so:
 ```
 var container: type = { element, element, element }             // declaring a container
@@ -29,10 +46,11 @@ pro[] main: int = {
 }
 ```
 
-To allocate memory on heap, the `var[new]` is used [ more about memory, ownreship and pointer ](/std/spec/050_pointers/):
+To give a value unique heap ownership, use `var[new]` in a `memo` artifact. See
+[Ownership](../800_memory/100_ownership.md):
 ```
 pro[] main: int = {
-    var[new] aSequence: arr[str] = { "get", "over", "it" };   // this array is stored in stack
+    var[new] values: arr[int, 3] = { 1, 2, 3 };   // uniquely owned heap array
 }
 ```
 
@@ -51,14 +69,18 @@ So the safe current query surface for containers is `.len(...)`.
 Current `V1` runtime note:
 
 - `arr[...]` remains the fixed-size container family
-- `vec[...]` and `seq[...]` are lowered onto dedicated runtime container types
-- `set[...]` and `map[...]` also use runtime-backed container types
+- `arr[...]` itself is available in `core`, provided its element type is also
+  legal there
+- `vec[...]`, `seq[...]`, `set[...]`, and `map[...]` are heap-backed `memo`
+  families and remain available when bundled `std` layers hosted APIs on top
 - runtime-backed `set[...]` and `map[...]` preserve deterministic ordering for
   rendering and backend-visible behavior in the current compiler
 
 {{% notice tip %}}
 
-Dynamic arrays are a dynamically allocated (hence the name), thus if not allocated in heap but in stack, the size will be defined automatically in compile time and will be changed to static array.
+Dynamic containers remain heap-backed. FOL does not silently convert a
+`vec[...]` or `seq[...]` into `arr[...]` to make it legal in `core`; choose an
+explicit fixed-size array when the program needs the `core` model.
 
 {{% /notice %}}
 
@@ -172,7 +194,8 @@ The comparison operators `==` and `!=` must be fully defined for operands of the
 
 {{% notice tip %}}
 
-Maps are a growable containers too, thus if not allocated in heap but in stack, the size will be defined automatically in compile time and will be changet to static containers
+Maps are heap-backed `memo` containers. They are not silently converted into a
+static `core` container based on their initializer.
 
 {{% /notice %}}
 

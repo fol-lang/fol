@@ -1,1 +1,1 @@
-use fmt: mod = {core::fmt};
+use fmt: mod = {"core::fmt"};

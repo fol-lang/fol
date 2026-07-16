@@ -2,10 +2,11 @@ use crate::{
     mangle_package_module_name, plan_generated_crate_layout, plan_namespace_layouts,
     plan_package_layouts, render_entry_definition, render_entry_trait_impl,
     render_global_declaration, render_record_definition, render_record_trait_impl,
-    render_routine_definition, render_routine_shell, BackendArtifact,
-    BackendResult, BackendSession, EmittedRustFile,
+    render_routine_definition, render_rust_type_in_workspace, BackendArtifact, BackendConfig,
+    BackendError, BackendErrorKind, BackendResult, BackendRuntimeTier, BackendSession,
+    EmittedRustFile,
 };
-use fol_lower::LoweredType;
+use fol_lower::{LoweredBuiltinType, LoweredType, LoweredTypeId};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -26,32 +27,48 @@ pub fn emit_cargo_toml(session: &BackendSession) -> EmittedRustFile {
     }
 }
 
-pub fn emit_main_rs(session: &BackendSession) -> BackendResult<EmittedRustFile> {
+pub fn emit_main_rs_for_config(
+    session: &BackendSession,
+    config: &BackendConfig,
+) -> BackendResult<EmittedRustFile> {
     let layout = plan_generated_crate_layout(session);
     let entry_candidate = session.select_buildable_entry_candidate()?;
     let entry_name = &session.entry_identity().display_name;
-    let entry_wrapper = match resolve_entry_callable(session, entry_candidate) {
-        Some(EntryCallable {
+    let join_tasks = matches!(config.runtime_tier(), BackendRuntimeTier::Std)
+        .then_some("\n    rt::join_all_tasks();")
+        .unwrap_or("");
+    let task_join_guard = matches!(config.runtime_tier(), BackendRuntimeTier::Std)
+        .then_some("\n    let _fol_task_join_guard = rt::task_join_guard();")
+        .unwrap_or("");
+    let entry_wrapper = match resolve_entry_callable(session, entry_candidate, config.runtime_tier())? {
+        EntryCallable {
             rust_path,
+            call_args,
             recoverable: false,
-        }) => format!("    let _ = {rust_path}();"),
-        Some(EntryCallable {
+        } => format!("    let _ = {rust_path}({call_args});{join_tasks}"),
+        EntryCallable {
             rust_path,
+            call_args,
             recoverable: true,
-        }) => format!(
-            "    let __fol_outcome = rt::outcome_from_recoverable({rust_path}());\n    if let Some(__fol_message) = rt::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
+        } => format!(
+            "    let __fol_outcome = fol_runtime::process::outcome_from_recoverable({rust_path}({call_args}));{join_tasks}\n    if let Some(__fol_message) = fol_runtime::process::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
         ),
-        None => "    let _entry_name = \"placeholder\";".to_string(),
     };
+    let runtime_tier = config.runtime_tier();
 
     Ok(EmittedRustFile {
         path: layout.main_rs_path,
         module_name: "main".to_string(),
         contents: format!(
-            "use fol_runtime::prelude as rt;\n\nmod packages;\n\nfn main() {{\n    let _runtime = rt::crate_name();\n    let _entry_package = \"{entry_name}\";\n    let _entry_name = \"{}\";\n    let _ = (&_runtime, &_entry_package, &_entry_name);\n{entry_wrapper}\n}}\n",
+            "{}\n\nmod packages;\n\nfn main() {{\n    let _runtime = rt::crate_name();\n    let _runtime_tier = rt_model::tier_name();\n    let _entry_package = \"{entry_name}\";\n    let _entry_name = \"{}\";\n    let _ = (&_runtime, &_runtime_tier, &_entry_package, &_entry_name);{task_join_guard}\n{entry_wrapper}\n}}\n",
+            runtime_main_use_block(runtime_tier),
             entry_candidate.name
         ),
     })
+}
+
+pub fn emit_main_rs(session: &BackendSession) -> BackendResult<EmittedRustFile> {
+    emit_main_rs_for_config(session, &BackendConfig::default())
 }
 
 pub fn emit_package_module_shells(session: &BackendSession) -> Vec<EmittedRustFile> {
@@ -70,10 +87,14 @@ pub fn emit_package_module_shells(session: &BackendSession) -> Vec<EmittedRustFi
             continue;
         }
         let root_child = module_name_from_relative_part(&relative_parts[0]);
-        direct_modules_by_path
-            .entry(format!("src/packages/{package_module}/mod.rs"))
-            .or_default()
-            .push(root_child);
+        // `mod.rs` IS its parent directory's module — never declare it as a
+        // child.
+        if root_child != "mod" {
+            direct_modules_by_path
+                .entry(format!("src/packages/{package_module}/mod.rs"))
+                .or_default()
+                .push(root_child);
+        }
 
         if relative_parts.len() <= 1 {
             continue;
@@ -89,10 +110,12 @@ pub fn emit_package_module_shells(session: &BackendSession) -> Vec<EmittedRustFi
                 )
             };
             let child = module_name_from_relative_part(&relative_parts[index + 1]);
-            direct_modules_by_path
-                .entry(format!("{parent_dir}/mod.rs"))
-                .or_default()
-                .push(child);
+            if child != "mod" {
+                direct_modules_by_path
+                    .entry(format!("{parent_dir}/mod.rs"))
+                    .or_default()
+                    .push(child);
+            }
         }
     }
 
@@ -148,14 +171,17 @@ pub fn emit_package_module_shells(session: &BackendSession) -> Vec<EmittedRustFi
     files
 }
 
-pub fn emit_namespace_module_shells(
+pub fn emit_namespace_module_shells_for_config(
     session: &BackendSession,
+    config: &BackendConfig,
 ) -> BackendResult<Vec<EmittedRustFile>> {
     let mut files = Vec::new();
+    let runtime_tier = config.runtime_tier();
     for namespace_plan in plan_namespace_layouts(session) {
         let emitted_items = render_namespace_items(session, &namespace_plan)?;
         let mut contents = format!(
-                "use fol_runtime::prelude as rt;\n\npub(crate) const NAMESPACE_NAME: &str = \"{}\";\npub(crate) const SOURCE_UNIT_IDS: &[usize] = &[{}];\n\npub(crate) fn namespace_runtime_marker() -> &'static str {{\n    let _ = rt::crate_name();\n    NAMESPACE_NAME\n}}\n",
+                "{}\n\npub(crate) const NAMESPACE_NAME: &str = \"{}\";\npub(crate) const SOURCE_UNIT_IDS: &[usize] = &[{}];\n\npub(crate) fn namespace_runtime_marker() -> &'static str {{\n    let _ = rt::crate_name();\n    let _ = rt_model::tier_name();\n    NAMESPACE_NAME\n}}\n",
+                runtime_use_block(runtime_tier),
                 namespace_plan.full_namespace,
                 namespace_plan
                     .source_unit_ids
@@ -181,19 +207,62 @@ pub fn emit_namespace_module_shells(
     Ok(files)
 }
 
-pub fn emit_generated_crate_skeleton(session: &BackendSession) -> BackendResult<BackendArtifact> {
+pub fn emit_namespace_module_shells(
+    session: &BackendSession,
+) -> BackendResult<Vec<EmittedRustFile>> {
+    emit_namespace_module_shells_for_config(session, &BackendConfig::default())
+}
+
+pub fn emit_generated_crate_skeleton_for_config(
+    session: &BackendSession,
+    config: &BackendConfig,
+) -> BackendResult<BackendArtifact> {
     let layout = plan_generated_crate_layout(session);
     let mut files = Vec::new();
     files.push(emit_cargo_toml(session));
-    files.push(emit_main_rs(session)?);
+    files.push(emit_main_rs_for_config(session, config)?);
     files.extend(emit_package_module_shells(session));
-    files.extend(emit_namespace_module_shells(session)?);
+    files.extend(emit_namespace_module_shells_for_config(session, config)?);
+    // A namespace that owns child namespaces emits its own code at
+    // `<dir>/mod.rs` while the shell pass emits child `pub mod ...;`
+    // declarations at the same path — merge them (declarations first)
+    // instead of letting one overwrite the other.
+    let mut merged: Vec<EmittedRustFile> = Vec::new();
+    for file in files {
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|existing| existing.path == file.path)
+        {
+            let (decls, body) = if file
+                .contents
+                .lines()
+                .all(|line| line.trim().is_empty() || line.trim_start().starts_with("pub mod "))
+            {
+                (file.contents.clone(), existing.contents.clone())
+            } else {
+                (existing.contents.clone(), file.contents.clone())
+            };
+            existing.contents = format!(
+                "{}
+{}",
+                decls.trim_end(),
+                body
+            );
+        } else {
+            merged.push(file);
+        }
+    }
+    let mut files = merged;
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
     Ok(BackendArtifact::RustSourceCrate {
         root: layout.crate_dir_name,
         files,
     })
+}
+
+pub fn emit_generated_crate_skeleton(session: &BackendSession) -> BackendResult<BackendArtifact> {
+    emit_generated_crate_skeleton_for_config(session, &BackendConfig::default())
 }
 
 fn module_name_from_relative_part(relative_part: &str) -> String {
@@ -207,48 +276,137 @@ pub(super) fn runtime_dependency_path() -> PathBuf {
     backend_runtime_source_root()
 }
 
+fn runtime_use_block(runtime_tier: BackendRuntimeTier) -> String {
+    format!(
+        "use {} as rt;\nuse {} as rt_model;",
+        runtime_tier.runtime_module_path(),
+        runtime_tier.runtime_module_path()
+    )
+}
+
+fn runtime_main_use_block(runtime_tier: BackendRuntimeTier) -> String {
+    format!(
+        "use {} as rt;\nuse {} as rt_model;\n\nfn __fol_cli_arg(index: usize) -> Option<String> {{\n    std::env::args().nth(index + 1)\n}}\n\nfn __fol_parse_bool(raw: &str) -> Option<rt::FolBool> {{\n    match raw {{\n        \"true\" | \"1\" | \"yes\" | \"on\" => Some(true),\n        \"false\" | \"0\" | \"no\" | \"off\" => Some(false),\n        _ => None,\n    }}\n}}\n\nfn __fol_parse_char(raw: &str) -> Option<rt::FolChar> {{\n    let mut chars = raw.chars();\n    let first = chars.next()?;\n    if chars.next().is_some() {{\n        None\n    }} else {{\n        Some(first)\n    }}\n}}\n",
+        runtime_tier.runtime_module_path(),
+        runtime_tier.runtime_module_path()
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EntryCallable {
     rust_path: String,
+    call_args: String,
     recoverable: bool,
 }
 
 fn resolve_entry_callable(
     session: &BackendSession,
     entry_candidate: &fol_lower::LoweredEntryCandidate,
-) -> Option<EntryCallable> {
+    runtime_tier: BackendRuntimeTier,
+) -> BackendResult<EntryCallable> {
     let package = session
         .workspace()
-        .package(&entry_candidate.package_identity)?;
-    let routine = package.routine_decls.get(&entry_candidate.routine_id)?;
-    if routine.receiver_type.is_some() || !routine.params.is_empty() {
-        return None;
+        .package(&entry_candidate.package_identity)
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "entry candidate '{}' points at missing package '{}'",
+                    entry_candidate.name, entry_candidate.package_identity.display_name
+                ),
+            )
+        })?;
+    let routine = package
+        .routine_decls
+        .get(&entry_candidate.routine_id)
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "entry candidate '{}' points at missing routine {:?}",
+                    entry_candidate.name, entry_candidate.routine_id
+                ),
+            )
+        })?;
+    if routine.receiver_type.is_some() {
+        return Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!(
+                "entry routine '{}' must be a plain free routine",
+                entry_candidate.name
+            ),
+        ));
     }
-    let signature_id = routine.signature?;
+    let signature_id = routine.signature.ok_or_else(|| {
+        BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!(
+                "entry routine '{}' is missing a lowered signature",
+                entry_candidate.name
+            ),
+        )
+    })?;
     let signature = match session.workspace().type_table().get(signature_id) {
         Some(LoweredType::Routine(signature)) => signature,
-        _ => return None,
+        _ => {
+            return Err(BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "entry routine '{}' signature does not resolve to a lowered routine type",
+                    entry_candidate.name
+                ),
+            ))
+        }
     };
-    let source_unit_id = routine.source_unit_id?;
-    let namespace_plan = plan_namespace_layouts(session).into_iter().find(|plan| {
-        plan.package_identity == entry_candidate.package_identity
-            && plan.source_unit_ids.contains(&source_unit_id)
+    let source_unit_id = routine.source_unit_id.ok_or_else(|| {
+        BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!(
+                "entry routine '{}' is missing a source unit",
+                entry_candidate.name
+            ),
+        )
     })?;
-    if render_routine_definition(
+    let namespace_plan = plan_namespace_layouts(session)
+        .into_iter()
+        .find(|plan| {
+            plan.package_identity == entry_candidate.package_identity
+                && plan.source_unit_ids.contains(&source_unit_id)
+        })
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!(
+                    "entry routine '{}' does not map to a namespace layout",
+                    entry_candidate.name
+                ),
+            )
+        })?;
+    render_routine_definition(
         session.workspace(),
         &entry_candidate.package_identity,
         routine,
         session.workspace().type_table(),
     )
-    .is_err()
-    {
-        return None;
-    }
+    .map_err(|error| {
+        BackendError::new(
+            error.kind(),
+            format!(
+                "entry routine '{}' cannot be rendered for backend emission: {}",
+                entry_candidate.name,
+                error.message()
+            ),
+        )
+    })?;
+    // A namespace that owns child namespaces emits as `<dir>/mod.rs`, which
+    // in Rust IS the `<dir>` module — the `mod` file stem must not become a
+    // path segment.
     let namespace_path = namespace_plan
         .relative_file
         .trim_end_matches(".rs")
+        .trim_end_matches("/mod")
         .replace('/', "::");
-    Some(EntryCallable {
+    Ok(EntryCallable {
         rust_path: format!(
             "packages::{}::{}::{}",
             mangle_package_module_name(&entry_candidate.package_identity),
@@ -259,8 +417,72 @@ fn resolve_entry_callable(
                 &entry_candidate.name
             )
         ),
+        call_args: render_entry_call_args(session, &signature.params, runtime_tier)?,
         recoverable: signature.error_type.is_some(),
     })
+}
+
+fn render_entry_call_args(
+    session: &BackendSession,
+    params: &[LoweredTypeId],
+    runtime_tier: BackendRuntimeTier,
+) -> BackendResult<String> {
+    let type_table = session.workspace().type_table();
+    let rendered = params
+        .iter()
+        .enumerate()
+        .map(|(index, type_id)| {
+            render_entry_arg_expr(session, type_table, *type_id, index, runtime_tier)
+        })
+        .collect::<BackendResult<Vec<_>>>()?;
+    Ok(rendered.join(", "))
+}
+
+fn render_entry_arg_expr(
+    session: &BackendSession,
+    type_table: &fol_lower::LoweredTypeTable,
+    type_id: LoweredTypeId,
+    index: usize,
+    runtime_tier: BackendRuntimeTier,
+) -> BackendResult<String> {
+    let Some(ty) = type_table.get(type_id) else {
+        return Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!(
+                "entry parameter type {:?} is missing from the lowered type table",
+                type_id
+            ),
+        ));
+    };
+    let expr = match ty {
+        LoweredType::Builtin(LoweredBuiltinType::Int) => {
+            format!("__fol_cli_arg({index}).and_then(|raw| raw.parse::<rt::FolInt>().ok()).unwrap_or_default()")
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Float) => {
+            format!("__fol_cli_arg({index}).and_then(|raw| raw.parse::<rt::FolFloat>().ok()).unwrap_or_default()")
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Bool) => {
+            format!(
+                "__fol_cli_arg({index}).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()"
+            )
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Char) => {
+            format!(
+                "__fol_cli_arg({index}).and_then(|raw| __fol_parse_char(&raw)).unwrap_or_default()"
+            )
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Str) => {
+            format!("__fol_cli_arg({index}).map(rt_model::FolStr::from).unwrap_or_default()")
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Never) => "rt::impossible()".to_string(),
+        _ => {
+            let rendered_type =
+                render_rust_type_in_workspace(Some(session.workspace()), type_table, type_id)?;
+            let _ = runtime_tier;
+            format!("<{rendered_type} as Default>::default()")
+        }
+    };
+    Ok(expr)
 }
 
 fn render_namespace_items(
@@ -359,15 +581,7 @@ fn render_namespace_items(
             &namespace_plan.package_identity,
             routine,
             session.workspace().type_table(),
-        )
-        .or_else(|_| {
-            render_routine_shell(
-                session.workspace(),
-                &namespace_plan.package_identity,
-                routine,
-                session.workspace().type_table(),
-            )
-        })?;
+        )?;
         items.push(rendered);
     }
 

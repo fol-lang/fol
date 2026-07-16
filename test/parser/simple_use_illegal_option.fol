@@ -1,1 +1,1 @@
-use[ba__d] math: loc = {core::math};
+use[ba__d] math: loc = {"core::math"};

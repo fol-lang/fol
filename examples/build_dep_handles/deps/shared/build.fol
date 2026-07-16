@@ -1,0 +1,20 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "shared", version = "0.1.0" });
+
+    var graph = build.graph();
+    var shared_mod = graph.add_module({
+        name = "shared_mod",
+        root = "src/root.fol",
+    });
+    var lib = graph.add_static_lib({
+        name = "shared",
+        root = "src/root.fol",
+        fol_model = "memo",
+    });
+    var install = graph.install(lib);
+    build.export_module({ name = "shared", module = shared_mod });
+    build.export_artifact({ name = "shared", artifact = lib });
+    build.export_step({ name = "install", step = install });
+    return;
+};

@@ -1,1 +1,1 @@
-use[weird] math: loc = {core::math};
+use[weird] math: loc = {"core::math"};

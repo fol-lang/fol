@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var label = "core-inferred";
+    return 0;
+};

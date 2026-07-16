@@ -4,6 +4,7 @@ CURRENT_VERSION := $(shell grep '^version = ' Cargo.toml | sed -E 's/version = "
 LATEST_TAG   ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 TOP_DIR      := $(CURDIR)
 BUILD_DIR    := $(TOP_DIR)/target
+DOCS_BUILD_DIR ?= $(BUILD_DIR)/book
 
 ifeq ($(PROJECT_NAME),)
 $(error Error: project name not found in Cargo.toml)
@@ -14,7 +15,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c run r test t help h clean docs release
+.PHONY: build b compile c fmt f run r test t tree tree-test help h clean docs release
 
 SHELL := /bin/bash
 
@@ -30,15 +31,38 @@ compile:
 
 c: compile
 
+fmt:
+	@cargo fmt --all
+
+f: fmt
+
+ARGS ?=
+DIR ?= $(TOP_DIR)
+
 run:
-	@cargo run
+	@cd $(DIR) && cargo run --manifest-path $(TOP_DIR)/Cargo.toml -- $(ARGS)
 
 r: run
 
+TREE_DIR ?= $(TOP_DIR)/lang/tooling/fol-editor/tree-sitter
+
+tree:
+	@cargo run -- tool tree generate "$(TREE_DIR)"
+
+tree-test: tree
+	@set -eu; \
+		cache="$$(mktemp -d "$${TMPDIR:-/tmp}/fol-tree-sitter-test.XXXXXX")"; \
+		trap 'rm -rf "$$cache"' EXIT; \
+		output="$$(cd "$(TREE_DIR)" && XDG_CACHE_HOME="$$cache" tree-sitter test)"; \
+		printf '%s\n' "$$output"; \
+		printf '%s\n' "$$output" | grep -Eq 'Total parses: [1-9][0-9]*; successful parses: [1-9][0-9]*; failed parses: 0;'
+
+
+TEST_ARGS ?=
 
 test:
-	@cargo test
-	@cargo test -- --ignored
+	@cargo test --workspace $(TEST_ARGS)
+	@cargo test -- $(TEST_ARGS) --ignored
 
 t: test
 
@@ -49,9 +73,12 @@ help:
 	@echo "Available targets:"
 	@echo "  build        Build project"
 	@echo "  compile      Configure and generate build files"
+	@echo "  fmt          Format the Rust workspace"
 	@echo "  run          Run the main executable"
+	@echo "  tree         Regenerate the checked-in tree-sitter bundle"
+	@echo "  tree-test    Regenerate and run non-empty tree-sitter corpus tests"
 	@echo "  test         Run tests"
-	@echo "  docs         Build documentation (TYPE=mdbook|doxygen)"
+	@echo "  docs         Build documentation in target/book (TYPE=mdbook|doxygen)"
 	@echo "  release      Create a new release (TYPE=patch|minor|major)"
 	@echo
 
@@ -65,8 +92,8 @@ clean:
 docs:
 ifeq ($(TYPE),mdbook)
 	@command -v mdbook >/dev/null 2>&1 || { echo "mdbook is not installed. Please install it first."; exit 1; }
-	@mdbook build $(TOP_DIR)/book --dest-dir $(TOP_DIR)/docs
-	@git add --all && git commit -m "docs: building website/mdbook"
+	@mdbook build $(TOP_DIR)/book --dest-dir $(DOCS_BUILD_DIR)
+	@echo "Documentation written to $(DOCS_BUILD_DIR)"
 else ifeq ($(TYPE),doxygen)
 	@command -v doxygen >/dev/null 2>&1 || { echo "doxygen is not installed. Please install it first."; exit 1; }
 else

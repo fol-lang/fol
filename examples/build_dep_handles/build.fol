@@ -1,0 +1,23 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_dep_handles", version = "0.1.0" });
+
+    var shared = build.add_dep({
+        alias = "shared",
+        source = "loc",
+        target = "deps/shared",
+    });
+    var shared_mod = shared.module("shared");
+    var shared_lib = shared.artifact("shared");
+    var shared_install = shared.step("install");
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

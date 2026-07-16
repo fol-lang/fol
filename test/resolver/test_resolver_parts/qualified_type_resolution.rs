@@ -66,7 +66,7 @@ fn test_resolver_resolves_qualified_types_through_import_alias_roots() {
         .expect("Should write the imported namespace type fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(value: math::Number): math::Number = {\n    var local: math::Number = value;\n    return local;\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(value: math::Number): math::Number = {\n    var local: math::Number = value;\n    return local;\n};\n",
     )
     .expect("Should write the qualified import-alias type fixture");
 
@@ -118,7 +118,7 @@ fn test_resolver_resolves_qualified_types_through_non_matching_import_alias_root
         .expect("Should write the imported namespace type fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use tools: loc = {math};\nfun[] main(value: tools::Number): tools::Number = {\n    var local: tools::Number = value;\n    return local;\n};\n",
+        "use tools: loc = {\"math\"};\nfun[] main(value: tools::Number): tools::Number = {\n    var local: tools::Number = value;\n    return local;\n};\n",
     )
     .expect("Should write the qualified non-matching import-alias type fixture");
 
@@ -170,7 +170,7 @@ fn test_resolver_resolves_qualified_types_through_non_matching_local_import_alia
         .expect("Should write the imported namespace type fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "fun[] main(value: int): int = {\n    use tools: loc = {math};\n    var local: tools::Number = value;\n    return local;\n};\n",
+        "fun[] main(value: int): int = {\n    use tools: loc = {\"math\"};\n    var local: tools::Number = value;\n    return local;\n};\n",
     )
     .expect("Should write the qualified non-matching local import-alias type fixture");
 

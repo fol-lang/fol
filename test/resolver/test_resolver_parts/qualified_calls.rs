@@ -72,7 +72,7 @@ fn test_resolver_resolves_qualified_calls_through_import_alias_roots() {
     .expect("Should write the imported namespace routine fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use math: loc = {math};\nfun[] main(input: int): int = {\n    return math::emit(input);\n};\n",
+        "use math: loc = {\"math\"};\nfun[] main(input: int): int = {\n    return math::emit(input);\n};\n",
     )
     .expect("Should write the qualified import-alias call fixture");
 
@@ -126,7 +126,7 @@ fn test_resolver_resolves_qualified_calls_through_non_matching_import_alias_root
     .expect("Should write the imported namespace routine fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "use tools: loc = {math};\nfun[] main(input: int): int = {\n    return tools::emit(input);\n};\n",
+        "use tools: loc = {\"math\"};\nfun[] main(input: int): int = {\n    return tools::emit(input);\n};\n",
     )
     .expect("Should write the qualified non-matching import-alias call fixture");
 
@@ -181,7 +181,7 @@ fn test_resolver_resolves_qualified_calls_through_non_matching_local_import_alia
     .expect("Should write the imported namespace routine fixture");
     fs::write(
         temp_root.join("main.fol"),
-        "fun[] main(input: int): int = {\n    {\n        use tools: loc = {math};\n        return tools::emit(input);\n    };\n};\n",
+        "fun[] main(input: int): int = {\n    {\n        use tools: loc = {\"math\"};\n        return tools::emit(input);\n    };\n};\n",
     )
     .expect("Should write the qualified non-matching local import-alias call fixture");
 

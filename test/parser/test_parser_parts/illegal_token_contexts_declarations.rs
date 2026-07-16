@@ -147,8 +147,8 @@ fn test_use_declaration_braced_illegal_path_reports_offending_token_location() {
         parse_error_snapshot_decl("test/parser/simple_use_braced_illegal_path.fol");
 
     assert!(
-        message.contains("Parser encountered illegal token"),
-        "Illegal braced use paths should surface as explicit illegal-token diagnostics, got: {}",
+        message.contains("Import targets must be quoted string literals inside braces"),
+        "Unquoted braced use targets should surface the quoted-target diagnostic, got: {}",
         message
     );
     assert_eq!(line, 1, "Illegal braced use paths should report the declaration line");
@@ -164,8 +164,10 @@ fn test_use_declaration_direct_illegal_path_reports_offending_token_location() {
         parse_error_snapshot_decl("test/parser/simple_use_direct_illegal_path.fol");
 
     assert!(
-        message.contains("Parser encountered illegal token"),
-        "Illegal direct use paths should surface as explicit illegal-token diagnostics, got: {}",
+        message.contains(
+            "Import targets must be written as quoted strings inside braces"
+        ),
+        "Bare use targets should surface the quoted-target diagnostic, got: {}",
         message
     );
     assert_eq!(line, 1, "Illegal direct use paths should report the declaration line");
@@ -363,7 +365,7 @@ fn test_select_binding_illegal_name_reports_offending_token_location() {
         message
     );
     assert_eq!(
-        line, 2,
+        line, 3,
         "Illegal select bindings should anchor to the select header line"
     );
     assert!(

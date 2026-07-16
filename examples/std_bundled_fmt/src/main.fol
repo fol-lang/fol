@@ -1,0 +1,9 @@
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var shown: int = std::io::echo_int(std::fmt::sum2(
+        std::fmt::answer(),
+        std::fmt::triple(2),
+    ));
+    return 0;
+};

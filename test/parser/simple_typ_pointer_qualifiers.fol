@@ -1,0 +1,4 @@
+typ Unique: ptr[int];
+typ Shared: ptr[shared, int];
+typ Raw: ptr[raw, int];
+typ MaybeShared: opt ptr[shared, int];

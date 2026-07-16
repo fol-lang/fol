@@ -2,13 +2,13 @@ use std::fmt;
 
 /// Declaration keyword names used by syntax tooling and tree-sitter.
 pub const DECLARATION_KEYWORDS: &[&str] = &[
-    "fun", "var", "def", "typ", "pro", "log", "seg", "ali", "imp", "lab", "con", "use", "std",
+    "fun", "var", "def", "typ", "pro", "log", "seg", "ali", "lab", "con", "use", "std",
 ];
 
 /// Control flow keyword names.
 pub const CONTROL_KEYWORDS: &[&str] = &[
-    "if", "else", "when", "while", "loop", "for", "each", "do", "case",
-    "break", "return", "yield", "go", "select",
+    "if", "else", "when", "while", "loop", "for", "each", "do", "case", "break", "return", "yield",
+    "dfr", "edf", "select",
 ];
 
 /// Operator keyword names.
@@ -23,7 +23,7 @@ pub const LITERAL_KEYWORDS: &[&str] = &["true", "false"];
 pub const DIAGNOSTIC_KEYWORDS: &[&str] = &["panic", "report", "check", "assert"];
 
 /// Other keyword names.
-pub const OTHER_KEYWORDS: &[&str] = &["let", "this", "self", "where", "get", "async", "await"];
+pub const OTHER_KEYWORDS: &[&str] = &["this", "self", "where", "get", "async", "await"];
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BUILDIN {
@@ -38,7 +38,6 @@ pub enum BUILDIN {
     Typ,
     Std,
     Ali,
-    Imp,
     Lab,
 
     Not,
@@ -65,6 +64,8 @@ pub enum BUILDIN {
     Break,
     Return,
     Yield,
+    Dfr,
+    Edf,
     Panic,
     Report,
     Check,
@@ -75,10 +76,8 @@ pub enum BUILDIN {
     Each,
     For,
     Do,
-    Go,
     Get,
     Of,
-    Let,
     Async,
     Await,
     Select,
@@ -98,7 +97,6 @@ impl fmt::Display for BUILDIN {
             BUILDIN::Typ => "typ",
             BUILDIN::Std => "std",
             BUILDIN::Ali => "ali",
-            BUILDIN::Imp => "imp",
             BUILDIN::Lab => "lab",
             BUILDIN::Not => "not",
             BUILDIN::Or => "or",
@@ -125,6 +123,8 @@ impl fmt::Display for BUILDIN {
             BUILDIN::Break => "break",
             BUILDIN::Return => "return",
             BUILDIN::Yield => "yield",
+            BUILDIN::Dfr => "dfr",
+            BUILDIN::Edf => "edf",
             BUILDIN::Panic => "panic",
             BUILDIN::Report => "report",
             BUILDIN::Check => "check",
@@ -135,9 +135,7 @@ impl fmt::Display for BUILDIN {
             BUILDIN::Each => "each",
             BUILDIN::For => "for",
             BUILDIN::Do => "do",
-            BUILDIN::Go => "go",
             BUILDIN::Get => "get",
-            BUILDIN::Let => "let",
             BUILDIN::Async => "async",
             BUILDIN::Await => "await",
             BUILDIN::Select => "select",

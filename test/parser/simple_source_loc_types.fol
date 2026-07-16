@@ -1,2 +1,2 @@
-use local: loc = {./data/input};
+use local: loc = {"./data/input"};
 typ LocalPath: loc[disk];

@@ -1,0 +1,29 @@
+typ Counter: rec = {
+    total: int
+};
+
+fun (Counter)mix(by: int, step: int = 2): int = {
+    return by + step;
+};
+
+fun (Counter)shift(step: int = 2, extras: ... int): int = {
+    return step + extras[0] + extras[1] + .len(extras);
+};
+
+fun[] main(): int = {
+    var current: Counter = {
+        total = 9,
+    };
+    var extras: seq[int] = {4, 5};
+    var method_named_reordered: int = current.mix(step = 7, by = 3);
+    var method_default_only: int = current.mix(8);
+    var method_variadic_pack: int = current.shift(3, 4, 5);
+    var method_named_unpack: int = current.shift(step = 2, ...extras);
+
+    return .echo(
+        method_named_reordered
+        + method_default_only
+        + method_variadic_pack
+        + method_named_unpack
+    );
+};

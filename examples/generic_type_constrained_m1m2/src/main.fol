@@ -1,0 +1,27 @@
+use std: pkg = {"std"};
+
+std geo: pro = {
+    fun area(): int;
+};
+
+typ Rect()(geo): rec = {
+    width: int
+};
+
+fun (Rect)area(): int = {
+    return 4;
+};
+
+typ Box(T: geo): rec = {
+    item: T
+};
+
+fun[] unpack(value: Box[Rect]): int = {
+    return value.item.area();
+};
+
+fun[] main(): int = {
+    var rect: Rect = { width = 2 };
+    var container: Box[Rect] = { item = rect };
+    return std::io::echo_int(unpack(container));
+};

@@ -1,4 +1,4 @@
-use json: pkg = {json};
+use json: pkg = {"json"};
 
 fun[] main(): int = {
     return json::src::answer;

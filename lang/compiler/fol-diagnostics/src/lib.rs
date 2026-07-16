@@ -1,12 +1,14 @@
 // FOL Diagnostics - Error formatting and output
 mod codes;
+mod explain;
 pub mod lsp;
 mod model;
 mod render_human;
 mod render_json;
-mod source;
+pub mod source;
 
 pub use codes::DiagnosticCode;
+pub use explain::{explanation, family_for_code, registered_codes, Explanation};
 pub use model::{
     Diagnostic, DiagnosticLabel, DiagnosticLabelKind, DiagnosticLocation, DiagnosticReport,
     DiagnosticSuggestion, Severity,
@@ -14,6 +16,14 @@ pub use model::{
 
 pub trait ToDiagnostic {
     fn to_diagnostic(&self) -> Diagnostic;
+}
+
+/// A diagnostic is trivially convertible to itself, so already-built
+/// diagnostics can flow through the same `ToDiagnostic`-based plumbing.
+impl ToDiagnostic for Diagnostic {
+    fn to_diagnostic(&self) -> Diagnostic {
+        self.clone()
+    }
 }
 
 /// Output format for diagnostics
@@ -38,17 +48,11 @@ impl DiagnosticReport {
             return;
         }
 
-        // Suppress cascade: skip if same code and same line as last diagnostic
-        if let Some(last) = self.diagnostics.last() {
-            if last.code == diagnostic.code {
-                if let (Some(last_loc), Some(new_loc)) =
-                    (last.primary_location(), diagnostic.primary_location())
-                {
-                    if last_loc.line == new_loc.line {
-                        return; // suppress cascade duplicate
-                    }
-                }
-            }
+        // Suppress only an exact consecutive duplicate. Diagnostics sharing a
+        // code and line can still identify different files, columns, messages,
+        // labels, or recovery guidance and must remain visible.
+        if self.diagnostics.last() == Some(&diagnostic) {
+            return;
         }
 
         match diagnostic.severity {
@@ -63,11 +67,7 @@ impl DiagnosticReport {
         self.add_diagnostic(producer.to_diagnostic());
     }
 
-    pub fn add_error(
-        &mut self,
-        message: impl Into<String>,
-        location: Option<DiagnosticLocation>,
-    ) {
+    pub fn add_error(&mut self, message: impl Into<String>, location: Option<DiagnosticLocation>) {
         let diagnostic = Diagnostic::from_message(message, Severity::Error, location);
         self.add_diagnostic(diagnostic);
     }
@@ -81,11 +81,7 @@ impl DiagnosticReport {
         self.add_diagnostic(diagnostic);
     }
 
-    pub fn add_info(
-        &mut self,
-        message: impl Into<String>,
-        location: Option<DiagnosticLocation>,
-    ) {
+    pub fn add_info(&mut self, message: impl Into<String>, location: Option<DiagnosticLocation>) {
         let diagnostic = Diagnostic::from_message(message, Severity::Info, location);
         self.add_diagnostic(diagnostic);
     }
@@ -488,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn cascade_suppression_skips_same_code_and_line() {
+    fn cascade_suppression_skips_exact_consecutive_duplicates() {
         let mut report = DiagnosticReport::new();
         let loc = DiagnosticLocation {
             file: Some("test.fol".to_string()),
@@ -498,16 +494,66 @@ mod tests {
         };
 
         report.add_diagnostic(Diagnostic::error("P1002", "first").with_primary_label(loc.clone()));
-        report
-            .add_diagnostic(Diagnostic::error("P1002", "second").with_primary_label(loc.clone()));
-        report.add_diagnostic(Diagnostic::error("P1002", "third").with_primary_label(loc.clone()));
+        report.add_diagnostic(Diagnostic::error("P1002", "first").with_primary_label(loc.clone()));
+        report.add_diagnostic(Diagnostic::error("P1002", "first").with_primary_label(loc.clone()));
 
         assert_eq!(
             report.diagnostics.len(),
             1,
-            "same code + same line should deduplicate"
+            "exact consecutive diagnostics should deduplicate"
         );
         assert_eq!(report.error_count, 1);
+    }
+
+    #[test]
+    fn same_code_and_line_keep_distinct_files_columns_and_messages() {
+        let mut report = DiagnosticReport::new();
+        let location = |file: &str, column: usize| DiagnosticLocation {
+            file: Some(file.to_string()),
+            line: 5,
+            column,
+            length: Some(3),
+        };
+
+        report.add_diagnostic(
+            Diagnostic::error("P1002", "first").with_primary_label(location("first.fol", 1)),
+        );
+        report.add_diagnostic(
+            Diagnostic::error("P1002", "first").with_primary_label(location("second.fol", 1)),
+        );
+        report.add_diagnostic(
+            Diagnostic::error("P1002", "first").with_primary_label(location("second.fol", 8)),
+        );
+        report.add_diagnostic(
+            Diagnostic::error("P1002", "second").with_primary_label(location("second.fol", 8)),
+        );
+
+        assert_eq!(report.diagnostics.len(), 4);
+        assert_eq!(report.error_count, 4);
+    }
+
+    #[test]
+    fn same_core_identity_keeps_distinct_rich_diagnostic_context() {
+        let mut report = DiagnosticReport::new();
+        let loc = DiagnosticLocation {
+            file: Some("test.fol".to_string()),
+            line: 5,
+            column: 1,
+            length: Some(3),
+        };
+
+        report.add_diagnostic(
+            Diagnostic::error("P1002", "first")
+                .with_primary_label(loc.clone())
+                .with_help("first recovery"),
+        );
+        report.add_diagnostic(
+            Diagnostic::error("P1002", "first")
+                .with_primary_label(loc)
+                .with_help("second recovery"),
+        );
+
+        assert_eq!(report.diagnostics.len(), 2);
     }
 
     #[test]

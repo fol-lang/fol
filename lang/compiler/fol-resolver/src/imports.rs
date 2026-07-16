@@ -4,7 +4,7 @@ use crate::{
     ResolverSession, ScopeId,
 };
 use fol_parser::ast::FolType;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub fn resolve_import_targets(
     session: &mut ResolverSession,
@@ -84,14 +84,6 @@ pub(crate) fn resolve_import_target_with_session(
             }
             Ok(())
         }
-        FolType::Standard { .. } => {
-            let target_scope = resolve_standard_target_from_disk(session, program, &import)
-                .map_err(|error| import_error_from(program, import.alias_symbol, error))?;
-            if let Some(import_slot) = program.imports.get_mut(import_id) {
-                import_slot.target_scope = Some(target_scope);
-            }
-            Ok(())
-        }
         FolType::Package { .. } => {
             let target_scope = resolve_package_target_from_store(session, program, &import)
                 .map_err(|error| import_error_from(program, import.alias_symbol, error))?;
@@ -114,35 +106,39 @@ fn resolve_location_target_from_disk(
         .expect("import source unit should exist while resolving imports");
     let source_path = Path::new(&source_unit.path);
     let source_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
-    let target_path = resolve_directory_path(source_dir, &import.path_segments);
+    let target_path = fol_package::resolve_directory_target(source_dir, &import.import_target);
+    if let Some(scope_id) = intra_package_namespace_scope(program, import, &target_path) {
+        return Ok(scope_id);
+    }
     let loaded =
         session.load_package_from_directory(target_path.as_path(), PackageSourceKind::Local)?;
     program.mount_loaded_package(&loaded)
 }
 
-fn resolve_standard_target_from_disk(
-    session: &mut ResolverSession,
-    program: &mut ResolvedProgram,
+/// A loc target that points back inside the importing package is already
+/// loaded as one of that package's namespaces; loading it from disk again
+/// would duplicate its source units. Resolve to the existing namespace scope.
+fn intra_package_namespace_scope(
+    program: &ResolvedProgram,
     import: &crate::ResolvedImport,
-) -> Result<ScopeId, ResolverError> {
-    let std_root = session.config().std_root.as_deref().ok_or_else(|| {
-        ResolverError::new(
-            ResolverErrorKind::InvalidInput,
-            format!(
-                "resolver std import '{}' requires an explicit std root",
-                import
-                    .path_segments
-                    .iter()
-                    .map(|segment| segment.spelling.as_str())
-                    .collect::<Vec<_>>()
-                    .join("/")
-            ),
-        )
-    })?;
-    let target_path = resolve_directory_path(Path::new(std_root), &import.path_segments);
-    let loaded =
-        session.load_package_from_directory(target_path.as_path(), PackageSourceKind::Standard)?;
-    program.mount_loaded_package(&loaded)
+    target_path: &Path,
+) -> Option<ScopeId> {
+    let canonical_target = target_path.canonicalize().ok()?;
+    let importing_package = program.source_unit(import.source_unit)?.package.clone();
+
+    let namespace = program
+        .ordinary_source_units()
+        .filter(|unit| unit.id != import.source_unit && unit.package == importing_package)
+        .find_map(|unit| {
+            let unit_dir = Path::new(&unit.path).parent()?.canonicalize().ok()?;
+            (unit_dir == canonical_target).then(|| unit.namespace.clone())
+        })?;
+
+    if namespace == program.package_name() {
+        Some(program.program_scope)
+    } else {
+        program.namespace_scope(&namespace)
+    }
 }
 
 fn resolve_package_target_from_store(
@@ -155,16 +151,12 @@ fn resolve_package_target_from_store(
             ResolverErrorKind::InvalidInput,
             format!(
                 "resolver pkg import '{}' requires an explicit package store root",
-                import
-                    .path_segments
-                    .iter()
-                    .map(|segment| segment.spelling.as_str())
-                    .collect::<Vec<_>>()
-                    .join("/")
+                import.import_target
             ),
         )
     })?;
-    let loaded = session.load_package_from_store(Path::new(&store_root), &import.path_segments)?;
+    let loaded =
+        session.load_package_from_store_target(Path::new(&store_root), &import.import_target)?;
     program.mount_loaded_package(&loaded)
 }
 
@@ -176,12 +168,7 @@ fn resolve_location_target_in_loaded_set(
         .source_unit(import.source_unit)
         .expect("import source unit should exist while resolving imports");
     let package = &source_unit.package;
-    let relative_suffix = import
-        .path_segments
-        .iter()
-        .map(|segment| segment.spelling.clone())
-        .collect::<Vec<_>>();
-    let joined = relative_suffix.join("::");
+    let joined = import.import_target.clone();
     let mut candidate_names = std::collections::BTreeSet::new();
 
     if !joined.is_empty() {
@@ -261,28 +248,11 @@ fn import_error_from(
     }
 }
 
-fn resolve_directory_path(
-    source_dir: &Path,
-    path_segments: &[fol_parser::ast::UsePathSegment],
-) -> PathBuf {
-    let mut relative = PathBuf::new();
-    for segment in path_segments {
-        relative.push(&segment.spelling);
-    }
-
-    if relative.is_absolute() {
-        relative
-    } else {
-        source_dir.join(relative)
-    }
-}
-
 fn import_kind_label(path_type: &FolType) -> &'static str {
     match path_type {
         FolType::Package { .. } => "pkg",
         FolType::Location { .. } => "loc",
         FolType::Module { .. } => "mod",
-        FolType::Standard { .. } => "std",
         _ => "unknown",
     }
 }

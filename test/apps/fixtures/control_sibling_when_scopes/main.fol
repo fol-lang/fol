@@ -1,0 +1,16 @@
+fun[] main(): int = {
+    var[mut] total: int = 0;
+    when(true) {
+        * {
+            var x: int = 1;
+            total = total + x;
+        }
+    }
+    when(true) {
+        * {
+            var x: int = 2;
+            total = total + x;
+        }
+    }
+    return total - 3;
+};

@@ -89,7 +89,7 @@ To acces the namespace there are two ways:
 ### Direct import
 
 ```
-use aNS: loc = { "home/folder/printing/logg" }
+use aNS: loc = {""home/folder/printing/logg""}
 
 pro[] main: int = {
     logg.warn("something")
@@ -99,7 +99,7 @@ pro[] main: int = {
 ### Code access
 
 ```
-use aNS: loc = { "home/folder/printing" }
+use aNS: loc = {""home/folder/printing""}
 
 pro[] main: int = {
     printing::logg.warn("something")
@@ -116,9 +116,9 @@ For source layout, the mental model is:
 - subfolders extend the namespace path
 - `use` imports packages or namespaces
 - `hid` keeps a declaration private to one file
-- `loc` imports a local directory tree without package metadata
-- `std` imports a toolchain-owned directory tree
-- `pkg` imports a formal external package defined by `package.yaml` + `build.fol`
+- `loc` imports a local directory tree without a package control file
+- `pkg` imports a formal external package defined by `build.fol`
+- bundled std is declared as an internal dependency and imported through `pkg`
 
 This means FOL is **not** "one file = one module".
 The package is the folder; the file is a source unit inside that package.
@@ -128,20 +128,18 @@ The package is the folder; the file is a source unit inside that package.
 When a directory is treated as a package root, the exact contract depends on the import kind:
 
 - `loc`: plain local directory import, no package metadata required
-- `std`: toolchain standard-library directory import
 - `pkg`: installed external package import with explicit root files
 
 For `pkg`, the root is not just "a folder containing `.fol` files".
 It is a formal package root with:
 
-- `package.yaml` for metadata
-- `build.fol` as the package build entry file
+- `build.fol` as the package control file
 
 This keeps the language model clean:
 
 - source files `use` other namespaces/packages
-- package build execution starts from `pro[] build(graph: Graph): non` in `build.fol`
-- package metadata lives in `package.yaml`
+- package build execution starts from `pro[] build(): non` in `build.fol`
+- package metadata and direct dependencies are configured through `.build()` inside `build.fol`
 - package loading happens before ordinary name resolution
 
 `build.fol` itself is still ordinary FOL syntax.
@@ -150,6 +148,14 @@ The package layer simply gives package/build meaning to the canonical build
 routine there.
 
 ## Blocks
+
+Current boundary:
+
+- the namespace, package-scope, and import material above is the current
+  compiler surface
+- the block forms in this section (`_{}`, `.{}`, named `blk[]` blocks, and
+  unconditional jump) are not implemented; they are later design work, not part
+  of the current compiler surface
 
 Block statement is used for scopes where members get destroyed when scope is finished. And there are two ways to define a block: 
 - unnamed blocks and 

@@ -26,6 +26,18 @@ The frontend owns:
 - shell completions
 - user-facing summaries and workflow errors
 
+Bundled std reminder:
+
+- the current binary scaffold defaults to `fol_model = "memo"` and bundled
+  `std` because its generated source uses hosted `std.io`
+- a bare executable may use `core` or `memo` and does not need bundled `std`
+- scaffolding writes the dependency automatically when its generated source
+  needs `std`; users should not have to repair an incomplete scaffold manually
+- running and testing host-compatible artifacts is frontend/toolchain behavior,
+  not a bundled-std capability
+- cross-target `run` / `test` remain rejected until the frontend has a runner
+  configuration, independently of the artifact's API tier
+
 Compiler truth remains in the compiler crates.
 
 ## Public Command Groups
@@ -61,7 +73,7 @@ directory or from an explicit path.
 
 It recognizes:
 
-- package roots via `package.yaml`
+- package roots via `build.fol`
 - workspace roots via `fol.work.yaml`
 
 A package root is one buildable package.

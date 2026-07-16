@@ -1,0 +1,7 @@
+fun[] label(): str = {
+    return "heap";
+};
+
+fun[] main(): int = {
+    return .len(label());
+};

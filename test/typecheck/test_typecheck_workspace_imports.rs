@@ -1,4 +1,292 @@
 use super::*;
+use fol_typecheck::TypecheckCapabilityModel;
+
+#[test]
+fn imported_channel_receiver_effect_reaches_local_spawn_wrappers() {
+    let root = unique_temp_dir("workspace_imported_channel_receiver");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] consume(channel: chn[int]): int = { return channel[rx]; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] wrapper(channel: chn[int]): int = { return consume(channel); };\n",
+                    "fun[] main(): int = {\n",
+                    "    var channel: chn[int];\n",
+                    "    [>]wrapper(channel);\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect_err("Imported receiver effects should reject spawned wrappers");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("routine 'wrapper' receives from a channel and cannot be spawned directly")));
+}
+
+#[test]
+fn imported_sender_only_channel_routine_stays_spawnable() {
+    let root = unique_temp_dir("workspace_imported_channel_sender");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "fun[exp] produce(channel: chn[int]): int = {\n",
+                    "    42 | channel[tx];\n",
+                    "    return 42;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] wrapper(channel: chn[int]): int = { return produce(channel); };\n",
+                    "fun[] main(): int = {\n",
+                    "    var channel: chn[int];\n",
+                    "    [>]wrapper(channel);\n",
+                    "    return channel[rx];\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("Imported sender-only effects should preserve spawnable producer wrappers");
+}
+
+#[test]
+fn imported_mux_signature_allows_mux_handle_forwarding() {
+    let root = unique_temp_dir("workspace_imported_mux_forwarding");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = { value: int };\n",
+                    "fun[exp] read(counter[mux]: Counter): int = {\n",
+                    "    counter.lock();\n",
+                    "    return counter.value;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] forward(counter[mux]: Counter): int = { return read(counter); };\n",
+                    "fun[] main(): int = {\n",
+                    "    var counter: Counter = { value = 42 };\n",
+                    "    return forward(counter);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("imported [mux] metadata should preserve mux-to-mux forwarding");
+}
+
+#[test]
+fn imported_plain_signature_rejects_a_mux_whole_value() {
+    let root = unique_temp_dir("workspace_imported_mux_plain_rejection");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = { value: int };\n",
+                    "fun[exp] read_plain(counter: Counter): int = { return counter.value; };\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] bad(counter[mux]: Counter): int = { return read_plain(counter); };\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect_err("imported plain-T calls must not unwrap a mutex handle");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("cannot be used as an unguarded whole value")));
+}
+
+#[test]
+fn qualified_imported_spawns_keep_receiver_and_rc_boundaries() {
+    let root = unique_temp_dir("workspace_qualified_spawn_boundaries");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Shared: rec = { value: ptr[shared, int] };\n",
+                    "fun[exp] consume_channel(channel: chn[int]): int = { return channel[rx]; };\n",
+                    "fun[exp] consume_shared(value: Shared): int = { return 0; };\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] bad_channel(): int = {\n",
+                    "    var channel: chn[int];\n",
+                    "    [>]shared::consume_channel(channel);\n",
+                    "    return 0;\n",
+                    "};\n",
+                    "fun[] bad_shared(): int = {\n",
+                    "    var value: int = 1;\n",
+                    "    var shared_value: shared::Shared = { value = &value };\n",
+                    "    [>]shared::consume_shared(shared_value);\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect_err("qualified imported spawns must preserve processor boundaries");
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("routine 'shared::consume_channel' receives from a channel")));
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("values containing shared Rc pointers cannot cross")
+    }));
+}
+
+#[test]
+fn qualified_imported_spawn_is_accepted_before_lowering() {
+    let root = unique_temp_dir("workspace_qualified_spawn_surface");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] work(value: int): int = { return value; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    [>]shared::work(42);\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("qualified direct spawn targets should typecheck");
+}
+
+#[test]
+fn qualified_imported_async_is_accepted_before_lowering() {
+    let root = unique_temp_dir("workspace_qualified_async_surface");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] work(value: int): int = { return value; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    var pending = shared::work(42) | async;\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("qualified direct async targets should typecheck");
+}
 
 #[test]
 fn workspace_expression_typing_rejects_plain_imported_call_argument_mismatches() {
@@ -31,7 +319,7 @@ fn workspace_expression_typing_rejects_plain_imported_call_argument_mismatches()
             error.kind() == TypecheckErrorKind::IncompatibleType
                 && error
                     .message()
-                    .contains("call to 'emit' expects 'Builtin(Int)'")
+                    .contains("call to 'emit' expects 'int'")
         }),
         "Expected imported-call argument mismatch diagnostic, got: {errors:?}"
     );
@@ -136,6 +424,521 @@ fn workspace_expression_typing_types_plain_imported_method_calls() {
 }
 
 #[test]
+fn workspace_expression_typing_accepts_named_imported_method_calls() {
+    let root = unique_temp_dir("workspace_named_imported_method_calls");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = {\n",
+                    "    value: int;\n",
+                    "};\n",
+                    "var[exp] current: Counter;\n",
+                    "fun[exp] (Counter)shift(by: int, step: int): int = {\n",
+                    "    return by;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return current.shift(step = 2, by = 1);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept named imported method calls through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_accepts_imported_default_parameters_for_method_calls() {
+    let root = unique_temp_dir("workspace_imported_default_method_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = {\n",
+                    "    value: int;\n",
+                    "};\n",
+                    "var[exp] current: Counter;\n",
+                    "fun[exp] (Counter)shift(by: int, step: int = 2): int = {\n",
+                    "    return by;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return current.shift(1);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept imported method-call defaults through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_accepts_imported_variadic_free_calls() {
+    let root = unique_temp_dir("workspace_imported_variadic_free_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "fun[exp] sum(head: int, tail: ... int): int = {\n",
+                    "    return head;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return sum(1, 2, 3, 4);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept imported variadic free calls through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_accepts_imported_unpack_for_variadic_free_calls() {
+    let root = unique_temp_dir("workspace_imported_unpack_variadic_free_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "var[exp] nums: seq[int];\n",
+                    "fun[exp] sum(head: int, tail: ... int): int = {\n",
+                    "    return head;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return sum(1, ...nums);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept imported variadic unpack free calls through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_accepts_named_imported_unpack_for_variadic_free_calls() {
+    let root = unique_temp_dir("workspace_named_imported_unpack_variadic_free_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "var[exp] nums: seq[int];\n",
+                    "fun[exp] score(base: int, step: int = 2, tail: ... int): int = {\n",
+                    "    return base;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return score(base = 1, ...nums);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept named imported variadic unpack free calls through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_accepts_imported_variadic_method_calls() {
+    let root = unique_temp_dir("workspace_imported_variadic_method_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = {\n",
+                    "    value: int;\n",
+                    "};\n",
+                    "var[exp] current: Counter;\n",
+                    "fun[exp] (Counter)shift(values: ... int): int = {\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return current.shift(1, 2, 3);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept imported variadic method calls through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_accepts_named_imported_unpack_for_variadic_method_calls() {
+    let root = unique_temp_dir("workspace_named_imported_unpack_variadic_method_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = {\n",
+                    "    value: int;\n",
+                    "};\n",
+                    "var[exp] current: Counter;\n",
+                    "var[exp] nums: seq[int];\n",
+                    "fun[exp] (Counter)shift(step: int = 2, values: ... int): int = {\n",
+                    "    return step;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return current.shift(step = 3, ...nums);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept named imported variadic unpack method calls through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_accepts_imported_unpack_for_variadic_method_calls() {
+    let root = unique_temp_dir("workspace_imported_unpack_variadic_method_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = {\n",
+                    "    value: int;\n",
+                    "};\n",
+                    "var[exp] current: Counter;\n",
+                    "var[exp] nums: seq[int];\n",
+                    "fun[exp] (Counter)shift(values: ... int): int = {\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return current.shift(...nums);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept imported variadic unpack method calls through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_accepts_imported_default_parameters_for_free_calls() {
+    let root = unique_temp_dir("workspace_imported_default_free_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "fun[exp] pair(left: int, right: int = 2): int = {\n",
+                    "    return left;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return pair(1);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should accept imported free-call defaults through typed package facts");
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_rejects_unknown_named_imported_free_calls() {
+    let root = unique_temp_dir("workspace_unknown_named_imported_free_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "fun[exp] pair(left: int, right: int): int = {\n",
+                    "    return left;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return pair(missing = 1, left = 2);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect_err("Workspace entry typing should reject unknown named imported free-call args");
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("does not have a parameter named 'missing'")
+        }),
+        "Expected an unknown named imported free-call diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
+fn workspace_expression_typing_rejects_duplicate_named_imported_method_calls() {
+    let root = unique_temp_dir("workspace_duplicate_named_imported_method_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = {\n",
+                    "    value: int;\n",
+                    "};\n",
+                    "var[exp] current: Counter;\n",
+                    "fun[exp] (Counter)shift(by: int, step: int): int = {\n",
+                    "    return by;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return current.shift(by = 1, by = 2);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect_err("Workspace entry typing should reject duplicate named imported method args");
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("supplies parameter 'by' more than once")
+        }),
+        "Expected a duplicate named imported method-call diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
+fn workspace_expression_typing_rejects_unpack_for_imported_non_variadic_free_calls() {
+    let root = unique_temp_dir("workspace_unpack_non_variadic_imported_free_call");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "var[exp] nums: seq[int];\n",
+                    "fun[exp] pair(left: int): int = {\n",
+                    "    return left;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return pair(...nums);\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect_err("Workspace entry typing should reject unpack on imported non-variadic free calls");
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("call-site unpack is only supported for variadic calls in V1")
+        }),
+        "Expected an imported non-variadic unpack diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
 fn workspace_expression_typing_types_qualified_imported_method_calls() {
     let root = unique_temp_dir("workspace_qualified_imported_method_calls");
     create_dir_all(&root).expect("Fixture root should be creatable");
@@ -176,6 +979,68 @@ fn workspace_expression_typing_types_qualified_imported_method_calls() {
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
         Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}
+
+#[test]
+fn workspace_expression_typing_selects_imported_method_overloads_by_record_receiver_type() {
+    let root = unique_temp_dir("workspace_imported_method_overloads");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] Counter: rec = {\n",
+                    "    value: int;\n",
+                    "};\n",
+                    "typ[exp] Meter: rec = {\n",
+                    "    value: int;\n",
+                    "};\n",
+                    "var[exp] current_counter: Counter;\n",
+                    "var[exp] current_meter: Meter;\n",
+                    "fun[exp] (Counter)read(): int = {\n",
+                    "    return 1;\n",
+                    "};\n",
+                    "fun[exp] (Meter)read(): bol = {\n",
+                    "    return true;\n",
+                    "};\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] read_counter(): int = {\n",
+                    "    return current_counter.read();\n",
+                    "};\n",
+                    "fun[] read_meter(): bol = {\n",
+                    "    return shared::current_meter.read();\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+        .expect("Workspace entry typing should select imported method overloads by receiver type");
+    let counter_syntax_id = find_named_routine_syntax_id(&typed, "read_counter");
+    let meter_syntax_id = find_named_routine_syntax_id(&typed, "read_meter");
+
+    assert_eq!(
+        typed
+            .typed_node(counter_syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+    assert_eq!(
+        typed
+            .typed_node(meter_syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Bool))
     );
 }
 
@@ -222,6 +1087,57 @@ fn workspace_expression_typing_expands_imported_alias_record_shells_for_field_ac
 }
 
 #[test]
+fn reopened_v1_imported_missing_method_diagnostics_keep_call_site_locations() {
+    let root = unique_temp_dir("reopened_imported_missing_method_locations");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                concat!(
+                    "typ[exp] User: rec = {\n",
+                    "    count: int;\n",
+                    "};\n",
+                    "var[exp] current: User;\n",
+                ),
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    return current.bump();\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let errors =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect_err("Workspace entry typing should reject missing imported methods");
+    let error = errors
+        .iter()
+        .find(|error| {
+            error
+                .message()
+                .contains("method 'bump' is not available for the receiver type in V1")
+        })
+        .expect("Expected missing imported-method diagnostic");
+
+    assert_eq!(
+        error.diagnostic_location(),
+        Some(DiagnosticLocation {
+            file: Some(root.join("app/main.fol").display().to_string()),
+            line: 3,
+            column: 12,
+            length: Some(7),
+        })
+    );
+}
+
+#[test]
 fn legacy_single_package_typecheck_rejects_imported_loc_values_explicitly() {
     let root = unique_temp_dir("reopened_loc_import");
     create_dir_all(&root).expect("Fixture root should be creatable");
@@ -254,15 +1170,19 @@ fn legacy_single_package_typecheck_rejects_imported_loc_values_explicitly() {
 #[test]
 fn legacy_single_package_typecheck_rejects_imported_std_values_explicitly() {
     let root = unique_temp_dir("reopened_std_import");
-    let std_root = root.join("std");
-    create_dir_all(&std_root).expect("Std root should be creatable");
+    let store_root = root.join("store");
+    create_dir_all(&store_root).expect("Package store root should be creatable");
     write_fixture_files(
         &root,
         &[
-            ("std/fmt/value.fol", "var[exp] answer: int = 42;\n"),
+            (
+                "store/std/build.fol",
+                "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"std\", version = \"0.1.0\" });\n};\n",
+            ),
+            ("store/std/src/lib.fol", "var[exp] answer: int = 42;\n"),
             (
                 "app/main.fol",
-                "use fmt: std = {fmt};\nfun[] main(): int = {\n    return answer;\n};\n",
+                "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::src::answer;\n};\n",
             ),
         ],
     );
@@ -271,13 +1191,13 @@ fn legacy_single_package_typecheck_rejects_imported_std_values_explicitly() {
         &root,
         "app",
         ResolverConfig {
-            std_root: Some(
-                std_root
+            std_root: None,
+            package_store_root: Some(
+                store_root
                     .to_str()
-                    .expect("std fixture path should be utf8")
+                    .expect("package store root should be utf8")
                     .to_string(),
             ),
-            package_store_root: None,
         },
     )
     .expect_err("legacy single-package typechecking should still reject imported std values");
@@ -302,15 +1222,15 @@ fn legacy_single_package_typecheck_rejects_imported_pkg_values_explicitly() {
     write_fixture_files(
         &root,
         &[
-            ("store/json/package.yaml", "name: json\nversion: 1.0.0\n"),
+            ("store/json/build.fol", "name: json\nversion: 1.0.0\n"),
             (
                 "store/json/build.fol",
-                "pro[] build(graph: Graph): non = {\n    return graph;\n};\n",
+                "pro[] build(): non = {\n    var build = .build();\n    build.meta({\n        name = \"json\",\n        version = \"1.0.0\",\n    });\n};\n",
             ),
             ("store/json/src/lib.fol", "var[exp] answer: int = 42;\n"),
             (
                 "app/main.fol",
-                "use json: pkg = {json};\nfun[] main(): int = {\n    return json::src::answer;\n};\n",
+                "use json: pkg = {\"json\"};\nfun[] main(): int = {\n    return json::src::answer;\n};\n",
             ),
         ],
     );
@@ -788,6 +1708,7 @@ fn declaration_signature_lowering_resolves_qualified_named_types() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -814,9 +1735,9 @@ fn declaration_signature_lowering_checks_local_bindings() {
 fn declaration_signature_lowering_checks_nested_routine_signatures() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "fun[] demo(seed: int): int = {\n\
+         "fun[] demo(seed: int): int = {\n\
              fun[] helper(item: str): int = {\n\
-                 return seed;\n\
+                 return 1;\n\
              };\n\
              return seed;\n\
          };\n",
@@ -864,6 +1785,7 @@ fn declaration_signature_lowering_keeps_alias_target_types_exact() {
             symbol: alias_id,
             name: "PathLabel".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -907,6 +1829,7 @@ fn declaration_signature_lowering_allows_forward_cross_file_alias_references() {
             symbol: count_id,
             name: "Count".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
 }
@@ -939,6 +1862,7 @@ fn declaration_signature_lowering_allows_cross_file_named_type_references_in_rou
             symbol: user_id,
             name: "User".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -949,6 +1873,7 @@ fn declaration_signature_lowering_allows_cross_file_named_type_references_in_rou
             symbol: user_id,
             name: "User".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
 }

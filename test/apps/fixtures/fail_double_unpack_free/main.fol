@@ -1,0 +1,9 @@
+fun[] score(base: int, extras: ... int): int = {
+    return base;
+};
+
+fun[] main(): int = {
+    var lefts: seq[int] = {1, 2};
+    var rights: seq[int] = {3, 4};
+    return score(1, ...lefts, ...rights);
+};

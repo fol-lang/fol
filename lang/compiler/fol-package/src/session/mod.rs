@@ -1,5 +1,7 @@
 use crate::{
-    metadata::PackageDependencySourceKind, PackageConfig, PackageError, PackageErrorKind,
+    build_dependency::{project_dependency_surface, DependencyBuildSurfaceSet},
+    metadata::PackageDependencySourceKind,
+    PackageBuildDefinition, PackageBuildMode, PackageConfig, PackageError, PackageErrorKind,
     PackageIdentity, PackageSourceKind, PreparedPackage,
 };
 use fol_lexer::lexer::stage3::Elements;
@@ -8,7 +10,7 @@ use fol_stream::{FileStream, Source, SourceType};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PackageSession {
     config: PackageConfig,
     prepared_packages: BTreeMap<PackageIdentity, PreparedPackage>,
@@ -17,10 +19,14 @@ pub struct PackageSession {
 
 impl PackageSession {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_config(PackageConfig::default())
     }
 
     pub fn with_config(config: PackageConfig) -> Self {
+        let config = PackageConfig {
+            std_root: config.effective_std_root(),
+            ..config
+        };
         Self {
             config,
             prepared_packages: BTreeMap::new(),
@@ -116,18 +122,41 @@ impl PackageSession {
         {
             return Ok(cached);
         }
-        let metadata_path = canonical_root.join("package.yaml");
         let build_path = canonical_root.join("build.fol");
-        if !metadata_path.is_file() {
+        if !build_path.is_file() {
             return Err(PackageError::new(
                 PackageErrorKind::InvalidInput,
                 format!(
-                    "package pkg import target '{}' is missing required package metadata '{}'",
+                    "package pkg import target '{}' is missing required package build file '{}'",
                     canonical_root.display(),
-                    metadata_path.display()
+                    build_path.display()
                 ),
             ));
         }
+
+        self.load_formal_package_root(
+            canonical_root.as_path(),
+            canonical_root_str,
+            PackageSourceKind::Package,
+            Some(store_root),
+        )
+    }
+
+    pub fn load_package_from_store_target(
+        &mut self,
+        store_root: &Path,
+        import_target: &str,
+    ) -> Result<PreparedPackage, PackageError> {
+        let target_root = resolve_directory_target(store_root, import_target);
+        let canonical_root =
+            canonical_directory_root(target_root.as_path(), PackageSourceKind::Package)?;
+        let canonical_root_str = canonical_root.to_string_lossy().to_string();
+        if let Some(cached) =
+            self.cached_package_by_root(PackageSourceKind::Package, &canonical_root_str)
+        {
+            return Ok(cached);
+        }
+        let build_path = canonical_root.join("build.fol");
         if !build_path.is_file() {
             return Err(PackageError::new(
                 PackageErrorKind::InvalidInput,
@@ -159,6 +188,20 @@ impl PackageSession {
             PackageSourceKind::Package,
             None,
         )
+    }
+
+    pub fn load_internal_standard_package(&mut self) -> Result<PreparedPackage, PackageError> {
+        let std_root = self.config.std_root.clone().ok_or_else(|| {
+            let bundled = crate::bundled_std_root();
+            PackageError::new(
+                PackageErrorKind::InvalidInput,
+                format!(
+                    "internal dependency 'standard' requires bundled std at '{}' or an explicit --std-root <DIR> override",
+                    bundled.display()
+                ),
+            )
+        })?;
+        self.load_directory_package(Path::new(&std_root), PackageSourceKind::Standard)
     }
 
     #[cfg(test)]
@@ -224,18 +267,7 @@ impl PackageSession {
         if let Some(cached) = self.cached_package_by_root(source_kind, &canonical_root_str) {
             return Ok(cached);
         }
-        let metadata_path = canonical_root.join("package.yaml");
         let build_path = canonical_root.join("build.fol");
-        if !metadata_path.is_file() {
-            return Err(PackageError::new(
-                PackageErrorKind::InvalidInput,
-                format!(
-                    "package pkg import target '{}' is missing required package metadata '{}'",
-                    canonical_root.display(),
-                    metadata_path.display()
-                ),
-            ));
-        }
         if !build_path.is_file() {
             return Err(PackageError::new(
                 PackageErrorKind::InvalidInput,
@@ -247,8 +279,10 @@ impl PackageSession {
             ));
         }
 
-        let metadata = crate::parse_package_metadata(metadata_path.as_path())?;
-        let build = crate::parse_package_build(build_path.as_path())?;
+        let metadata = crate::parse_package_metadata_from_build(build_path.as_path())?;
+        let build = PackageBuildDefinition {
+            mode: PackageBuildMode::ModernOnly,
+        };
         let identity = PackageIdentity {
             source_kind,
             canonical_root: canonical_root_str,
@@ -264,31 +298,46 @@ impl PackageSession {
 
         if let Some(store_root) = store_root {
             for dependency in metadata.dependencies.iter().filter(|dependency| {
-                dependency.source_kind == PackageDependencySourceKind::PackageStore
+                dependency.evaluation_mode == fol_build::DependencyBuildEvaluationMode::Eager
             }) {
-                let path_segments = dependency
-                    .target
-                    .split('/')
-                    .filter(|segment| !segment.trim().is_empty())
-                    .enumerate()
-                    .map(|(index, part)| UsePathSegment {
-                        separator: (index > 0).then_some(fol_parser::ast::UsePathSeparator::Slash),
-                        spelling: part.to_string(),
-                    })
-                    .collect::<Vec<_>>();
-                self.load_package_from_store(store_root, &path_segments)?;
+                match dependency.source_kind {
+                    PackageDependencySourceKind::PackageStore => {
+                        let path_segments = dependency
+                            .target
+                            .split('/')
+                            .filter(|segment| !segment.trim().is_empty())
+                            .enumerate()
+                            .map(|(index, part)| UsePathSegment {
+                                separator: (index > 0)
+                                    .then_some(fol_parser::ast::UsePathSeparator::Slash),
+                                spelling: part.to_string(),
+                            })
+                            .collect::<Vec<_>>();
+                        self.load_package_from_store(store_root, &path_segments)?;
+                    }
+                    PackageDependencySourceKind::Internal if dependency.target == "standard" => {
+                        self.load_internal_standard_package()?;
+                    }
+                    _ => {}
+                }
             }
         }
 
         let prepared_result =
             parse_directory_package_syntax(canonical_root, &metadata.name, source_kind).and_then(
                 |syntax| {
+                    let mut dependency_surfaces = DependencyBuildSurfaceSet::new();
+                    dependency_surfaces.add(project_dependency_surface(
+                        &metadata.name,
+                        canonical_root,
+                        &syntax,
+                    )?);
                     Ok(PreparedPackage::with_controls(
                         identity.clone(),
                         metadata,
                         build,
                         Vec::new(),
-                        None,
+                        Some(dependency_surfaces),
                         None,
                         syntax,
                     ))
@@ -300,6 +349,12 @@ impl PackageSession {
         let prepared = prepared_result?;
         self.cache_package(prepared.clone());
         Ok(prepared)
+    }
+}
+
+impl Default for PackageSession {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -333,7 +388,7 @@ pub fn infer_package_root(syntax: &ParsedPackage) -> Result<PathBuf, PackageErro
 pub fn parse_directory_package_syntax(
     root: &Path,
     display_name: &str,
-    source_kind: PackageSourceKind,
+    _source_kind: PackageSourceKind,
 ) -> Result<ParsedPackage, PackageError> {
     let root_str = root.to_str().ok_or_else(|| {
         PackageError::new(
@@ -341,8 +396,8 @@ pub fn parse_directory_package_syntax(
             format!("package root '{}' is not valid UTF-8", root.display()),
         )
     })?;
-    let mut sources = Source::init_with_package(root_str, SourceType::Folder, display_name)
-        .map_err(|error| {
+    let sources =
+        Source::init_with_package(root_str, SourceType::Folder, display_name).map_err(|error| {
             PackageError::new(
                 PackageErrorKind::InvalidInput,
                 format!(
@@ -352,18 +407,6 @@ pub fn parse_directory_package_syntax(
                 ),
             )
         })?;
-    if source_kind == PackageSourceKind::Package {
-        sources.retain(|source| !is_package_control_file(root, source));
-        if sources.is_empty() {
-            return Err(PackageError::new(
-                PackageErrorKind::InvalidInput,
-                format!(
-                    "package import target '{}' has no loadable source files after excluding package control files",
-                    root.display()
-                ),
-            ));
-        }
-    }
     let mut stream = FileStream::from_sources(sources).map_err(|error| {
         PackageError::new(
             PackageErrorKind::InvalidInput,
@@ -379,7 +422,8 @@ pub fn parse_directory_package_syntax(
 
     parser.parse_package(&mut lexer).map_err(|diagnostics| {
         let mut iter = diagnostics.into_iter();
-        let first = iter.next()
+        let first = iter
+            .next()
             .expect("parse_package should produce at least one error");
         let origin = first.primary_location().map(|loc| SyntaxOrigin {
             file: loc.file.clone(),
@@ -393,11 +437,9 @@ pub fn parse_directory_package_syntax(
             first.message
         );
         let mut error = match origin {
-            Some(origin) => PackageError::with_origin(
-                PackageErrorKind::InvalidInput,
-                message,
-                origin,
-            ),
+            Some(origin) => {
+                PackageError::with_origin(PackageErrorKind::InvalidInput, message, origin)
+            }
             None => PackageError::new(PackageErrorKind::InvalidInput, message),
         };
         for extra in iter {
@@ -491,6 +533,56 @@ pub fn resolve_directory_path(source_dir: &Path, path_segments: &[UsePathSegment
     }
 }
 
+pub fn resolve_directory_target(source_dir: &Path, import_target: &str) -> PathBuf {
+    let mut relative = PathBuf::new();
+    for segment in import_target_segments(import_target) {
+        relative.push(segment);
+    }
+    if relative.is_absolute() {
+        relative
+    } else {
+        source_dir.join(relative)
+    }
+}
+
+fn import_target_segments(import_target: &str) -> Vec<&str> {
+    if import_target.contains("://") {
+        return vec![import_target];
+    }
+
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let bytes = import_target.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'/' {
+            if start != i {
+                parts.push(&import_target[start..i]);
+            }
+            start = i + 1;
+            i += 1;
+            continue;
+        }
+
+        if bytes[i] == b':' && i + 1 < bytes.len() && bytes[i + 1] == b':' {
+            if start != i {
+                parts.push(&import_target[start..i]);
+            }
+            start = i + 2;
+            i += 2;
+            continue;
+        }
+
+        i += 1;
+    }
+
+    if start < import_target.len() {
+        parts.push(&import_target[start..]);
+    }
+
+    parts
+}
+
 fn import_source_label(source_kind: PackageSourceKind) -> &'static str {
     match source_kind {
         PackageSourceKind::Local => "loc",
@@ -521,20 +613,6 @@ fn reject_formal_package_roots_for_directory_imports(
     }
 
     Ok(())
-}
-
-fn is_package_control_file(root: &Path, source: &Source) -> bool {
-    let source_path = Path::new(&source.path);
-    let Some(parent) = source_path.parent() else {
-        return false;
-    };
-    if parent != root {
-        return false;
-    }
-    matches!(
-        source_path.file_name().and_then(|name| name.to_str()),
-        Some("package.yaml") | Some("package.fol")
-    )
 }
 
 #[cfg(test)]

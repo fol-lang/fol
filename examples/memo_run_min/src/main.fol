@@ -1,0 +1,5 @@
+fun[] main(): int = {
+    var text: str = "memo-run";
+    var size: int = .len(text);
+    return 0;
+};

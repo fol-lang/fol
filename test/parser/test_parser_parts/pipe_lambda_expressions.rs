@@ -778,16 +778,16 @@ fn test_pipe_lambda_rejects_variadic_default_values() {
 }
 
 #[test]
-fn test_pipe_lambda_marks_borrowable_parameters() {
+fn test_pipe_lambda_parameter_casing_has_no_borrow_semantics() {
     let mut file_stream =
         FileStream::from_file("test/parser/simple_pipe_lambda_borrowable_params.fol")
-            .expect("Should read borrowable pipe lambda parameter fixture");
+            .expect("Should read uppercase pipe lambda parameter fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
     let ast = parser
         .parse(&mut lexer)
-        .expect("Parser should mark borrowable pipe lambda parameters");
+        .expect("Parser should parse uppercase pipe lambda parameters");
 
     match ast {
         AstNode::Program { declarations } => {
@@ -802,7 +802,7 @@ fn test_pipe_lambda_marks_borrowable_parameters() {
                         AstNode::AnonymousFun { params, .. }
                         if params.len() == 2
                             && params[0].name == "BUF"
-                            && params[0].is_borrowable
+                            && !params[0].is_borrowable
                             && !params[1].is_borrowable
                     )
                 ))

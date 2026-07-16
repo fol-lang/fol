@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var shown: str = .echo("mem-nope");
+    return .len(shown);
+};

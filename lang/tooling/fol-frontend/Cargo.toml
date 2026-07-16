@@ -2,6 +2,7 @@
 name = "fol-frontend"
 version = "0.1.4"
 edition = "2021"
+authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 description = "User-facing frontend crate for the FOL toolchain"
 
 [lib]
@@ -18,5 +19,6 @@ fol-resolver = { path = "../../compiler/fol-resolver" }
 fol-typecheck = { path = "../../compiler/fol-typecheck" }
 fol-lower = { path = "../../compiler/fol-lower" }
 fol-backend = { path = "../../execution/fol-backend" }
+fol-build = { path = "../../execution/fol-build" }
 fol-editor = { path = "../fol-editor" }
 fol-diagnostics = { path = "../../compiler/fol-diagnostics" }

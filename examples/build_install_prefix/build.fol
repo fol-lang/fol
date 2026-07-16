@@ -1,0 +1,22 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_install_prefix", version = "0.1.0" });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    var defaults = graph.write_file({
+        name = "defaults",
+        path = "config/defaults.toml",
+        contents = "value=7",
+    });
+    var assets = graph.dir_from_root("assets");
+
+    graph.install(app);
+    graph.install_file({ name = "defaults", source = defaults });
+    graph.install_dir({ name = "assets", source = assets });
+    return;
+};

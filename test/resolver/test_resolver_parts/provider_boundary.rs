@@ -1,6 +1,21 @@
 use super::{resolve_package_from_folder, resolve_package_from_folder_with_config, unique_temp_root};
 use fol_resolver::{ReferenceKind, ResolverConfig, ScopeKind, SymbolKind};
 use std::fs;
+use std::path::Path;
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("copy target root should be creatable");
+    for entry in fs::read_dir(from).expect("copy source root should be readable") {
+        let entry = entry.expect("copy entry should be readable");
+        let entry_type = entry.file_type().expect("copy entry type should be readable");
+        let to_path = to.join(entry.file_name());
+        if entry_type.is_dir() {
+            copy_tree(&entry.path(), &to_path);
+        } else {
+            fs::copy(entry.path(), &to_path).expect("copy entry should succeed");
+        }
+    }
+}
 
 #[test]
 fn test_resolver_keeps_loc_import_semantics_stable_through_package_provider() {
@@ -72,49 +87,54 @@ fn test_resolver_keeps_loc_import_semantics_stable_through_package_provider() {
 }
 
 #[test]
-fn test_resolver_keeps_std_import_semantics_stable_through_package_provider() {
+fn test_resolver_keeps_bundled_std_pkg_import_semantics_stable_through_package_provider() {
     let temp_root = unique_temp_root("provider_boundary_std");
-    let std_root = temp_root.join("std");
+    let store_root = temp_root.join(".fol/pkg");
     let app_root = temp_root.join("app");
-    fs::create_dir_all(std_root.join("fmt")).expect("Should create the standard-library fixture");
+    fs::create_dir_all(&store_root).expect("Should create the package-store fixture");
     fs::create_dir_all(&app_root).expect("Should create the importing package root fixture");
-    fs::write(std_root.join("fmt/value.fol"), "var[exp] answer: int = 7;\n")
-        .expect("Should write the standard-library value fixture");
+    let bundled_std_root =
+        fol_package::available_bundled_std_root().expect("bundled std root should exist");
+    copy_tree(&bundled_std_root, &store_root.join("std"));
     fs::write(
         app_root.join("main.fol"),
-        "use fmt: std = {fmt};\nfun[] main(): int = {\n    return answer;\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
     )
-    .expect("Should write the importing std fixture");
+    .expect("Should write the importing bundled std pkg fixture");
 
     let resolved = resolve_package_from_folder_with_config(
         app_root
             .to_str()
             .expect("Temporary resolver fixture path should be valid UTF-8"),
         ResolverConfig {
-            std_root: Some(
-                std_root
-                    .to_str()
-                    .expect("Temporary std fixture path should be valid UTF-8")
-                    .to_string(),
-            ),
-            package_store_root: None,
+            std_root: None,
+            package_store_root: Some(store_root.to_string_lossy().into_owned()),
         },
     );
     let import = resolved
         .imports_in_scope(resolved.program_scope)
         .into_iter()
-        .find(|import| import.alias_name == "fmt")
-        .expect("Resolver should keep the std import record");
+        .find(|import| import.alias_name == "std")
+        .expect("Resolver should keep the bundled std pkg import record");
     let target_scope = import
         .target_scope
-        .expect("Std imports should still resolve to a mounted root scope");
-
+        .expect("Bundled std pkg imports should still resolve to a mounted root scope");
+    assert!(
+        matches!(
+            resolved.scope(target_scope).map(|scope| &scope.kind),
+            Some(ScopeKind::ProgramRoot { package }) if package == "std"
+        ),
+        "Bundled std pkg imports should still mount the std package root through the provider boundary",
+    );
+    let fmt_scope = resolved
+        .namespace_scope("std::fmt")
+        .expect("Bundled std pkg imports should expose the std.fmt namespace");
     assert!(
         resolved
-            .symbols_in_scope(target_scope)
+            .symbols_in_scope(fmt_scope)
             .into_iter()
-            .any(|symbol| symbol.name == "answer" && symbol.kind == SymbolKind::ValueBinding),
-        "Std imports should still expose exported value symbols through the migrated provider boundary",
+            .any(|symbol| symbol.name == "answer" && symbol.kind == SymbolKind::Routine),
+        "Bundled std pkg imports should expose public namespace symbols through the provider boundary",
     );
 
     fs::remove_dir_all(&temp_root)
@@ -131,11 +151,11 @@ fn test_resolver_keeps_pkg_import_semantics_stable_through_package_provider() {
     fs::create_dir_all(store_root.join("json/src/fmt"))
         .expect("Should create the exported namespace source fixture");
     fs::create_dir_all(&app_root).expect("Should create the importing package root fixture");
-    fs::write(store_root.join("json/package.yaml"), "name: json\nversion: 1.0.0\n")
+    fs::write(store_root.join("json/build.fol"), "name: json\nversion: 1.0.0\n")
         .expect("Should write the installed package metadata fixture");
     fs::write(
         store_root.join("json/build.fol"),
-        "pro[] build(graph: Graph): non = {\n    return graph;\n};\n",
+        "pro[] build(): non = {\n    var build = .build();\n    build.meta({\n        name = \"json\",\n        version = \"1.0.0\",\n    });\n};\n",
     )
     .expect("Should write the installed package build fixture");
     fs::write(store_root.join("json/src/root/value.fol"), "var[exp] answer: int = 42;\n")
@@ -148,7 +168,7 @@ fn test_resolver_keeps_pkg_import_semantics_stable_through_package_provider() {
     fs::write(
         app_root.join("main.fol"),
         concat!(
-            "use json: pkg = {json};\n",
+            "use json: pkg = {\"json\"};\n",
             "fun[] main(): int = {\n",
             "    return json::src::root::answer + json::src::fmt::formatted;\n",
             "};\n",

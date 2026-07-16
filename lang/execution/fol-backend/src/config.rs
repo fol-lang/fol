@@ -11,6 +11,65 @@ impl BackendTarget {
     }
 }
 
+/// Backend-internal effective model selected after build evaluation.
+///
+/// Public `fol_model` accepts only `core` and `memo`. `Std` represents the
+/// effective hosted tier derived when a `memo` artifact declares the bundled
+/// internal `standard` dependency; it is not a legal third public model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackendFolModel {
+    Core,
+    Memo,
+    #[default]
+    Std,
+}
+
+impl BackendFolModel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Core => "core",
+            Self::Memo => "memo",
+            Self::Std => "std",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendRuntimeTier {
+    Core,
+    Memo,
+    Std,
+}
+
+impl BackendRuntimeTier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Core => "core",
+            Self::Memo => "memo",
+            Self::Std => "std",
+        }
+    }
+
+    pub fn runtime_module_path(self) -> &'static str {
+        match self {
+            Self::Core => "fol_runtime::core",
+            Self::Memo => "fol_runtime::memo",
+            Self::Std => "fol_runtime::std",
+        }
+    }
+
+}
+
+impl From<BackendFolModel> for BackendRuntimeTier {
+    fn from(value: BackendFolModel) -> Self {
+        match value {
+            BackendFolModel::Core => Self::Core,
+            BackendFolModel::Memo => Self::Memo,
+            BackendFolModel::Std => Self::Std,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum BackendMachineTarget {
     #[default]
@@ -114,6 +173,7 @@ impl BackendMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendConfig {
     pub target: BackendTarget,
+    pub fol_model: BackendFolModel,
     pub machine_target: BackendMachineTarget,
     pub build_profile: BackendBuildProfile,
     pub mode: BackendMode,
@@ -124,6 +184,7 @@ impl Default for BackendConfig {
     fn default() -> Self {
         Self {
             target: BackendTarget::Rust,
+            fol_model: BackendFolModel::Std,
             machine_target: BackendMachineTarget::Host,
             build_profile: BackendBuildProfile::Release,
             mode: BackendMode::BuildArtifact,
@@ -132,9 +193,15 @@ impl Default for BackendConfig {
     }
 }
 
+impl BackendConfig {
+    pub fn runtime_tier(&self) -> BackendRuntimeTier {
+        self.fol_model.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::BackendMachineTarget;
+    use super::{BackendConfig, BackendFolModel, BackendMachineTarget, BackendRuntimeTier};
 
     #[test]
     fn machine_target_normalization_keeps_host_aliases_canonical() {
@@ -215,5 +282,36 @@ mod tests {
             None
         );
         assert_eq!(BackendMachineTarget::Host.rust_target_triple(), None);
+    }
+
+    #[test]
+    fn backend_config_defaults_to_effective_std_runtime_tier() {
+        assert_eq!(BackendConfig::default().fol_model, BackendFolModel::Std);
+        assert_eq!(BackendFolModel::Core.as_str(), "core");
+        assert_eq!(BackendFolModel::Memo.as_str(), "memo");
+        assert_eq!(BackendFolModel::Std.as_str(), "std");
+        assert_eq!(
+            BackendConfig::default().runtime_tier(),
+            BackendRuntimeTier::Std
+        );
+    }
+
+    #[test]
+    fn backend_runtime_tier_tracks_internal_effective_model_and_module_paths() {
+        assert_eq!(BackendRuntimeTier::from(BackendFolModel::Core).as_str(), "core");
+        assert_eq!(BackendRuntimeTier::from(BackendFolModel::Memo).as_str(), "memo");
+        assert_eq!(BackendRuntimeTier::from(BackendFolModel::Std).as_str(), "std");
+        assert_eq!(
+            BackendRuntimeTier::from(BackendFolModel::Core).runtime_module_path(),
+            "fol_runtime::core"
+        );
+        assert_eq!(
+            BackendRuntimeTier::from(BackendFolModel::Memo).runtime_module_path(),
+            "fol_runtime::memo"
+        );
+        assert_eq!(
+            BackendRuntimeTier::from(BackendFolModel::Std).runtime_module_path(),
+            "fol_runtime::std"
+        );
     }
 }

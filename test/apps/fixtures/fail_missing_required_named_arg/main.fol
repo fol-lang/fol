@@ -1,0 +1,7 @@
+fun[] pair(left: int, right: int): int = {
+    return left + right;
+};
+
+fun[] main(): int = {
+    return pair(left = 1);
+};

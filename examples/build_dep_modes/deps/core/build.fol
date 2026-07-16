@@ -1,0 +1,13 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "core", version = "0.1.0" });
+
+    var graph = build.graph();
+    var lib = graph.add_static_lib({
+        name = "core",
+        root = "src/root.fol",
+        fol_model = "memo",
+    });
+    graph.install(lib);
+    return;
+};

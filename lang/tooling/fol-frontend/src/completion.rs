@@ -69,6 +69,7 @@ static COMMAND_TREE: &[CmdEntry] = &[
                     CmdEntry { name: "lowered", aliases: &[], hidden: false, subcommands: &[] },
                 ],
             },
+            CmdEntry { name: "explain", aliases: &[], hidden: false, subcommands: &[] },
         ],
     },
     CmdEntry {
@@ -119,7 +120,7 @@ fn generate_bash_script() -> String {
     local -a toplevel=(work w pack p code c tool t)
     local -a work_cmds=(init new info list deps status)
     local -a pack_cmds=(fetch f sync update u upgrade)
-    local -a code_cmds=(build b make run r test t check c verify emit e gen)
+    local -a code_cmds=(build b make run r test t check c verify emit e gen explain)
     local -a tool_cmds=(lsp format parse highlight symbols references rename complete semantic-tokens tree clean cl purge completion completions comp)
     local -a emit_cmds=(rust lowered)
     local -a tree_cmds=(generate)
@@ -171,7 +172,7 @@ _fol() {
     )
     local -a work_cmds=(init new info list deps status)
     local -a pack_cmds=(fetch update)
-    local -a code_cmds=(build run test check emit)
+    local -a code_cmds=(build run test check emit explain)
     local -a tool_cmds=(lsp format parse highlight symbols references rename complete semantic-tokens tree clean completion)
     local -a emit_cmds=(rust lowered)
     local -a tree_cmds=(generate)
@@ -259,6 +260,7 @@ fn generate_fish_script() -> String {
         ("test", "t"),
         ("check", "c verify"),
         ("emit", "e gen"),
+        ("explain", ""),
     ] {
         lines.push(format!(
             "complete -c fol -f -n '__fish_fol_using_subcommand code' -a '{name} {aliases}'"
@@ -404,6 +406,24 @@ mod tests {
 
         assert!(script.contains("complete -c fol"));
         assert!(script.contains("__fish_fol_no_subcommand"));
+    }
+
+    #[test]
+    fn code_completions_offer_the_explain_subcommand() {
+        // `explain` now lives under the `code` group, not at the top level.
+        let top_level = internal_complete_matches(&["e".to_string()]);
+        assert!(!top_level.contains(&"explain".to_string()));
+
+        let code_context =
+            internal_complete_matches(&["code".to_string(), "e".to_string()]);
+        assert!(code_context.contains(&"explain".to_string()));
+
+        let bash = generate_bash_completion_script().unwrap();
+        assert!(bash.contains("explain"));
+        let zsh = generate_zsh_completion_script().unwrap();
+        assert!(zsh.contains("explain"));
+        let fish = generate_fish_completion_script().unwrap();
+        assert!(fish.contains("explain"));
     }
 
     #[test]

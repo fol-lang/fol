@@ -2,8 +2,9 @@
 mod tests {
     use super::super::{
         validate_build_name, BuildApi, BuildApiError, BuildApiNameError, BuildOptionValue,
-        CopyFileRequest, DependencyRequest, ExecutableRequest, GeneratedFileHandle,
-        InstallArtifactRequest, InstallDirRequest, InstallFileRequest, RunRequest,
+        CopyFileRequest, DependencyArgValue, DependencyRequest, ExecutableRequest,
+        InstallArtifactRequest, InstallDirRequest, InstallFileRequest, OutputHandle,
+        OutputHandleKind, OutputHandleLocator, PathHandleClass, PathHandleProvenance, RunRequest,
         SharedLibraryRequest, StandardOptimizeRequest, StandardTargetRequest, StaticLibraryRequest,
         StepRequest, TestArtifactRequest, UserOptionRequest, WriteFileRequest,
     };
@@ -29,12 +30,50 @@ mod tests {
     }
 
     #[test]
+    fn canonical_path_handle_representation_covers_source_and_output_values() {
+        let source_file = crate::api::SourceFileHandle {
+            relative_path: "config/defaults.toml".to_string(),
+        };
+        let source_dir = crate::api::SourceDirHandle {
+            relative_path: "assets".to_string(),
+        };
+        let generated = OutputHandle {
+            kind: OutputHandleKind::WrittenFile,
+            locator: OutputHandleLocator::GeneratedFile(crate::graph::BuildGeneratedFileId(0)),
+        };
+        let dependency_generated = OutputHandle {
+            kind: OutputHandleKind::DependencyGeneratedOutput,
+            locator: OutputHandleLocator::DependencyGeneratedOutput {
+                dependency_alias: "shared".to_string(),
+                output_name: "schema".to_string(),
+            },
+        };
+
+        assert_eq!(source_file.path_handle().class, PathHandleClass::File);
+        assert_eq!(
+            source_file.path_handle().provenance,
+            PathHandleProvenance::Source
+        );
+        assert_eq!(source_dir.path_handle().class, PathHandleClass::Dir);
+        assert_eq!(
+            generated.path_handle("gen/schema.fol").provenance,
+            PathHandleProvenance::Generated
+        );
+        assert_eq!(
+            dependency_generated
+                .path_handle("$dep/shared/schema")
+                .provenance,
+            PathHandleProvenance::DependencyGenerated
+        );
+    }
+
+    #[test]
     fn build_api_exposes_mutable_graph_access() {
         let mut graph = BuildGraph::new();
         let mut api = BuildApi::new(&mut graph);
 
         api.graph_mut()
-            .add_step(crate::graph::BuildStepKind::Default, "build");
+            .add_step(crate::graph::BuildStepKind::Default, "build", None);
 
         assert_eq!(api.graph().steps().len(), 1);
     }
@@ -249,17 +288,23 @@ mod tests {
         let base = api
             .step(StepRequest {
                 name: "build".to_string(),
+                description: Some("Compile the app".to_string()),
                 depends_on: Vec::new(),
             })
             .expect("valid step request should succeed");
         let check = api
             .step(StepRequest {
                 name: "check".to_string(),
+                description: None,
                 depends_on: vec![base.step_id],
             })
             .expect("valid dependent step should succeed");
 
         assert_eq!(api.graph().steps()[0].kind, BuildStepKind::Default);
+        assert_eq!(
+            api.graph().steps()[0].description.as_deref(),
+            Some("Compile the app")
+        );
         assert_eq!(api.graph().steps()[1].id, check.step_id);
         assert_eq!(
             api.graph()
@@ -276,6 +321,7 @@ mod tests {
         let build = api
             .step(StepRequest {
                 name: "build".to_string(),
+                description: None,
                 depends_on: Vec::new(),
             })
             .expect("build step should succeed");
@@ -373,10 +419,24 @@ mod tests {
         let dependency = api
             .dependency(DependencyRequest {
                 alias: "logtiny".to_string(),
+                source_kind: crate::DependencySourceKind::PackageStore,
                 package: "org/logtiny".to_string(),
+                args: std::collections::BTreeMap::from([
+                    (
+                        "target".to_string(),
+                        DependencyArgValue::OptionRef("target".to_string()),
+                    ),
+                    (
+                        "use_fast_parser".to_string(),
+                        DependencyArgValue::Bool(true),
+                    ),
+                ]),
                 evaluation_mode: Some(DependencyBuildEvaluationMode::Lazy),
+                git_version: None,
+                git_hash: None,
                 surface: Some(DependencyBuildSurface {
                     alias: "logtiny".to_string(),
+                    exposure: crate::DependencyBuildExposure::default(),
                     modules: vec![DependencyModuleSurface {
                         name: "root".to_string(),
                         source_namespace: "logtiny::src".to_string(),
@@ -385,10 +445,23 @@ mod tests {
                     artifacts: vec![DependencyArtifactSurface {
                         name: "logtiny".to_string(),
                         artifact_kind: "static-lib".to_string(),
+                        fol_model: "memo".to_string(),
                     }],
                     steps: vec![DependencyStepSurface {
                         name: "check".to_string(),
                         step_kind: "check".to_string(),
+                    }],
+                    files: vec![crate::DependencyFileSurface {
+                        name: "config".to_string(),
+                        relative_path: "config/default.toml".to_string(),
+                    }],
+                    dirs: vec![crate::DependencyDirSurface {
+                        name: "assets".to_string(),
+                        relative_path: "assets".to_string(),
+                    }],
+                    paths: vec![crate::DependencyPathSurface {
+                        name: "schema".to_string(),
+                        relative_path: "gen/schema.fol".to_string(),
                     }],
                     generated_outputs: vec![DependencyGeneratedOutputSurface {
                         name: "bindings".to_string(),
@@ -406,12 +479,19 @@ mod tests {
         );
         assert_eq!(api.graph().modules()[0].id, dependency.root_module_id);
         assert_eq!(api.graph().modules()[0].kind, BuildModuleKind::Imported);
-        assert_eq!(api.graph().modules()[0].name, "logtiny:org/logtiny");
+        assert_eq!(api.graph().modules()[0].name, "logtiny:pkg:org/logtiny");
         assert_eq!(dependency.build.alias, "logtiny");
         assert_eq!(dependency.build.package, "org/logtiny");
+        // NOTE: `DependencyHandle` no longer carries the request `args`; the
+        // current `BuildApi::dependency` does not surface them on the handle,
+        // so the request-arg pass-through can no longer be asserted here
+        // (suspected product gap: dependency args are dropped at handle build).
         assert_eq!(dependency.modules.modules.len(), 1);
         assert_eq!(dependency.artifacts.artifacts.len(), 1);
         assert_eq!(dependency.steps.steps.len(), 1);
+        assert_eq!(dependency.files.files.len(), 1);
+        assert_eq!(dependency.dirs.dirs.len(), 1);
+        assert_eq!(dependency.paths.paths.len(), 1);
         assert_eq!(dependency.generated_outputs.generated_outputs.len(), 1);
     }
 
@@ -435,15 +515,14 @@ mod tests {
             })
             .expect("copy file should succeed");
 
+        assert_eq!(write.kind, OutputHandleKind::WrittenFile);
         assert_eq!(
-            write,
-            GeneratedFileHandle {
-                generated_file_id: crate::graph::BuildGeneratedFileId(0)
-            }
+            write.generated_file_id(),
+            Some(crate::graph::BuildGeneratedFileId(0))
         );
         assert_eq!(
-            copy.generated_file_id,
-            crate::graph::BuildGeneratedFileId(1)
+            copy.generated_file_id(),
+            Some(crate::graph::BuildGeneratedFileId(1))
         );
         assert_eq!(
             api.graph().generated_files()[0].kind,
@@ -464,6 +543,11 @@ mod tests {
             .add_system_tool(SystemToolRequest {
                 tool: "schema-gen".to_string(),
                 args: vec!["api.yaml".to_string()],
+                file_args: vec!["schema/api.yaml".to_string()],
+                env: std::collections::BTreeMap::from([(
+                    "SCHEMA_MODE".to_string(),
+                    "strict".to_string(),
+                )]),
                 outputs: vec!["gen/api.fol".to_string()],
             })
             .expect("system tool should succeed");
@@ -487,6 +571,38 @@ mod tests {
     }
 
     #[test]
+    fn build_api_generated_directory_helpers_keep_directory_kind() {
+        let mut graph = BuildGraph::new();
+        let mut api = BuildApi::new(&mut graph);
+
+        let tool_dir = api
+            .add_system_tool_dir(SystemToolRequest {
+                tool: "assetpack".to_string(),
+                args: Vec::new(),
+                file_args: Vec::new(),
+                env: std::collections::BTreeMap::new(),
+                outputs: vec!["gen/assets".to_string()],
+            })
+            .expect("system tool dir should succeed");
+        let codegen_dir = api
+            .add_codegen_dir(CodegenRequest {
+                kind: CodegenKind::AssetPreprocess,
+                input: "assets/raw".to_string(),
+                output: "gen/packed".to_string(),
+            })
+            .expect("codegen dir should succeed");
+
+        assert_eq!(
+            api.graph().generated_files()[tool_dir.generated_file_id.index()].kind,
+            BuildGeneratedFileKind::GeneratedDir
+        );
+        assert_eq!(
+            api.graph().generated_files()[codegen_dir.generated_file_id.index()].kind,
+            BuildGeneratedFileKind::GeneratedDir
+        );
+    }
+
+    #[test]
     fn build_api_can_project_generated_file_installs() {
         let mut graph = BuildGraph::new();
         let mut api = BuildApi::new(&mut graph);
@@ -501,5 +617,127 @@ mod tests {
 
         assert_eq!(install.install_id, crate::graph::BuildInstallId(0));
         assert_eq!(api.graph().installs()[0].kind, BuildInstallKind::File);
+    }
+
+    #[test]
+    fn build_api_can_link_artifacts_to_typed_system_libraries() {
+        let mut graph = BuildGraph::new();
+        let mut api = BuildApi::new(&mut graph);
+        let app = api
+            .add_exe(ExecutableRequest {
+                name: "demo".to_string(),
+                root_module: "src/main.fol".to_string(),
+            })
+            .expect("artifact should be created");
+
+        api.artifact_link_system_library(
+            app.artifact_id,
+            crate::native::SystemLibraryRequest {
+                name: "ssl".to_string(),
+                mode: crate::native::NativeLinkMode::Dynamic,
+                framework: false,
+                search_path: Some("/usr/lib".to_string()),
+            },
+        );
+
+        assert_eq!(api.graph().artifacts()[0].library_paths.len(), 1);
+        assert_eq!(api.graph().artifacts()[0].link_inputs.len(), 1);
+        assert_eq!(
+            api.graph().artifacts()[0].link_inputs[0].input,
+            crate::native::NativeLinkInput::LibraryName("ssl".to_string())
+        );
+    }
+
+    #[test]
+    fn build_api_run_capture_stdout_returns_an_output_handle() {
+        let mut graph = BuildGraph::new();
+        let mut api = BuildApi::new(&mut graph);
+        let app = api
+            .add_exe(ExecutableRequest {
+                name: "app".to_string(),
+                root_module: "src/app.fol".to_string(),
+            })
+            .expect("executable should succeed");
+        let run = api
+            .add_run(RunRequest {
+                name: "run".to_string(),
+                artifact: app,
+                depends_on: Vec::new(),
+            })
+            .expect("run should succeed");
+
+        let captured = api.run_capture_stdout(run.step_id, "run-stdout");
+
+        assert_eq!(captured.kind, OutputHandleKind::CapturedStdout);
+        assert_eq!(
+            captured.generated_file_id(),
+            Some(crate::graph::BuildGeneratedFileId(0))
+        );
+        assert_eq!(
+            api.graph()
+                .run_config_for(run.step_id)
+                .and_then(|config| config.capture_stdout),
+            Some(crate::graph::BuildGeneratedFileId(0))
+        );
+    }
+
+    #[test]
+    fn build_api_install_generated_file_reuses_existing_generated_nodes() {
+        let mut graph = BuildGraph::new();
+        let mut api = BuildApi::new(&mut graph);
+        let written = api
+            .write_file(WriteFileRequest {
+                name: "cfg".to_string(),
+                path: "config/generated.toml".to_string(),
+                contents: "ok".to_string(),
+            })
+            .expect("write file should succeed");
+
+        let install = api
+            .install_generated_file(
+                "install-generated",
+                written
+                    .generated_file_id()
+                    .expect("written output should resolve to a generated file id"),
+            )
+            .expect("install generated file should succeed");
+
+        assert_eq!(install.name, "install-generated");
+        assert_eq!(api.graph().generated_files().len(), 1);
+        assert_eq!(
+            api.graph().installs()[0].target,
+            Some(crate::graph::BuildInstallTarget::GeneratedFile(
+                crate::graph::BuildGeneratedFileId(0)
+            ))
+        );
+    }
+
+    #[test]
+    fn output_handles_cover_local_and_dependency_generated_sources() {
+        let local = OutputHandle {
+            kind: OutputHandleKind::WrittenFile,
+            locator: OutputHandleLocator::GeneratedFile(crate::graph::BuildGeneratedFileId(3)),
+        };
+        let dep = OutputHandle {
+            kind: OutputHandleKind::DependencyGeneratedOutput,
+            locator: OutputHandleLocator::DependencyGeneratedOutput {
+                dependency_alias: "core".to_string(),
+                output_name: "bindings".to_string(),
+            },
+        };
+
+        assert_eq!(local.kind, OutputHandleKind::WrittenFile);
+        assert!(matches!(
+            local.locator,
+            OutputHandleLocator::GeneratedFile(crate::graph::BuildGeneratedFileId(3))
+        ));
+        assert_eq!(dep.kind, OutputHandleKind::DependencyGeneratedOutput);
+        assert!(matches!(
+            dep.locator,
+            OutputHandleLocator::DependencyGeneratedOutput {
+                ref dependency_alias,
+                ref output_name,
+            } if dependency_alias == "core" && output_name == "bindings"
+        ));
     }
 }

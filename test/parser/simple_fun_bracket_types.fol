@@ -1,4 +1,4 @@
 fun collect(input: seq[pkg::Input]): map[str, vec[pkg::Output]] / errs::Failure = {
-    let cache: map[str, vec[pkg::Output]] = input;
+    var[imu] cache: map[str, vec[pkg::Output]] = input;
     return cache;
 };

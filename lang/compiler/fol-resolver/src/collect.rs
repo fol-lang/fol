@@ -179,17 +179,6 @@ fn collect_symbols_from_top_level(
                 origin,
             )?;
         }
-        AstNode::ImpDecl { name, .. } => {
-            insert_symbol(
-                program,
-                source_unit_id,
-                scope_id,
-                name,
-                SymbolKind::Implementation,
-                item,
-                origin,
-            )?;
-        }
         AstNode::StdDecl { name, .. } => {
             insert_symbol(
                 program,
@@ -204,6 +193,7 @@ fn collect_symbols_from_top_level(
         AstNode::UseDecl {
             name,
             path_type,
+            import_target,
             path_segments,
             ..
         } => {
@@ -223,6 +213,7 @@ fn collect_symbols_from_top_level(
                 symbol_id,
                 name,
                 path_type.clone(),
+                import_target.clone(),
                 path_segments.clone(),
             );
         }
@@ -310,6 +301,9 @@ fn insert_symbol(
         visibility: item.meta.visibility,
         declaration_scope: item.meta.scope,
         mounted_from: None,
+        is_mutable: binding_options(&item.node)
+            .map(fol_parser::ast::binding_is_mutable)
+            .unwrap_or(false),
     });
 
     if let Some(symbol) = program.symbols.get_mut(symbol_id) {
@@ -337,6 +331,15 @@ pub(crate) fn semantic_node(node: &AstNode) -> &AstNode {
     }
 }
 
+/// Variable-declaration options for a binding node, unwrapping comments.
+/// Returns `None` for nodes that are not `var`/`lab` declarations.
+pub(crate) fn binding_options(node: &AstNode) -> Option<&[fol_parser::ast::VarOption]> {
+    match semantic_node(node) {
+        AstNode::VarDecl { options, .. } | AstNode::LabDecl { options, .. } => Some(options),
+        _ => None,
+    }
+}
+
 pub(crate) fn binding_names(pattern: &BindingPattern) -> Vec<String> {
     let mut names = Vec::new();
     collect_binding_names(pattern, &mut names);
@@ -345,7 +348,7 @@ pub(crate) fn binding_names(pattern: &BindingPattern) -> Vec<String> {
 
 fn collect_binding_names(pattern: &BindingPattern, output: &mut Vec<String>) {
     match pattern {
-        BindingPattern::Name(name) | BindingPattern::Rest(name) => output.push(name.clone()),
+        BindingPattern::Name(name, _) | BindingPattern::Rest(name) => output.push(name.clone()),
         BindingPattern::Sequence(parts) => {
             for part in parts {
                 collect_binding_names(part, output);
@@ -393,6 +396,7 @@ pub(crate) fn insert_import_record(
     alias_symbol: SymbolId,
     alias_name: &str,
     path_type: FolType,
+    import_target: String,
     path_segments: Vec<UsePathSegment>,
 ) -> ImportId {
     let import_id = program.imports.push(ResolvedImport {
@@ -400,6 +404,7 @@ pub(crate) fn insert_import_record(
         alias_symbol,
         alias_name: alias_name.to_string(),
         path_type,
+        import_target,
         path_segments,
         scope: scope_id,
         source_unit: source_unit_id,

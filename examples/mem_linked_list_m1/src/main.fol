@@ -1,0 +1,10 @@
+typ Node: rec = {
+    value: int,
+    next: opt @Node,
+};
+
+fun[] main(): int = {
+    @var tail: Node = { value = 2, next = nil };
+    @var head: Node = { value = 1, next = tail };
+    return head.value + (head.next!).value;
+};

@@ -1,0 +1,14 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "proc_channel_loop_m2", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "proc-channel-loop-m2",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

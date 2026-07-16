@@ -13,6 +13,11 @@ pub enum TypecheckErrorKind {
     TypeImportFailed,
     SymbolTableCorrupted,
     UnsupportedSyntax,
+    Ownership,
+    OwnerBorrowed,
+    BorrowConflict,
+    BorrowMutability,
+    BorrowReturned,
 }
 
 impl TypecheckErrorKind {
@@ -26,6 +31,11 @@ impl TypecheckErrorKind {
             Self::TypeImportFailed => DiagnosticCode::new("T1005"),
             Self::SymbolTableCorrupted => DiagnosticCode::new("T1006"),
             Self::UnsupportedSyntax => DiagnosticCode::new("T1007"),
+            Self::Ownership => DiagnosticCode::new("O1001"),
+            Self::OwnerBorrowed => DiagnosticCode::new("O2001"),
+            Self::BorrowConflict => DiagnosticCode::new("O2002"),
+            Self::BorrowMutability => DiagnosticCode::new("O2003"),
+            Self::BorrowReturned => DiagnosticCode::new("O2004"),
         }
     }
 }

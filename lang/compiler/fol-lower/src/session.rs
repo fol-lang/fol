@@ -7,7 +7,7 @@ use crate::{
     LoweredSymbolOwnership, LoweredWorkspace, LoweringError, LoweringErrorKind, LoweringResult,
 };
 use fol_resolver::PackageIdentity;
-use fol_typecheck::{BuiltinType, CheckedType, CheckedTypeId};
+use fol_typecheck::{BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -91,6 +91,8 @@ impl LoweringSession {
             decls::lower_alias_declarations(package, &mut lowered)?;
             decls::lower_record_declarations(package, &mut lowered)?;
             decls::lower_entry_declarations(package, &mut lowered)?;
+            decls::lower_standard_declarations(package, &mut lowered)?;
+            decls::synthesize_structural_runtime_type_declarations(package, &mut lowered)?;
             decls::lower_global_declarations(package, &mut lowered, &mut next_global_index)?;
             decls::lower_routine_declarations(package, &mut lowered, &mut next_routine_index)?;
             packages.insert(package.identity.clone(), lowered);
@@ -102,8 +104,20 @@ impl LoweringSession {
             let Some(lowered) = packages.get_mut(&package.identity) else {
                 continue;
             };
-            exprs::lower_routine_bodies(package, &type_table, &decl_index, lowered, &mut next_routine_index)?;
+            exprs::lower_routine_bodies(
+                package,
+                &type_table,
+                &decl_index,
+                lowered,
+                &mut next_routine_index,
+            )?;
         }
+
+        crate::mono::monomorphize_generic_receiver_routines(
+            &mut packages,
+            &mut type_table,
+            &mut next_routine_index,
+        )?;
 
         let source_map = build_workspace_source_map(&self.typed, &packages);
 
@@ -197,7 +211,34 @@ fn translate_checked_type(
 
     let lowered_type_id = match checked_type {
         CheckedType::Builtin(builtin) => lowered_types.intern_builtin(lower_builtin(builtin)),
-        CheckedType::Declared { symbol, .. } => {
+        CheckedType::Declared {
+            symbol,
+            name,
+            kind,
+            ..
+        } => {
+            if kind == DeclaredTypeKind::GenericParameter {
+                let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
+                cache.insert((package_identity.clone(), checked_type_id), lowered);
+                return Ok(lowered);
+            }
+            // Apparent overrides are authoritative structural shapes. They
+            // cover generic instantiations and declared types imported through
+            // another package without mounting the declaration itself. The
+            // latter intentionally carries only a nominal shell in the target
+            // type table; its foreign SymbolId is not valid in the importing
+            // program and may collide with an unrelated local symbol.
+            if let Some(apparent) = program.apparent_type_override(checked_type_id) {
+                let lowered = translate_checked_type(
+                    lowered_types,
+                    cache,
+                    package_identity,
+                    program,
+                    apparent,
+                )?;
+                cache.insert((package_identity.clone(), checked_type_id), lowered);
+                return Ok(lowered);
+            }
             let typed_symbol = program.typed_symbol(symbol);
             let runtime_type = typed_symbol
                 .and_then(|typed_symbol| typed_symbol.declared_type)
@@ -221,7 +262,6 @@ fn translate_checked_type(
                                     fol_resolver::SymbolKind::Parameter => "parameter",
                                     fol_resolver::SymbolKind::GenericParameter => "generic",
                                     fol_resolver::SymbolKind::Standard => "standard",
-                                    fol_resolver::SymbolKind::Implementation => "implementation",
                                     fol_resolver::SymbolKind::Capture => "capture",
                                     fol_resolver::SymbolKind::LoopBinder => "loop-binder",
                                     fol_resolver::SymbolKind::RollingBinder => "rolling-binder",
@@ -275,6 +315,97 @@ fn translate_checked_type(
                 element_type,
             )?;
             lowered_types.intern(LoweredType::Sequence { element_type })
+        }
+        CheckedType::Channel { element_type } => {
+            let element_type = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                element_type,
+            )?;
+            lowered_types.intern(LoweredType::Channel { element_type })
+        }
+        CheckedType::ChannelSender { element_type } => {
+            let element_type = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                element_type,
+            )?;
+            lowered_types.intern(LoweredType::ChannelSender { element_type })
+        }
+        CheckedType::Eventual {
+            value_type,
+            error_type,
+        } => {
+            let value_type = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                value_type,
+            )?;
+            let error_type = error_type
+                .map(|error_type| {
+                    translate_checked_type(
+                        lowered_types,
+                        cache,
+                        package_identity,
+                        program,
+                        error_type,
+                    )
+                })
+                .transpose()?;
+            lowered_types.intern(LoweredType::Eventual {
+                value_type,
+                error_type,
+            })
+        }
+        CheckedType::Owned { inner } => {
+            let inner = match program.type_table().get(inner).cloned() {
+                Some(CheckedType::Declared { symbol, name, .. }) => {
+                    lowered_types.intern(LoweredType::Named {
+                        package: package_identity.clone(),
+                        symbol,
+                        name,
+                    })
+                }
+                _ => {
+                    translate_checked_type(lowered_types, cache, package_identity, program, inner)?
+                }
+            };
+            lowered_types.intern(LoweredType::Owned { inner })
+        }
+        CheckedType::Borrowed { inner, mutable } => {
+            let inner = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                inner,
+            )?;
+            lowered_types.intern(LoweredType::Borrowed { inner, mutable })
+        }
+        CheckedType::Pointer { target, shared } => {
+            let target = match program.type_table().get(target).cloned() {
+                Some(CheckedType::Declared { symbol, name, .. }) => {
+                    lowered_types.intern(LoweredType::Named {
+                        package: package_identity.clone(),
+                        symbol,
+                        name,
+                    })
+                }
+                _ => translate_checked_type(
+                    lowered_types,
+                    cache,
+                    package_identity,
+                    program,
+                    target,
+                )?,
+            };
+            lowered_types.intern(LoweredType::Pointer { target, shared })
         }
         CheckedType::Set { member_types } => {
             let member_types = member_types
@@ -424,7 +555,9 @@ mod tests {
     use super::LoweringSession;
     use crate::types::{LoweredBuiltinType, LoweredType};
     use fol_parser::ast::AstParser;
-    use fol_resolver::{resolve_package_workspace, resolve_package_workspace_with_config, ResolverConfig};
+    use fol_resolver::{
+        resolve_package_workspace, resolve_package_workspace_with_config, ResolverConfig,
+    };
     use fol_stream::FileStream;
     use fol_typecheck::Typechecker;
 
@@ -517,10 +650,10 @@ mod tests {
         fs::create_dir_all(&shared_dir).expect("should create shared dir");
         fs::write(
             app_dir.join("main.fol"),
-            "use shared: loc = {\"../shared\"}\nfun[] main(): int = { return answer }",
+            "use shared: loc = {\"../shared\"};\nfun[] main(): int = { return answer; };",
         )
         .expect("should write app entry");
-        fs::write(shared_dir.join("lib.fol"), "var[exp] answer: int = 7")
+        fs::write(shared_dir.join("lib.fol"), "var[exp] answer: int = 7;")
             .expect("should write shared library");
 
         let mut stream = FileStream::from_folder(app_dir.to_str().expect("utf8 temp path"))
@@ -530,7 +663,8 @@ mod tests {
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("Lowering folder fixture should parse");
-        let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+        let resolved =
+            resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("Lowering folder fixture should typecheck");
@@ -575,6 +709,10 @@ mod tests {
 
     #[test]
     fn lowering_session_retains_prepared_package_export_mounts() {
+        use fol_package::{
+            PackageBuildDefinition, PackageBuildMode, PackageMetadata, PreparedExportMount,
+            PreparedPackage,
+        };
         use std::fs;
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -583,49 +721,64 @@ mod tests {
             .expect("clock should be monotonic enough for tmp path")
             .as_nanos();
         let root = safe_temp_dir().join(format!("fol_lower_pkg_exports_{stamp}"));
-        let app_dir = root.join("app");
-        let store_root = root.join("store");
-        let json_root = store_root.join("json");
-        fs::create_dir_all(app_dir.clone()).expect("should create app dir");
+        let json_root = root.join("json");
         fs::create_dir_all(json_root.join("src/fmt")).expect("should create package source dirs");
         fs::write(
-            app_dir.join("main.fol"),
-            "use json: pkg = {json}\nfun[] main(): int = { return json::src::answer }\n",
+            json_root.join("main.fol"),
+            "fun[] main(): int = { return src::answer; };\n",
         )
-        .expect("should write app entry");
+        .expect("should write package entry");
         fs::write(
-            json_root.join("package.yaml"),
-            "name: json\nversion: 1.0.0\n",
+            json_root.join("src/lib.fol"),
+            "var[exp] answer: int = 42;\n",
         )
-        .expect("should write package metadata");
-        fs::write(
-            json_root.join("build.fol"),
-            "pro[] build(graph: Graph): non = {\n    return graph\n}\n",
-        )
-        .expect("should write package build definition");
-        fs::write(json_root.join("src/lib.fol"), "var[exp] answer: int = 42\n")
-            .expect("should write exported root source");
+        .expect("should write exported root source");
         fs::write(
             json_root.join("src/fmt/render.fol"),
-            "var[exp] label: str = \"fmt\"\n",
+            "var[exp] label: str = \"fmt\";\n",
         )
         .expect("should write exported fmt source");
 
-        let mut stream = FileStream::from_folder(app_dir.to_str().expect("utf8 temp path"))
+        let mut stream = FileStream::from_folder(json_root.to_str().expect("utf8 temp path"))
             .expect("should open folder fixture");
         let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
         let mut parser = AstParser::new();
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("Lowering folder fixture should parse");
-        let resolved = resolve_package_workspace_with_config(
-            syntax,
-            ResolverConfig {
-                std_root: None,
-                package_store_root: Some(store_root.to_string_lossy().into_owned()),
+        let prepared = PreparedPackage::with_controls(
+            fol_package::PackageIdentity {
+                source_kind: fol_package::PackageSourceKind::Entry,
+                canonical_root: json_root.to_string_lossy().into_owned(),
+                display_name: "json".to_string(),
             },
-        )
-        .expect("Lowering folder fixture should resolve");
+            PackageMetadata {
+                name: "json".to_string(),
+                version: "1.0.0".to_string(),
+                kind: None,
+                description: None,
+                license: None,
+                dependencies: Vec::new(),
+            },
+            PackageBuildDefinition {
+                mode: PackageBuildMode::ModernOnly,
+            },
+            vec![
+                PreparedExportMount {
+                    source_namespace: "json::src".to_string(),
+                    mounted_namespace_suffix: None,
+                },
+                PreparedExportMount {
+                    source_namespace: "json::src::fmt".to_string(),
+                    mounted_namespace_suffix: Some("fmt".to_string()),
+                },
+            ],
+            None,
+            None,
+            syntax,
+        );
+        let resolved = fol_resolver::resolve_prepared_workspace(prepared)
+            .expect("Lowering folder fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("Lowering folder fixture should typecheck");
@@ -637,7 +790,7 @@ mod tests {
         let json_package = lowered
             .packages()
             .find(|package| package.identity.display_name == "json")
-            .expect("lowered workspace should retain the pkg package");
+            .expect("lowered workspace should retain the prepared package");
         assert_eq!(json_package.exports.len(), 2);
         assert!(json_package.exports.iter().any(|mount| {
             mount.source_namespace == "json::src" && mount.mounted_namespace_suffix.is_none()
@@ -664,12 +817,12 @@ mod tests {
         fs::create_dir_all(&shared_dir).expect("should create shared dir");
         fs::write(
             app_dir.join("main.fol"),
-            "use shared: loc = {\"../shared\"}\nfun[] main(): int = { return helper() }\nfun[] helper(): int = { return 1 }\n",
+            "use shared: loc = {\"../shared\"};\nfun[] main(): int = { return helper(); };\nfun[] helper(): int = { return 1; };\n",
         )
         .expect("should write app entry");
         fs::write(
             shared_dir.join("lib.fol"),
-            "fun[exp] main(): int = { return 7 }\nfun[exp] helper(): int = { return 0 }\n",
+            "fun[exp] main(): int = { return 7; };\nfun[exp] helper(): int = { return 0; };\n",
         )
         .expect("should write shared library");
 
@@ -680,7 +833,8 @@ mod tests {
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("Lowering folder fixture should parse");
-        let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+        let resolved =
+            resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("Lowering folder fixture should typecheck");
@@ -713,10 +867,10 @@ mod tests {
         fs::create_dir_all(&shared_dir).expect("should create shared dir");
         fs::write(
             app_dir.join("main.fol"),
-            "use alpha: loc = {\"../shared\"}\nuse beta: loc = {\"../shared\"}\nfun[] main(): int = { return answer }\n",
+            "use alpha: loc = {\"../shared\"};\nuse beta: loc = {\"../shared\"};\nfun[] main(): int = { return answer; };\n",
         )
         .expect("should write app entry");
-        fs::write(shared_dir.join("lib.fol"), "var[exp] answer: int = 9\n")
+        fs::write(shared_dir.join("lib.fol"), "var[exp] answer: int = 9;\n")
             .expect("should write shared library");
 
         let mut stream = FileStream::from_folder(app_dir.to_str().expect("utf8 temp path"))
@@ -726,7 +880,8 @@ mod tests {
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("Lowering folder fixture should parse");
-        let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+        let resolved =
+            resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("Lowering folder fixture should typecheck");
@@ -757,36 +912,53 @@ mod tests {
         let root = safe_temp_dir().join(format!("fol_lower_all_package_kinds_{stamp}"));
         let app_dir = root.join("app");
         let shared_dir = root.join("shared");
-        let std_root = root.join("std");
         let store_root = root.join("store");
-        let fmt_root = std_root.join("fmt");
+        // The bundled standard library reaches source imports as a
+        // store-materialized `std` package (the frontend fetch step projects
+        // the internal `standard` dependency into the package store).
+        let std_store_root = store_root.join("std");
         let json_root = store_root.join("json");
 
         fs::create_dir_all(&app_dir).expect("should create app dir");
         fs::create_dir_all(&shared_dir).expect("should create shared dir");
-        fs::create_dir_all(&fmt_root).expect("should create std fmt dir");
+        fs::create_dir_all(std_store_root.join("src")).expect("should create std store dirs");
         fs::create_dir_all(json_root.join("src")).expect("should create pkg json dirs");
 
         fs::write(
             app_dir.join("main.fol"),
-            "use shared: loc = {\"../shared\"}\nuse fmt: std = {fmt}\nuse json: pkg = {json}\nfun[] main(): int = { return shared::answer }\n",
+            "use shared: loc = {\"../shared\"};\nuse std: pkg = {\"std\"};\nuse json: pkg = {\"json\"};\nfun[] main(): int = { return shared::answer; };\n",
         )
         .expect("should write app entry");
-        fs::write(shared_dir.join("lib.fol"), "var[exp] answer: int = 1\n")
+        fs::write(shared_dir.join("lib.fol"), "var[exp] answer: int = 1;\n")
             .expect("should write local import");
-        fs::write(fmt_root.join("lib.fol"), "var[exp] answer: int = 2\n")
-            .expect("should write std import");
         fs::write(
-            json_root.join("package.yaml"),
-            "name: json\nversion: 1.0.0\n",
+            std_store_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"std\", version = \"1.0.0\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
         )
-        .expect("should write package metadata");
+        .expect("should write std package build definition");
+        fs::write(
+            std_store_root.join("src/lib.fol"),
+            "var[exp] answer: int = 2;\n",
+        )
+        .expect("should write std import");
         fs::write(
             json_root.join("build.fol"),
-            "pro[] build(graph: Graph): non = {\n    return graph\n}\n",
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"json\", version = \"1.0.0\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
         )
-            .expect("should write package build definition");
-        fs::write(json_root.join("src/lib.fol"), "var[exp] answer: int = 3\n")
+        .expect("should write package build definition");
+        fs::write(json_root.join("src/lib.fol"), "var[exp] answer: int = 3;\n")
             .expect("should write package source");
 
         let mut stream = FileStream::from_folder(app_dir.to_str().expect("utf8 temp path"))
@@ -799,7 +971,7 @@ mod tests {
         let resolved = resolve_package_workspace_with_config(
             syntax,
             ResolverConfig {
-                std_root: Some(std_root.to_string_lossy().into_owned()),
+                std_root: None,
                 package_store_root: Some(store_root.to_string_lossy().into_owned()),
             },
         )
@@ -813,7 +985,7 @@ mod tests {
             .expect("Lowering should keep all package kinds coherent");
 
         assert_eq!(lowered.package_count(), 4);
-        for expected in ["app", "shared", "fmt", "json"] {
+        for expected in ["app", "shared", "std", "json"] {
             let package = lowered
                 .packages()
                 .find(|package| package.identity.display_name == expected)
@@ -839,7 +1011,7 @@ mod tests {
         fs::write(root.join("build.fol"), "`build`\n").expect("should write build file");
         fs::write(
             root.join("src/main.fol"),
-            "fun[] main(): int = { return 1 }\n",
+            "fun[] main(): int = { return 1 };\n",
         )
         .expect("should write runtime source");
 

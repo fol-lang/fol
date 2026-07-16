@@ -1,5 +1,0 @@
-imp "math": Number = {
-    fun run(): int = {
-        return 1;
-    }
-};

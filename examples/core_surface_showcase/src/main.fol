@@ -1,0 +1,17 @@
+typ Counter: rec = {
+    total: int,
+};
+
+fun (Counter)tick(by: int = 1): int = {
+    return by + 1;
+};
+
+fun[] main(): int = {
+    dfr {
+        var done: int = 1;
+    };
+
+    var current: Counter = { total = 3 };
+    var values: arr[int, 3] = {current.tick(), 4, 5};
+    return .len(values) + values[0] + values[1] + values[2];
+};

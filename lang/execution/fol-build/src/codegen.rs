@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFileDefinition {
     pub name: String,
@@ -7,9 +9,18 @@ pub struct GeneratedFileDefinition {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GeneratedFileAction {
-    Write { contents: String },
-    Copy { source_path: String },
-    CaptureToolOutput { tool: String, args: Vec<String> },
+    Write {
+        contents: String,
+    },
+    Copy {
+        source_path: String,
+    },
+    CaptureToolOutput {
+        tool: String,
+        args: Vec<String>,
+        file_args: Vec<String>,
+        env: BTreeMap<String, String>,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -47,6 +58,8 @@ impl GeneratedFileInstallProjection {
 pub struct SystemToolRequest {
     pub tool: String,
     pub args: Vec<String>,
+    pub file_args: Vec<String>,
+    pub env: BTreeMap<String, String>,
     pub outputs: Vec<String>,
 }
 
@@ -118,6 +131,7 @@ mod tests {
         GeneratedFileInstallProjection, GeneratedFileSet, GeneratedOutputDependencySet,
         SystemToolRequest, SystemToolResult,
     };
+    use std::collections::BTreeMap;
 
     #[test]
     fn generated_file_set_starts_empty() {
@@ -133,7 +147,7 @@ mod tests {
             name: "version".to_string(),
             relative_path: "gen/version.fol".to_string(),
             action: GeneratedFileAction::Write {
-                contents: "let version = \"0.1.0\"".to_string(),
+                contents: "con version = \"0.1.0\";".to_string(),
             },
         });
 
@@ -157,6 +171,8 @@ mod tests {
         let capture = GeneratedFileAction::CaptureToolOutput {
             tool: "schema-gen".to_string(),
             args: vec!["api.yaml".to_string()],
+            file_args: vec!["schema/api.yaml".to_string()],
+            env: BTreeMap::from([("MODE".to_string(), "strict".to_string())]),
         };
 
         assert!(matches!(write, GeneratedFileAction::Write { .. }));
@@ -182,6 +198,8 @@ mod tests {
         let request = SystemToolRequest {
             tool: "flatc".to_string(),
             args: vec!["--fol".to_string(), "schema.fbs".to_string()],
+            file_args: vec!["schema/api.fbs".to_string()],
+            env: BTreeMap::from([("FLAVOR".to_string(), "strict".to_string())]),
             outputs: vec!["gen/schema.fol".to_string()],
         };
         let result = SystemToolResult {
@@ -191,6 +209,11 @@ mod tests {
         };
 
         assert_eq!(request.tool, "flatc");
+        assert_eq!(request.file_args, vec!["schema/api.fbs".to_string()]);
+        assert_eq!(
+            request.env.get("FLAVOR").map(String::as_str),
+            Some("strict")
+        );
         assert_eq!(request.outputs, vec!["gen/schema.fol".to_string()]);
         assert_eq!(result.exit_status, 0);
         assert_eq!(result.generated_outputs.len(), 1);

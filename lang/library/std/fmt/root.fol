@@ -1,0 +1,17 @@
+use math: loc = {"math"};
+
+fun[exp] answer(): int = {
+    return math::answer();
+};
+
+fun[exp] double(value: int): int = {
+    return value + value;
+};
+
+fun[exp] triple(value: int): int = {
+    return value + value + value;
+};
+
+fun[exp] sum2(left: int, right: int): int = {
+    return left + right;
+};

@@ -1,0 +1,20 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_system_lib", version = "0.1.0" });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    var ssl = graph.add_system_lib({
+        name = "ssl",
+        mode = "dynamic",
+        search_path = "/usr/lib",
+    });
+
+    app.link(ssl);
+    graph.install(app);
+    return;
+};

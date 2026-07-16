@@ -1,0 +1,36 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "build_git_dep_versions",
+        version = "0.1.0",
+    });
+
+    build.add_dep({
+        alias = "logtiny_branch",
+        source = "git",
+        target = "git+https://github.com/bresilla/logtiny.git",
+        version = "branch:develop",
+    });
+
+    build.add_dep({
+        alias = "logtiny_tag",
+        source = "git",
+        target = "git+https://github.com/bresilla/logtiny.git",
+        version = "tag:v0.1.3",
+    });
+
+    build.add_dep({
+        alias = "logtiny_commit",
+        source = "git",
+        target = "git+https://github.com/bresilla/logtiny.git",
+        version = "commit:b242d319644a125fb09167802b5f517418dc9437",
+    });
+
+    build.add_dep({
+        alias = "logtiny_hash",
+        source = "git",
+        target = "git+https://github.com/bresilla/logtiny.git",
+        version = "branch:develop",
+        hash = "b242d319644a",
+    });
+};

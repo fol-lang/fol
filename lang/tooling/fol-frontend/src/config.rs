@@ -12,6 +12,7 @@ pub struct FrontendConfig {
     pub build_root_override: Option<PathBuf>,
     pub cache_root_override: Option<PathBuf>,
     pub git_cache_root_override: Option<PathBuf>,
+    pub install_prefix_override: Option<PathBuf>,
     pub build_target_override: Option<String>,
     pub build_optimize_override: Option<String>,
     pub build_option_overrides: Vec<String>,
@@ -33,6 +34,7 @@ impl Default for FrontendConfig {
             build_root_override: None,
             cache_root_override: None,
             git_cache_root_override: None,
+            install_prefix_override: None,
             build_target_override: None,
             build_optimize_override: None,
             build_option_overrides: Vec::new(),
@@ -127,6 +129,8 @@ impl FrontendConfig {
         config.build_root_override = std::env::var_os("FOL_BUILD_ROOT").map(PathBuf::from);
         config.cache_root_override = std::env::var_os("FOL_CACHE_ROOT").map(PathBuf::from);
         config.git_cache_root_override = std::env::var_os("FOL_GIT_CACHE_ROOT").map(PathBuf::from);
+        config.install_prefix_override =
+            std::env::var_os("FOL_INSTALL_PREFIX").map(PathBuf::from);
         config.build_target_override = std::env::var("FOL_BUILD_TARGET").ok();
         config.build_optimize_override = std::env::var("FOL_BUILD_OPTIMIZE").ok();
         config.build_step_override = std::env::var("FOL_BUILD_STEP").ok();
@@ -173,6 +177,7 @@ mod tests {
         assert!(config.build_root_override.is_none());
         assert!(config.cache_root_override.is_none());
         assert!(config.git_cache_root_override.is_none());
+        assert!(config.install_prefix_override.is_none());
         assert!(config.build_target_override.is_none());
         assert!(config.build_optimize_override.is_none());
         assert!(config.build_option_overrides.is_empty());
@@ -190,6 +195,7 @@ mod tests {
         std::env::set_var("FOL_BUILD_ROOT", "/tmp/build");
         std::env::set_var("FOL_CACHE_ROOT", "/tmp/cache");
         std::env::set_var("FOL_GIT_CACHE_ROOT", "/tmp/git-cache");
+        std::env::set_var("FOL_INSTALL_PREFIX", "/tmp/install");
         std::env::set_var("FOL_BUILD_TARGET", "aarch64-macos-gnu");
         std::env::set_var("FOL_BUILD_OPTIMIZE", "release-fast");
         std::env::set_var("FOL_BUILD_STEP", "docs");
@@ -216,6 +222,10 @@ mod tests {
         assert_eq!(
             config.build_root_override,
             Some(std::path::PathBuf::from("/tmp/build"))
+        );
+        assert_eq!(
+            config.install_prefix_override,
+            Some(std::path::PathBuf::from("/tmp/install"))
         );
         assert_eq!(
             config.cache_root_override,

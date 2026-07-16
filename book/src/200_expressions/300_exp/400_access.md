@@ -1,23 +1,36 @@
 # Access
 
-There are four access expresions:
+Current boundary:
+
+- namespace access, receiver-qualified routine access, single-element container
+  indexing (`c[i]`), map key access, and record field access are the current
+  compiler surface
+- bounded forward slicing (`c[1:3]`, `c[:3]`, and `c[1:]`) is implemented for
+  `vec[...]` and `seq[...]`; fixed-size array slices still need an explicit
+  runtime-sized result type
+- reverse slicing (`c[::]`), availability checks (`v:[1]`), in-place
+  assignment (`c[x => Y]`), and the whole axiom (`axi`) access family are later
+  design work, not part of the current compiler surface
+- the sections below are marked where they cross that line
+
+There are four access expressions:
+
 - namespace member access
-- routine member access
-- container memeber access
+- receiver-qualified routine access
+- container member access
 - field member access
 
+## Receiver-Qualified Routine Access
 
-## Subprogram access
+One access form is the receiver-style routine call. In FOL this remains
+procedural syntax: the receiver value is the first routine input, and the dot
+form is only call-site sugar.
 
-One access form is the receiver-style routine call, often called a
-"method-call expression" in other languages. In FOL this is still procedural
-syntax: the receiver value is the first routine input, and dot-call form is
-just sugar at the call site.
+A receiver-qualified call consists of an expression (the receiver), followed by
+a single dot `.`, a routine name, and a parenthesized expression list:
 
-A method call consists of an expression (the receiver) followed by a single dot
-`.`, an expression path segment, and a parenthesized expression-list:
-```
-"3.14".cast(float).pow(2);                  // casting a numbered string to float, then rising it to power of 2
+```fol
+"3.14".cast(float).pow(2);
 ```
 
 Read:
@@ -26,37 +39,51 @@ Read:
 value.method(arg1, arg2)
 ```
 
-as the procedural idea:
+as:
 
 ```fol
 method(value, arg1, arg2)
 ```
 
-The syntax does not introduce classes or object-owned method dispatch by
-itself.
+This spelling does not create classes, objects, inheritance, or runtime method
+ownership. It is just a shorter way to call a receiver-qualified routine.
 
 
-## Namespaces access
+## Namespace Access
 
-Accesing namespaces is done through double colon operator `::`:
+Accessing namespaces is done through the double-colon operator `::`:
+
+```fol
+use std: pkg = {"std"};
+var shown: int = std::fmt::math::answer();
 ```
-use log: std = {"fmt/log"};                 // using the log namespace of fmt
-io::console::write_out.echo();              // echoing out
-```
+
+This particular namespace is part of bundled `std`, so the package must use a
+`memo` artifact and declare the internal `standard` dependency in `build.fol`.
+The `pkg` target is the declared alias (`"std"`); nested namespaces are reached
+with `::`, not by embedding `std/...` in the import target.
 
 
-## Container access
+## Container Access
 
 ### Array, Vectors, Sequences, Sets
-Containers can be indexed by writing a square-bracket-enclosed expression of type `int[arch]` (the index) after them.
-```
+
+Containers can be indexed by writing a square-bracket-enclosed expression of
+type `int[arch]` after them.
+
+```fol
 var collection: int = { 5, 4, 8, 3, 9, 0, 1, 2, 7, 6 }
 
-collection[5]                               // get the 5th element staring from front (this case is 0)
-collection[-2]                              // get the 3th element starting from back (this case is 1)
+collection[5]
+collection[-2]
 ```
 
 Containers can be accessed with a specified range too, by using colon within a square-bracket-enclosed:
+
+The current executable subset applies these forward forms to `vec[...]` and
+`seq[...]`. It creates a new container, so V3 rejects slices whose elements are
+move-only. Fixed-size `arr[...]` slicing and the reverse forms below remain
+design material.
 
 syntax | meaning
 --- | ---
@@ -65,7 +92,7 @@ elA`:`elB | from element `elA` to element `elB`
 `:`elA | from beginning to element `elA`
 elA`:` | from element `elA` to end
 
-```
+```fol
 collection[-0]                              // last item in the array
 { 6 }
 collection[-1:]                             // last two items in the array
@@ -83,7 +110,7 @@ elA`::`elB | from element `elA` to element `elB` in reverse
 `::`elA | from beginning to element `elA` in reverse
 elA`::` | from element `elA` to end in reverse
 
-```
+```fol
 collection[::]                              // all items in the array, reversed
 { 6, 7, 2, 1, 0, 9, 3, 8, 4, 5 }
 collection[2::]                             // the first two items, reversed
@@ -93,44 +120,52 @@ collection[-2::]                            // the last two items, reversed
 collection[::-3]                            // everything except the last three items, reversed
 { 2, 1, 0, 9, 3, 8, 4, 5 }
 ```
-### Matrixes
-Matrixes are 2D+ arrays, thus they have a bit more complex acces way:
-```
+### Matrices
+
+Matrices are 2D+ arrays, so they use nested index access:
+
+```fol
 var aMat = mat[int, int] = { {1,2,3}, {4,5,6}, {7,8,9} };
 
-nMat[[1][0]]                                // this will return 4
-                                            // first [] accesses the first dimension, then second [] accesses the second
+nMat[[1][0]]
 ```
-All other operations are the same like arrays.
+All other access forms behave like arrays.
 
 ### Maps
-Accesing maps is donw by using the key within square-bracket-enclosed:
-```
+
+Accessing maps is done by using the key inside square brackets:
+
+```fol
 var someMap: map[str, int] = { {"prolog", 1}, {"lisp", 2}, {"c", 3} }
-someMap["lisp"]                             // will return 2
+someMap["lisp"]
 ```
+
 ### Axioms
-Accesing axioms is more or less like accessing maps, but more verbose and matching through **backtracing**, and the return is always a vector of elements (empty if no elements are found):
-```
+
+Accessing axioms is similar to accessing maps, but matching is broader and the
+result is always a vector of matches:
+
+```fol
 var parent: axi[str, str] = { {"albert","bob"}, {"alice","bob"}, {"bob","carl"}, {"bob","tom"} };
 
-parent["albert",*]                          // this will return strng vector: {"bob"}
-parent["bob",*]                             // this will return strng vector: {"carl","tom"}
+parent["albert",*]
+parent["bob",*]
 
-parent[*,_]                                 // this will match to {"albert", "alice", "bob"}
+parent[*,_]
 ```
 
 Matching can be with a vector too:
-```
+
+```fol
 var parent: axi[str, str] = { {"albert","bob"}, {"alice","bob"}, {"bob","carl"}, {"bob","tom"}, {"maggie","bill"} };
 var aVec: vec[str] = { "tom", "bob" };
 
-parent[*,aVec]                              // will match all possible values that have "tom" ot "bob" as second element
-                                            // in this case will be a strng vector: {"albert", "alice", "bob"}
+parent[*,aVec]
 ```
 
-a more complex matching:
-```
+A more complex matching example:
+
+```fol
 var class: axi;
 class.add({"cs340","spring",{"tue","thur"},{12,13},"john","coor_5"})
 class.add({"cs340","winter",{"tue","fri"},{12,13},"mike","coor_5"})
@@ -139,47 +174,52 @@ class.add({"cs101",winter,{"mon","wed"},{10,12},"james","coor_1"})
 class.add({"cs101",spring,{"tue","tue"},{16,18},"tom","coor_1"})
 
 var aClass = "cs340"
-class[aClass,_,[_,"fri"],_,*,_]             // this will return string vector: {"mike", bruce}
-                                            // it matches everything that has aClass ad "fri" within
-                                            // and ignore ones with meh symbol
+class[aClass,_,[_,"fri"],_,*,_]
 ```
 
-### Avaliability
-To check if an element exists, we add `:` before accessing with []. Thus this will return `true` if element exists.
-```
+### Availability
+
+To check whether an element exists, add `:` before `[]`. The result is `true`
+when the element exists.
+
+```fol
 var val: vec = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 
-val:[5]                                     // returns true
-val:[15]                                    // returns false
+val:[5]
+val:[15]
 
 
 var likes: axi[str, str] = { {"bob","alice"} , {"alice","bob"}, {"dan","sally"} };
 
-likes["bob","alice"]:                       // will return true
-likes["sally","dan"]:                       // will return false
+likes["bob","alice"]:
+likes["sally","dan"]:
 ```
 
-### In-Place assignment
-One of the features that is very important in arrays is that they can assign variables immediately:
-```
+### In-Place Assignment
+
+Some access forms can bind a value while matching:
+
+```fol
 var val: vec = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 var even: vec = {2, 4, 6, 8, 10, 12, 14, 16, 18, 20}
-val[even => Y]                              // this equals to {2, 4, 6, 8, 10} and same time assign to Y
-.echo(Y)                                    // will print {2, 4, 6, 8, 10}
+val[even => Y]
+.echo(Y)
 ```
-This dows not look very much interesting here, you can just as easy assign the whole filtered array to a variable, but it gets interesting for axioms:
-```
+
+This is more useful with axioms:
+
+```fol
 var parent: axi[str, str] = { {"albert","bob"}, {"alice","bob"}, {"bob","carl"}, {"bob","tom"}, {"maggie","bill"} };
 
-parent:[* => Y,"bob"]                       // this one returns true if we find a parent of "bob"
-                                            // same time it assigns parent to a string vector `Y`
+parent:[* => Y,"bob"]
 ```
 
+## Field Access
 
-## Field access
+Field access expressions access stored data inside record-like values. Here is
+an example record `user`:
 
-Field access expressoin accesses fields inside constructs. Here is a recorcalled `user`:
-```
+```fol
 var user1: user = {
     email = "someone@example.com",
     username = "someusername123",
@@ -189,33 +229,38 @@ var user1: user = {
 
 fun (user)getName(): str = { result = self.username; };
 ```
-There are two types of fields that can be accesed within constructs:
-- methods
-- data
 
-### Methods
+There are two things you may access on such a value:
 
-Methods are accessed with the same dot form as routine member access, but they
-remain receiver-qualified routines rather than object-owned behavior.
-```
+- receiver-qualified routines
+- data fields
+
+### Receiver-Qualified Routines
+
+The same dot spelling is used for receiver-qualified routines, but they remain
+ordinary routines rather than object-owned behavior:
+
+```fol
 user1.getName()
 ```
 
 ### Data
 
+There are multiple ways to access stored data. The simplest is the dot
+operator `.`:
 
-There are multiple ways to acces data within the construct. The easiest one is by dot operator `.`:
-```
-user1.email                                 // accessing the field through dot-accesed-memeber
+```fol
+user1.email
 ```
 
 Another way is by using square bracket enclosed by name:
-```
-user1[email]                                // accessing the field through square-bracket-enclosed by name
+
+```fol
+user1[email]
 ```
 
 And lastly, by square bracket enclosed by index:
-```
-user1[0]                                    // accessing the field through square-bracket-enclosed by index
 
+```fol
+user1[0]
 ```

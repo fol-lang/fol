@@ -173,6 +173,18 @@ impl AstParser {
 
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
+        let options = self.parse_type_options(tokens)?;
+        if options
+            .iter()
+            .any(|option| !matches!(option, TypeOption::Export))
+        {
+            let token = tokens.curr(false)?;
+            return Err(ParseError::from_token(
+                &token,
+                "Alias declarations support only the export option".to_string(),
+            ));
+        }
+        self.skip_ignorable(tokens)?;
 
         let name_token = tokens.curr(false)?;
         let name = Self::expect_named_label(&name_token, "Expected alias declaration name")?;
@@ -191,7 +203,11 @@ impl AstParser {
         self.skip_ignorable(tokens)?;
         let target = self.parse_type_reference_tokens(tokens)?;
 
-        Ok(AstNode::AliasDecl { name, target })
+        Ok(AstNode::AliasDecl {
+            options,
+            name,
+            target,
+        })
     }
 
     pub(super) fn parse_type_decl(
@@ -304,6 +320,7 @@ impl AstParser {
                 options: options.clone(),
                 generics: generics.clone(),
                 contracts,
+                explicit_contracts: explicit_contracts.clone(),
                 name,
                 type_def,
             });
@@ -349,6 +366,7 @@ impl AstParser {
                 return Ok(TypeDefinition::Record {
                     fields: HashMap::new(),
                     field_meta: HashMap::new(),
+                    field_order: Vec::new(),
                     members: Vec::new(),
                 });
             }
@@ -544,6 +562,7 @@ impl AstParser {
                 "get" => TypeOption::Get,
                 "nothing" | "non" => TypeOption::Nothing,
                 "ext" => TypeOption::Extension,
+                "ali" => TypeOption::Alias,
                 _ => {
                     return Err(ParseError::from_token(
                         &token,
@@ -592,64 +611,6 @@ impl AstParser {
             ParseError {
                 kind: ParseErrorKind::Syntax,
                 message: "Type options exceeded parser limit".to_string(),
-                file: None,
-                line: 0,
-                column: 0,
-                length: 0,
-            }
-        };
-        Err(error)
-    }
-
-    pub(super) fn parse_use_path(
-        &self,
-        tokens: &mut fol_lexer::lexer::stage3::Elements,
-    ) -> Result<String, ParseError> {
-        let mut path = String::new();
-
-        for _ in 0..512 {
-            self.skip_ignorable(tokens)?;
-            let token = tokens.curr(false)?;
-
-            if matches!(token.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
-                let _ = tokens.bump();
-                self.ensure_complete_use_path(&token, &path)?;
-                return Ok(path);
-            }
-
-            if token.key().is_boundary() {
-                return Err(ParseError::from_token(
-                    &token,
-                    "Expected '}' to close use path".to_string(),
-                ));
-            }
-
-            Self::reject_illegal_token(&token)?;
-
-            let segment = match token.key() {
-                KEYWORD::Literal(LITERAL::CookedQuoted) | KEYWORD::Literal(LITERAL::RawQuoted) => {
-                    Self::exact_unquote_text(token.con())
-                }
-                _ => token.con().trim().to_string(),
-            };
-            if !segment.is_empty() {
-                path.push_str(&segment);
-            }
-
-            if tokens.bump().is_none() {
-                break;
-            }
-        }
-
-        let error = if let Ok(token) = tokens.curr(false) {
-            ParseError::from_token(
-                &token,
-                "Use path parsing exceeded safety bound".to_string(),
-            )
-        } else {
-            ParseError {
-                kind: ParseErrorKind::Syntax,
-                message: "Use path parsing exceeded safety bound".to_string(),
                 file: None,
                 line: 0,
                 column: 0,

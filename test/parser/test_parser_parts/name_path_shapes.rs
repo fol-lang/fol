@@ -45,9 +45,6 @@ fn test_parser_name_surfaces_normalize_to_plain_strings() {
                 matches!(node, AstNode::SegDecl { name, .. } if name == "core")
             }));
             assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::ImpDecl { name, .. } if name == "math")
-            }));
-            assert!(declarations.iter().any(|node| {
                 matches!(node, AstNode::UseDecl { name, .. } if name == "warn")
             }));
             assert!(declarations.iter().any(|node| {
@@ -139,8 +136,7 @@ fn test_parser_name_and_path_ast_shapes_stay_distinct_by_surface() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target
-                    } if name == "ResultAlias"
+                        target, .. } if name == "ResultAlias"
                         && fol_type_has_qualified_segments(target, &["pkg", "result", "Value"])
                 )
             }));

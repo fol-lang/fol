@@ -1,0 +1,15 @@
+fun[] pair(left: int, right: int = 2): int = {
+    return left + right;
+};
+
+fun[] score(base: int, step: int = 2, extras: ... int): int = {
+    return base + step + extras[0] + extras[1] + .len(extras);
+};
+
+fun[] main(): int = {
+    var extras: seq[int] = {4, 5};
+    var use_named_default: int = pair(left = 3);
+    var use_named_unpack: int = score(base = 1, ...extras);
+
+    return .echo(use_named_default + use_named_unpack);
+};

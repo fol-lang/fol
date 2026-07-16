@@ -18,6 +18,7 @@ pub struct PackageGitSelector {
     pub branch: Option<String>,
     pub tag: Option<String>,
     pub rev: Option<String>,
+    pub hash: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -108,7 +109,8 @@ pub fn parse_package_locator(raw: &str) -> Result<PackageLocator, PackageError> 
 }
 
 fn parse_https_git_locator(raw: &str) -> Result<PackageLocator, PackageError> {
-    let (repository, selector) = split_repository_and_selector(raw)?;
+    reject_selector_query(raw)?;
+    let repository = raw.to_string();
     let without_scheme = repository
         .split_once("://")
         .map(|(_, rest)| rest)
@@ -148,12 +150,13 @@ fn parse_https_git_locator(raw: &str) -> Result<PackageLocator, PackageError> {
         raw.to_string(),
         PackageGitTransport::Https,
         repository,
-        selector,
+        PackageGitSelector::default(),
     ))
 }
 
 fn parse_ssh_git_locator(raw: &str) -> Result<PackageLocator, PackageError> {
-    let (repository, selector) = split_repository_and_selector(raw)?;
+    reject_selector_query(raw)?;
+    let repository = raw.to_string();
     let Some((user_host, repo_path)) = repository.split_once(':') else {
         return Err(PackageError::new(
             PackageErrorKind::InvalidInput,
@@ -200,13 +203,14 @@ fn parse_ssh_git_locator(raw: &str) -> Result<PackageLocator, PackageError> {
         raw.to_string(),
         PackageGitTransport::Ssh,
         repository,
-        selector,
+        PackageGitSelector::default(),
     ))
 }
 
 fn parse_git_scheme_locator(raw: &str) -> Result<PackageLocator, PackageError> {
     let git_prefixed = raw.trim_start_matches("git+").trim();
-    let (repository, selector) = split_repository_and_selector(git_prefixed)?;
+    reject_selector_query(git_prefixed)?;
+    let repository = git_prefixed.to_string();
     if repository.is_empty()
         || !(repository.starts_with("https://")
             || repository.starts_with("http://")
@@ -226,90 +230,20 @@ fn parse_git_scheme_locator(raw: &str) -> Result<PackageLocator, PackageError> {
         raw.to_string(),
         PackageGitTransport::Git,
         repository,
-        selector,
+        PackageGitSelector::default(),
     ))
 }
 
-fn split_repository_and_selector(raw: &str) -> Result<(String, PackageGitSelector), PackageError> {
-    let Some((repository, query)) = raw.split_once('?') else {
-        return Ok((raw.to_string(), PackageGitSelector::default()));
-    };
-    if repository.trim().is_empty() {
-        return Err(PackageError::new(
-            PackageErrorKind::InvalidInput,
-            format!("git package locator '{}' is missing a repository", raw),
-        ));
-    }
-    let mut selector = PackageGitSelector::default();
-    for part in query
-        .split('&')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-    {
-        let Some((key, value)) = part.split_once('=') else {
-            return Err(PackageError::new(
-                PackageErrorKind::InvalidInput,
-                format!(
-                    "git package locator '{}' has malformed selector '{}'; expected key=value",
-                    raw, part
-                ),
-            ));
-        };
-        if value.trim().is_empty() {
-            return Err(PackageError::new(
-                PackageErrorKind::InvalidInput,
-                format!(
-                    "git package locator '{}' has an empty selector value for '{}'",
-                    raw, key
-                ),
-            ));
-        }
-        match key.trim() {
-            "branch" => set_selector_value(raw, &mut selector.branch, "branch", value.trim())?,
-            "tag" => set_selector_value(raw, &mut selector.tag, "tag", value.trim())?,
-            "rev" => set_selector_value(raw, &mut selector.rev, "rev", value.trim())?,
-            other => {
-                return Err(PackageError::new(
-                    PackageErrorKind::InvalidInput,
-                    format!(
-                        "git package locator '{}' uses unsupported selector '{}'",
-                        raw, other
-                    ),
-                ));
-            }
-        }
-    }
-    let selector_count = usize::from(selector.branch.is_some())
-        + usize::from(selector.tag.is_some())
-        + usize::from(selector.rev.is_some());
-    if selector_count > 1 {
+fn reject_selector_query(raw: &str) -> Result<(), PackageError> {
+    if raw.split_once('?').is_some() {
         return Err(PackageError::new(
             PackageErrorKind::InvalidInput,
             format!(
-                "git package locator '{}' may specify only one of branch, tag, or rev",
+                "git package locator '{}' must not embed selector query params; use dependency fields 'version' and 'hash' instead",
                 raw
             ),
         ));
     }
-    Ok((repository.to_string(), selector))
-}
-
-fn set_selector_value(
-    raw: &str,
-    slot: &mut Option<String>,
-    key: &str,
-    value: &str,
-) -> Result<(), PackageError> {
-    if slot.is_some() {
-        return Err(PackageError::new(
-            PackageErrorKind::InvalidInput,
-            format!(
-                "git package locator '{}' may only specify '{}' once",
-                raw, key
-            ),
-        ));
-    }
-    *slot = Some(value.to_string());
     Ok(())
 }
 
@@ -345,7 +279,15 @@ fn normalize_git_repository_identity(raw: &str) -> String {
         .or_else(|| trimmed.strip_prefix("http://"))
         .or_else(|| trimmed.strip_prefix("ssh://"))
     {
-        rest.to_string()
+        // Scheme URLs may still embed a user (ssh://git@host/...); the
+        // user is transport detail, not repository identity.
+        match rest.split_once('/') {
+            Some((authority, path)) => {
+                let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+                format!("{host}/{path}")
+            }
+            None => rest.rsplit_once('@').map_or(rest, |(_, host)| host).to_string(),
+        }
     } else if let Some(rest) = trimmed.strip_prefix("git@") {
         rest.replace(':', "/")
     } else {
@@ -402,7 +344,10 @@ mod tests {
 
     #[test]
     fn package_locator_reports_remote_git_forms_as_explicit_placeholders() {
-        let error = parse_package_locator("git@github.com:follang/json.git").expect_err(
+        // The `git@host:owner/repo.git` and `git+ssh://...` forms are now
+        // supported transports. Raw `ssh://...` remote locators remain
+        // unsupported and must still surface an explicit placeholder diagnostic.
+        let error = parse_package_locator("ssh://github.com/follang/json.git").expect_err(
             "Remote git-like locators should fail with an explicit placeholder diagnostic",
         );
 
@@ -423,6 +368,7 @@ mod tests {
                 branch: Some("main".to_string()),
                 tag: None,
                 rev: None,
+                hash: None,
             },
         );
 
@@ -492,7 +438,7 @@ mod tests {
 
     #[test]
     fn package_locator_parses_git_file_scheme_locators() {
-        let locator = parse_package_locator("git+file:///tmp/logtiny?branch=main")
+        let locator = parse_package_locator("git+file:///tmp/logtiny")
             .expect("git+file locators should parse");
 
         assert_eq!(locator.kind, PackageLocatorKind::Git);
@@ -504,55 +450,77 @@ mod tests {
             locator.git.as_ref().map(|git| git.repository.as_str()),
             Some("file:///tmp/logtiny")
         );
-        assert_eq!(
-            locator
-                .git
-                .as_ref()
-                .and_then(|git| git.selector.branch.as_deref()),
-            Some("main")
+    }
+
+    #[test]
+    fn package_locator_rejects_branch_selector_query_params() {
+        let error = parse_package_locator("https://github.com/follang/json.git?branch=main")
+            .expect_err("branch selector query params should be rejected");
+
+        assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
+        assert!(
+            error
+                .to_string()
+                .contains("must not embed selector query params"),
+            "rejection should explain the structured version/hash contract",
         );
     }
 
     #[test]
-    fn package_locator_parses_branch_selectors() {
-        let locator = parse_package_locator("https://github.com/follang/json.git?branch=main")
-            .expect("branch selectors should parse");
+    fn package_locator_rejects_tag_selector_query_params() {
+        let error = parse_package_locator("https://github.com/follang/json.git?tag=v0.1.0")
+            .expect_err("tag selector query params should be rejected");
 
-        assert_eq!(
-            locator
-                .git
-                .as_ref()
-                .and_then(|git| git.selector.branch.as_deref()),
-            Some("main")
+        assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
+        assert!(
+            error
+                .to_string()
+                .contains("must not embed selector query params"),
+            "rejection should explain the structured version/hash contract",
         );
     }
 
     #[test]
-    fn package_locator_parses_tag_selectors() {
-        let locator = parse_package_locator("https://github.com/follang/json.git?tag=v0.1.0")
-            .expect("tag selectors should parse");
+    fn package_locator_rejects_revision_selector_query_params() {
+        let error = parse_package_locator("https://github.com/follang/json.git?rev=0123456789abcdef")
+            .expect_err("revision selector query params should be rejected");
 
-        assert_eq!(
-            locator
-                .git
-                .as_ref()
-                .and_then(|git| git.selector.tag.as_deref()),
-            Some("v0.1.0")
+        assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
+        assert!(
+            error
+                .to_string()
+                .contains("must not embed selector query params"),
+            "rejection should explain the structured version/hash contract",
         );
     }
 
     #[test]
-    fn package_locator_parses_revision_selectors() {
-        let locator =
-            parse_package_locator("https://github.com/follang/json.git?rev=0123456789abcdef")
-                .expect("revision selectors should parse");
+    fn package_locator_rejects_hash_selector_query_params() {
+        let error = parse_package_locator("https://github.com/follang/json.git?hash=0123456789abcdef")
+            .expect_err("hash selector query params should be rejected");
 
-        assert_eq!(
-            locator
-                .git
-                .as_ref()
-                .and_then(|git| git.selector.rev.as_deref()),
-            Some("0123456789abcdef")
+        assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
+        assert!(
+            error
+                .to_string()
+                .contains("must not embed selector query params"),
+            "rejection should explain the structured version/hash contract",
+        );
+    }
+
+    #[test]
+    fn package_locator_rejects_multiple_selector_query_params() {
+        let error = parse_package_locator(
+            "https://github.com/follang/json.git?branch=main&hash=0123456789abcdef",
+        )
+        .expect_err("selector query params should be rejected even when otherwise well-formed");
+
+        assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
+        assert!(
+            error
+                .to_string()
+                .contains("must not embed selector query params"),
+            "rejection should explain the structured version/hash contract",
         );
     }
 
@@ -573,6 +541,8 @@ mod tests {
             ssh.normalized_git_identity().as_deref(),
             Some("github.com/follang/json")
         );
+        // Every transport spelling of the same repository normalizes to one
+        // identity; embedded users are transport detail, not identity.
         assert_eq!(
             git.normalized_git_identity().as_deref(),
             Some("github.com/follang/json")
@@ -604,30 +574,47 @@ mod tests {
     }
 
     #[test]
-    fn package_locator_rejects_conflicting_git_selectors() {
+    fn package_locator_rejects_conflicting_git_selector_query_params() {
         let error =
             parse_package_locator("https://github.com/follang/json.git?branch=main&tag=v0.1.0")
-                .expect_err("git locators should reject conflicting selectors");
+                .expect_err("git locators should reject selector query params entirely");
 
         assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
         assert!(
             error
                 .to_string()
-                .contains("may specify only one of branch, tag, or rev"),
-            "conflicting selectors should explain the allowed selector contract",
+                .contains("must not embed selector query params"),
+            "selector query params should point callers at version/hash fields",
         );
     }
 
     #[test]
-    fn package_locator_rejects_duplicate_git_selectors() {
+    fn package_locator_rejects_duplicate_git_selector_query_params() {
         let error =
             parse_package_locator("https://github.com/follang/json.git?branch=main&branch=stable")
-                .expect_err("git locators should reject duplicate selectors");
+                .expect_err("git locators should reject selector query params entirely");
 
         assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
         assert!(
-            error.to_string().contains("may only specify 'branch' once"),
-            "duplicate selectors should explain the exact duplicated key",
+            error
+                .to_string()
+                .contains("must not embed selector query params"),
+            "selector query params should point callers at version/hash fields",
+        );
+    }
+
+    #[test]
+    fn package_locator_rejects_duplicate_hash_selector_query_params() {
+        let error =
+            parse_package_locator("https://github.com/follang/json.git?hash=abc&hash=def")
+                .expect_err("git locators should reject selector query params entirely");
+
+        assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
+        assert!(
+            error
+                .to_string()
+                .contains("must not embed selector query params"),
+            "selector query params should point callers at version/hash fields",
         );
     }
 
@@ -648,7 +635,7 @@ mod tests {
                 Some("github.com/follang/json"),
             ),
             (
-                "git+https://github.com/follang/json.git?rev=abc123",
+                "git+https://github.com/follang/json.git",
                 PackageLocatorKind::Git,
                 Some(PackageGitTransport::Git),
                 Some("github.com/follang/json"),

@@ -1,0 +1,263 @@
+==================
+V3 Pointers
+==================
+
+use models: loc = {"../models"};
+
+typ Box(T): rec = {
+    value: T,
+};
+
+fun[] pointers(
+    boxed: ptr[Box[int]],
+    queued: chn[vec[models::Node]],
+    owned: @arr[models::Node, 1],
+    optional: ptr[opt[models::Node]]
+): int = {
+    var value: int = 1;
+    var[mut] unique: ptr[int] = &value;
+    var shared: ptr[shared, int] = unique;
+    *unique = 2;
+    return *unique;
+};
+
+---
+
+(source_file
+  (use_decl
+    (identifier)
+    (source_kind)
+    (string_literal))
+  (typ_decl
+    (identifier)
+    (type_contract_claims
+      (type_expr
+        (identifier)))
+    (record_type)
+    (type_block
+      (record_field
+        (typed_binding
+          (identifier)
+          (type_expr
+            (identifier))))))
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (pointer_type
+              (type_expr
+                (generic_type_expr
+                  (identifier)
+                  (type_expr
+                    (identifier)))))))
+        (param
+          (identifier)
+          (type_expr
+            (channel_type
+              (type_expr
+                (container_type
+                  (type_expr
+                    (qualified_path
+                      (identifier)
+                      (identifier))))))))
+        (param
+          (identifier)
+          (type_expr
+            (owned_type
+              (type_expr
+                (container_type
+                  (type_expr
+                    (qualified_path
+                      (identifier)
+                      (identifier)))
+                  (integer_literal))))))
+        (param
+          (identifier)
+          (type_expr
+            (pointer_type
+              (type_expr
+                (shell_type
+                  (type_expr
+                    (qualified_path
+                      (identifier)
+                      (identifier)))))))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (integer_literal)))))
+        (stmt
+          (var_decl
+            (decl_modifiers
+              (modifier_list
+                (identifier)))
+            (typed_binding
+              (identifier)
+              (type_expr
+                (pointer_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (unary_expr
+                (expr_atom
+                  (identifier))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (pointer_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (expr_atom
+                (identifier)))))
+        (stmt
+          (assignment_stmt
+            (deref_target
+              (expr_atom
+                (identifier)))
+            (expr
+              (expr_atom
+                (integer_literal)))))
+        (stmt
+          (return_stmt
+            (expr
+              (unary_expr
+                (expr_atom
+                  (identifier))))))))))
+
+==================
+V3 Consuming And Borrowed Pointer Dereference
+==================
+
+fun[] read(pointer[bor]: ptr[int]): int = {
+    return *pointer;
+};
+
+fun[] main(): int = {
+    var seed: int = 41;
+    var inner: ptr[int] = &seed;
+    var outer: ptr[ptr[int]] = &inner;
+    var extracted: ptr[int] = *outer;
+    var[bor] view: ptr[int] = extracted;
+    return read(view);
+};
+
+---
+
+(source_file
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (parameter_options)
+          (type_expr
+            (pointer_type
+              (type_expr
+                (identifier))))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (unary_expr
+                (expr_atom
+                  (identifier)))))))))
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (integer_literal)))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (pointer_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (unary_expr
+                (expr_atom
+                  (identifier))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (pointer_type
+                  (type_expr
+                    (pointer_type
+                      (type_expr
+                        (identifier)))))))
+            (expr
+              (unary_expr
+                (expr_atom
+                  (identifier))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (pointer_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (unary_expr
+                (expr_atom
+                  (identifier))))))
+        (stmt
+          (var_decl
+            (decl_modifiers
+              (modifier_list
+                (identifier)))
+            (typed_binding
+              (identifier)
+              (type_expr
+                (pointer_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (expr_atom
+                (identifier)))))
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (call_expr
+                  (identifier)
+                  (call_arg
+                    (expr
+                      (expr_atom
+                        (identifier)))))))))))))

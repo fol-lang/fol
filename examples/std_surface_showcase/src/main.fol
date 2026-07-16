@@ -1,0 +1,11 @@
+use std: pkg = {"std"};
+
+fun[] greet(prefix: str = "std", extras: ... str): str = {
+    return prefix + extras[0] + extras[1];
+};
+
+fun[] main(): int = {
+    var values: seq[str] = {"-hosted", "-full"};
+    var shown: str = std::io::echo_str(greet(...values));
+    return .len(shown);
+};

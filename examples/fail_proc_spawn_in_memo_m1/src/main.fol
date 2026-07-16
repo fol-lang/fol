@@ -1,0 +1,8 @@
+fun[] worker(): int = {
+    return 1;
+};
+
+fun[] main(): int = {
+    [>]worker();
+    return 0;
+};

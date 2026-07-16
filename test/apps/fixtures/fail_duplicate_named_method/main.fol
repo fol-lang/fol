@@ -1,0 +1,14 @@
+typ Counter: rec = {
+    total: int
+};
+
+fun (Counter)shift(by: int, step: int): int = {
+    return by + step;
+};
+
+fun[] main(): int = {
+    var current: Counter = {
+        total = 9,
+    };
+    return current.shift(by = 1, by = 2);
+};

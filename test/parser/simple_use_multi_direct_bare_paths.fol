@@ -1,1 +1,1 @@
-use file, warn: mod[std] = std::fs::File, fmt::log;
+use file, warn: mod[std] = {"std::fs::File"}, {"fmt::log"};

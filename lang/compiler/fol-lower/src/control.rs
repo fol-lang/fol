@@ -4,7 +4,7 @@ use crate::ids::{
 };
 use fol_intrinsics::IntrinsicId;
 use fol_resolver::{SourceUnitId, SymbolId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweredOperand {
@@ -69,9 +69,13 @@ pub enum LoweredInstrKind {
     CheckRecoverable {
         operand: LoweredLocalId,
     },
+    /// Consume a checked recoverable carrier and extract its success value.
+    /// The carrier is single-use even when both payload types are clone-safe.
     UnwrapRecoverable {
         operand: LoweredLocalId,
     },
+    /// Consume a checked recoverable carrier and extract its error value.
+    /// The carrier is single-use even when both payload types are clone-safe.
     ExtractRecoverableError {
         operand: LoweredLocalId,
     },
@@ -83,10 +87,66 @@ pub enum LoweredInstrKind {
         global: LoweredGlobalId,
         value: LoweredLocalId,
     },
+    /// End a move-only local's lexical lifetime after deferred bodies have
+    /// run. Backend transfers leave the named slot holding a default sentinel,
+    /// so this drops either the live value or that inert moved-from sentinel.
+    DropLocal {
+        local: LoweredLocalId,
+    },
+    /// Assign into a field of a mutable record local, e.g. `counter.total = 5`.
+    /// `base` is the record binding's own local (not a cloned copy) so the
+    /// store is observed by later reads.
+    StoreField {
+        base: LoweredLocalId,
+        field: String,
+        value: LoweredLocalId,
+    },
     Call {
         callee: LoweredRoutineId,
         args: Vec<LoweredLocalId>,
         error_type: Option<LoweredTypeId>,
+    },
+    SpawnCall {
+        callee: LoweredRoutineId,
+        args: Vec<LoweredLocalId>,
+    },
+    AsyncCall {
+        callee: LoweredRoutineId,
+        args: Vec<LoweredLocalId>,
+        error_type: Option<LoweredTypeId>,
+    },
+    AwaitEventual {
+        eventual: LoweredLocalId,
+        error_type: Option<LoweredTypeId>,
+    },
+    ChannelSender {
+        channel: LoweredLocalId,
+    },
+    ChannelSend {
+        channel: LoweredLocalId,
+        value: LoweredLocalId,
+    },
+    ChannelReceive {
+        channel: LoweredLocalId,
+    },
+    ChannelReceiveOptional {
+        channel: LoweredLocalId,
+    },
+    ChannelTryReceive {
+        channel: LoweredLocalId,
+    },
+    ChannelIsClosed {
+        channel: LoweredLocalId,
+    },
+    ProcessorYield,
+    MutexLock {
+        mutex: LoweredLocalId,
+    },
+    MutexUnlock {
+        mutex: LoweredLocalId,
+    },
+    OptionalHasValue {
+        operand: LoweredLocalId,
     },
     IntrinsicCall {
         intrinsic: IntrinsicId,
@@ -124,6 +184,39 @@ pub enum LoweredInstrKind {
     ConstructOptional {
         type_id: LoweredTypeId,
         value: Option<LoweredLocalId>,
+    },
+    ConstructOwned {
+        type_id: LoweredTypeId,
+        value: LoweredLocalId,
+    },
+    ConsumeOwned {
+        value: LoweredLocalId,
+    },
+    ConstructBorrow {
+        type_id: LoweredTypeId,
+        owner: LoweredLocalId,
+        mutable: bool,
+    },
+    ReadBorrow {
+        borrow: LoweredLocalId,
+    },
+    ConstructPointer {
+        type_id: LoweredTypeId,
+        value: LoweredLocalId,
+        shared: bool,
+    },
+    DerefPointer {
+        pointer: LoweredLocalId,
+        /// True when dereferencing transfers a move-only pointee out of its
+        /// unique pointer. False is an observational, clone-safe read.
+        consuming: bool,
+    },
+    StoreDeref {
+        pointer: LoweredLocalId,
+        value: LoweredLocalId,
+    },
+    GiveBackBorrow {
+        borrow: LoweredLocalId,
     },
     ConstructError {
         type_id: LoweredTypeId,
@@ -163,6 +256,14 @@ pub enum LoweredInstrKind {
     },
     CallIndirect {
         callee: LoweredLocalId,
+        args: Vec<LoweredLocalId>,
+        error_type: Option<LoweredTypeId>,
+    },
+    /// A method call on a constrained generic parameter. The concrete callee
+    /// is resolved during monomorphization (args[0] is the receiver); this
+    /// variant must never survive into backend emission.
+    ConstraintCall {
+        method: String,
         args: Vec<LoweredLocalId>,
         error_type: Option<LoweredTypeId>,
     },
@@ -219,6 +320,7 @@ pub struct LoweredRoutine {
     pub signature: Option<LoweredTypeId>,
     pub receiver_type: Option<LoweredTypeId>,
     pub params: Vec<LoweredLocalId>,
+    pub mutex_params: BTreeSet<LoweredLocalId>,
     pub local_symbols: BTreeMap<SymbolId, LoweredLocalId>,
     pub locals: IdTable<LoweredLocalId, LoweredLocal>,
     pub blocks: IdTable<LoweredBlockId, LoweredBlock>,
@@ -237,6 +339,7 @@ impl LoweredRoutine {
             signature: None,
             receiver_type: None,
             params: Vec::new(),
+            mutex_params: BTreeSet::new(),
             local_symbols: BTreeMap::new(),
             locals: IdTable::new(),
             blocks: IdTable::new(),

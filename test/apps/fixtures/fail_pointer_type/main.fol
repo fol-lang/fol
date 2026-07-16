@@ -1,4 +1,4 @@
-ali CounterPtr: ptr[int];
+ali CounterPtr: ptr[raw, int];
 fun[] main(): int = {
     return 0;
 };

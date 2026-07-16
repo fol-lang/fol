@@ -9,9 +9,7 @@ use crate::api::{
     StandardOptimizeRequest, StandardTargetRequest, UserOptionRequest, WriteFileRequest,
 };
 use crate::codegen::{CodegenKind, CodegenRequest, SystemToolRequest};
-use crate::option::{
-    BuildOptimizeMode, BuildOptionDeclaration, BuildTargetTriple,
-};
+use crate::option::{BuildOptimizeMode, BuildOptionDeclaration, BuildTargetTriple};
 use fol_parser::ast::SyntaxOrigin;
 use std::collections::BTreeMap;
 
@@ -54,15 +52,13 @@ fn build_evaluator_replays_standard_and_user_option_operations() {
             },
             BuildEvaluationOperation {
                 origin: None,
-                kind: BuildEvaluationOperationKind::StandardOptimize(
-                    StandardOptimizeRequest::new("optimize"),
-                ),
+                kind: BuildEvaluationOperationKind::StandardOptimize(StandardOptimizeRequest::new(
+                    "optimize",
+                )),
             },
             BuildEvaluationOperation {
                 origin: None,
-                kind: BuildEvaluationOperationKind::Option(UserOptionRequest::bool(
-                    "strip", false,
-                )),
+                kind: BuildEvaluationOperationKind::Option(UserOptionRequest::bool("strip", false)),
             },
         ],
     };
@@ -90,6 +86,7 @@ fn build_evaluator_replays_graph_building_operations_into_a_validated_graph() {
                 origin: None,
                 kind: BuildEvaluationOperationKind::Step(BuildEvaluationStepRequest {
                     name: "build".to_string(),
+                    description: Some("Compile the app".to_string()),
                     depends_on: Vec::new(),
                 }),
             },
@@ -123,8 +120,12 @@ fn build_evaluator_replays_graph_building_operations_into_a_validated_graph() {
                 origin: None,
                 kind: BuildEvaluationOperationKind::Dependency(DependencyRequest {
                     alias: "logtiny".to_string(),
+                    source_kind: crate::api::DependencySourceKind::PackageStore,
                     package: "org/logtiny".to_string(),
+                    args: std::collections::BTreeMap::new(),
                     evaluation_mode: None,
+                    git_version: None,
+                    git_hash: None,
                     surface: None,
                 }),
             },
@@ -215,6 +216,7 @@ fn build_evaluator_replays_option_declarations_and_input_overrides() {
         package_root: "/pkg".to_string(),
         inputs: BuildEvaluationInputs {
             working_directory: "/tmp/pkg".to_string(),
+            install_prefix: String::new(),
             target: None,
             optimize: None,
             options: BTreeMap::from([
@@ -239,9 +241,7 @@ fn build_evaluator_replays_option_declarations_and_input_overrides() {
             },
             BuildEvaluationOperation {
                 origin: None,
-                kind: BuildEvaluationOperationKind::Option(UserOptionRequest::bool(
-                    "strip", false,
-                )),
+                kind: BuildEvaluationOperationKind::Option(UserOptionRequest::bool("strip", false)),
             },
         ],
     };
@@ -283,9 +283,9 @@ fn build_evaluator_uses_typed_target_and_optimize_inputs_without_duplicate_optio
             },
             BuildEvaluationOperation {
                 origin: None,
-                kind: BuildEvaluationOperationKind::StandardOptimize(
-                    StandardOptimizeRequest::new("optimize"),
-                ),
+                kind: BuildEvaluationOperationKind::StandardOptimize(StandardOptimizeRequest::new(
+                    "optimize",
+                )),
             },
         ],
     };
@@ -330,6 +330,8 @@ fn build_evaluator_replays_generated_file_and_codegen_operations() {
                 kind: BuildEvaluationOperationKind::SystemTool(SystemToolRequest {
                     tool: "schema-gen".to_string(),
                     args: vec!["api.yaml".to_string()],
+                    file_args: vec!["schema/api.yaml".to_string()],
+                    env: std::collections::BTreeMap::new(),
                     outputs: vec!["gen/api.fol".to_string()],
                 }),
             },

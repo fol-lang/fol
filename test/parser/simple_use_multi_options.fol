@@ -1,1 +1,1 @@
-use[export, normal] math: loc = {core::math};
+use[export, normal] math: loc = {"core::math"};

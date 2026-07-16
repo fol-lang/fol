@@ -1,0 +1,6 @@
+fun[] main(): int = {
+    var values: vec[int] = {};
+    var flags: set[int] = {};
+    var names: map[str, int] = {{"left", 2}};
+    return .len(values) + .len(flags) + .len(names);
+};

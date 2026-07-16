@@ -416,10 +416,10 @@ fn test_if_flow_block_bodies_parsing() {
                         AstNode::When { cases, default, .. }
                         if matches!(cases.as_slice(),
                             [WhenCase::Case { body, .. }]
-                            if matches!(body.as_slice(), [AstNode::Block { statements }] if statements.len() == 2)
+                            if matches!(body.as_slice(), [AstNode::Block { statements, .. }] if statements.len() == 2)
                         )
                         && matches!(default, Some(default_body)
-                            if matches!(default_body.as_slice(), [AstNode::Block { statements }] if statements.len() == 2))
+                            if matches!(default_body.as_slice(), [AstNode::Block { statements, .. }] if statements.len() == 2))
                     ))
                 )
             }));
@@ -453,8 +453,8 @@ fn test_when_flow_block_bodies_parsing() {
                                 WhenCase::Is { body, .. },
                                 WhenCase::Has { body: second_body, .. }
                             ]
-                            if matches!(body.as_slice(), [AstNode::Block { statements }] if statements.len() == 2)
-                                && matches!(second_body.as_slice(), [AstNode::Block { statements }] if statements.len() == 2)
+                            if matches!(body.as_slice(), [AstNode::Block { statements, .. }] if statements.len() == 2)
+                                && matches!(second_body.as_slice(), [AstNode::Block { statements, .. }] if statements.len() == 2)
                         )
                     ))
                 )
@@ -773,7 +773,7 @@ fn test_if_flow_type_module_bodies_parsing() {
                             if matches!(body.as_slice(), [AstNode::SegDecl { .. }])
                         )
                         && matches!(default, Some(default_body)
-                            if matches!(default_body.as_slice(), [AstNode::ImpDecl { .. }]))
+                            if matches!(default_body.as_slice(), [AstNode::AliasDecl { .. }]))
                     ))
             )));
         }

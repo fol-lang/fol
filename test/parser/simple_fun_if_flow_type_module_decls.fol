@@ -2,6 +2,6 @@ fun fallback(value: int): int = {
     if(value) => ali current: int
     else => def store: blk[]
     if(value) => seg cache: mod
-    else => imp Cache: int
+    else => ali second: int
     return value;
 };

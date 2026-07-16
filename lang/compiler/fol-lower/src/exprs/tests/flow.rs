@@ -1,11 +1,50 @@
-use super::{
-    lower_fixture_error, lower_fixture_workspace, lower_folder_fixture_workspace,
-};
-use crate::{LoweredInstrKind, LoweredOperand, LoweredTerminator, LoweringErrorKind};
+use super::lower_fixture_workspace;
+use crate::{LoweredInstrKind, LoweredOperand, LoweredTerminator};
 use fol_parser::ast::AstParser;
 use fol_resolver::resolve_package_workspace;
 use fol_stream::FileStream;
 use fol_typecheck::Typechecker;
+
+fn collect_echoed_ints(routine: &crate::LoweredRoutine) -> Vec<i64> {
+    let echo_id = fol_intrinsics::intrinsic_by_canonical_name("echo")
+        .expect("echo intrinsic should exist")
+        .id;
+    let mut local_ints = std::collections::BTreeMap::new();
+    let mut echoed = Vec::new();
+
+    for instr in &routine.instructions {
+        match &instr.kind {
+            LoweredInstrKind::Const(LoweredOperand::Int(value)) => {
+                if let Some(result) = instr.result {
+                    local_ints.insert(result, *value);
+                }
+            }
+            LoweredInstrKind::StoreLocal { local, value } => {
+                if let Some(known) = local_ints.get(value).copied() {
+                    local_ints.insert(*local, known);
+                }
+            }
+            LoweredInstrKind::LoadLocal { local } => {
+                if let (Some(result), Some(known)) =
+                    (instr.result, local_ints.get(local).copied())
+                {
+                    local_ints.insert(result, known);
+                }
+            }
+            LoweredInstrKind::RuntimeHook { intrinsic, args } if *intrinsic == echo_id => {
+                let value = args
+                    .first()
+                    .and_then(|local| local_ints.get(local))
+                    .copied()
+                    .expect("echo argument should come from an integer constant in this fixture");
+                echoed.push(value);
+            }
+            _ => {}
+        }
+    }
+
+    echoed
+}
 
 #[test]
 fn expression_lowering_keeps_local_and_imported_value_call_parity() {
@@ -23,12 +62,12 @@ fn expression_lowering_keeps_local_and_imported_value_call_parity() {
     fs::create_dir_all(&shared_dir).expect("should create shared dir");
     fs::write(
         app_dir.join("main.fol"),
-        "use shared: loc = {\"../shared\"}\nfun[] local_helper(): int = { 1 }\nfun[] main(): int = {\n    local_helper()\n    shared::twice(answer)\n}",
+        "use shared: loc = {\"../shared\"};\nfun[] local_helper(): int = { return 1; };\nfun[] main(): int = {\n    local_helper();\n    return shared::twice(answer);\n};",
     )
     .expect("should write app entry");
     fs::write(
         shared_dir.join("lib.fol"),
-        "var[exp] answer: int = 7\nfun[exp] twice(value: int): int = { value }",
+        "var[exp] answer: int = 7;\nfun[exp] twice(value: int): int = { return value; };",
     )
     .expect("should write shared library");
 
@@ -85,7 +124,7 @@ fn return_lowering_emits_explicit_return_terminators_and_skips_trailing_body_nod
             .expect("system clock should be monotonic enough for tmp names")
             .as_nanos()
     ));
-    std::fs::write(&fixture, "fun[] main(): int = {\n    return 1\n    2\n}")
+    std::fs::write(&fixture, "fun[] main(): int = {\n    return 1;\n    2;\n};")
         .expect("should write lowering return fixture");
 
     let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
@@ -135,6 +174,181 @@ fn return_lowering_emits_explicit_return_terminators_and_skips_trailing_body_nod
 }
 
 #[test]
+fn dfr_lowering_runs_registered_bodies_before_return_in_reverse_order() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] main(): int = {\n",
+        "    dfr { var first: int = .echo(1); };\n",
+        "    dfr { var second: int = .echo(2); };\n",
+        "    return 7;\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+    let echoed = collect_echoed_ints(routine);
+
+    assert_eq!(echoed, vec![2, 1], "dfr should lower in reverse order before return");
+    assert!(
+        matches!(
+            routine
+                .blocks
+                .get(routine.entry_block)
+                .and_then(|block| block.terminator.as_ref()),
+            Some(LoweredTerminator::Return { value: Some(_) })
+        ),
+        "dfr-bearing routine should still end in an explicit return terminator"
+    );
+}
+
+#[test]
+fn dfr_lowering_keeps_local_bindings_inside_deferred_blocks() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] main(): int = {\n",
+        "    dfr {\n",
+        "        var done: int = 1;\n",
+        "        var shown: int = .echo(done);\n",
+        "    };\n",
+        "    return 7;\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+
+    assert_eq!(
+        collect_echoed_ints(routine),
+        vec![1],
+        "deferred blocks should lower using their own typed scope so local bindings remain available"
+    );
+}
+
+#[test]
+fn dfr_lowering_runs_inner_scope_cleanup_before_outer_scope_cleanup() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] main(): int = {\n",
+        "    dfr { var outer: int = .echo(1); };\n",
+        "    {\n",
+        "        dfr { var inner: int = .echo(2); };\n",
+        "        var body: int = .echo(3);\n",
+        "    }\n",
+        "    return .echo(7);\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+
+    assert_eq!(
+        collect_echoed_ints(routine),
+        vec![3, 2, 7, 1],
+        "nested block cleanup should run when the inner scope exits, then outer cleanup should wait for the return path"
+    );
+}
+
+#[test]
+fn dfr_lowering_runs_loop_cleanup_before_break_and_outer_cleanup_before_return() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] main(): int = {\n",
+        "    dfr { var outer: int = .echo(1); };\n",
+        "    loop(true) {\n",
+        "        dfr { var inner: int = .echo(2); };\n",
+        "        var body: int = .echo(3);\n",
+        "        break;\n",
+        "    }\n",
+        "    return .echo(7);\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+
+    assert_eq!(
+        collect_echoed_ints(routine),
+        vec![3, 2, 7, 1],
+        "break should drain only loop-local deferred bodies, then outer deferred bodies should remain active until the return path"
+    );
+}
+
+#[test]
+fn dfr_lowering_runs_cleanup_before_report_terminators() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] main(): int / str = {\n",
+        "    dfr { var cleanup: int = .echo(1); };\n",
+        "    report \"bad\";\n",
+        "    return 7;\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+    let entry_block = routine
+        .blocks
+        .get(routine.entry_block)
+        .expect("entry block should exist");
+
+    assert_eq!(
+        collect_echoed_ints(routine),
+        vec![1],
+        "report paths should drain deferred bodies before terminating"
+    );
+    assert!(
+        matches!(entry_block.terminator, Some(LoweredTerminator::Report { .. })),
+        "dfr-bearing report routine should still terminate with an explicit Report"
+    );
+}
+
+#[test]
+fn dfr_lowering_runs_cleanup_before_panic_terminators() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] main(): int = {\n",
+        "    dfr { var cleanup: int = .echo(1); };\n",
+        "    panic \"boom\";\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+    let entry_block = routine
+        .blocks
+        .get(routine.entry_block)
+        .expect("entry block should exist");
+
+    assert_eq!(
+        collect_echoed_ints(routine),
+        vec![1],
+        "panic paths should drain deferred bodies before terminating"
+    );
+    assert!(
+        matches!(entry_block.terminator, Some(LoweredTerminator::Panic { .. })),
+        "dfr-bearing panic routine should still terminate with an explicit Panic"
+    );
+}
+
+#[test]
 fn report_lowering_emits_explicit_report_terminators_and_skips_trailing_body_nodes() {
     let fixture = super::safe_temp_dir().join(format!(
         "fol_lower_report_exprs_{}.fol",
@@ -145,7 +359,7 @@ fn report_lowering_emits_explicit_report_terminators_and_skips_trailing_body_nod
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol): int / bol = {\n    report flag\n    return 1\n}",
+        "fun[] main(flag: bol): int / bol = {\n    report flag;\n    return 1;\n};",
     )
     .expect("should write lowering report fixture");
 
@@ -208,7 +422,7 @@ fn when_statement_lowering_emits_branch_blocks_and_falls_through_afterward() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n    }\n    return 2\n}",
+        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n        * { 2 }\n    }\n    return 2;\n};",
     )
     .expect("should write lowering when fixture");
 
@@ -258,6 +472,78 @@ fn when_statement_lowering_emits_branch_blocks_and_falls_through_afterward() {
 }
 
 #[test]
+fn when_statement_lowering_accepts_void_call_arms() {
+    let lowered = lower_fixture_workspace(concat!(
+        "pro[] touch(): non = { return; };\n",
+        "fun[] main(flag: bol): int = {\n",
+        "    when(flag) {\n",
+        "        case(true) { touch(); }\n",
+        "        * { touch(); }\n",
+        "    }\n",
+        "    return 0;\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should exist");
+    assert_eq!(
+        routine
+            .instructions
+            .iter()
+            .filter(|instruction| matches!(instruction.kind, LoweredInstrKind::Call { .. }))
+            .count(),
+        2,
+        "both void call arms should lower as statement control flow"
+    );
+    assert!(routine
+        .blocks
+        .iter()
+        .any(|block| matches!(block.terminator, Some(LoweredTerminator::Return { .. }))));
+}
+
+#[test]
+fn sibling_case_less_when_bodies_lower_same_named_locals_by_syntax() {
+    let lowered = lower_fixture_workspace(concat!(
+        "fun[] main(): int = {\n",
+        "    var[mut] total: int = 0;\n",
+        "    when(true) {\n",
+        "        * {\n",
+        "            var x: int = 1;\n",
+        "            total = total + x;\n",
+        "        }\n",
+        "    }\n",
+        "    when(true) {\n",
+        "        * {\n",
+        "            var x: int = 2;\n",
+        "            total = total + x;\n",
+        "        }\n",
+        "    }\n",
+        "    return total - 3;\n",
+        "};\n",
+    ));
+
+    let routine = lowered
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main routine should lower");
+    assert_eq!(
+        routine
+            .locals
+            .iter()
+            .filter(|local| local.name.as_deref() == Some("x"))
+            .count(),
+        2,
+        "each sibling gate must retain its own syntax-anchored local"
+    );
+}
+
+#[test]
 fn when_expression_lowering_stores_branch_values_into_one_join_local() {
     let fixture = super::safe_temp_dir().join(format!(
         "fol_lower_when_expr_{}.fol",
@@ -268,7 +554,7 @@ fn when_expression_lowering_stores_branch_values_into_one_join_local() {
     ));
     std::fs::write(
         &fixture,
-        "var yes: int = 1\nvar no: int = 2\nfun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n}",
+        "var yes: int = 1;\nvar no: int = 2;\nfun[] main(flag: bol): non = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n};",
     )
     .expect("should write lowering when-expression fixture");
 
@@ -326,7 +612,7 @@ fn when_expression_lowering_stores_branch_values_into_one_join_local() {
 }
 
 #[test]
-fn when_statement_lowering_keeps_a_three_block_shape_for_single_case_fallthrough() {
+fn when_statement_lowering_keeps_a_four_block_shape_for_case_default_fallthrough() {
     let fixture = super::safe_temp_dir().join(format!(
         "fol_lower_when_stmt_shape_{}.fol",
         std::time::SystemTime::now()
@@ -336,7 +622,7 @@ fn when_statement_lowering_keeps_a_three_block_shape_for_single_case_fallthrough
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n    }\n    return 2\n}",
+        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n        * { 2 }\n    }\n    return 2;\n};",
     )
     .expect("should write lowering when shape fixture");
 
@@ -362,25 +648,16 @@ fn when_statement_lowering_keeps_a_three_block_shape_for_single_case_fallthrough
         .find(|routine| routine.name == "main")
         .expect("main routine should exist");
 
-    assert_eq!(routine.blocks.len(), 3);
+    assert_eq!(routine.blocks.len(), 4);
     assert_eq!(
         routine
             .blocks
             .get(crate::LoweredBlockId(0))
             .and_then(|block| block.terminator.clone()),
         Some(LoweredTerminator::Branch {
-            condition: crate::LoweredLocalId(2),
-            then_block: crate::LoweredBlockId(1),
-            else_block: crate::LoweredBlockId(2),
-        })
-    );
-    assert_eq!(
-        routine
-            .blocks
-            .get(crate::LoweredBlockId(1))
-            .and_then(|block| block.terminator.clone()),
-        Some(LoweredTerminator::Jump {
-            target: crate::LoweredBlockId(2),
+            condition: crate::LoweredLocalId(3),
+            then_block: crate::LoweredBlockId(2),
+            else_block: crate::LoweredBlockId(3),
         })
     );
     assert_eq!(
@@ -388,8 +665,26 @@ fn when_statement_lowering_keeps_a_three_block_shape_for_single_case_fallthrough
             .blocks
             .get(crate::LoweredBlockId(2))
             .and_then(|block| block.terminator.clone()),
+        Some(LoweredTerminator::Jump {
+            target: crate::LoweredBlockId(1),
+        })
+    );
+    assert_eq!(
+        routine
+            .blocks
+            .get(crate::LoweredBlockId(3))
+            .and_then(|block| block.terminator.clone()),
+        Some(LoweredTerminator::Jump {
+            target: crate::LoweredBlockId(1),
+        })
+    );
+    assert_eq!(
+        routine
+            .blocks
+            .get(crate::LoweredBlockId(1))
+            .and_then(|block| block.terminator.clone()),
         Some(LoweredTerminator::Return {
-            value: Some(crate::LoweredLocalId(4)),
+            value: Some(crate::LoweredLocalId(7)),
         })
     );
 }
@@ -405,7 +700,7 @@ fn when_expression_lowering_keeps_branch_default_and_join_block_shape() {
     ));
     std::fs::write(
         &fixture,
-        "var yes: int = 1\nvar no: int = 2\nfun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n}",
+        "var yes: int = 1;\nvar no: int = 2;\nfun[] main(flag: bol): non = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n};",
     )
     .expect("should write lowering when-expression shape fixture");
 
@@ -438,7 +733,7 @@ fn when_expression_lowering_keeps_branch_default_and_join_block_shape() {
             .get(crate::LoweredBlockId(0))
             .and_then(|block| block.terminator.clone()),
         Some(LoweredTerminator::Branch {
-            condition: crate::LoweredLocalId(2),
+            condition: crate::LoweredLocalId(3),
             then_block: crate::LoweredBlockId(2),
             else_block: crate::LoweredBlockId(3),
         })
@@ -468,7 +763,7 @@ fn when_expression_lowering_keeps_branch_default_and_join_block_shape() {
             .and_then(|block| block.terminator.clone()),
         None
     );
-    assert_eq!(routine.body_result, Some(crate::LoweredLocalId(3)));
+    assert_eq!(routine.body_result, Some(crate::LoweredLocalId(5)));
 }
 
 #[test]
@@ -482,7 +777,7 @@ fn loop_condition_lowering_keeps_header_body_and_exit_blocks() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        var current: int = limit\n    }\n    return limit\n}",
+        "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        var current: int = limit;\n    }\n    return limit;\n};",
     )
     .expect("should write lowering loop shape fixture");
 
@@ -558,7 +853,7 @@ fn break_lowering_jumps_directly_to_the_loop_exit_block() {
     ));
     std::fs::write(
         &fixture,
-        "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        break\n    }\n    return limit\n}",
+        "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        break;\n    }\n    return limit;\n};",
     )
     .expect("should write lowering break shape fixture");
 

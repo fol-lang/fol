@@ -1,4 +1,5 @@
 use super::*;
+use fol_typecheck::TypecheckCapabilityModel;
 
 #[test]
 fn workspace_entry_value_typing_accepts_imported_named_entry_contexts() {
@@ -142,6 +143,7 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
             symbol: maybe_id,
             name: "MaybeText".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -150,6 +152,7 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
             symbol: failure_id,
             name: "Failure".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -161,6 +164,7 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
             symbol: maybe_id,
             name: "MaybeText".to_string(),
             kind: DeclaredTypeKind::Alias,
+            args: Vec::new(),
         })
     );
     assert_eq!(
@@ -195,18 +199,67 @@ fn shell_typing_rejects_mismatched_optional_payloads() {
 }
 
 #[test]
-fn shell_typing_rejects_pointer_surfaces_as_v3_only() {
-    let errors = typecheck_fixture_folder_errors(&[("main.fol", "ali CounterPtr: ptr[int];\n")]);
+fn shell_typing_accepts_shipped_v3_pointer_types() {
+    let _typed = typecheck_fixture_folder(&[("main.fol", "ali CounterPtr: ptr[int];\n")]);
+}
 
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("pointer types are planned for a future release")
-        }),
-        "Expected a V3 pointer-boundary diagnostic, got: {errors:?}"
+#[test]
+fn core_model_rejects_heap_backed_type_surfaces() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            concat!(
+                "ali Label: str;\n",
+                "ali Numbers: vec[int];\n",
+                "ali Steps: seq[int];\n",
+                "ali Names: set[str];\n",
+                "ali Scores: map[str, int];\n",
+            ),
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Core,
+        },
     );
+
+    let messages = errors.iter().map(|error| error.message()).collect::<Vec<_>>();
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("str requires heap support")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("vec[...] requires heap support")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("seq[...] requires heap support")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("set[...] requires heap support")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("map[...] requires heap support")));
+}
+
+#[test]
+fn core_model_rejects_inferred_string_literals() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            concat!(
+                "fun[] text(): int = {\n",
+                "    var label = \"ok\";\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Core,
+        },
+    );
+
+    let messages = errors.iter().map(|error| error.message()).collect::<Vec<_>>();
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("string literals require heap support")));
 }
 
 #[test]
@@ -276,12 +329,10 @@ fn operator_typing_rejects_invalid_scalar_pairs_and_pointer_operators() {
     );
     assert!(
         errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("pointer operators are planned for a future release")
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error.message().contains("got 'ptr[int]'")
         }),
-        "Expected a pointer-operator boundary diagnostic, got: {errors:?}"
+        "Expected the typed pointer result to mismatch the int return, got: {errors:?}"
     );
 }
 
@@ -455,7 +506,7 @@ fn intrinsic_boolean_typing_rejects_wrong_arity_and_non_boolean_operands() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains(".not(...) expects one boolean operand but got 'Builtin(Int)'")
+                    .contains(".not(...) expects one boolean operand but got 'int'")
         }),
         "Expected non-boolean .not diagnostic, got: {errors:?}"
     );
@@ -511,7 +562,7 @@ fn intrinsic_query_typing_rejects_wrong_arity_and_non_length_operands() {
                 && error.message().contains(
                     ".len(...) expects one string, array, vector, sequence, set, or map operand",
                 )
-                && error.message().contains("'Builtin(Int)'")
+                && error.message().contains("'int'")
         }),
         "Expected non-length .len diagnostic, got: {errors:?}"
     );
@@ -553,6 +604,65 @@ fn intrinsic_query_typing_covers_full_v1_length_family_matrix() {
                 .and_then(|type_id| typed.type_table().get(type_id)),
             Some(&CheckedType::Builtin(BuiltinType::Int)),
             "Expected {name} to lower to int through .len(...)",
+        );
+    }
+}
+
+#[test]
+fn core_model_keeps_array_length_queries_available() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            concat!(
+                "fun[] arr_len(items: arr[int, 3]): int = {\n",
+                "    return .len(items);\n",
+                "};\n",
+            ),
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Core,
+        },
+    );
+
+    let syntax_id = find_named_routine_syntax_id(&typed, "arr_len");
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        "Expected array .len(...) to remain available in 'fol_model = core'",
+    );
+}
+
+#[test]
+fn mem_model_accepts_dynamic_length_queries() {
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            concat!(
+                "fun[] text_len(): int = {\n",
+                "    return .len(\"Ada\");\n",
+                "};\n",
+                "fun[] seq_len(items: seq[int]): int = {\n",
+                "    return .len(items);\n",
+                "};\n",
+            ),
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Memo,
+        },
+    );
+
+    for name in ["text_len", "seq_len"] {
+        let syntax_id = find_named_routine_syntax_id(&typed, name);
+        assert_eq!(
+            typed
+                .typed_node(syntax_id)
+                .and_then(|node| node.inferred_type)
+                .and_then(|type_id| typed.type_table().get(type_id)),
+            Some(&CheckedType::Builtin(BuiltinType::Int)),
+            "Expected {name} to retain dynamic .len(...) support in 'fol_model = memo'",
         );
     }
 }
@@ -680,7 +790,7 @@ fn intrinsic_diagnostic_typing_rejects_wrong_arity_for_echo() {
 }
 
 #[test]
-fn intrinsic_v3_boundary_typing_reports_explicit_milestone_guidance() {
+fn retired_memory_intrinsics_are_unknown_and_deallocation_is_v4_only() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] free_value(value: int): int = {\n\
@@ -701,18 +811,17 @@ fn intrinsic_v3_boundary_typing_reports_explicit_milestone_guidance() {
     )]);
 
     for intrinsic in [
-        ".de_alloc(...) is planned for a future release",
-        ".give_back(...) is planned for a future release",
-        ".address_of(...) is planned for a future release",
-        ".pointer_value(...) is planned for a future release",
-        ".borrow_from(...) is planned for a future release",
+        ".de_alloc(...) is a V4/FFI boundary and is not part of V3",
+        "unknown dot-root intrinsic '.give_back(...)'",
+        "unknown dot-root intrinsic '.address_of(...)'",
+        "unknown dot-root intrinsic '.pointer_value(...)'",
+        "unknown dot-root intrinsic '.borrow_from(...)'",
     ] {
         assert!(
             errors.iter().any(|error| {
-                error.kind() == TypecheckErrorKind::Unsupported
-                    && error.message().contains(intrinsic)
+                error.message().contains(intrinsic)
             }),
-            "Expected explicit V3 intrinsic boundary diagnostic containing '{intrinsic}', got: {errors:?}"
+            "Expected retired/boundary intrinsic diagnostic containing '{intrinsic}', got: {errors:?}"
         );
     }
 }
@@ -864,4 +973,3 @@ fn coercion_policy_rejects_implicit_int_float_cross_family_conversions() {
         "Expected a report coercion diagnostic, got: {errors:?}"
     );
 }
-

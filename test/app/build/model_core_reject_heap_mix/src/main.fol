@@ -1,0 +1,9 @@
+ali Label: str;
+ali Values: vec[int];
+ali Steps: seq[int];
+ali Flags: set[int];
+ali Scores: map[int, int];
+
+fun[] main(): int = {
+    return 0;
+};

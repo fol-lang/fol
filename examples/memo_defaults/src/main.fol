@@ -1,0 +1,8 @@
+fun[] label(prefix: str = "memo", extras: ... str): str = {
+    return prefix + extras[0];
+};
+
+fun[] main(): str = {
+    var tail: seq[str] = {"-defaults"};
+    return label(...tail);
+};

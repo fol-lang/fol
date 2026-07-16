@@ -1,0 +1,9 @@
+var nums: seq[int] = {1, 2};
+
+fun[] pair(left: int): int = {
+    return left;
+};
+
+fun[] main(): int = {
+    return pair(...nums);
+};

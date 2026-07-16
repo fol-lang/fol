@@ -158,6 +158,7 @@ impl AstParser {
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_close_message: &str,
     ) -> Result<Vec<AstNode>, ParseError> {
+        let _nesting = self.enter_nesting(tokens)?;
         let mut body = Vec::new();
         let mut anchor_token = None;
 
@@ -214,6 +215,18 @@ impl AstParser {
                 continue;
             }
 
+            if matches!(key, KEYWORD::Keyword(BUILDIN::Dfr)) {
+                body.push(self.parse_dfr_stmt(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if matches!(key, KEYWORD::Keyword(BUILDIN::Edf)) {
+                body.push(self.parse_edf_stmt(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
             if matches!(
                 key,
                 KEYWORD::Keyword(BUILDIN::Panic)
@@ -246,12 +259,6 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Let)) {
-                body.extend(self.parse_let_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
             if matches!(key, KEYWORD::Keyword(BUILDIN::Con)) {
                 body.extend(self.parse_con_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;
@@ -272,12 +279,6 @@ impl AstParser {
 
             if matches!(key, KEYWORD::Keyword(BUILDIN::Seg)) {
                 body.push(self.parse_seg_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-                body.push(self.parse_imp_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;
                 continue;
             }
@@ -379,7 +380,31 @@ impl AstParser {
                 continue;
             }
 
-            if (AstParser::token_can_be_logical_name(&key) || key.is_textual_literal())
+            if self.lookahead_is_spawn_expression(tokens) {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if self.lookahead_has_top_level_pipe(tokens) {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if matches!(
+                key,
+                KEYWORD::Symbol(SYMBOL::Bang) | KEYWORD::Symbol(SYMBOL::Hash)
+            ) || matches!(token.con().trim(), "!" | "#")
+            {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if (AstParser::token_can_be_logical_name(&key)
+                || key.is_textual_literal()
+                || matches!(key, KEYWORD::Symbol(SYMBOL::Star)))
                 && self.lookahead_is_assignment(tokens)
                 && self.can_start_assignment(tokens)
             {
@@ -449,9 +474,13 @@ impl AstParser {
                 "Expected '{' to start block".to_string(),
             ));
         }
+        let syntax_id = self.record_syntax_origin(&open);
         let _ = tokens.bump();
         let statements = self.parse_block_body(tokens, "Expected '}' to close block")?;
-        Ok(AstNode::Block { statements })
+        Ok(AstNode::Block {
+            syntax_id,
+            statements,
+        })
     }
 
     pub(super) fn parse_return_stmt(
@@ -538,5 +567,71 @@ impl AstParser {
         Ok(AstNode::Yield {
             value: Box::new(value),
         })
+    }
+
+    pub(super) fn parse_dfr_stmt(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<AstNode, ParseError> {
+        let dfr_token = tokens.curr(false)?;
+        if !matches!(dfr_token.key(), KEYWORD::Keyword(BUILDIN::Dfr)) {
+            return Err(ParseError::from_token(
+                &dfr_token,
+                "Expected 'dfr' statement".to_string(),
+            ));
+        }
+
+        if !self.is_inside_routine() {
+            return Err(ParseError::from_token(
+                &dfr_token,
+                "'dfr' is only allowed inside routines".to_string(),
+            ));
+        }
+        let syntax_id = self.record_syntax_origin(&dfr_token);
+
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+        let open = tokens.curr(false)?;
+        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
+            return Err(ParseError::from_token(
+                &open,
+                "Expected '{' to start dfr block".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        let body = self.parse_block_body(tokens, "Expected '}' to close dfr block")?;
+        Ok(AstNode::Dfr { syntax_id, body })
+    }
+
+    pub(super) fn parse_edf_stmt(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<AstNode, ParseError> {
+        let edf_token = tokens.curr(false)?;
+        if !matches!(edf_token.key(), KEYWORD::Keyword(BUILDIN::Edf)) {
+            return Err(ParseError::from_token(
+                &edf_token,
+                "Expected 'edf' statement".to_string(),
+            ));
+        }
+        if !self.is_inside_routine() {
+            return Err(ParseError::from_token(
+                &edf_token,
+                "'edf' is only allowed inside routines".to_string(),
+            ));
+        }
+        let syntax_id = self.record_syntax_origin(&edf_token);
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+        let open = tokens.curr(false)?;
+        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
+            return Err(ParseError::from_token(
+                &open,
+                "Expected '{' to start edf block".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        let body = self.parse_block_body(tokens, "Expected '}' to close edf block")?;
+        Ok(AstNode::Edf { syntax_id, body })
     }
 }

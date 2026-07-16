@@ -150,9 +150,9 @@ fn test_use_declaration_supports_multiple_names_and_paths() {
             assert!(matches!(
                 imports.as_slice(),
                 [
-                    (log, FolType::Standard { name: type_name_a }, path_a),
-                    (sync, FolType::Standard { name: type_name_b }, path_b),
-                    (color, FolType::Standard { name: type_name_c }, path_c),
+                    (log, FolType::Package { name: type_name_a }, path_a),
+                    (sync, FolType::Package { name: type_name_b }, path_b),
+                    (color, FolType::Package { name: type_name_c }, path_c),
                 ] if log == "log"
                     && sync == "sync"
                     && color == "color"
@@ -268,7 +268,7 @@ fn test_use_declaration_allows_omitted_colon_before_path_type() {
 
     assert_eq!(use_decl.0, "warn");
     assert!(
-        matches!(use_decl.1, FolType::Standard { name } if name.is_empty()),
+        matches!(use_decl.1, FolType::Package { name } if name.is_empty()),
         "Colonless use declaration should still parse source-kind type"
     );
     assert_eq!(use_decl.2, "fmt/log.warn");
@@ -306,7 +306,7 @@ fn test_use_declaration_unwraps_quoted_paths() {
 
     assert_eq!(use_decl.0, "fmt");
     assert!(
-        matches!(use_decl.1, FolType::Standard { name } if name.is_empty()),
+        matches!(use_decl.1, FolType::Package { name } if name.is_empty()),
         "Quoted-path use declaration should still parse source-kind type"
     );
     assert_eq!(use_decl.2, "fmt/log");
@@ -500,44 +500,6 @@ fn test_var_parsing_supports_qualified_and_bracketed_type_hints() {
 }
 
 #[test]
-fn test_let_parsing_supports_bracketed_type_hints() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_let_bracket_type.fol")
-        .expect("Should read bracketed let type hint test file");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-    let ast = parser
-        .parse(&mut lexer)
-        .expect("Parser should parse let declaration with bracketed type hint");
-
-    match ast {
-        AstNode::Program { declarations } => {
-            assert!(
-                    only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                        matches!(
-                            node,
-                            AstNode::VarDecl {
-                                name,
-                                type_hint: Some(FolType::Map { key_type, value_type }),
-                                ..
-                            }
-                            if name == "cache"
-                                && matches!(key_type.as_ref(), FolType::Named { name, .. } if name == "str")
-                                && matches!(
-                                    value_type.as_ref(),
-                                    FolType::Vector { element_type }
-                                    if fol_type_has_qualified_segments(element_type.as_ref(), &["pkg", "Value"])
-                                )
-                        )
-                    }),
-                    "Let type hint should preserve nested bracketed syntax"
-                );
-        }
-        _ => panic!("Expected program node"),
-    }
-}
-
-#[test]
 fn test_var_type_hint_missing_bracket_close_reports_parse_error() {
     let mut file_stream = FileStream::from_file("test/parser/simple_var_type_missing_close.fol")
         .expect("Should read malformed var type hint test file");
@@ -563,36 +525,6 @@ fn test_var_type_hint_missing_bracket_close_reports_parse_error() {
         parse_error.primary_location().unwrap().line,
         1,
         "Malformed var type hint should report the declaration line"
-    );
-}
-
-#[test]
-fn test_let_type_hint_missing_bracket_close_reports_parse_error() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_let_type_missing_close.fol")
-            .expect("Should read malformed let type hint test file");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-    let errors = parser
-        .parse(&mut lexer)
-        .expect_err("Parser should fail when let type hint is missing closing ']'");
-
-    let parse_error = errors
-        .first()
-        
-        .expect("First parser error should be ParseError");
-
-    let first_message = parse_error.message.clone();
-    assert!(
-        first_message.contains("Expected closing ']' in type reference"),
-        "Malformed let type hint should report missing close bracket, got: {}",
-        first_message
-    );
-    assert_eq!(
-        parse_error.primary_location().unwrap().line,
-        2,
-        "Malformed let type hint should report the local declaration line"
     );
 }
 

@@ -1,0 +1,12 @@
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+fun[] main(): int = {
+    var pending = std::fmt::double(work(20)) | async;
+    var transferred = pending;
+    var value: int = transferred | await;
+    return std::io::echo_int(value);
+};

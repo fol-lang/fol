@@ -6,7 +6,8 @@ use super::options::{
 use super::syntax::{ParsedDeclScope, ParsedDeclVisibility, SyntaxNodeId};
 use super::types::{
     BindingPattern, ChannelEndpoint, FolType, Generic, InquiryTarget, LoopCondition, Parameter,
-    QualifiedPath, RecordInitField, RollingBinding, TypeDefinition, WhenCase,
+    QualifiedPath, RecordInitField, RollingBinding, RoutineCapture, SelectArm, TypeDefinition,
+    WhenCase,
 };
 
 /// Core AST node types for FOL language
@@ -19,6 +20,9 @@ pub enum AstNode {
         name: String,
         type_hint: Option<FolType>,
         value: Option<Box<AstNode>>,
+        /// Syntax node for the binding name, so tooling can locate the local
+        /// declaration (the resolver derives the symbol origin from it).
+        syntax_id: Option<SyntaxNodeId>,
     },
 
     /// Destructuring binding declaration: var pattern = value
@@ -37,7 +41,7 @@ pub enum AstNode {
         generics: Vec<Generic>,
         name: String,
         receiver_type: Option<FolType>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -52,7 +56,7 @@ pub enum AstNode {
         generics: Vec<Generic>,
         name: String,
         receiver_type: Option<FolType>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -67,7 +71,7 @@ pub enum AstNode {
         generics: Vec<Generic>,
         name: String,
         receiver_type: Option<FolType>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -80,24 +84,28 @@ pub enum AstNode {
         options: Vec<TypeOption>,
         generics: Vec<Generic>,
         contracts: Vec<FolType>,
+        explicit_contracts: Vec<FolType>,
         name: String,
         type_def: TypeDefinition,
     },
 
-    /// Use declaration: use[options] name: type = { path }
+    /// Use declaration: use[options] name: type = { "path" }
     ///
-    /// `path_segments` retains the parsed import segment/separator structure for
-    /// later import work.
+    /// `import_target` is the canonical quoted import target payload.
+    /// `path_segments` is retained temporarily as parser structure while the
+    /// rest of the pipeline finishes moving off the old segment-first model.
     UseDecl {
         syntax_id: Option<SyntaxNodeId>,
         options: Vec<super::options::UseOption>,
         name: String,
         path_type: FolType,
+        import_target: String,
         path_segments: Vec<super::options::UsePathSegment>,
     },
 
     /// Alias declaration: ali name: target_type
     AliasDecl {
+        options: Vec<super::options::TypeOption>,
         name: String,
         target: FolType,
     },
@@ -119,19 +127,14 @@ pub enum AstNode {
         body: Vec<AstNode>,
     },
 
-    /// Implementation declaration: imp name: target_type = { body }
-    ImpDecl {
-        options: Vec<DeclOption>,
-        generics: Vec<Generic>,
-        name: String,
-        target: FolType,
-        body: Vec<AstNode>,
-    },
-
-    /// Standard declaration: std name: pro|blu|ext = { body }
+    /// Standard declaration: std name[generics]: pro|blu|ext = { body }
     StdDecl {
+        syntax_id: Option<SyntaxNodeId>,
         options: Vec<DeclOption>,
         name: String,
+        /// Optional generic parameters like `std Iterator(T): pro = { ... }`.
+        /// Empty when the standard is not parameterized.
+        generics: Vec<Generic>,
         kind: StandardKind,
         kind_options: Vec<DeclOption>,
         body: Vec<AstNode>,
@@ -162,11 +165,14 @@ pub enum AstNode {
         operand: Box<AstNode>,
     },
 
-    /// Function call: function_name(args)
+    /// Function call: function_name(args) or function_name[TypeArgs](args)
     FunctionCall {
         syntax_id: Option<SyntaxNodeId>,
         surface: CallSurface,
         name: String,
+        /// Explicit generic type arguments (turbofish-style `name[T, U](...)`).
+        /// Empty when the caller relies on argument-driven inference.
+        type_args: Vec<FolType>,
         args: Vec<AstNode>,
     },
 
@@ -208,7 +214,7 @@ pub enum AstNode {
     AnonymousFun {
         syntax_id: Option<SyntaxNodeId>,
         options: Vec<FunOption>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -220,7 +226,7 @@ pub enum AstNode {
     AnonymousPro {
         syntax_id: Option<SyntaxNodeId>,
         options: Vec<FunOption>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -232,7 +238,7 @@ pub enum AstNode {
     AnonymousLog {
         syntax_id: Option<SyntaxNodeId>,
         options: Vec<FunOption>,
-        captures: Vec<String>,
+        captures: Vec<RoutineCapture>,
         params: Vec<Parameter>,
         return_type: Option<FolType>,
         error_type: Option<FolType>,
@@ -242,6 +248,7 @@ pub enum AstNode {
 
     /// Method call: object.method(args)
     MethodCall {
+        syntax_id: Option<SyntaxNodeId>,
         object: Box<AstNode>,
         method: String,
         args: Vec<AstNode>,
@@ -352,6 +359,8 @@ pub enum AstNode {
         name: String,
         type_hint: Option<FolType>,
         value: Option<Box<AstNode>>,
+        /// Syntax node for the binding name (see `VarDecl::syntax_id`).
+        syntax_id: Option<SyntaxNodeId>,
     },
 
     /// When statement (FOL's if/match): when(expr) { case(condition){} * {} }
@@ -363,15 +372,21 @@ pub enum AstNode {
 
     /// Loop statement: loop(condition) { body }
     Loop {
+        /// Syntax node for the loop keyword. Scope-owning nodes keep an
+        /// explicit anchor so later compiler stages can recover this exact
+        /// loop's lexical body scope without guessing among sibling loops.
+        syntax_id: Option<SyntaxNodeId>,
         condition: Box<LoopCondition>,
         body: Vec<AstNode>,
     },
 
-    /// Select statement: select(channel as binding) { body }
+    /// Multi-arm channel select statement.
     Select {
-        channel: Box<AstNode>,
-        binding: Option<String>,
-        body: Vec<AstNode>,
+        /// Syntax node for the `select` keyword so capability diagnostics can
+        /// be attached even when the statement only contains an empty default arm.
+        syntax_id: Option<SyntaxNodeId>,
+        arms: Vec<SelectArm>,
+        default: Option<Vec<AstNode>>,
     },
 
     /// Return statement: return value
@@ -387,8 +402,21 @@ pub enum AstNode {
         value: Box<AstNode>,
     },
 
+    /// Deferred statement: dfr { body }
+    Dfr {
+        syntax_id: Option<SyntaxNodeId>,
+        body: Vec<AstNode>,
+    },
+
+    /// Error-only deferred statement: edf { body }
+    Edf {
+        syntax_id: Option<SyntaxNodeId>,
+        body: Vec<AstNode>,
+    },
+
     /// Block: { statements }
     Block {
+        syntax_id: Option<SyntaxNodeId>,
         statements: Vec<AstNode>,
     },
 
@@ -421,9 +449,8 @@ impl AstNode {
             AstNode::UseDecl { options, .. } => Some(use_decl_visibility(options)),
             AstNode::DefDecl { options, .. }
             | AstNode::SegDecl { options, .. }
-            | AstNode::ImpDecl { options, .. }
             | AstNode::StdDecl { options, .. } => Some(decl_visibility(options)),
-            AstNode::AliasDecl { .. } => Some(ParsedDeclVisibility::Normal),
+            AstNode::AliasDecl { options, .. } => Some(type_decl_visibility(options)),
             AstNode::Commented { node, .. } => node.declaration_visibility(),
             _ => None,
         }
@@ -448,7 +475,13 @@ impl AstNode {
             | AstNode::UseDecl { syntax_id, .. }
             | AstNode::Identifier { syntax_id, .. }
             | AstNode::FunctionCall { syntax_id, .. }
-            | AstNode::RecordInit { syntax_id, .. } => *syntax_id,
+            | AstNode::MethodCall { syntax_id, .. }
+            | AstNode::RecordInit { syntax_id, .. }
+            | AstNode::Dfr { syntax_id, .. }
+            | AstNode::Edf { syntax_id, .. }
+            | AstNode::Loop { syntax_id, .. }
+            | AstNode::Select { syntax_id, .. }
+            | AstNode::Block { syntax_id, .. } => *syntax_id,
             AstNode::Commented { node, .. } => node.syntax_id(),
             _ => None,
         }
@@ -496,51 +529,50 @@ impl AstNode {
             AstNode::LogDecl { return_type, .. } => return_type.clone().or(Some(FolType::Bool)),
             AstNode::DefDecl { def_type, .. } => Some(def_type.clone()),
             AstNode::SegDecl { seg_type, .. } => Some(seg_type.clone()),
-            AstNode::ImpDecl { target, .. } => Some(target.clone()),
             AstNode::StdDecl { .. } => None,
             AstNode::Comment { .. } => None,
             AstNode::Commented { node, .. } => node.syntactic_type_hint(),
 
-            AstNode::BinaryOp { op, left, right } => {
-                match op {
-                    BinaryOperator::Add
-                    | BinaryOperator::Sub
-                    | BinaryOperator::Mul
-                    | BinaryOperator::Div
-                    | BinaryOperator::Mod
-                    | BinaryOperator::Pow => {
-                        left.syntactic_type_hint()
-                            .or_else(|| right.syntactic_type_hint())
-                    }
-                    BinaryOperator::Eq
-                    | BinaryOperator::Ne
-                    | BinaryOperator::Lt
-                    | BinaryOperator::Le
-                    | BinaryOperator::Gt
-                    | BinaryOperator::Ge
-                    | BinaryOperator::In
-                    | BinaryOperator::Has
-                    | BinaryOperator::Is => Some(FolType::Bool),
-                    BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor => {
-                        Some(FolType::Bool)
-                    }
-                    _ => None,
+            AstNode::BinaryOp { op, left, right } => match op {
+                BinaryOperator::Add
+                | BinaryOperator::Sub
+                | BinaryOperator::Mul
+                | BinaryOperator::Div
+                | BinaryOperator::Mod
+                | BinaryOperator::Pow => left
+                    .syntactic_type_hint()
+                    .or_else(|| right.syntactic_type_hint()),
+                BinaryOperator::Eq
+                | BinaryOperator::Ne
+                | BinaryOperator::Lt
+                | BinaryOperator::Le
+                | BinaryOperator::Gt
+                | BinaryOperator::Ge
+                | BinaryOperator::In
+                | BinaryOperator::Has
+                | BinaryOperator::Is => Some(FolType::Bool),
+                BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor => {
+                    Some(FolType::Bool)
                 }
-            }
+                _ => None,
+            },
 
             AstNode::UnaryOp { op, operand } => match op {
                 UnaryOperator::Neg => operand.syntactic_type_hint(),
                 UnaryOperator::Not => Some(FolType::Bool),
                 UnaryOperator::Ref => operand.syntactic_type_hint().map(|t| FolType::Pointer {
+                    qualifier: crate::ast::PointerQualifier::Unique,
                     target: Box::new(t),
                 }),
                 UnaryOperator::Deref => {
-                    if let Some(FolType::Pointer { target }) = operand.syntactic_type_hint() {
+                    if let Some(FolType::Pointer { target, .. }) = operand.syntactic_type_hint() {
                         Some(*target)
                     } else {
                         None
                     }
                 }
+                UnaryOperator::BorrowFrom => operand.syntactic_type_hint(),
+                UnaryOperator::GiveBack => None,
                 UnaryOperator::Unwrap => {
                     if let Some(FolType::Optional { inner }) = operand.syntactic_type_hint() {
                         Some(*inner)
@@ -597,6 +629,7 @@ impl AstNode {
             AstNode::Inquiry { .. } => None,
             AstNode::PatternWildcard => None,
             AstNode::PatternCapture { pattern, .. } => pattern.syntactic_type_hint(),
+            AstNode::Dfr { .. } | AstNode::Edf { .. } => None,
             AstNode::RecordInit { .. } => None,
             AstNode::TemplateCall { .. } => None,
 
@@ -634,7 +667,6 @@ impl AstNode {
             }
             AstNode::DefDecl { body, .. }
             | AstNode::SegDecl { body, .. }
-            | AstNode::ImpDecl { body, .. }
             | AstNode::StdDecl { body, .. } => body.iter().collect(),
             AstNode::Inquiry { body, .. } => body.iter().collect(),
             AstNode::BinaryOp { left, right, .. } => {
@@ -719,7 +751,9 @@ impl AstNode {
                 }
                 children
             }
-            AstNode::Loop { condition, body } => {
+            AstNode::Loop {
+                condition, body, ..
+            } => {
                 let mut children: Vec<&AstNode> = body.iter().collect();
                 match condition.as_ref() {
                     LoopCondition::Condition(cond) => children.push(cond.as_ref()),
@@ -736,12 +770,18 @@ impl AstNode {
                 }
                 children
             }
-            AstNode::Select { channel, body, .. } => {
-                let mut children = vec![channel.as_ref()];
-                children.extend(body.iter());
+            AstNode::Select { arms, default, .. } => {
+                let mut children = Vec::new();
+                for arm in arms {
+                    children.push(&arm.channel);
+                    children.extend(arm.body.iter());
+                }
+                if let Some(default) = default {
+                    children.extend(default.iter());
+                }
                 children
             }
-            AstNode::Block { statements } => statements.iter().collect(),
+            AstNode::Block { statements, .. } => statements.iter().collect(),
             AstNode::Program { declarations } => declarations.iter().collect(),
             AstNode::Comment { .. } => vec![],
             AstNode::Commented {
@@ -808,6 +848,7 @@ impl AstNode {
             AstNode::Yield { value } => {
                 vec![value.as_ref()]
             }
+            AstNode::Dfr { body, .. } | AstNode::Edf { body, .. } => body.iter().collect(),
             AstNode::Range { start, end, .. } => {
                 let mut children = Vec::new();
                 if let Some(s) = start {

@@ -71,6 +71,7 @@ Current `V1` intrinsic note:
 
 - `.eq(...)` is implemented for scalar equality
 - `.len(...)` is implemented for strings and supported containers
+- string `.len(...)` counts UTF-8 BYTES, not characters (`.len("héllo")` is 6)
 - older helper surfaces such as `.assert(...)`, `.typeof(...)`, and related
   compile-time queries are not part of the current implemented intrinsic subset
 ```

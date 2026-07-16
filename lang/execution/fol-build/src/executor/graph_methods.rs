@@ -2,22 +2,69 @@ use crate::api::{
     CopyFileRequest, DependencyRequest, ExecutableRequest, InstallDirRequest, InstallFileRequest,
     SharedLibraryRequest, StaticLibraryRequest, TestArtifactRequest, WriteFileRequest,
 };
+use crate::api::{PathHandleClass, PathHandleProvenance};
+use crate::artifact::BuildArtifactFolModel;
 use crate::codegen::{CodegenRequest, SystemToolRequest};
 use crate::eval::{
     BuildEvaluationError, BuildEvaluationErrorKind, BuildEvaluationInstallArtifactRequest,
-    BuildEvaluationOperation, BuildEvaluationOperationKind,
-    BuildEvaluationRunRequest, BuildEvaluationStepRequest,
+    BuildEvaluationOperation, BuildEvaluationOperationKind, BuildEvaluationRunRequest,
+    BuildEvaluationStepRequest,
 };
+use crate::native::{NativeLinkMode, SystemLibraryRequest};
 use crate::runtime::{BuildRuntimeGeneratedFile, BuildRuntimeGeneratedFileKind};
 use fol_parser::ast::AstNode;
 
-use super::core::{BuildBodyExecutor, is_valid_identifier};
-use super::types::{ExecArtifact, ExecValue};
+use super::core::{is_valid_identifier, BuildBodyExecutor};
 use super::option_helpers::{
     build_option_kind, option_exec_value, parse_option_default, parse_option_kind,
 };
+use super::types::{ExecArtifact, ExecValue};
 
 impl BuildBodyExecutor {
+    fn resolve_source_file_config(
+        &self,
+        method: &str,
+        fields: &[fol_parser::ast::RecordInitField],
+        field_name: &str,
+    ) -> Result<String, BuildEvaluationError> {
+        let field = fields
+            .iter()
+            .find(|field| field.name == field_name)
+            .ok_or_else(|| {
+                BuildEvaluationError::new(
+                    BuildEvaluationErrorKind::InvalidInput,
+                    format!("{method} config is invalid: missing '{field_name}'"),
+                )
+            })?;
+        match &field.value {
+            AstNode::Identifier { name, .. } => match self.scope.get(name.as_str()) {
+                Some(ExecValue::SourceFile { path }) => Ok(path.clone()),
+                Some(ExecValue::SourceDir { .. }) => Err(BuildEvaluationError::new(
+                    BuildEvaluationErrorKind::InvalidInput,
+                    format!(
+                        "{method} config is invalid: '{field_name}' must be a source-file handle, not a source-dir handle"
+                    ),
+                )),
+                Some(ExecValue::GeneratedFile { .. }) => Err(BuildEvaluationError::new(
+                    BuildEvaluationErrorKind::InvalidInput,
+                    format!(
+                        "{method} config is invalid: '{field_name}' must be a source-file handle, not a generated-output handle"
+                    ),
+                )),
+                _ => Err(BuildEvaluationError::new(
+                    BuildEvaluationErrorKind::InvalidInput,
+                    format!(
+                        "{method} config is invalid: '{field_name}' must be a source-file handle"
+                    ),
+                )),
+            },
+            _ => Err(BuildEvaluationError::new(
+                BuildEvaluationErrorKind::InvalidInput,
+                format!("{method} config is invalid: '{field_name}' must be a source-file handle"),
+            )),
+        }
+    }
+
     pub(super) fn eval_graph_method(
         &mut self,
         method: &str,
@@ -75,7 +122,10 @@ impl BuildBodyExecutor {
                 if !is_valid_identifier(&name) {
                     return Err(BuildEvaluationError::new(
                         BuildEvaluationErrorKind::InvalidInput,
-                        format!("invalid option name '{}': names must match [a-z][a-z0-9_-]*", name),
+                        format!(
+                            "invalid option name '{}': names must match [a-z][a-z0-9_-]*",
+                            name
+                        ),
                     ));
                 }
                 let kind_str = self
@@ -106,18 +156,29 @@ impl BuildBodyExecutor {
                 if !is_valid_identifier(&name) {
                     return Err(BuildEvaluationError::new(
                         BuildEvaluationErrorKind::InvalidInput,
-                        format!("invalid step name '{}': names must match [a-z][a-z0-9_-]*", name),
+                        format!(
+                            "invalid step name '{}': names must match [a-z][a-z0-9_-]*",
+                            name
+                        ),
                     ));
                 }
+                let (description, depends_on_start) = match args.get(1) {
+                    Some(arg) => match self.resolve_string(arg) {
+                        Some(description) => (Some(description), 2usize),
+                        None => (None, 1usize),
+                    },
+                    None => (None, 1usize),
+                };
                 let depends_on = args
                     .iter()
-                    .skip(1)
+                    .skip(depends_on_start)
                     .filter_map(|a| self.resolve_step_ref(a))
                     .collect::<Vec<_>>();
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::Step(BuildEvaluationStepRequest {
                         name: name.clone(),
+                        description,
                         depends_on,
                     }),
                 });
@@ -208,18 +269,43 @@ impl BuildBodyExecutor {
                 let name = self
                     .resolve_field_string(fields, "name")
                     .ok_or_else(|| self.unsupported(method))?;
-                let path = self
-                    .resolve_field_string(fields, "path")
-                    .or_else(|| self.resolve_field_string(fields, "source"))
-                    .ok_or_else(|| self.unsupported(method))?;
-                self.output.operations.push(BuildEvaluationOperation {
-                    origin,
-                    kind: BuildEvaluationOperationKind::InstallFile(InstallFileRequest {
-                        name: name.clone(),
-                        path,
-                        depends_on: Vec::new(),
-                    }),
-                });
+                let source_field = fields
+                    .iter()
+                    .find(|field| field.name == "path" || field.name == "source")
+                    .ok_or_else(|| {
+                        BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            "install_file config is invalid: missing 'source'".to_string(),
+                        )
+                    })?;
+                let resolved = self.resolve_path_handle(&source_field.value).ok_or_else(|| {
+                    BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        "install_file config is invalid: 'source' must be a source-file handle or generated-output handle".to_string(),
+                    )
+                })?;
+                let kind = match resolved.descriptor.class {
+                    PathHandleClass::File => match resolved.generated_name {
+                        Some(generated_name) => BuildEvaluationOperationKind::InstallGeneratedFile {
+                            name: name.clone(),
+                            generated_name,
+                        },
+                        None => BuildEvaluationOperationKind::InstallFile(InstallFileRequest {
+                            name: name.clone(),
+                            path: resolved.descriptor.relative_path.clone(),
+                            depends_on: Vec::new(),
+                        }),
+                    },
+                    PathHandleClass::Dir => {
+                        return Err(BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            "install_file config is invalid: 'source' must be a source-file handle or generated-output handle, not a source-dir handle".to_string(),
+                        ))
+                    }
+                };
+                self.output
+                    .operations
+                    .push(BuildEvaluationOperation { origin, kind });
                 Ok(Some(ExecValue::Install { name }))
             }
 
@@ -230,18 +316,49 @@ impl BuildBodyExecutor {
                 let name = self
                     .resolve_field_string(fields, "name")
                     .ok_or_else(|| self.unsupported(method))?;
-                let path = self
-                    .resolve_field_string(fields, "path")
-                    .or_else(|| self.resolve_field_string(fields, "source"))
+                let source = fields
+                    .iter()
+                    .find(|field| field.name == "source")
                     .ok_or_else(|| self.unsupported(method))?;
-                self.output.operations.push(BuildEvaluationOperation {
-                    origin,
-                    kind: BuildEvaluationOperationKind::InstallDir(InstallDirRequest {
-                        name: name.clone(),
-                        path,
-                        depends_on: Vec::new(),
-                    }),
-                });
+                let resolved = self.resolve_path_handle(&source.value).ok_or_else(|| {
+                    BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        "install_dir config is invalid: 'source' must be a source-dir handle"
+                            .to_string(),
+                    )
+                })?;
+                let kind = match resolved.descriptor.class {
+                    PathHandleClass::Dir => match resolved.generated_name {
+                        Some(generated_name) => BuildEvaluationOperationKind::InstallGeneratedDir {
+                            name: name.clone(),
+                            generated_name,
+                        },
+                        None => BuildEvaluationOperationKind::InstallDir(InstallDirRequest {
+                            name: name.clone(),
+                            path: resolved.descriptor.relative_path.clone(),
+                            depends_on: Vec::new(),
+                        }),
+                    },
+                    PathHandleClass::File => {
+                        let actual = match resolved.descriptor.provenance {
+                            PathHandleProvenance::Source => "source-file handle",
+                            PathHandleProvenance::Generated => "generated-output handle",
+                            PathHandleProvenance::DependencyGenerated => {
+                                "dependency-generated-output handle"
+                            }
+                            PathHandleProvenance::DependencyPath => "dependency-path handle",
+                        };
+                        return Err(BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            format!(
+                                "install_dir config is invalid: 'source' must be a source-dir handle, not a {actual}"
+                            ),
+                        ));
+                    }
+                };
+                self.output
+                    .operations
+                    .push(BuildEvaluationOperation { origin, kind });
                 Ok(Some(ExecValue::Install { name }))
             }
 
@@ -286,10 +403,7 @@ impl BuildBodyExecutor {
                 let name = self
                     .resolve_field_string(fields, "name")
                     .ok_or_else(|| self.unsupported(method))?;
-                let source_path = self
-                    .resolve_field_string(fields, "source")
-                    .or_else(|| self.resolve_field_string(fields, "source_path"))
-                    .ok_or_else(|| self.unsupported(method))?;
+                let source_path = self.resolve_source_file_config(method, fields, "source")?;
                 let destination_path = self
                     .resolve_field_string(fields, "path")
                     .or_else(|| self.resolve_field_string(fields, "destination"))
@@ -323,6 +437,9 @@ impl BuildBodyExecutor {
                 let tool = self
                     .resolve_field_string(fields, "tool")
                     .ok_or_else(|| self.unsupported(method))?;
+                let args = self.resolve_field_string_list(fields, "args")?;
+                let file_args = self.resolve_field_path_list(fields, "file_args")?;
+                let env = self.resolve_field_string_map(fields, "env")?;
                 let output = self
                     .resolve_field_string(fields, "output")
                     .or_else(|| self.resolve_field_string(fields, "path"))
@@ -331,7 +448,9 @@ impl BuildBodyExecutor {
                     origin,
                     kind: BuildEvaluationOperationKind::SystemTool(SystemToolRequest {
                         tool: tool.clone(),
-                        args: Vec::new(),
+                        args,
+                        file_args,
+                        env,
                         outputs: vec![output.clone()],
                     }),
                 });
@@ -345,6 +464,114 @@ impl BuildBodyExecutor {
                     name: output.clone(),
                     path: output,
                     kind: BuildRuntimeGeneratedFileKind::ToolOutput,
+                }))
+            }
+
+            "add_system_tool_dir" => {
+                let [AstNode::RecordInit { fields, .. }] = args else {
+                    return Err(self.unsupported(method));
+                };
+                let tool = self
+                    .resolve_field_string(fields, "tool")
+                    .ok_or_else(|| self.unsupported(method))?;
+                let args = self.resolve_field_string_list(fields, "args")?;
+                let file_args = self.resolve_field_path_list(fields, "file_args")?;
+                let env = self.resolve_field_string_map(fields, "env")?;
+                let output = self
+                    .resolve_field_string(fields, "output_dir")
+                    .ok_or_else(|| self.unsupported(method))?;
+                self.output.operations.push(BuildEvaluationOperation {
+                    origin,
+                    kind: BuildEvaluationOperationKind::SystemToolDir(SystemToolRequest {
+                        tool: tool.clone(),
+                        args,
+                        file_args,
+                        env,
+                        outputs: vec![output.clone()],
+                    }),
+                });
+                let gen = BuildRuntimeGeneratedFile::new(
+                    tool.clone(),
+                    output.clone(),
+                    BuildRuntimeGeneratedFileKind::GeneratedDir,
+                );
+                self.output.generated_files.push(gen);
+                Ok(Some(ExecValue::GeneratedFile {
+                    name: output.clone(),
+                    path: output,
+                    kind: BuildRuntimeGeneratedFileKind::GeneratedDir,
+                }))
+            }
+
+            "add_system_lib" => {
+                let [AstNode::RecordInit { fields, .. }] = args else {
+                    return Err(self.unsupported(method));
+                };
+                let name = self.resolve_field_string(fields, "name").ok_or_else(|| {
+                    BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        "add_system_lib config is invalid: missing 'name'".to_string(),
+                    )
+                })?;
+                if name.trim().is_empty() {
+                    return Err(BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        "add_system_lib config is invalid: 'name' must not be empty".to_string(),
+                    ));
+                }
+                let mode = match self.resolve_field_string(fields, "mode") {
+                    Some(mode) => match mode.as_str() {
+                        "static" => NativeLinkMode::Static,
+                        "dynamic" => NativeLinkMode::Dynamic,
+                        other => {
+                            return Err(BuildEvaluationError::new(
+                                BuildEvaluationErrorKind::InvalidInput,
+                                format!(
+                                    "add_system_lib config is invalid: library mode must be 'static' or 'dynamic' (got '{other}')"
+                                ),
+                            ))
+                        }
+                    },
+                    None => NativeLinkMode::Dynamic,
+                };
+                let framework = match fields.iter().find(|field| field.name == "framework") {
+                    Some(field) => match &field.value {
+                        AstNode::Literal(fol_parser::ast::Literal::Boolean(value)) => *value,
+                        AstNode::Identifier { name, .. } => {
+                            match self.scope.get(name.as_str()) {
+                                Some(ExecValue::Bool(value)) => *value,
+                                _ => return Err(BuildEvaluationError::new(
+                                    BuildEvaluationErrorKind::InvalidInput,
+                                    "add_system_lib config is invalid: 'framework' must be a bool"
+                                        .to_string(),
+                                )),
+                            }
+                        }
+                        _ => {
+                            return Err(BuildEvaluationError::new(
+                                BuildEvaluationErrorKind::InvalidInput,
+                                "add_system_lib config is invalid: 'framework' must be a bool"
+                                    .to_string(),
+                            ))
+                        }
+                    },
+                    None => false,
+                };
+                if framework && mode == NativeLinkMode::Static {
+                    return Err(BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        "add_system_lib config is invalid: framework libraries must use dynamic mode"
+                            .to_string(),
+                    ));
+                }
+                let search_path = self.resolve_field_string(fields, "search_path");
+                Ok(Some(ExecValue::SystemLibrary {
+                    request: SystemLibraryRequest {
+                        name,
+                        mode,
+                        framework,
+                        search_path,
+                    },
                 }))
             }
 
@@ -389,10 +616,49 @@ impl BuildBodyExecutor {
                 }))
             }
 
+            "add_codegen_dir" => {
+                let [AstNode::RecordInit { fields, .. }] = args else {
+                    return Err(self.unsupported(method));
+                };
+                let kind_str = self
+                    .resolve_field_string(fields, "kind")
+                    .ok_or_else(|| self.unsupported(method))?;
+                let input = self
+                    .resolve_field_string(fields, "input")
+                    .ok_or_else(|| self.unsupported(method))?;
+                let output = self
+                    .resolve_field_string(fields, "output_dir")
+                    .ok_or_else(|| self.unsupported(method))?;
+                let codegen_kind = match kind_str.as_str() {
+                    "fol" | "fol-to-fol" => crate::CodegenKind::FolToFol,
+                    "schema" => crate::CodegenKind::Schema,
+                    "asset" | "asset-preprocess" => crate::CodegenKind::AssetPreprocess,
+                    _ => return Err(self.unsupported(method)),
+                };
+                self.output.operations.push(BuildEvaluationOperation {
+                    origin,
+                    kind: BuildEvaluationOperationKind::CodegenDir(CodegenRequest {
+                        kind: codegen_kind,
+                        input,
+                        output: output.clone(),
+                    }),
+                });
+                let gen = BuildRuntimeGeneratedFile::new(
+                    output.clone(),
+                    output.clone(),
+                    BuildRuntimeGeneratedFileKind::GeneratedDir,
+                );
+                self.output.generated_files.push(gen);
+                Ok(Some(ExecValue::GeneratedFile {
+                    name: output.clone(),
+                    path: output,
+                    kind: BuildRuntimeGeneratedFileKind::GeneratedDir,
+                }))
+            }
+
             "dependency" => {
-                let (alias, package, evaluation_mode) = if let [AstNode::RecordInit {
-                    fields, ..
-                }] = args
+                let (alias, package, forwarded_args, evaluation_mode) = if let [AstNode::RecordInit { fields, .. }] =
+                    args
                 {
                     let alias = self
                         .resolve_field_string(fields, "alias")
@@ -400,10 +666,18 @@ impl BuildBodyExecutor {
                     let package = self
                         .resolve_field_string(fields, "package")
                         .ok_or_else(|| self.unsupported(method))?;
+                    let forwarded_args = self.resolve_dependency_args(fields)?.unwrap_or_default();
                     let mode = self
                         .resolve_field_string(fields, "mode")
                         .and_then(|v| crate::DependencyBuildEvaluationMode::parse(v.as_str()));
-                    (alias, package, mode)
+                    if mode.is_some_and(|mode| mode != crate::DependencyBuildEvaluationMode::Eager)
+                    {
+                        return Err(BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            "graph.dependency config is invalid: direct graph dependencies currently support only mode = 'eager'".to_string(),
+                        ));
+                    }
+                    (alias, package, forwarded_args, mode)
                 } else if let [alias_arg, package_arg] = args {
                     let alias = self
                         .resolve_string(alias_arg)
@@ -411,7 +685,12 @@ impl BuildBodyExecutor {
                     let package = self
                         .resolve_string(package_arg)
                         .ok_or_else(|| self.unsupported(method))?;
-                    (alias, package, None)
+                    (
+                        alias,
+                        package,
+                        std::collections::BTreeMap::<String, crate::api::DependencyArgValue>::new(),
+                        None,
+                    )
                 } else {
                     return Err(self.unsupported(method));
                 };
@@ -419,8 +698,12 @@ impl BuildBodyExecutor {
                     origin,
                     kind: BuildEvaluationOperationKind::Dependency(DependencyRequest {
                         alias: alias.clone(),
+                        source_kind: crate::api::DependencySourceKind::PackageStore,
                         package,
+                        args: forwarded_args,
                         evaluation_mode,
+                        git_version: None,
+                        git_hash: None,
                         surface: None,
                     }),
                 });
@@ -447,17 +730,57 @@ impl BuildBodyExecutor {
                 Ok(Some(ExecValue::Module { name }))
             }
 
-            "path_from_root" => {
+            "file_from_root" => {
                 let subpath = match args {
-                    [arg] => self.resolve_string(arg).unwrap_or_default(),
-                    _ => String::new(),
+                    [arg] => self.resolve_string(arg).ok_or_else(|| {
+                        BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            "file_from_root requires one string path argument".to_string(),
+                        )
+                    })?,
+                    _ => {
+                        return Err(BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            "file_from_root requires one string path argument".to_string(),
+                        ))
+                    }
                 };
-                Ok(Some(ExecValue::Str(format!("$root/{subpath}"))))
+                if subpath.trim().is_empty() {
+                    return Err(BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        "file_from_root requires a non-empty relative path".to_string(),
+                    ));
+                }
+                Ok(Some(ExecValue::SourceFile { path: subpath }))
             }
 
-            "build_root" => Ok(Some(ExecValue::Str("$root".to_string()))),
+            "dir_from_root" => {
+                let subpath = match args {
+                    [arg] => self.resolve_string(arg).ok_or_else(|| {
+                        BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            "dir_from_root requires one string path argument".to_string(),
+                        )
+                    })?,
+                    _ => {
+                        return Err(BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            "dir_from_root requires one string path argument".to_string(),
+                        ))
+                    }
+                };
+                if subpath.trim().is_empty() {
+                    return Err(BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        "dir_from_root requires a non-empty relative path".to_string(),
+                    ));
+                }
+                Ok(Some(ExecValue::SourceDir { path: subpath }))
+            }
 
-            "install_prefix" => Ok(Some(ExecValue::Str("$prefix".to_string()))),
+            "build_root" => Ok(Some(ExecValue::Str(self.package_root_str.clone()))),
+
+            "install_prefix" => Ok(Some(ExecValue::Str(self.install_prefix_str.clone()))),
 
             _ => Err(self.unsupported(method)),
         }
@@ -469,25 +792,94 @@ impl BuildBodyExecutor {
         args: &[AstNode],
         origin: Option<fol_parser::ast::SyntaxOrigin>,
     ) -> Result<Option<ExecValue>, BuildEvaluationError> {
-        let (name, root_module, target, optimize) = match args {
+        let (name, root_module, fol_model, target, optimize) = match args {
             [AstNode::RecordInit { fields, .. }] => {
                 let name = self
                     .resolve_field_string(fields, "name")
-                    .ok_or_else(|| self.unsupported(method))?;
-                let root_module = fields
+                    .ok_or_else(|| BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        format!("{method} config is invalid: artifact config requires string field 'name'"),
+                    ))?;
+                let root_field = fields
                     .iter()
                     .find(|f| f.name == "root" || f.name == "root_module")
-                    .and_then(|f| self.parse_config_value(&f.value, &["path", "string", "target"]))
-                    .ok_or_else(|| self.unsupported(method))?;
+                    .ok_or_else(|| {
+                        BuildEvaluationError::new(
+                            BuildEvaluationErrorKind::InvalidInput,
+                            format!("{method} config is invalid: artifact config requires 'root'"),
+                        )
+                    })?;
+                let root_module = self
+                    .parse_config_value(&root_field.value, &["path", "string", "target"])
+                    .ok_or_else(|| BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        format!("{method} config is invalid: artifact 'root' must be a string path or path-like option"),
+                    ))?;
+                if root_module.placeholder_string().trim().is_empty() {
+                    return Err(BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        format!("{method} config is invalid: artifact 'root' must not be empty"),
+                    ));
+                }
                 let target = fields
                     .iter()
                     .find(|f| f.name == "target")
-                    .and_then(|f| self.parse_config_value(&f.value, &["target", "string"]));
+                    .map(|f| {
+                        self.parse_config_value(&f.value, &["target", "string"])
+                            .ok_or_else(|| BuildEvaluationError::new(
+                                BuildEvaluationErrorKind::InvalidInput,
+                                format!("{method} config is invalid: artifact 'target' must be a target handle or string triple"),
+                            ))
+                    })
+                    .transpose()?;
+                let fol_model = match fields.iter().find(|f| f.name == "fol_model") {
+                    Some(field) => {
+                        let raw = self
+                            .resolve_string(&field.value)
+                            .ok_or_else(|| BuildEvaluationError::new(
+                                BuildEvaluationErrorKind::InvalidInput,
+                                format!("{method} config is invalid: artifact 'fol_model' must be a string"),
+                            ))?;
+                        match raw.as_str() {
+                            "core" => BuildArtifactFolModel::Core,
+                            "memo" => BuildArtifactFolModel::Memo,
+                            "std" => {
+                                return Err(BuildEvaluationError::new(
+                                    BuildEvaluationErrorKind::InvalidInput,
+                                    "artifact fol_model no longer accepts 'std'; use 'memo' and declare bundled std through build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" })".to_string(),
+                                ))
+                            }
+                            "mem" => {
+                                return Err(BuildEvaluationError::new(
+                                    BuildEvaluationErrorKind::InvalidInput,
+                                    "artifact fol_model no longer accepts 'mem'; use 'memo'".to_string(),
+                                ))
+                            }
+                            _ => {
+                                return Err(BuildEvaluationError::new(
+                                    BuildEvaluationErrorKind::InvalidInput,
+                                    format!(
+                                        "artifact fol_model must be one of: core, memo (got '{}')",
+                                        raw
+                                    ),
+                                ))
+                            }
+                        }
+                    }
+                    None => BuildArtifactFolModel::Memo,
+                };
                 let optimize = fields
                     .iter()
                     .find(|f| f.name == "optimize")
-                    .and_then(|f| self.parse_config_value(&f.value, &["optimize", "string"]));
-                (name, root_module, target, optimize)
+                    .map(|f| {
+                        self.parse_config_value(&f.value, &["optimize", "string"])
+                            .ok_or_else(|| BuildEvaluationError::new(
+                                BuildEvaluationErrorKind::InvalidInput,
+                                format!("{method} config is invalid: artifact 'optimize' must be an optimize handle or string mode"),
+                            ))
+                    })
+                    .transpose()?;
+                (name, root_module, fol_model, target, optimize)
             }
             [name_arg, root_arg] => {
                 let name = self
@@ -496,7 +888,7 @@ impl BuildBodyExecutor {
                 let root_module = self
                     .parse_config_value(root_arg, &["path", "string"])
                     .ok_or_else(|| self.unsupported(method))?;
-                (name, root_module, None, None)
+                (name, root_module, BuildArtifactFolModel::Memo, None, None)
             }
             _ => return Err(self.unsupported(method)),
         };
@@ -504,6 +896,7 @@ impl BuildBodyExecutor {
         let artifact = ExecArtifact {
             name: name.clone(),
             root_module: root_module.clone(),
+            fol_model,
             target: target.clone(),
             optimize: optimize.clone(),
         };
@@ -521,6 +914,7 @@ impl BuildBodyExecutor {
                 });
             }
             "add_static_lib" => {
+                self.output.static_library_artifacts.push(artifact.clone());
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::AddStaticLib(StaticLibraryRequest {
@@ -530,6 +924,7 @@ impl BuildBodyExecutor {
                 });
             }
             "add_shared_lib" => {
+                self.output.shared_library_artifacts.push(artifact.clone());
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::AddSharedLib(SharedLibraryRequest {

@@ -1,1 +1,1 @@
-use fmt: std = {"fmt/log"};
+use fmt: pkg = {"fmt/log"};

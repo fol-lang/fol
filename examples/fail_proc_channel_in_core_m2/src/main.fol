@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var channel: chn[int];
+    return channel[rx];
+};

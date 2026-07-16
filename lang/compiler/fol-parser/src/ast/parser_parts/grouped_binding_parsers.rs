@@ -61,7 +61,7 @@ impl AstParser {
                 let names = patterns
                     .into_iter()
                     .map(|pattern| match pattern {
-                        BindingPattern::Name(name) => Ok(name),
+                        BindingPattern::Name(name, syntax_id) => Ok((name, syntax_id)),
                         other => {
                             let error = if let Ok(token) = tokens.curr(false) {
                                 ParseError::from_token_with_kind(

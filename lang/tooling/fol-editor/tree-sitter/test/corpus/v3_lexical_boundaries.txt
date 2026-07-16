@@ -1,0 +1,70 @@
+==================
+V3 Lexical Boundaries
+==================
+
+/* A slash block comment may span lines and contain V3 syntax:
+   [>]work() | async { chn[int] ptr[shared, int] }
+*/
+
+` A backtick comment may also span lines:
+  dfr { edf { counter[mux] } }
+`
+
+`[doc] Documentation comments use only the exact prefix and may span
+multiple lines with V3 spellings such as #view, !view, and channel[rx].`
+
+fun[] lexical_boundaries(): str = {
+    var raw: str = 'raw text may span
+lines and contain [>] { } without becoming syntax';
+    var empty: str = '';
+    var character: chr = 'z';
+    return raw;
+};
+
+---
+
+(source_file
+  (comment)
+  (comment)
+  (doc_comment)
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (raw_string_literal)))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (raw_string_literal)))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (char_literal)))))
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (identifier)))))))))

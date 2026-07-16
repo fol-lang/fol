@@ -1,0 +1,15 @@
+fun[exp] echo_int(value: int): int = {
+    return .echo(value);
+};
+
+fun[exp] echo_str(value: str): str = {
+    return .echo(value);
+};
+
+fun[exp] echo_bool(value: bol): bol = {
+    return .echo(value);
+};
+
+fun[exp] echo_chr(value: chr): chr = {
+    return .echo(value);
+};

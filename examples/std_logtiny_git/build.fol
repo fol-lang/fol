@@ -1,0 +1,19 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "std_logtiny_git", version = "0.1.0" });
+    build.add_dep({
+        alias = "logtiny",
+        source = "git",
+        target = "git+https://github.com/bresilla/logtiny.git",
+        version = "tag:v0.1.3",
+        hash = "b242d319644a",
+    });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "std_logtiny_git",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+};

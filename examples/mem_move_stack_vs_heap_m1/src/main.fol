@@ -1,0 +1,12 @@
+typ HeapValue: rec = { value: int };
+fun[] make_heap(): @HeapValue = {
+    @var value: HeapValue = { value = 3 };
+    return value;
+};
+fun[] main(): int = {
+    var stack_a: int = 2;
+    var stack_b: int = stack_a;
+    @var heap_a: HeapValue = make_heap();
+    @var heap_b: HeapValue = heap_a;
+    return stack_a + stack_b + heap_b.value;
+};

@@ -28,9 +28,9 @@ fn test_top_level_var_declaration_accepts_quoted_name() {
 }
 
 #[test]
-fn test_function_body_let_declaration_accepts_quoted_name() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_let_quoted_name.fol")
-        .expect("Should read quoted-name let declaration fixture");
+fn test_function_body_var_declaration_accepts_quoted_name() {
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_var_quoted_name.fol")
+        .expect("Should read quoted-name var declaration fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -50,7 +50,7 @@ fn test_function_body_let_declaration_accepts_quoted_name() {
             assert!(body.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::VarDecl { name, type_hint, value, options }
+                    AstNode::VarDecl { name, type_hint, value, options, .. }
                     if name == "count"
                         && options.contains(&fol_parser::ast::VarOption::Immutable)
                         && matches!(type_hint, Some(FolType::Int { .. }))

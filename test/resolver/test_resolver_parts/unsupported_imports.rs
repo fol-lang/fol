@@ -5,7 +5,7 @@ use std::fs;
 #[test]
 fn test_resolver_rejects_non_location_import_kinds_explicitly() {
     let fixtures = [
-        ("unsupported_mod", "mod", "use fmt: mod = {core::fmt};\n"),
+        ("unsupported_mod", "mod", "use fmt: mod = {\"core::fmt\"};\n"),
     ];
 
     for (label, kind, source) in fixtures {

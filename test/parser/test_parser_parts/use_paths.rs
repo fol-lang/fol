@@ -61,7 +61,7 @@ fn parse_use_path_fixture_error(source: &str) -> fol_diagnostics::Diagnostic {
 }
 
 #[test]
-fn test_use_declaration_accepts_direct_quoted_paths() {
+fn test_use_declaration_accepts_braced_quoted_paths() {
     let mut file_stream =
         FileStream::from_file("test/parser/simple_use_direct_quoted_path.fol")
             .expect("Should read direct quoted use-path fixture");
@@ -70,7 +70,7 @@ fn test_use_declaration_accepts_direct_quoted_paths() {
     let mut parser = AstParser::new();
     let ast = parser
         .parse(&mut lexer)
-        .expect("Parser should accept direct quoted use paths");
+        .expect("Parser should accept braced quoted use paths");
 
     match ast {
         AstNode::Program { declarations } => {
@@ -83,7 +83,7 @@ fn test_use_declaration_accepts_direct_quoted_paths() {
 }
 
 #[test]
-fn test_use_declaration_accepts_multiple_direct_quoted_paths() {
+fn test_use_declaration_accepts_multiple_braced_quoted_paths() {
     let mut file_stream =
         FileStream::from_file("test/parser/simple_use_multi_direct_quoted_paths.fol")
             .expect("Should read multi direct quoted use-path fixture");
@@ -92,7 +92,7 @@ fn test_use_declaration_accepts_multiple_direct_quoted_paths() {
     let mut parser = AstParser::new();
     let ast = parser
         .parse(&mut lexer)
-        .expect("Parser should accept multiple direct quoted use paths");
+        .expect("Parser should accept multiple braced quoted use paths");
 
     match ast {
         AstNode::Program { declarations } => {
@@ -108,16 +108,16 @@ fn test_use_declaration_accepts_multiple_direct_quoted_paths() {
 }
 
 #[test]
-fn test_use_declaration_accepts_direct_bare_paths() {
+fn test_use_declaration_accepts_braced_quoted_paths_for_non_provider_types() {
     let mut file_stream =
         FileStream::from_file("test/parser/simple_use_direct_bare_path.fol")
-            .expect("Should read direct bare use-path fixture");
+            .expect("Should read quoted non-provider use-path fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
     let ast = parser
         .parse(&mut lexer)
-        .expect("Parser should accept direct bare use paths");
+        .expect("Parser should accept quoted non-provider use paths");
 
     match ast {
         AstNode::Program { declarations } => {
@@ -140,7 +140,7 @@ fn test_use_declaration_accepts_direct_bare_paths() {
                         spelling: "File".to_string(),
                     },
                 ],
-                "Direct bare use paths should retain segment spelling and separators"
+                "Quoted use paths should retain segment spelling and separators"
             );
         }
         _ => panic!("Expected program node"),
@@ -148,16 +148,16 @@ fn test_use_declaration_accepts_direct_bare_paths() {
 }
 
 #[test]
-fn test_use_declaration_accepts_multiple_direct_bare_paths() {
+fn test_use_declaration_accepts_multiple_braced_quoted_paths_for_non_provider_types() {
     let mut file_stream =
         FileStream::from_file("test/parser/simple_use_multi_direct_bare_paths.fol")
-            .expect("Should read multi direct bare use-path fixture");
+            .expect("Should read multi quoted non-provider use-path fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
     let ast = parser
         .parse(&mut lexer)
-        .expect("Parser should accept multiple direct bare use paths");
+        .expect("Parser should accept multiple quoted non-provider use paths");
 
     match ast {
         AstNode::Program { declarations } => {
@@ -173,28 +173,28 @@ fn test_use_declaration_accepts_multiple_direct_bare_paths() {
 }
 
 #[test]
-fn test_use_declaration_direct_quoted_paths_preserve_inner_opposite_quotes() {
+fn test_use_declaration_braced_quoted_paths_preserve_inner_opposite_quotes() {
     let temp_root = unique_temp_root("direct_inner_quotes");
     fs::create_dir_all(&temp_root).expect("Should create temp use-path fixture dir");
     let fixture = temp_root.join("direct_inner_quotes.fol");
     fs::write(
         &fixture,
-        "use warn: loc = \"std/'warn'\";\nuse trace: loc = 'std/\"trace\"';\n",
+        "use warn: loc = {\"std/'warn'\"};\nuse trace: loc = {'std/\"trace\"'};\n",
     )
-    .expect("Should write temp direct quoted use-path fixture");
+    .expect("Should write temp quoted use-path fixture");
 
     let mut file_stream = FileStream::from_file(
         fixture
             .to_str()
             .expect("Use-path fixture path should be UTF-8"),
     )
-    .expect("Should read temp direct quoted use-path fixture");
+    .expect("Should read temp quoted use-path fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
     let ast = parser
         .parse(&mut lexer)
-        .expect("Parser should preserve inner opposite-family quotes in direct use paths");
+        .expect("Parser should preserve inner opposite-family quotes in quoted use paths");
 
     fs::remove_dir_all(&temp_root).ok();
 
@@ -283,7 +283,7 @@ fn test_use_declaration_preserves_mixed_separator_path_structure() {
     let temp_root = unique_temp_root("mixed_separator_segments");
     fs::create_dir_all(&temp_root).expect("Should create temp use-path fixture dir");
     let fixture = temp_root.join("mixed_separator_segments.fol");
-    fs::write(&fixture, "use warn: mod = std::log/warn;\n")
+    fs::write(&fixture, "use warn: mod = {\"std::log/warn\"};\n")
         .expect("Should write temp mixed-separator use-path fixture");
 
     let mut file_stream = FileStream::from_file(
@@ -331,7 +331,7 @@ fn test_use_declaration_preserves_mixed_separator_path_structure() {
 
 #[test]
 fn test_use_declaration_rejects_dangling_separator_segments() {
-    let parse_error = parse_use_path_fixture_error("use warn: mod = std/;\n");
+    let parse_error = parse_use_path_fixture_error("use warn: mod = {\"std/\"};\n");
 
     assert!(
         parse_error
@@ -344,7 +344,7 @@ fn test_use_declaration_rejects_dangling_separator_segments() {
 
 #[test]
 fn test_use_declaration_rejects_empty_segments_between_separators() {
-    let parse_error = parse_use_path_fixture_error("use warn: mod = std::::warn;\n");
+    let parse_error = parse_use_path_fixture_error("use warn: mod = {\"std::::warn\"};\n");
 
     assert!(
         parse_error

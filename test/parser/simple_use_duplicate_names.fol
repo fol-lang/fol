@@ -1,1 +1,1 @@
-use math, math: loc = {core::math};
+use math, math: loc = {"core::math"};

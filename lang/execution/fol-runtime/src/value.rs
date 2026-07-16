@@ -48,6 +48,6 @@ mod tests {
     fn impossible_helper_is_callable_for_never_strategy() {
         let helper: fn(FolNever) -> ! = impossible;
 
-        assert_eq!(helper as usize, impossible as usize);
+        assert_eq!(helper as usize, impossible as fn(FolNever) -> ! as usize);
     }
 }

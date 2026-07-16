@@ -146,10 +146,11 @@ impl ToDiagnostic for ResolverError {
             diagnostic = diagnostic.with_suggestion(suggestion.clone());
         }
         if self.kind == ResolverErrorKind::Unsupported && self.message.contains("imports yet") {
-            diagnostic =
-                diagnostic.with_note("supported import source kinds are loc, std, and pkg");
+            diagnostic = diagnostic.with_note("supported import source kinds are loc and pkg");
         }
-        if self.message.contains("requires an explicit std root") {
+        if self.message.contains("requires an explicit std root")
+            || self.message.contains("requires bundled std at")
+        {
             diagnostic = diagnostic.with_help("rerun with --std-root <DIR>");
         }
         if self
@@ -221,7 +222,6 @@ pub(crate) fn symbol_kind_label(kind: SymbolKind) -> &'static str {
         SymbolKind::Alias => "alias",
         SymbolKind::Definition => "definition",
         SymbolKind::Segment => "segment",
-        SymbolKind::Implementation => "implementation",
         SymbolKind::Standard => "standard",
         SymbolKind::ImportAlias => "import alias",
         SymbolKind::GenericParameter => "generic parameter",
@@ -235,7 +235,7 @@ pub(crate) fn symbol_kind_label(kind: SymbolKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{resolver_package_message, ResolverError, ResolverErrorKind};
-    use fol_diagnostics::{DiagnosticCode, DiagnosticReport};
+    use fol_diagnostics::{DiagnosticCode, DiagnosticReport, ToDiagnostic};
     use fol_parser::ast::SyntaxOrigin;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -289,7 +289,7 @@ mod tests {
         );
         let mut report = DiagnosticReport::new();
 
-        report.add_error(&error, error.diagnostic_location());
+        report.add_error(error.to_string(), error.diagnostic_location());
 
         assert!(report.has_errors());
         let rendered = report.output(fol_diagnostics::OutputFormat::Json);
@@ -365,7 +365,7 @@ mod tests {
         );
         let mut report = DiagnosticReport::new();
 
-        report.add_error(&error, error.diagnostic_location());
+        report.add_error(error.to_string(), error.diagnostic_location());
 
         let rendered = report.output(fol_diagnostics::OutputFormat::Human);
         let _ = std::fs::remove_file(&path);
@@ -431,10 +431,10 @@ mod tests {
     }
 
     #[test]
-    fn resolver_error_to_diagnostic_adds_help_for_missing_std_root() {
+    fn resolver_error_to_diagnostic_adds_help_for_missing_bundled_std_or_override() {
         let diagnostic = ResolverError::new(
             ResolverErrorKind::InvalidInput,
-            "resolver std import 'fmt' requires an explicit std root",
+            "resolver std import 'fmt' requires bundled std at '/tmp/std' or an explicit --std-root <DIR> override",
         )
         .to_diagnostic();
 
@@ -454,7 +454,7 @@ mod tests {
 
         assert_eq!(
             diagnostic.notes,
-            vec!["supported import source kinds are loc, std, and pkg".to_string()]
+            vec!["supported import source kinds are loc and pkg".to_string()]
         );
     }
 

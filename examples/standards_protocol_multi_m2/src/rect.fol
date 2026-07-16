@@ -1,0 +1,11 @@
+typ Rect()(geo, sized): rec = {
+    var width: int;
+};
+
+fun (Rect)area(): int = {
+    return 1;
+};
+
+fun (Rect)size(): int = {
+    return 2;
+};

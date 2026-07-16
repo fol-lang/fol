@@ -7,3 +7,5 @@ docs/
 .idea/
 *.log
 .fol/build/
+AGENTS.md
+plan

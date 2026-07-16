@@ -3,9 +3,9 @@
 
 
 
-use[] one: loc = { /bin/vendor_perl/GET }
+use[] one: loc = {"/bin/vendor_perl/GET"}
 //one two three
-use[] two: loc = { /bin/vendor_perl/GET }
+use[] two: loc = {"/bin/vendor_perl/GET"}
 //one two three
 use[] (
     one: url = { url };

@@ -7,7 +7,7 @@ use crate::{
 };
 use fol_parser::ast::{AstNode, ContainerType, Literal};
 use fol_resolver::{PackageIdentity, ScopeId, SourceUnitId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) fn lower_record_initializer(
     typed_package: &fol_typecheck::TypedPackage,
@@ -27,16 +27,28 @@ pub(crate) fn lower_record_initializer(
             "record initializer lowering requires an expected record type",
         ));
     };
-    let Some(crate::LoweredType::Record {
-        fields: expected_fields,
-    }) = type_table.get(type_id)
-    else {
-        return Err(LoweringError::with_kind(
-            LoweringErrorKind::InvalidInput,
-            "record initializer does not map to a lowered record runtime type",
-        ));
+    let (construction_type, expected_fields) = match type_table.get(type_id) {
+        Some(crate::LoweredType::Record { fields }) => (type_id, fields.clone()),
+        Some(crate::LoweredType::Named {
+            package, symbol, ..
+        }) => {
+            let runtime_type = decl_index
+                .record_runtime_type(package, *symbol)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "named record initializer lost its lowered declaration",
+                    )
+                })?;
+            (runtime_type, decl_index.record_fields(package, *symbol))
+        }
+        _ => {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "record initializer does not map to a lowered record runtime type",
+            ));
+        }
     };
-
     let mut lowered_fields = Vec::with_capacity(fields.len());
     for field in fields {
         let Some(field_type) = expected_fields.get(&field.name).copied() else {
@@ -59,6 +71,140 @@ pub(crate) fn lower_record_initializer(
             scope_id,
             Some(field_type),
             &field.value,
+        )?;
+        lowered_fields.push((field.name.clone(), lowered_value.local_id));
+    }
+
+    // Fields omitted from a named initializer are filled from their declared
+    // defaults, so the constructed record always carries a complete field set.
+    let provided: BTreeSet<&str> = fields.iter().map(|field| field.name.as_str()).collect();
+    if let Some(layout) = checked_record_layout(typed_package, checked_type_map, construction_type)
+    {
+        for field in layout {
+            if provided.contains(field.name.as_str()) {
+                continue;
+            }
+            let Some(default_expr) = field.default.clone() else {
+                continue;
+            };
+            let Some(field_type) = expected_fields.get(&field.name).copied() else {
+                continue;
+            };
+            let lowered_value = lower_expression_expected(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                Some(field_type),
+                &default_expr,
+            )?;
+            lowered_fields.push((field.name.clone(), lowered_value.local_id));
+        }
+    }
+
+    let result_local = cursor.allocate_local(type_id, None);
+    cursor.push_instr(
+        Some(result_local),
+        LoweredInstrKind::ConstructRecord {
+            type_id: construction_type,
+            fields: lowered_fields,
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id,
+        recoverable_error_type: None,
+    })
+}
+
+/// Recover the ordered record field layout (declaration order plus defaults)
+/// for a lowered record type by reversing the checked-to-lowered type map.
+fn checked_record_layout<'a>(
+    typed_package: &'a fol_typecheck::TypedPackage,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    lowered_type_id: LoweredTypeId,
+) -> Option<&'a [fol_typecheck::RecordFieldLayout]> {
+    checked_type_map
+        .iter()
+        .filter(|(_, lowered_id)| **lowered_id == lowered_type_id)
+        .find_map(|(checked_id, _)| typed_package.program.record_layout(*checked_id))
+}
+
+/// Lower positional (ordered) record initialization `{ v0, v1, ... }`. Values
+/// bind to fields in declaration order; fields uncovered by a positional value
+/// are filled from their declared defaults. Typecheck has already validated
+/// arity and default coverage.
+#[allow(clippy::too_many_arguments)]
+fn lower_positional_record_literal(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    type_id: LoweredTypeId,
+    elements: &[AstNode],
+) -> Result<LoweredValue, LoweringError> {
+    let Some(crate::LoweredType::Record {
+        fields: expected_fields,
+    }) = type_table.get(type_id)
+    else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            "positional record initializer does not map to a lowered record runtime type",
+        ));
+    };
+    let expected_fields = expected_fields.clone();
+    let Some(layout) = checked_record_layout(typed_package, checked_type_map, type_id) else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            "positional record initialization requires a named record type",
+        ));
+    };
+    let layout = layout.to_vec();
+
+    let element_nodes = container_elements(elements);
+    let mut lowered_fields = Vec::with_capacity(layout.len());
+    for (index, field) in layout.iter().enumerate() {
+        let Some(field_type) = expected_fields.get(&field.name).copied() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "record field '{}' does not map to a lowered record layout",
+                    field.name
+                ),
+            ));
+        };
+        let value_node = if let Some(node) = element_nodes.get(index) {
+            *node
+        } else if let Some(default_expr) = &field.default {
+            default_expr
+        } else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "positional record initializer is missing a value for field '{}'",
+                    field.name
+                ),
+            ));
+        };
+        let lowered_value = lower_expression_expected(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            Some(field_type),
+            value_node,
         )?;
         lowered_fields.push((field.name.clone(), lowered_value.local_id));
     }
@@ -135,7 +281,72 @@ pub(crate) fn apply_expected_shell_wrap(
     if expected_type == value.type_id {
         return Ok(value);
     }
+    if matches!(
+        type_table.get(value.type_id),
+        Some(crate::LoweredType::Owned { inner }) if *inner == expected_type
+    ) {
+        let result_local = cursor.allocate_local(expected_type, None);
+        cursor.push_instr(
+            Some(result_local),
+            LoweredInstrKind::ConsumeOwned {
+                value: value.local_id,
+            },
+        )?;
+        return Ok(LoweredValue {
+            local_id: result_local,
+            type_id: expected_type,
+            recoverable_error_type: None,
+        });
+    }
+    if matches!(
+        type_table.get(value.type_id),
+        Some(crate::LoweredType::Borrowed { inner, .. }) if *inner == expected_type
+    ) {
+        let result_local = cursor.allocate_local(expected_type, None);
+        cursor.push_instr(
+            Some(result_local),
+            LoweredInstrKind::ReadBorrow {
+                borrow: value.local_id,
+            },
+        )?;
+        return Ok(LoweredValue {
+            local_id: result_local,
+            type_id: expected_type,
+            recoverable_error_type: None,
+        });
+    }
     match type_table.get(expected_type) {
+        Some(crate::LoweredType::Owned { inner }) if *inner == value.type_id => {
+            let result_local = cursor.allocate_local(expected_type, None);
+            cursor.push_instr(
+                Some(result_local),
+                LoweredInstrKind::ConstructOwned {
+                    type_id: expected_type,
+                    value: value.local_id,
+                },
+            )?;
+            Ok(LoweredValue {
+                local_id: result_local,
+                type_id: expected_type,
+                recoverable_error_type: None,
+            })
+        }
+        Some(crate::LoweredType::Borrowed { inner, mutable }) if *inner == value.type_id => {
+            let result_local = cursor.allocate_local(expected_type, None);
+            cursor.push_instr(
+                Some(result_local),
+                LoweredInstrKind::ConstructBorrow {
+                    type_id: expected_type,
+                    owner: value.local_id,
+                    mutable: *mutable,
+                },
+            )?;
+            Ok(LoweredValue {
+                local_id: result_local,
+                type_id: expected_type,
+                recoverable_error_type: None,
+            })
+        }
         Some(crate::LoweredType::Optional { inner }) if *inner == value.type_id => {
             let result_local = cursor.allocate_local(expected_type, None);
             cursor.push_instr(
@@ -183,6 +394,28 @@ pub(crate) fn lower_container_literal(
     expected_type: Option<LoweredTypeId>,
     elements: &[AstNode],
 ) -> Result<LoweredValue, LoweringError> {
+    // A brace literal with an expected record type is positional record
+    // initialization; values bind to fields in declaration order.
+    if let Some(type_id) = expected_type {
+        if matches!(
+            type_table.get(type_id),
+            Some(crate::LoweredType::Record { .. })
+        ) {
+            return lower_positional_record_literal(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                type_id,
+                elements,
+            );
+        }
+    }
+
     let container_kind =
         expected_container_kind(type_table, expected_type).unwrap_or(container_type);
     match container_kind {
@@ -268,7 +501,8 @@ fn lower_linear_container_literal(
         expected_type,
         element_type,
         lowered_elements.len(),
-    )? else {
+    )?
+    else {
         return Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
             "empty linear container literals require an expected container type",
@@ -496,12 +730,20 @@ pub(crate) fn literal_index_value(node: &AstNode) -> Option<usize> {
 
 pub(crate) fn field_access_type(
     type_table: &crate::LoweredTypeTable,
+    decl_index: &WorkspaceDeclIndex,
     object_type: LoweredTypeId,
     field: &str,
 ) -> Option<LoweredTypeId> {
     match type_table.get(object_type) {
         Some(crate::LoweredType::Record { fields }) => fields.get(field).copied(),
         Some(crate::LoweredType::Entry { variants }) => variants.get(field).copied().flatten(),
+        Some(crate::LoweredType::Owned { inner })
+        | Some(crate::LoweredType::Borrowed { inner, .. }) => {
+            field_access_type(type_table, decl_index, *inner, field)
+        }
+        Some(crate::LoweredType::Named {
+            package, symbol, ..
+        }) => decl_index.record_field(package, *symbol, field),
         _ => None,
     }
 }
@@ -511,9 +753,11 @@ pub(crate) fn slice_access_type(
     container_type: LoweredTypeId,
 ) -> Option<LoweredTypeId> {
     match type_table.get(container_type) {
-        Some(crate::LoweredType::Vector { .. })
-        | Some(crate::LoweredType::Sequence { .. }) => Some(container_type),
-        Some(crate::LoweredType::Array { .. }) => Some(container_type),
+        Some(crate::LoweredType::Vector { .. }) | Some(crate::LoweredType::Sequence { .. }) => {
+            Some(container_type)
+        }
+        Some(crate::LoweredType::Owned { inner })
+        | Some(crate::LoweredType::Borrowed { inner, .. }) => slice_access_type(type_table, *inner),
         _ => None,
     }
 }
@@ -532,6 +776,24 @@ pub(crate) fn index_access_type(
             let index_value = literal_index_value(index)?;
             member_types.get(index_value).copied()
         }
+        Some(crate::LoweredType::Owned { inner })
+        | Some(crate::LoweredType::Borrowed { inner, .. }) => {
+            index_access_type(type_table, *inner, index)
+        }
+        _ => None,
+    }
+}
+
+/// Expected type of an index expression for the given container: map keys
+/// carry the declared key type; positional containers index by int.
+pub(crate) fn index_key_type(
+    type_table: &crate::LoweredTypeTable,
+    container_type: LoweredTypeId,
+) -> Option<LoweredTypeId> {
+    match type_table.get(container_type) {
+        Some(crate::LoweredType::Map { key_type, .. }) => Some(*key_type),
+        Some(crate::LoweredType::Owned { inner })
+        | Some(crate::LoweredType::Borrowed { inner, .. }) => index_key_type(type_table, *inner),
         _ => None,
     }
 }

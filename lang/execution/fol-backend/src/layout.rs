@@ -59,13 +59,23 @@ pub fn plan_namespace_layouts(session: &BackendSession) -> Vec<NamespaceLayoutPl
                 .push(source_unit.source_unit_id);
         }
 
+        let namespace_keys = by_namespace.keys().cloned().collect::<Vec<_>>();
+
         for (namespace, source_unit_ids) in by_namespace {
             let relative_segments = namespace_segments(package_identity, &namespace);
             let module_name = relative_segments
                 .last()
                 .map(|segment| sanitize_segment(segment))
                 .unwrap_or_else(|| "root".to_string());
-            let relative_file = if relative_segments.len() <= 1 {
+            let has_child_namespace = namespace_keys.iter().any(|candidate| {
+                candidate != &namespace
+                    && candidate.starts_with(&format!("{namespace}::"))
+            });
+            let relative_file = if relative_segments.is_empty() {
+                format!("{module_name}.rs")
+            } else if has_child_namespace {
+                format!("{}/mod.rs", relative_segments.join("/"))
+            } else if relative_segments.len() <= 1 {
                 format!("{module_name}.rs")
             } else {
                 format!(
@@ -142,6 +152,17 @@ mod tests {
         testing::{distinct_namespaces, sample_lowered_workspace},
         BackendSession,
     };
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_root(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("fol_backend_layout_{label}_{unique}"))
+    }
 
     #[test]
     fn package_layout_plans_follow_package_graph_order() {
@@ -236,5 +257,43 @@ mod tests {
         assert!(namespace_files.contains("src/packages/pkg__entry__app/math.rs"));
         assert!(namespace_files.contains("src/packages/pkg__local__shared/root.rs"));
         assert!(namespace_files.contains("src/packages/pkg__local__shared/util.rs"));
+    }
+
+    #[test]
+    fn namespace_with_declarations_and_children_uses_mod_rs() {
+        let fixture_root = temp_root("nested_namespace_with_parent_items");
+        let app_root = fixture_root.join("app");
+        fs::create_dir_all(app_root.join("fmt/math")).expect("nested namespace root");
+        fs::write(
+            app_root.join("main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    return fmt::answer() + fmt::math::answer();\n",
+                "};\n",
+            ),
+        )
+        .expect("app source");
+        fs::write(
+            app_root.join("fmt/root.fol"),
+            "fun[] answer(): int = {\n    return 7;\n};\n",
+        )
+        .expect("fmt root");
+        fs::write(
+            app_root.join("fmt/math/lib.fol"),
+            "fun[] answer(): int = {\n    return 9;\n};\n",
+        )
+        .expect("fmt child");
+
+        let lowered = crate::testing::lowered_workspace_from_entry_path(&app_root);
+        let plans = plan_namespace_layouts(&BackendSession::new(lowered));
+
+        assert!(plans
+            .iter()
+            .any(|plan| plan.full_namespace == "app::fmt" && plan.relative_file == "fmt/mod.rs"));
+        assert!(plans.iter().any(
+            |plan| plan.full_namespace == "app::fmt::math" && plan.relative_file == "fmt/math.rs"
+        ));
+
+        let _ = fs::remove_dir_all(&fixture_root);
     }
 }

@@ -32,6 +32,24 @@ pub enum NativeLinkMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemLibraryRequest {
+    pub name: String,
+    pub mode: NativeLinkMode,
+    pub framework: bool,
+    pub search_path: Option<String>,
+}
+
+impl SystemLibraryRequest {
+    pub fn link_input(&self) -> NativeLinkInput {
+        if self.framework {
+            NativeLinkInput::LibraryName(format!("framework:{}", self.name))
+        } else {
+            NativeLinkInput::LibraryName(self.name.clone())
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeLinkInput {
     Artifact(NativeArtifactDefinition),
     LibraryName(String),

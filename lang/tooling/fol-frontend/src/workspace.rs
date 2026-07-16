@@ -2,6 +2,7 @@ use crate::{
     DiscoveredRoot, FrontendConfig, FrontendError, FrontendErrorKind, FrontendResult, PackageRoot,
     WorkspaceRoot,
 };
+use fol_package::available_bundled_std_root;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -12,6 +13,7 @@ pub struct FrontendWorkspaceConfig {
     pub build_root_override: Option<PathBuf>,
     pub cache_root_override: Option<PathBuf>,
     pub git_cache_root_override: Option<PathBuf>,
+    pub install_prefix_override: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +25,7 @@ pub struct FrontendWorkspace {
     pub build_root: PathBuf,
     pub cache_root: PathBuf,
     pub git_cache_root: PathBuf,
+    pub install_prefix: PathBuf,
 }
 
 impl FrontendWorkspace {
@@ -35,6 +38,7 @@ impl FrontendWorkspace {
             build_root: PathBuf::from("/tmp/demo/.fol/build"),
             cache_root: PathBuf::from("/tmp/demo/.fol/cache"),
             git_cache_root: PathBuf::from("/tmp/demo/.fol/cache/git"),
+            install_prefix: PathBuf::from("/tmp/demo/.fol/install"),
         }
     }
 
@@ -44,6 +48,7 @@ impl FrontendWorkspace {
             build_root: default_build_root(&root.root),
             cache_root: default_cache_root(&root.root),
             git_cache_root: default_git_cache_root(&root.root),
+            install_prefix: default_install_prefix(&root.root),
             root,
             std_root_override: None,
             package_store_root_override: None,
@@ -79,6 +84,11 @@ impl FrontendWorkspace {
                 .as_ref()
                 .map(|path| absolute_member_root(&root.root, path))
                 .unwrap_or_else(|| default_git_cache_root(&root.root)),
+            install_prefix: config
+                .install_prefix_override
+                .as_ref()
+                .map(|path| absolute_member_root(&root.root, path))
+                .unwrap_or_else(|| default_install_prefix(&root.root)),
             root,
         })
     }
@@ -90,10 +100,13 @@ impl FrontendWorkspace {
             format!("build_root={}", self.build_root.display()),
             format!("cache_root={}", self.cache_root.display()),
             format!("git_cache_root={}", self.git_cache_root.display()),
+            format!("install_prefix={}", self.install_prefix.display()),
         ];
 
         if let Some(std_root) = &self.std_root_override {
-            lines.push(format!("std_root={}", std_root.display()));
+            lines.push(format!("std_root=override:{}", std_root.display()));
+        } else if let Some(std_root) = available_bundled_std_root() {
+            lines.push(format!("std_root=bundled:{}", std_root.display()));
         }
         if let Some(package_store_root) = &self.package_store_root_override {
             lines.push(format!(
@@ -135,6 +148,11 @@ pub fn load_frontend_workspace(
                     workspace.git_cache_root = git_cache_root.clone();
                 }
             }
+            if workspace.install_prefix == default_install_prefix(&root.root) {
+                if let Some(install_prefix) = &config.install_prefix_override {
+                    workspace.install_prefix = install_prefix.clone();
+                }
+            }
             Ok(workspace)
         }
         DiscoveredRoot::Package(root) => Ok(FrontendWorkspace {
@@ -154,6 +172,10 @@ pub fn load_frontend_workspace(
                 .git_cache_root_override
                 .clone()
                 .unwrap_or_else(|| default_git_cache_root(&root.root)),
+            install_prefix: config
+                .install_prefix_override
+                .clone()
+                .unwrap_or_else(|| default_install_prefix(&root.root)),
         }),
     }
 }
@@ -162,24 +184,29 @@ pub fn enumerate_member_packages(
     workspace_root: &WorkspaceRoot,
     member_paths: &[PathBuf],
 ) -> FrontendResult<Vec<PackageRoot>> {
-    member_paths
-        .iter()
-        .map(|member| {
-            let absolute = absolute_member_root(&workspace_root.root, member);
-            let manifest_file = absolute.join(crate::PACKAGE_FILE_NAME);
-            if !manifest_file.is_file() {
-                return Err(FrontendError::new(
-                    FrontendErrorKind::InvalidInput,
-                    format!(
-                        "workspace member '{}' is missing '{}'",
-                        absolute.display(),
-                        crate::PACKAGE_FILE_NAME
-                    ),
-                ));
-            }
-            Ok(PackageRoot::new(absolute))
-        })
-        .collect()
+    let mut seen = std::collections::BTreeSet::new();
+    let mut members = Vec::new();
+    for member in member_paths {
+        let absolute = absolute_member_root(&workspace_root.root, member);
+        // The same package root listed twice would be built/checked twice
+        // (and risk a double emit); collapse duplicates to one member.
+        if !seen.insert(absolute.clone()) {
+            continue;
+        }
+        let control_file = absolute.join(crate::PACKAGE_FILE_NAME);
+        if !control_file.is_file() {
+            return Err(FrontendError::new(
+                FrontendErrorKind::InvalidInput,
+                format!(
+                    "workspace member '{}' is missing '{}'",
+                    absolute.display(),
+                    crate::PACKAGE_FILE_NAME
+                ),
+            ));
+        }
+        members.push(PackageRoot::new(absolute));
+    }
+    Ok(members)
 }
 
 pub fn load_workspace_config(
@@ -198,6 +225,7 @@ pub fn load_workspace_config(
 
     let mut config = FrontendWorkspaceConfig::default();
     let mut in_members = false;
+    let mut declared_members = false;
 
     for line in raw.lines() {
         let trimmed = line.trim();
@@ -246,6 +274,7 @@ pub fn load_workspace_config(
                     ));
                 }
                 in_members = true;
+                declared_members = true;
             }
             "std_root" => config.std_root_override = Some(PathBuf::from(strip_quotes(value))),
             "package_store_root" => {
@@ -255,6 +284,9 @@ pub fn load_workspace_config(
             "cache_root" => config.cache_root_override = Some(PathBuf::from(strip_quotes(value))),
             "git_cache_root" => {
                 config.git_cache_root_override = Some(PathBuf::from(strip_quotes(value)))
+            }
+            "install_prefix" => {
+                config.install_prefix_override = Some(PathBuf::from(strip_quotes(value)))
             }
             _ => {
                 return Err(FrontendError::new(
@@ -267,6 +299,16 @@ pub fn load_workspace_config(
                 ))
             }
         }
+    }
+
+    if declared_members && config.members.is_empty() {
+        return Err(FrontendError::new(
+            FrontendErrorKind::InvalidInput,
+            format!(
+                "workspace config '{}' declares 'members:' but lists none; add at least one member",
+                workspace_root.config_file.display()
+            ),
+        ));
     }
 
     Ok(config)
@@ -290,6 +332,10 @@ fn default_cache_root(workspace_root: &Path) -> PathBuf {
 
 fn default_git_cache_root(workspace_root: &Path) -> PathBuf {
     default_cache_root(workspace_root).join("git")
+}
+
+fn default_install_prefix(workspace_root: &Path) -> PathBuf {
+    workspace_root.join(".fol/install")
 }
 
 fn strip_quotes(raw: &str) -> &str {
@@ -342,8 +388,16 @@ mod tests {
         fs::create_dir_all(&app).unwrap();
         fs::create_dir_all(&lib).unwrap();
         fs::write(root.join("fol.work.yaml"), "members:\n  - app\n  - lib\n").unwrap();
-        fs::write(app.join("package.yaml"), "name: app\nversion: 0.1.0\n").unwrap();
-        fs::write(lib.join("package.yaml"), "name: lib\nversion: 0.1.0\n").unwrap();
+        fs::write(
+            app.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"app\", version = \"0.1.0\" });\n    return;\n};\n",
+        )
+        .unwrap();
+        fs::write(
+            lib.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"lib\", version = \"0.1.0\" });\n    return;\n};\n",
+        )
+        .unwrap();
 
         let members = enumerate_member_packages(
             &WorkspaceRoot::new(root.clone()),
@@ -372,7 +426,7 @@ mod tests {
                 .unwrap_err();
 
         assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
-        assert!(error.message().contains("missing 'package.yaml'"));
+        assert!(error.message().contains("missing 'build.fol'"));
 
         fs::remove_dir_all(root).ok();
     }
@@ -428,7 +482,11 @@ mod tests {
         ));
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
-        fs::write(app.join("package.yaml"), "name: app\nversion: 0.1.0\n").unwrap();
+        fs::write(
+            app.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"app\", version = \"0.1.0\" });\n    return;\n};\n",
+        )
+        .unwrap();
 
         let workspace = FrontendWorkspace::from_config(
             WorkspaceRoot::new(root.clone()),
@@ -450,6 +508,7 @@ mod tests {
         assert_eq!(workspace.build_root, root.join(".fol/build"));
         assert_eq!(workspace.cache_root, root.join(".fol/cache"));
         assert_eq!(workspace.git_cache_root, root.join(".fol/cache/git"));
+        assert_eq!(workspace.install_prefix, root.join(".fol/install"));
 
         fs::remove_dir_all(root).ok();
     }
@@ -487,7 +546,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("fol.work.yaml"),
-            "members:\n  - app\nbuild_root: .artifacts/build\ncache_root: .artifacts/cache\n",
+            "members:\n  - app\nbuild_root: .artifacts/build\ncache_root: .artifacts/cache\ninstall_prefix: .artifacts/install\n",
         )
         .unwrap();
 
@@ -502,6 +561,10 @@ mod tests {
             Some(PathBuf::from(".artifacts/cache"))
         );
         assert_eq!(config.git_cache_root_override, None);
+        assert_eq!(
+            config.install_prefix_override,
+            Some(PathBuf::from(".artifacts/install"))
+        );
 
         fs::remove_dir_all(root).ok();
     }
@@ -514,7 +577,11 @@ mod tests {
         ));
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
-        fs::write(app.join("package.yaml"), "name: app\nversion: 0.1.0\n").unwrap();
+        fs::write(
+            app.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"app\", version = \"0.1.0\" });\n    return;\n};\n",
+        )
+        .unwrap();
 
         let workspace = FrontendWorkspace::from_config(
             WorkspaceRoot::new(root.clone()),
@@ -523,6 +590,7 @@ mod tests {
                 build_root_override: Some(PathBuf::from(".artifacts/build")),
                 cache_root_override: Some(PathBuf::from(".artifacts/cache")),
                 git_cache_root_override: Some(PathBuf::from(".artifacts/git-cache")),
+                install_prefix_override: Some(PathBuf::from(".artifacts/install")),
                 ..FrontendWorkspaceConfig::default()
             },
         )
@@ -531,6 +599,7 @@ mod tests {
         assert_eq!(workspace.build_root, root.join(".artifacts/build"));
         assert_eq!(workspace.cache_root, root.join(".artifacts/cache"));
         assert_eq!(workspace.git_cache_root, root.join(".artifacts/git-cache"));
+        assert_eq!(workspace.install_prefix, root.join(".artifacts/install"));
 
         fs::remove_dir_all(root).ok();
     }
@@ -539,15 +608,16 @@ mod tests {
     fn workspace_info_summary_renders_stable_core_fields() {
         let workspace = FrontendWorkspace::new(WorkspaceRoot::new(PathBuf::from("/tmp/demo")));
 
-        assert_eq!(
-            workspace.info_summary_lines(),
-            vec![
-                "root=/tmp/demo".to_string(),
-                "members=0".to_string(),
-                "build_root=/tmp/demo/.fol/build".to_string(),
-                "cache_root=/tmp/demo/.fol/cache".to_string(),
-                "git_cache_root=/tmp/demo/.fol/cache/git".to_string(),
-            ]
+        let lines = workspace.info_summary_lines();
+        assert!(lines.contains(&"root=/tmp/demo".to_string()));
+        assert!(lines.contains(&"members=0".to_string()));
+        assert!(lines.contains(&"build_root=/tmp/demo/.fol/build".to_string()));
+        assert!(lines.contains(&"cache_root=/tmp/demo/.fol/cache".to_string()));
+        assert!(lines.contains(&"git_cache_root=/tmp/demo/.fol/cache/git".to_string()));
+        assert!(lines.contains(&"install_prefix=/tmp/demo/.fol/install".to_string()));
+        assert!(
+            lines.iter().any(|line| line.starts_with("std_root=bundled:")),
+            "workspace info should surface bundled std by default: {lines:?}"
         );
     }
 
@@ -561,10 +631,11 @@ mod tests {
             build_root: PathBuf::from("/tmp/demo/.fol/build"),
             cache_root: PathBuf::from("/tmp/demo/.fol/cache"),
             git_cache_root: PathBuf::from("/tmp/demo/.fol/cache/git"),
+            install_prefix: PathBuf::from("/tmp/demo/.fol/install"),
         };
 
         let lines = workspace.info_summary_lines();
-        assert!(lines.contains(&"std_root=/tmp/demo/std".to_string()));
+        assert!(lines.contains(&"std_root=override:/tmp/demo/std".to_string()));
         assert!(lines.contains(&"package_store_root=/tmp/demo/.fol/pkg".to_string()));
     }
 
@@ -576,7 +647,11 @@ mod tests {
         ));
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
-        fs::write(app.join("package.yaml"), "name: app\nversion: 0.1.0\n").unwrap();
+        fs::write(
+            app.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"app\", version = \"0.1.0\" });\n    return;\n};\n",
+        )
+        .unwrap();
         fs::write(
             root.join("fol.work.yaml"),
             "members:\n  - app\nstd_root: std\npackage_store_root: .fol/pkg\nbuild_root: .ws/build\ncache_root: .ws/cache\ngit_cache_root: .ws/git-cache\n",
@@ -613,7 +688,11 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("fol_frontend_package_load_{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("package.yaml"), "name: app\nversion: 0.1.0\n").unwrap();
+        fs::write(
+            root.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"app\", version = \"0.1.0\" });\n    return;\n};\n",
+        )
+        .unwrap();
 
         let workspace = load_frontend_workspace(
             &DiscoveredRoot::Package(PackageRoot::new(root.clone())),

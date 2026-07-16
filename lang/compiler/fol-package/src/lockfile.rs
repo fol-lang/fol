@@ -208,6 +208,7 @@ fn source_kind_label(kind: PackageDependencySourceKind) -> &'static str {
         PackageDependencySourceKind::Local => "loc",
         PackageDependencySourceKind::PackageStore => "pkg",
         PackageDependencySourceKind::Git => "git",
+        PackageDependencySourceKind::Internal => "internal",
     }
 }
 
@@ -216,6 +217,7 @@ fn parse_source_kind(raw: &str) -> Result<PackageDependencySourceKind, PackageEr
         "loc" => Ok(PackageDependencySourceKind::Local),
         "pkg" => Ok(PackageDependencySourceKind::PackageStore),
         "git" => Ok(PackageDependencySourceKind::Git),
+        "internal" => Ok(PackageDependencySourceKind::Internal),
         _ => Err(PackageError::new(
             PackageErrorKind::InvalidInput,
             format!("package lockfile uses unsupported source kind '{raw}'"),
@@ -284,5 +286,25 @@ mod tests {
         .expect_err("missing fields should fail");
 
         assert!(error.message().contains("missing required field 'root'"));
+    }
+
+    #[test]
+    fn package_lockfile_keeps_structured_git_locator_strings() {
+        let lockfile = PackageLockfile::new(vec![PackageLockEntry {
+            alias: "logtiny".to_string(),
+            source_kind: PackageDependencySourceKind::Git,
+            locator: "git+https://github.com/bresilla/logtiny.git#tag:v0.1.2#hash:f49abfa1038f"
+                .to_string(),
+            selected_revision: "f49abfa1038f0f5a3a2e09b9b3dd533182551006".to_string(),
+            materialized_root: ".fol/pkg/git/github.com/bresilla/logtiny/rev_f49abfa1038f0f5a3a2e09b9b3dd533182551006"
+                .to_string(),
+        }]);
+
+        let rendered = render_package_lockfile(&lockfile);
+        let reparsed = parse_package_lockfile(&rendered)
+            .expect("structured git lockfile locator should roundtrip");
+
+        assert!(rendered.contains("#tag:v0.1.2#hash:f49abfa1038f"));
+        assert_eq!(reparsed, lockfile);
     }
 }

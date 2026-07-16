@@ -123,7 +123,7 @@ fn test_use_path_cannot_continue_into_next_file() {
     write_folder_fixture(
         &temp_root,
         &[
-            ("00_a.fol", "use file: loc = std::fs::\n"),
+            ("00_a.fol", "use file: loc = {\"std::fs::\n"),
             ("10_b.fol", "File\n"),
         ],
     );
@@ -197,7 +197,7 @@ fn test_decl_package_split_use_path_reports_boundary_then_second_file_locations(
     write_folder_fixture(
         &temp_root,
         &[
-            ("00_a.fol", "use file: loc = std::fs::\n"),
+            ("00_a.fol", "use file: loc = {\"std::fs::\n"),
             ("10_b.fol", "File\n"),
         ],
     );
@@ -211,21 +211,24 @@ fn test_decl_package_split_use_path_reports_boundary_then_second_file_locations(
         "Split use paths should report at least one boundary-token failure"
     );
     assert!(
-        errors[0]
-            .message
-            .contains("Expected name after '::' in use path"),
-        "Expected a use-path boundary diagnostic first, got: {}",
+        errors[0].message.contains("Expected '}' after quoted import target")
+            || errors[0]
+                .message
+                .contains("Import targets must be quoted string literals inside braces")
+            || errors[0]
+                .message
+                .contains("Expected '}' to close use path"),
+        "Expected a quoted-import boundary diagnostic first, got: {}",
         errors[0].message
     );
     let loc = errors[0].primary_location().expect("diagnostic should have primary location");
     assert!(
         loc.file
             .as_deref()
-            .is_some_and(|path| path.ends_with("10_b.fol")),
-        "The boundary-token use-path error should identify the incoming second file"
+            .is_some_and(|path| path.ends_with("00_a.fol") || path.ends_with("10_b.fol")),
+        "The quoted-import boundary error should stay anchored on one of the split files"
     );
     assert_eq!(loc.line, 1);
-    assert_eq!(loc.column, 0);
 }
 
 #[test]

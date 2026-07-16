@@ -1,0 +1,10 @@
+fun[] join(prefix: str = "mem", extras: ... str): str = {
+    return prefix + extras[0];
+};
+
+fun[] main(): int = {
+    var values: vec[int] = {1, 2, 3};
+    var extras: seq[str] = {"-ready"};
+    var text: str = join(...extras);
+    return .len(values) + .len(text);
+};

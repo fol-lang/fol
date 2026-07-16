@@ -29,6 +29,18 @@ Use `work` for:
 - inspecting workspace structure
 - seeing member and dependency state
 
+Scaffold reminder:
+
+- `fol work init --bin` creates a `memo` binary whose generated source uses
+  hosted `std.io`
+- the generated `build.fol` explicitly declares bundled `std` through
+  `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
+- source code that uses bundled-library names imports that declared alias with
+  `use std: pkg = {"std"};`
+- this dependency follows from the generated source using hosted APIs, not from
+  the package being executable; std-free `core` and `memo` packages may also
+  use `fol code run` and `fol code test`
+
 ## Pack
 
 Package acquisition commands:
@@ -62,6 +74,7 @@ Build-oriented commands:
 - `fol code test`
 - `fol code emit rust`
 - `fol code emit lowered`
+- `fol code explain <CODE>`
 
 Examples:
 
@@ -71,6 +84,7 @@ fol code build --release
 fol code run -- --flag value
 fol code emit rust
 fol code emit lowered
+fol code explain T1003
 ```
 
 Use `code` for:
@@ -79,6 +93,61 @@ Use `code` for:
 - building binaries through the current Rust backend
 - running produced binaries
 - emitting backend/debug artifacts
+- explaining a diagnostic code emitted by `fol code check`
+
+### Capability vs execution
+
+`fol code run` and `fol code test` evaluate `build.fol`, select the requested
+artifact or step, compile it, and launch it when its target is compatible with
+the host. That tool action is not a source capability:
+
+- `core` and `memo` artifacts can run and test without bundled `std`
+- declaring bundled `std` only makes hosted source APIs available to a `memo`
+  artifact; it does not grant execution permission
+- the compiler still rejects heap-backed or hosted APIs that exceed the
+  artifact's evaluated capability contract
+- a foreign selected target is rejected before launch because the frontend has
+  no cross-target runner configuration yet
+
+`graph.add_run` and `graph.add_test` choose graph actions. They do not change
+the selected `fol_model`.
+
+### Explain
+
+`fol code explain <CODE>` prints an extended, plain-language explanation for a
+diagnostic code — the same code the pretty diagnostic footer points at
+(`run \`fol code explain T1003\` for more`). It pairs with `fol code check`,
+which emits the diagnostics it explains.
+
+- `fol code explain <CODE>`
+
+Codes are accepted case-insensitively (`t1003` and `T1003` are the same).
+
+Examples:
+
+```text
+fol code explain T1003
+fol code explain t1003
+fol code explain --output json R1003
+```
+
+Output modes:
+
+- `human` (default): a family chip, the code, a short title, and the body
+- `plain`: `code:` / `family:` / `title:` lines followed by the body
+- `json` / `--json`: `{ "code", "family", "known", "title", "explanation" }`
+
+Behavior:
+
+- known codes print their explanation and exit `0`
+- unknown codes print an honest "no extended explanation for `<CODE>` yet"
+  message (pointing at the code's family when the prefix is recognized) and
+  exit nonzero
+
+Only diagnostic codes the compiler and runtime actually emit have
+explanations. The registry lives in `fol-diagnostics` (compiler truth) and is
+kept honest by a completeness test, so `explain` never documents a code that
+does not exist.
 
 ## Tool
 
@@ -117,6 +186,43 @@ Use `tool` for:
 - Tree-sitter debugging
 - LSP serving
 - generated tool assets
+
+### Parse And Query Results
+
+`parse`, `highlight`, and `symbols` execute the checked-in generated FOL
+Tree-sitter parser in-process. They do not estimate results from source text or
+report the contents of query files as if those were matches.
+
+`fol tool parse <PATH>` reports:
+
+- `parse_status=ok` for a tree with no `ERROR` or missing nodes, otherwise
+  `parse_status=ERROR`
+- root kind plus total and named node counts
+- exact `error_count` and `missing_count` values
+- one zero-based source range and escaped source excerpt for every error or
+  missing node
+- the real Tree-sitter S-expression as `syntax_tree=...`
+
+The command is error-tolerant: a source file with invalid syntax still produces
+its recovered tree and exits through the normal command-result path. For
+example, the removed `select(channel as value) { ... }` form reports an
+`ERROR` node rather than being accepted as a second select grammar.
+
+`fol tool highlight <PATH>` runs `queries/fol/highlights.scm` against that tree
+and reports the actual capture count, capture kinds, and every capture as:
+
+```text
+capture=<name>@<start-row>:<start-column>-<end-row>:<end-column>:<text>
+```
+
+`fol tool symbols <PATH>` runs `queries/fol/symbols.scm`, reports the actual
+symbol and scope counts, and reports each non-scope capture in the equivalent
+`symbol=<name>@...:<text>` form. Rows and columns are zero-based. Backslashes,
+tabs, carriage returns, and newlines in excerpts are escaped.
+
+These three normal commands need no external `tree-sitter` executable. The
+external CLI is required only by `fol tool tree generate`, which regenerates an
+exportable parser bundle.
 
 The public editor surface stays under `fol tool ...`.
 There is no parallel `fol editor ...` command group.

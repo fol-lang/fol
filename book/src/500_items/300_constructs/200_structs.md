@@ -23,12 +23,12 @@ typ user: rec = {
 };
 ```
 
-#### Records are data, not classes
+#### Records are data, not objects
 
 `typ ...: rec = { ... }` declares a data type. FOL does not treat records as
-classes with hidden object state or class-owned method bodies. If a record has
-operations associated with it, those operations are still declared as ordinary
-receiver-qualified routines outside the record body.
+objects with hidden behavior, inheritance, or class-owned method bodies. If a
+record has operations associated with it, those operations are still declared
+as ordinary receiver-qualified routines outside the record body.
 
 ```fol
 typ computer: rec = {
@@ -45,7 +45,7 @@ var laptop: computer = { brand = "acme", memory = 16 }
 ```
 
 The call `laptop.get_type()` is procedural sugar for calling the receiver
-routine with `laptop` as its first input.
+routine with `laptop` as its first explicit input.
 
 Current `V1` backend/runtime note:
 
@@ -105,18 +105,29 @@ To use a record after we’ve defined it, we create an instance of that record b
 
 ## Accessing
 
-To get a specific value from a record, we can use dot notation or the access brackets. If we wanted just this user’s email address, we could use `user1.email` or `user1[email]` wherever we wanted to use this value. If the instance is mutable, we can change a value by assigning into a particular field. Note that the entire instance must be mutable; FOL doesn’t allow us to mark only certain fields as mutable. 
-```
-@var[mut] user1: user = {
+To get a specific value from a record, use dot notation: if we wanted just
+this user's email address, we can use `user1.email` wherever we want that
+value. If the instance is mutable, we can change a value by assigning into a
+particular field. Note that the entire instance must be mutable; FOL doesn't
+allow us to mark only certain fields as mutable.
+
+```fol
+var user1: user = {
     email = "someone@example.com",
     username = "someusername123",
     active = true,
     sign_in_count = 1,
 };
 
-user1.email = "new.mail@example.com"
-user1[username] = "anotherusername"
+user1.email = "new.mail@example.com";
 ```
+
+Current boundaries:
+
+- assignment targets a single field of a mutable binding (`user1.email = ...`);
+  nested targets such as `a.b.c = ...` are not part of the current surface
+- bracket field access (`user1[email]`) is a later design surface, not part of
+  the current compiler contract
 ## Returning
 
 As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. As specified [in function return](/docs/spec/functions/#return), the final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (here is defined as `user`) and this can be used only in one statement body. Here we have declared only one variable `user1` and that itslef spanc into multi rows:
@@ -186,8 +197,8 @@ var mint: rgb = { 153, 255, 187 }
 ## Methods
 
 A record may have receiver-qualified routines associated with it. This does not
-turn the record into an object-oriented type. It only means a routine may use
-dot-call syntax when its first input is a value of that record type. To create
+turn the record into an object model. It only means a routine may use dot-call
+syntax when its first explicit input is a value of that record type. To create
 such a routine for a record, declare the receiver type on the routine itself:
 ```
 fun (recieverRecord)someFunction(): str = { self.somestring; };
@@ -195,7 +206,7 @@ fun (recieverRecord)someFunction(): str = { self.somestring; };
 
 After declaring the record receiver, the routine body may refer to that input
 through `self`. A receiver is simply the explicit first input that enables
-dot-call syntax.
+dot-call syntax. The data and the routine remain separate declarations.
 ```
 typ user: rec = {
     var username: str;
@@ -213,7 +224,21 @@ multiple routines may still share the same method name if the receiver types
 are different.
 
 Each record value can therefore use the dot form, but the underlying model
-remains procedural.
+remains procedural:
+
+```fol
+user1.getName()
+```
+
+should be read as:
+
+```fol
+getName(user1)
+```
+
+There is no hidden record-owned method table in that spelling.
+
+The routine itself is still declared separately:
 ```
 var[mut] user1: user = { email = "someone@example.com", username = "someusername123", active = true, sign_in_count = 1 }
 

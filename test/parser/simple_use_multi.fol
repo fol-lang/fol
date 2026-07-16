@@ -1,1 +1,1 @@
-use log, sync, color: std = {fmt/log}, {os/sync}, {fmt/color};
+use log, sync, color: pkg = {"fmt/log"}, {"os/sync"}, {"fmt/color"};

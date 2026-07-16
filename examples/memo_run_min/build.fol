@@ -1,0 +1,12 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "memo_run_min", version = "0.1.0" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "memo-run-min",
+        root = "src/main.fol",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

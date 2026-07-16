@@ -3,7 +3,7 @@ mod tests {
     use super::super::{
         lower_alias_declarations, lower_entry_declarations, lower_global_declarations,
         lower_record_declarations, lower_routine_decl, lower_routine_declarations,
-        lower_routine_signatures,
+        lower_routine_signatures, synthesize_structural_runtime_type_declarations,
     };
     use crate::{
         types::LoweredType, LoweredBuiltinType, LoweredFieldLayout, LoweredPackage,
@@ -29,7 +29,7 @@ mod tests {
                 .expect("system clock should be monotonic enough for tmp names")
                 .as_nanos()
         ));
-        std::fs::write(&fixture, "fun[] greet(count: int): str = { return \"ok\" }")
+        std::fs::write(&fixture, "fun[] greet(count: int): str = { return \"ok\"; };")
             .expect("should write lowering signature fixture");
 
         let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
@@ -83,6 +83,206 @@ mod tests {
     }
 
     #[test]
+    fn declaration_lowering_supports_generic_routines_in_the_lowered_workspace() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_routine_m1_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "fun pick(T)(value: T): T = { return value; };\nfun[] main(): int = { return pick(7); };",
+        )
+        .expect("should write generic routine lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+
+        let lowered = crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect("generic routine lowering should succeed");
+        assert!(
+            (0..lowered.type_table().len()).any(|index| matches!(
+                lowered.type_table().get(crate::LoweredTypeId(index)),
+                Some(LoweredType::GenericParameter { name }) if name == "T"
+            ))
+        );
+    }
+
+    #[test]
+    fn declaration_lowering_supports_multi_param_generic_routines_in_the_lowered_workspace() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_routine_pair_m1_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "fun pair(T)(left: T, right: T): T = { return right; };\nfun[] main(): int = { return pair(1, 2); };",
+        )
+        .expect("should write generic pair lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+
+        let lowered = crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect("generic pair lowering should succeed");
+        assert!(
+            (0..lowered.type_table().len())
+                .filter(|index| matches!(
+                    lowered.type_table().get(crate::LoweredTypeId(*index)),
+                    Some(LoweredType::GenericParameter { .. })
+                ))
+                .count()
+                >= 1
+        );
+    }
+
+    #[test]
+    fn declaration_lowering_supports_return_only_generic_routines_in_the_lowered_workspace() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_return_only_m1_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "fun make(T)(): T = { panic(\"boom\"); };\nfun[] main(): int = { return 0; };",
+        )
+        .expect("should write generic return-only lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+
+        crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect("generic return-only lowering should succeed");
+    }
+
+    #[test]
+    fn declaration_lowering_supports_generic_routines_with_default_params_in_the_lowered_workspace() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_defaults_m1_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "fun pick(T)(value: T, fallback: int = 1): T = { return value; };\nfun[] main(): int = { return pick(7); };",
+        )
+        .expect("should write generic default-params lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+
+        crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect("generic default-params lowering should succeed");
+    }
+
+    #[test]
+    fn declaration_lowering_records_protocol_standards_and_conformances() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_standard_protocol_m2_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            concat!(
+        "std geo: pro = {\n",
+        "    fun area(): int;\n",
+        "};\n",
+        "typ Rect()(geo): rec = {\n",
+        "    var width: int;\n",
+        "};\n",
+        "fun (Rect)area(): int = {\n",
+        "    return 1;\n",
+        "};\n",
+        "fun[] main(): int = {\n",
+        "    return 0;\n",
+        "};\n",
+    ),
+        )
+        .expect("should write standard lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+
+        let lowered = crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect("protocol standard lowering should now succeed");
+        let entry_package = lowered.entry_package();
+
+        assert_eq!(entry_package.standards.len(), 1);
+        assert_eq!(entry_package.conformances.len(), 1);
+        let standard = entry_package
+            .standards
+            .values()
+            .next()
+            .expect("lowered package should retain the protocol standard");
+        assert_eq!(standard.name, "geo");
+        assert_eq!(standard.required_routines.len(), 1);
+        assert_eq!(standard.required_routines[0].name, "area");
+    }
+
+    #[test]
     fn declaration_lowering_records_aliases_as_erased_runtime_shapes() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_alias_decl_{}.fol",
@@ -93,7 +293,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "ali Counter: int\nfun[] main(value: Counter): Counter = { return value }",
+            "ali Counter: int;\nfun[] main(value: Counter): Counter = { return value; };",
         )
         .expect("should write lowering alias fixture");
 
@@ -149,7 +349,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "typ Point: { x: int, y: str }\nfun[] main(): int = { return 0 }",
+            "typ Point: rec = { x: int, y: str };\nfun[] main(): int = { return 0; };",
         )
         .expect("should write lowering record fixture");
 
@@ -230,7 +430,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "typ Outcome: ent = { var Ok: int; var Err: str }\nfun[] main(): int = { return 0 }",
+            "typ Outcome: ent = { var Ok: int; var Err: str };\nfun[] main(): int = { return 0; };",
         )
         .expect("should write lowering entry fixture");
 
@@ -308,6 +508,138 @@ mod tests {
     }
 
     #[test]
+    fn declaration_lowering_synthesizes_runtime_decls_for_instantiated_generic_records() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_type_record_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "typ Box(T): rec = {\n    value: T\n};\nfun[] read(value: Box[int]): int = { return value.value; };\nfun[] main(): int = { return 0; };",
+        )
+        .expect("should write generic type lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+        let lowered_workspace = crate::LoweringSession::new(typed.clone())
+            .lower_workspace()
+            .expect("workspace lowering should succeed");
+        let typed_package = typed.entry_package();
+        let mut lowered_package =
+            LoweredPackage::new(crate::LoweredPackageId(0), typed_package.identity.clone());
+        lowered_package.checked_type_map =
+            lowered_workspace.entry_package().checked_type_map.clone();
+
+        lower_record_declarations(typed_package, &mut lowered_package)
+            .expect("record declarations should lower cleanly");
+        synthesize_structural_runtime_type_declarations(typed_package, &mut lowered_package)
+            .expect("instantiated generic runtime declarations should synthesize cleanly");
+
+        let read_signature = lowered_workspace
+            .entry_package()
+            .routine_signatures
+            .values()
+            .find_map(|signature_id| match lowered_workspace.type_table().get(*signature_id) {
+                Some(LoweredType::Routine(signature)) if signature.params.len() == 1 => {
+                    Some(signature.params[0])
+                }
+                _ => None,
+            })
+            .expect("read routine signature should retain its parameter type");
+
+        let synthesized = lowered_package
+            .type_decls
+            .values()
+            .find(|type_decl| type_decl.runtime_type == read_signature && type_decl.name != "Box")
+            .expect("instantiated generic record runtime type should get a lowered declaration");
+
+        assert!(synthesized.name.starts_with("record_t"));
+        assert_eq!(
+            lowered_workspace.type_table().get(synthesized.runtime_type),
+            Some(&LoweredType::Record {
+                fields: std::collections::BTreeMap::from([(
+                    "value".to_string(),
+                    lowered_workspace.entry_package().checked_type_map
+                        [&fol_typecheck::CheckedTypeId(0)],
+                )]),
+            })
+        );
+    }
+
+    #[test]
+    fn generic_owned_and_pointer_fields_only_emit_concrete_runtime_decls() {
+        let fixture = safe_temp_dir().join(format!(
+            "fol_lower_generic_memory_fields_{}.fol",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be monotonic enough for tmp names")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &fixture,
+            "typ OwnedBox(T): rec = { value: @T };\n\
+             typ PointerBox(T): rec = { value: ptr[T] };\n\
+             fun[] read_owned(value: OwnedBox[int]): int = { return 0; };\n\
+             fun[] read_pointer(value: PointerBox[int]): int = { return 0; };\n\
+             fun[] main(): int = { return 0; };\n",
+        )
+        .expect("should write generic memory-field lowering fixture");
+
+        let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
+            .expect("Should open lowering fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("Lowering fixture should parse");
+        let resolved = resolve_package_workspace(syntax).expect("Lowering fixture should resolve");
+        let typed = Typechecker::new()
+            .check_resolved_workspace(resolved)
+            .expect("Lowering fixture should typecheck");
+        let lowered = crate::LoweringSession::new(typed)
+            .lower_workspace()
+            .expect("generic memory-field lowering should succeed");
+        let package = lowered.entry_package();
+
+        for routine_name in ["read_owned", "read_pointer"] {
+            let routine = package
+                .routine_decls
+                .values()
+                .find(|routine| routine.name == routine_name)
+                .expect("generic memory-field reader should lower");
+            let signature = routine
+                .signature
+                .and_then(|signature| lowered.type_table().get(signature))
+                .and_then(|signature| match signature {
+                    LoweredType::Routine(signature) => Some(signature),
+                    _ => None,
+                })
+                .expect("reader should retain a lowered routine signature");
+            let parameter_type = signature.params[0];
+
+            assert!(
+                package
+                    .type_decls
+                    .values()
+                    .any(|decl| decl.runtime_type == parameter_type),
+                "{routine_name} parameter type must retain a concrete runtime declaration"
+            );
+        }
+    }
+
+    #[test]
     fn declaration_lowering_records_top_level_globals_with_storage_types() {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_globals_{}.fol",
@@ -316,7 +648,7 @@ mod tests {
                 .expect("system clock should be monotonic enough for tmp names")
                 .as_nanos()
         ));
-        std::fs::write(&fixture, "var count: int = 1\nlab label: str = \"ok\"")
+        std::fs::write(&fixture, "var count: int = 1;\nlab label: str = \"ok\";")
             .expect("should write lowering global fixture");
 
         let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
@@ -379,7 +711,7 @@ mod tests {
         ));
         std::fs::write(
             &fixture,
-            "fun[] add(left: int, right: int): int = { return left }",
+            "fun[] add(left: int, right: int): int = { return left; };",
         )
         .expect("should write lowering routine fixture");
 
@@ -439,7 +771,7 @@ mod tests {
                 .expect("system clock should be monotonic enough for tmp names")
                 .as_nanos()
         ));
-        std::fs::write(&fixture, "fun[] add(left: int): int = { return left }")
+        std::fs::write(&fixture, "fun[] add(left: int): int = { return left; };")
             .expect("should write lowering routine fixture");
 
         let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
@@ -497,7 +829,9 @@ mod tests {
                 param_type: FolType::Int { size: None, signed: true },
                 is_borrowable: false,
                 is_mutex: false,
+                is_variadic: false,
                 default: None,
+                syntax_id: None,
             }],
             &mut next_routine_index,
         )
@@ -528,12 +862,12 @@ mod tests {
         fs::create_dir_all(&shared_dir).expect("should create shared dir");
         fs::write(
             app_dir.join("main.fol"),
-            "use shared: loc = {\"../shared\"}\nfun[] main(): int = { return answer() }",
+            "use shared: loc = {\"../shared\"};\nfun[] main(): int = { return shared::answer(); };",
         )
         .expect("should write app entry");
         fs::write(
             shared_dir.join("lib.fol"),
-            "ali Counter: int\nvar[exp] base: Counter = 7\nfun[exp] answer(): Counter = { return base }",
+            "ali Counter: int;\nvar[exp] base: int = 7;\nfun[exp] answer(): int = { return base; };",
         )
         .expect("should write shared library");
 

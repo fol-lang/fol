@@ -1,0 +1,23 @@
+typ Pair: rec = {
+    left: int;
+    right: int
+};
+
+fun[] sum(values: arr[int, 3]): int = {
+    var total: int = values[0] + values[1] + values[2];
+
+    dfr {
+        total = total + 0;
+    };
+
+    when(.gt(total, 0)) {
+        case(true) { return total; }
+        * { return 0; }
+    }
+};
+
+fun[] main(): int = {
+    var pair: Pair = { left = 1, right = 2 };
+    var values: arr[int, 3] = { pair.left, pair.right, 4 };
+    return sum(values);
+};

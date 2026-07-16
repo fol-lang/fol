@@ -1,0 +1,11 @@
+use shared: loc = {"../shared"};
+
+fun[] main(): int = {
+    var extras: seq[int] = {1, 2};
+    var free_named_default: int = pair(left = 3);
+    var free_named_unpack: int = score(base = 1, ...extras);
+    var method_default: int = lead().shift(...extras);
+    var method_named_unpack: int = lead().shift(step = 3, ...extras);
+
+    return .echo(free_named_default + free_named_unpack + method_default + method_named_unpack);
+};

@@ -1,1 +1,1 @@
-use warn std = {"fmt/log.warn"};
+use warn pkg = {"fmt/log.warn"};

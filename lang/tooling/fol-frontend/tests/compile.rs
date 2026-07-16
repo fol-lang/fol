@@ -1,6 +1,6 @@
 use fol_frontend::{
-    build_workspace, build_workspace_with_config, check_workspace, check_workspace_with_config,
-    emit_lowered, emit_rust, run_command_from_args_in_dir, run_workspace,
+    build_workspace_with_config, check_workspace, check_workspace_with_config, emit_lowered,
+    emit_rust, run_command_from_args_in_dir, run_from_args_with_io, run_workspace,
     run_workspace_with_config, test_workspace, test_workspace_with_config, FrontendArtifactKind,
     FrontendConfig, FrontendWorkspace, PackageRoot, WorkspaceRoot,
 };
@@ -8,21 +8,28 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn semantic_bin_build() -> &'static str {
-    concat!(
-        "pro[] build(graph: Graph): non = {\n",
+fn semantic_bin_build() -> String {
+    [
+        "pro[] build(): non = {\n",
+        "    var build = .build();\n",
+        "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
+        "    var graph = build.graph();\n",
         "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
         "    graph.install(app);\n",
         "    graph.add_run(app);\n",
         "    graph.add_test({ name = \"app_test\", root = \"src/main.fol\" });\n",
         "};\n",
-    )
+    ]
+    .concat()
 }
 
 fn semantic_lib_build(name: &str) -> String {
     format!(
         concat!(
-            "pro[] build(graph: Graph): non = {{\n",
+            "pro[] build(): non = {{\n",
+            "    var build = .build();\n",
+            "    build.meta({{ name = \"{name}\", version = \"0.1.0\" }});\n",
+            "    var graph = build.graph();\n",
             "    var lib = graph.add_static_lib({{ name = \"{name}\", root = \"src/lib.fol\" }});\n",
             "    graph.install(lib);\n",
             "}};\n",
@@ -61,8 +68,6 @@ fn sample_workspace(root: &PathBuf) -> FrontendWorkspace {
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).expect("should create source tree");
-    fs::write(app.join("package.yaml"), "name: app\nversion: 0.1.0\n")
-        .expect("should write manifest");
     fs::write(app.join("build.fol"), semantic_bin_build()).expect("should write build file");
     fs::write(
         src.join("main.fol"),
@@ -78,6 +83,7 @@ fn sample_workspace(root: &PathBuf) -> FrontendWorkspace {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     }
 }
 
@@ -110,9 +116,11 @@ fn locked_check_build_run_and_test_use_existing_lockfile() {
         build_root: root.join(".fol/build"),
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
     };
 
     fol_frontend::fetch_workspace(&workspace).expect("initial fetch should succeed");
+    assert!(root.join(".fol/pkg/logtiny/build.fol").is_file());
     let locked = FrontendConfig {
         locked_fetch: true,
         ..FrontendConfig::default()
@@ -129,14 +137,24 @@ fn locked_check_build_run_and_test_use_existing_lockfile() {
 fn create_app_with_git_dep(app: &Path, remote: &Path) {
     fs::create_dir_all(app.join("src")).expect("should create app package");
     fs::write(
-        app.join("package.yaml"),
+        app.join("build.fol"),
         format!(
-            "name: app\nversion: 0.1.0\ndep.logtiny: git:git+file://{}\n",
+            concat!(
+                "pro[] build(): non = {{\n",
+                "    var build = .build();\n",
+                "    build.meta({{ name = \"app\", version = \"0.1.0\" }});\n",
+                "    build.add_dep({{ alias = \"logtiny\", source = \"git\", target = \"git+file://{}\" }});\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({{ name = \"app\", root = \"src/main.fol\" }});\n",
+                "    graph.install(app);\n",
+                "    graph.add_run(app);\n",
+                "    graph.add_test({{ name = \"app_test\", root = \"src/main.fol\" }});\n",
+                "}};\n",
+            ),
             remote.display()
         ),
     )
-    .expect("should write app manifest");
-    fs::write(app.join("build.fol"), semantic_bin_build()).expect("should write app build");
+    .expect("should write app build");
     fs::write(
         app.join("src/main.fol"),
         "fun[] main(): int = {\n    return 0\n};\n",
@@ -147,12 +165,10 @@ fn create_app_with_git_dep(app: &Path, remote: &Path) {
 fn create_git_package_repo(root: &Path, name: &str, version: &str) {
     fs::create_dir_all(root.join("src")).expect("package repo should be creatable");
     fs::write(
-        root.join("package.yaml"),
-        format!("name: {name}\nversion: {version}\n"),
+        root.join("build.fol"),
+        semantic_lib_build(name).replace("0.1.0", version),
     )
-    .expect("package metadata should be writable");
-    fs::write(root.join("build.fol"), semantic_lib_build(name))
-        .expect("package build should be writable");
+    .expect("package build should be writable");
     fs::write(root.join("src/lib.fol"), "var[exp] level: int = 1;\n")
         .expect("package source should be writable");
     git(root, &["init"]);
@@ -176,13 +192,22 @@ fn build_command_reports_emitted_crate_and_binary_through_public_api() {
     let root = temp_root("build");
     let workspace = sample_workspace(&root);
 
-    let result = build_workspace(&workspace).expect("build should succeed");
+    let result = build_workspace_with_config(
+        &workspace,
+        &FrontendConfig {
+            keep_build_dir: true,
+            ..FrontendConfig::default()
+        },
+    )
+    .expect("build should succeed");
 
     assert_eq!(result.command, "build");
     assert_eq!(result.artifacts.len(), 3);
     assert_eq!(result.artifacts[0].kind, FrontendArtifactKind::BuildRoot);
     assert_eq!(result.artifacts[1].kind, FrontendArtifactKind::EmittedRust);
     assert_eq!(result.artifacts[2].kind, FrontendArtifactKind::Binary);
+    assert!(result.summary.contains("install_prefix="));
+    assert!(result.summary.contains("outputs=2"));
     assert!(result.artifacts[2]
         .path
         .as_ref()
@@ -217,6 +242,29 @@ fn build_command_scopes_binary_outputs_by_selected_target() {
         "{}",
         binary.display()
     );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn build_command_summary_surfaces_install_prefix_and_outputs() {
+    let root = temp_root("build_summary");
+    let workspace = sample_workspace(&root);
+
+    let result = build_workspace_with_config(
+        &workspace,
+        &FrontendConfig {
+            keep_build_dir: true,
+            ..FrontendConfig::default()
+        },
+    )
+    .expect("build should succeed");
+
+    assert!(result.summary.contains(&format!(
+        "install_prefix={}",
+        workspace.install_prefix.display()
+    )));
+    assert!(result.summary.contains("outputs=2"));
 
     fs::remove_dir_all(root).ok();
 }
@@ -261,12 +309,20 @@ fn test_command_traverses_all_runnable_workspace_members_through_public_api() {
     let tools_src = tools_root.join("src");
     fs::create_dir_all(&tools_src).expect("should create tools source tree");
     fs::write(
-        tools_root.join("package.yaml"),
-        "name: tools\nversion: 0.1.0\n",
+        tools_root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"tools\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({ name = \"tools\", root = \"src/main.fol\" });\n",
+            "    graph.install(app);\n",
+            "    graph.add_run(app);\n",
+            "    graph.add_test({ name = \"tools_test\", root = \"src/main.fol\" });\n",
+            "};\n",
+        ),
     )
-    .expect("should write tools manifest");
-    fs::write(tools_root.join("build.fol"), semantic_bin_build())
-        .expect("should write tools build");
+    .expect("should write tools build");
     fs::write(
         tools_src.join("main.fol"),
         "fun[] main(): int = {\n    return 0\n};\n",
@@ -281,7 +337,10 @@ fn test_command_traverses_all_runnable_workspace_members_through_public_api() {
     let result = test_workspace(&workspace).expect("workspace test should succeed");
 
     assert_eq!(result.command, "test");
-    assert_eq!(result.summary, "tested 2 workspace package(s)");
+    assert_eq!(
+        result.summary,
+        "tested 2 workspace package(s) (capability_mode=memo, bundled_std=0/2)"
+    );
     assert_eq!(result.artifacts.len(), 2);
     assert!(result
         .artifacts
@@ -390,6 +449,102 @@ fn direct_file_or_folder_compilation_is_code_subcommand_owned() {
         .artifacts
         .iter()
         .any(|artifact| artifact.kind == FrontendArtifactKind::EmittedRust));
+
+    fs::remove_dir_all(root).ok();
+}
+
+fn direct_json_check(path: &Path) -> serde_json::Value {
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let path = path.to_string_lossy().to_string();
+
+    let code = run_from_args_with_io(
+        ["fol", "--json", "code", "check", path.as_str()],
+        &mut stdout,
+        &mut stderr,
+    );
+
+    assert_eq!(code, 1, "invalid direct source should fail");
+    assert!(stdout.is_empty(), "JSON errors belong on stderr");
+    serde_json::from_slice(&stderr).unwrap_or_else(|error| {
+        panic!(
+            "direct JSON diagnostic should remain valid JSON: {error}; stderr={} ",
+            String::from_utf8_lossy(&stderr)
+        )
+    })
+}
+
+#[test]
+fn grouped_direct_json_preserves_ownership_code_and_location() {
+    let root = temp_root("direct_json_ownership");
+    fs::create_dir_all(&root).expect("should create direct source root");
+    let source = root.join("main.fol");
+    fs::write(
+        &source,
+        concat!(
+            "fun[] main(): int = {\n",
+            "    @var owner: int = 3;\n",
+            "    @var moved: int = owner;\n",
+            "    return owner;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write ownership failure");
+
+    let json = direct_json_check(&source);
+    let diagnostic = &json["diagnostics"][0];
+
+    assert_eq!(diagnostic["code"], "O1001");
+    assert_eq!(
+        diagnostic["location"]["file"],
+        source.to_string_lossy().as_ref()
+    );
+    assert_eq!(diagnostic["location"]["line"], 4);
+    assert!(diagnostic["location"]["column"].as_u64().is_some());
+    assert!(json["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array")
+        .iter()
+        .all(|item| item["code"] != "F1004"));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn grouped_direct_json_preserves_type_code_and_location() {
+    let root = temp_root("direct_json_type");
+    fs::create_dir_all(&root).expect("should create direct source root");
+    let source = root.join("main.fol");
+    fs::write(
+        &source,
+        concat!(
+            "typ Counter: rec = {\n",
+            "    total: int;\n",
+            "    flag: bol = 7\n",
+            "};\n",
+            "fun[] main(): int = {\n",
+            "    var c: Counter = { total = 3 };\n",
+            "    return c.total;\n",
+            "};\n",
+        ),
+    )
+    .expect("should write type failure");
+
+    let json = direct_json_check(&source);
+    let diagnostic = &json["diagnostics"][0];
+
+    assert_eq!(diagnostic["code"], "T1003");
+    assert_eq!(
+        diagnostic["location"]["file"],
+        source.to_string_lossy().as_ref()
+    );
+    assert_eq!(diagnostic["location"]["line"], 1);
+    assert!(diagnostic["location"]["column"].as_u64().is_some());
+    assert!(json["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array")
+        .iter()
+        .all(|item| item["code"] != "F1004"));
 
     fs::remove_dir_all(root).ok();
 }

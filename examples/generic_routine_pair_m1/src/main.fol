@@ -1,0 +1,11 @@
+fun pair(T)(left: T, right: T): T = {
+    return right;
+};
+
+fun twice(value: int): int = {
+    return value + value;
+};
+
+fun[] main(): int = {
+    return pair(twice(2), twice(3));
+};

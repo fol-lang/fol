@@ -1,0 +1,21 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_described_steps", version = "0.1.0" });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    var compile = graph.step("compile", "Compile the executable");
+    var docs = graph.step("docs", "Generate package documentation");
+    var bundle = graph.step("bundle", "Assemble the release bundle");
+    bundle.depend_on(compile);
+    bundle.depend_on(docs);
+    var install = graph.install(app);
+    install.depend_on(bundle);
+    var run = graph.add_run(app);
+    run.depend_on(bundle);
+    return;
+};

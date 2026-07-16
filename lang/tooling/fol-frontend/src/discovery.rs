@@ -2,7 +2,7 @@ use crate::{FrontendError, FrontendErrorKind, FrontendResult};
 use std::path::PathBuf;
 
 pub const WORKSPACE_FILE_NAME: &str = "fol.work.yaml";
-pub const PACKAGE_FILE_NAME: &str = "package.yaml";
+pub const PACKAGE_FILE_NAME: &str = "build.fol";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceRoot {
@@ -22,13 +22,13 @@ impl WorkspaceRoot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageRoot {
     pub root: PathBuf,
-    pub manifest_file: PathBuf,
+    pub control_file: PathBuf,
 }
 
 impl PackageRoot {
     pub fn new(root: PathBuf) -> Self {
         Self {
-            manifest_file: root.join(PACKAGE_FILE_NAME),
+            control_file: root.join(PACKAGE_FILE_NAME),
             root,
         }
     }
@@ -106,11 +106,11 @@ mod tests {
     fn package_root_model_uses_canonical_package_filename() {
         let root = PackageRoot::new(PathBuf::from("/tmp/demo"));
 
-        assert_eq!(PACKAGE_FILE_NAME, "package.yaml");
+        assert_eq!(PACKAGE_FILE_NAME, "build.fol");
         assert_eq!(root.root, PathBuf::from("/tmp/demo"));
         assert_eq!(
-            root.manifest_file,
-            PathBuf::from("/tmp/demo").join("package.yaml")
+            root.control_file,
+            PathBuf::from("/tmp/demo").join("build.fol")
         );
     }
 
@@ -123,8 +123,8 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         fs::write(root.join("fol.work.yaml"), "members: []\n").unwrap();
         fs::write(
-            package_root.join("package.yaml"),
-            "name: demo\nversion: 0.1.0\n",
+            package_root.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"demo\", version = \"0.1.0\" });\n    return;\n};\n",
         )
         .unwrap();
 
@@ -186,8 +186,8 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         fs::write(root.join("fol.work.yaml"), "members: []\n").unwrap();
         fs::write(
-            root.join("pkg").join("package.yaml"),
-            "name: demo\nversion: 0.1.0\n",
+            root.join("pkg").join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"demo\", version = \"0.1.0\" });\n    return;\n};\n",
         )
         .unwrap();
         fs::write(&main_file, "fun[] main(): int = { return 0 }\n").unwrap();
@@ -211,9 +211,17 @@ mod tests {
         let workspace = root.join("ws");
         let nested = workspace.join("member");
         fs::create_dir_all(&nested).unwrap();
-        fs::write(root.join("package.yaml"), "name: outer\nversion: 0.1.0\n").unwrap();
+        fs::write(
+            root.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"outer\", version = \"0.1.0\" });\n    return;\n};\n",
+        )
+        .unwrap();
         fs::write(workspace.join("fol.work.yaml"), "members: []\n").unwrap();
-        fs::write(nested.join("package.yaml"), "name: inner\nversion: 0.1.0\n").unwrap();
+        fs::write(
+            nested.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"inner\", version = \"0.1.0\" });\n    return;\n};\n",
+        )
+        .unwrap();
 
         let discovered = discover_root_upward(&nested).unwrap();
 

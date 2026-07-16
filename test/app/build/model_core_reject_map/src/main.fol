@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var values: map[int, int] = {{1, 2}};
+    return .len(values);
+};

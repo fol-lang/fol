@@ -1,74 +1,101 @@
 # Aliases
 
-An alias declaration binds an identifier to an existing type. All the properties of the existing type are bound to the alias too.
+An alias declaration gives a new name to an existing type surface. The alias
+does not create a new object model. It gives the type a stable name that can
+be reused in declarations, signatures, and receiver-qualified routines.
 
-There are two type of aliasing:
+There are two related forms:
+
 - aliasing
 - extending
 
 ## Aliasing
 
-```
+```fol
 typ[ali] I5: arr[int, 5];
 ```
 
-So now the in the code, instead of writing `arr[int, 5]` we could use `I5`:
+Now code can use `I5` instead of repeating `arr[int, 5]`:
 
-```
-~var[exp] fiveIntigers: I5 = { 0, 1, 2, 3, 4, 5 }
-```
-Another example is creating a `rgb` type that can have numbers only form 0 to 255:
-```
-typ[ali] rgb: int[8][.range(255)] ;                        // we create a type that holds only number from 0 to 255
-typ[ali] rgbSet: set[rgb, rgb, rgb];                       // then we create a type holding the `rgb` type
+```fol
+var fiveIntegers: I5 = { 0, 1, 2, 3, 4 };
 ```
 
-Alias declaration are created because they can simplify using them multiple times,
-their identifier (their name) may be expressive in other contexts, and-most
-importantly-so that you can define receiver-qualified routines on a named type
-surface. Anonymous types still need a named alias or extension surface first,
-while built-in or foreign types can be extended explicitly through `typ[ext]`.
+Another example is naming a constrained color component type:
 
-Attaching methods does not make a type into an object. It simply gives a
-routine a receiver-qualified dot-call spelling. You could still think of the
-operation procedurally as a routine that takes the value as its first input.
+```fol
+typ[ali] rgb: int[8][.range(255)];
+typ[ali] rgbSet: set[rgb, rgb, rgb];
+```
 
+Aliases are useful because:
+
+- they avoid repeating long type expressions
+- they give a type surface a meaningful name
+- they provide a named receiver surface for receiver-qualified routines
+
+Receiver-qualified routines remain procedural. If a value is written as
+`value.method(arg)`, read that as call-site sugar for `method(value, arg)`.
+The routine is still separate from the data declaration.
+
+### Standalone alias declarations
+
+The standalone `ali` declaration is the short form of the same aliasing
+surface:
+
+```fol
+ali Meters: int;
+```
+
+Like other declarations, an alias is package-visible by default. Exporting it
+across package boundaries uses the same option surface as `typ`, `fun`, and
+`var`:
+
+```fol
+ali[exp] Meters: int;
+```
+
+`exp` is the only option an alias declaration accepts.
+
+Current milestone note:
+
+- aliasing and extension over current `V1` built-in and declared types are part
+  of the present language surface
+- true foreign-type interop remains later work
+- C ABI and Rust interop belong to the planned `V4` milestone, not the current
+  compiler contract
 
 ## Extending
 
-Extensions add new functionality to an existing constructs. This includes the ability to extend types for which you do not have access to the original source code (known as retroactive modeling).
-```
+Extensions expose an existing type under an explicit receiver surface so that
+new receiver-qualified routines can be declared for it.
+
+```fol
 typ[ext] type: type;
 ```
-For example, adding a `print` function to the default integer type `int`:
-```
+
+This is still procedural. It does not turn the type into an object or create
+inheritance. It only allows routines to be written against that receiver
+surface.
+
+For example, an explicit receiver surface for `int`:
+
+```fol
 typ[ext] int: int;
 
 pro (int)print(): non = {
     .echo(self)
 }
 
-pro main: int = {
-    5.print()                   // method print on int
+pro main(): non = {
+    5.print()
 }
 ```
 
-Or turning a string `str` into a vector of characters:
+The call `5.print()` is still just receiver sugar for `print(5)`.
 
-```
-typ[ext] str: str;
-
-fun (str)to_array(): vec[chr] = {
-    loop(x in self){
-        yield x; 
-    }
-}
-
-
-pro main(): int = {
-    var characters: vec[chr] = "a random str".to_array();
-
-    .echo(characters)           // will print: {"a"," ","r","a","n","d","o","m"," ","s","t","r"}
-}
-
-```
+An older version of this chapter used a string-to-vector extension containing
+`yield`. That mixed future generator design into the current alias contract.
+Language `yield` is parsed and retained for future work, but the current
+typechecker and lowerer reject it; it is not part of V3. Alias and extension
+support therefore does not imply generator support.

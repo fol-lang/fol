@@ -1,0 +1,17 @@
+typ Counter: rec = {
+    total: int
+};
+
+var lefts: seq[int] = {1, 2};
+var rights: seq[int] = {3, 4};
+
+fun (Counter)shift(step: int, values: ... int): int = {
+    return step;
+};
+
+fun[] main(): int = {
+    var current: Counter = {
+        total = 9,
+    };
+    return current.shift(1, ...lefts, ...rights);
+};

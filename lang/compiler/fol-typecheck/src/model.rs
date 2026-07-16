@@ -1,8 +1,9 @@
-use crate::{BuiltinTypeIds, CheckedTypeId, TypeTable};
+use crate::types::GenericConstraint;
+use crate::{BuiltinTypeIds, CheckedTypeId, RoutineType, TypeTable, TypecheckCapabilityModel};
 use fol_intrinsics::IntrinsicId;
-use fol_parser::ast::{ParsedSourceUnitKind, SyntaxNodeId};
+use fol_parser::ast::{AstNode, ParsedSourceUnitKind, StandardKind, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId, SymbolId, SymbolKind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecoverableCallEffect {
@@ -26,7 +27,7 @@ pub struct TypedSourceUnit {
     pub top_level_nodes: Vec<SyntaxNodeId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypedSymbol {
     pub symbol_id: SymbolId,
     pub kind: SymbolKind,
@@ -34,6 +35,23 @@ pub struct TypedSymbol {
     pub source_unit_id: SourceUnitId,
     pub declared_type: Option<CheckedTypeId>,
     pub receiver_type: Option<CheckedTypeId>,
+    /// Declaration-owned default expressions. Routine types are interned by
+    /// callable shape, so the concrete AST must remain attached to the symbol
+    /// instead of relying on whichever equal signature was interned first.
+    pub param_defaults: Vec<Option<AstNode>>,
+    pub generic_params: Vec<SymbolId>,
+    pub generic_constraints: BTreeMap<SymbolId, Vec<GenericConstraint>>,
+    /// Mirrors the resolver's binding mutability (`var[mut]`/`lab[mut]`).
+    /// Drives field-assignment legality.
+    pub is_mutable: bool,
+    pub is_mutex: bool,
+    /// A channel capture written as `c[tx]` exposes only the sender endpoint
+    /// inside its anonymous routine, even though lowering still carries the
+    /// enclosing channel handle.
+    pub is_channel_sender_capture: bool,
+    /// Parameter positions that perform a receive through `c[rx]`. Direct
+    /// spawn rejects these routines so the owning receiver stays single.
+    pub channel_receiver_params: BTreeSet<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,8 +72,134 @@ pub struct TypedReference {
     pub recoverable_effect: Option<RecoverableCallEffect>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandardRoutine {
+    pub symbol_id: SymbolId,
+    pub name: String,
+    pub params: Vec<CheckedTypeId>,
+    pub return_type: Option<CheckedTypeId>,
+    pub error_type: Option<CheckedTypeId>,
+    /// True when the required routine ships a default body that conformers
+    /// inherit if they do not provide their own receiver routine with the
+    /// exact signature.
+    pub has_default_body: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandardField {
+    pub symbol_id: SymbolId,
+    pub name: String,
+    pub field_type: CheckedTypeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedStandard {
+    pub symbol_id: SymbolId,
+    pub scope_id: ScopeId,
+    pub kind: StandardKind,
+    /// Generic parameters of the standard itself. Empty when the
+    /// standard is not parameterized. At each conformance site these
+    /// parameters are substituted with the types supplied in the
+    /// conformance header.
+    pub generic_params: Vec<SymbolId>,
+    pub required_routines: Vec<TypedStandardRoutine>,
+    pub required_fields: Vec<TypedStandardField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedConformanceClaim {
+    pub standard_symbol_id: SymbolId,
+    /// Type arguments supplied at the conformance header, e.g. the
+    /// `int` in `typ IntIter()(Iterator[int]): rec`. Empty when the
+    /// conformer claims a non-generic standard.
+    pub type_args: Vec<CheckedTypeId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedConformance {
+    pub type_symbol_id: SymbolId,
+    pub standard_symbol_ids: Vec<SymbolId>,
+    /// Claim-with-args list, parallel to `standard_symbol_ids` but
+    /// carrying the concrete type arguments supplied at each
+    /// conformance header.
+    pub claims: Vec<TypedConformanceClaim>,
+}
+
+/// One field of a record type, in source declaration order, carrying the
+/// optional default initializer expression. Records store their fields in
+/// order-losing maps for identity; this side table preserves declaration
+/// order and defaults so record initialization (positional binding and
+/// default filling) can be checked and lowered.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordFieldLayout {
+    pub name: String,
+    pub type_id: CheckedTypeId,
+    pub default: Option<AstNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveBorrow {
+    pub owner: SymbolId,
+    pub binding: SymbolId,
+    pub scope: ScopeId,
+    pub mutable: bool,
+    pub origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveMutexGuard {
+    pub scope: ScopeId,
+    pub origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredBindingUse {
+    pub(crate) scope: ScopeId,
+    pub(crate) origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredTransferConflict {
+    pub(crate) symbol: SymbolId,
+    pub(crate) transfer_origin: SyntaxOrigin,
+    pub(crate) deferred_origin: SyntaxOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OwnershipFlowState {
+    moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
+    eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
+    recoverable_eventual_obligations: BTreeMap<SymbolId, RecoverableEventualObligation>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EventualMoveKind {
+    Transfer,
+    Await,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RecoverableEventualObligation {
+    pub(crate) owner_scope: ScopeId,
+    pub(crate) activation_scope: ScopeId,
+    pub(crate) origin: Option<SyntaxOrigin>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnershipEventKind {
+    Move,
+    Reinitialize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OwnershipEvent {
+    kind: OwnershipEventKind,
+    origin: SyntaxOrigin,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
+    capability_model: TypecheckCapabilityModel,
     resolved: fol_resolver::ResolvedProgram,
     type_table: TypeTable,
     builtins: BuiltinTypeIds,
@@ -63,7 +207,33 @@ pub struct TypedProgram {
     symbols: BTreeMap<SymbolId, TypedSymbol>,
     nodes: BTreeMap<SyntaxNodeId, TypedNode>,
     references: BTreeMap<fol_resolver::ReferenceId, TypedReference>,
+    standards: BTreeMap<SymbolId, TypedStandard>,
+    conformances: BTreeMap<SymbolId, TypedConformance>,
     apparent_type_overrides: BTreeMap<CheckedTypeId, CheckedTypeId>,
+    method_call_targets: BTreeMap<SyntaxNodeId, SymbolId>,
+    /// Fully instantiated signatures at direct call sites. Processor boundary
+    /// validation needs the concrete parameter types after generic inference,
+    /// including parameters filled by omitted defaults.
+    call_signatures: BTreeMap<SyntaxNodeId, RoutineType>,
+    constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
+    record_layouts: BTreeMap<CheckedTypeId, Vec<RecordFieldLayout>>,
+    /// Generic instantiations whose structural shape is currently being
+    /// computed. Recursive value instantiation reaches its own node while
+    /// expanding; this guard breaks the cycle so the checker can issue the
+    /// finite-layout diagnostic. Transient — empty outside active lowering.
+    active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
+    moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
+    eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
+    recoverable_eventual_obligations: BTreeMap<SymbolId, RecoverableEventualObligation>,
+    ownership_history: BTreeMap<SymbolId, Vec<OwnershipEvent>>,
+    active_borrows: BTreeMap<SymbolId, Vec<ActiveBorrow>>,
+    borrow_bindings: BTreeMap<SymbolId, ActiveBorrow>,
+    borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
+    owner_borrow_history: BTreeMap<SymbolId, ActiveBorrow>,
+    returned_borrows: BTreeMap<SymbolId, SyntaxOrigin>,
+    active_mutex_guards: BTreeMap<SymbolId, ActiveMutexGuard>,
+    deferred_binding_uses: BTreeMap<SymbolId, Vec<DeferredBindingUse>>,
+    deferred_transfer_conflict: Option<DeferredTransferConflict>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,6 +259,7 @@ impl TypedPackage {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedWorkspace {
+    capability_model: TypecheckCapabilityModel,
     entry_identity: PackageIdentity,
     packages: BTreeMap<PackageIdentity, TypedPackage>,
 }
@@ -101,19 +272,26 @@ impl TypedWorkspace {
             TypedPackage::new(entry_identity.clone(), Vec::new(), entry_program),
         );
         Self {
+            capability_model: TypecheckCapabilityModel::Std,
             entry_identity,
             packages,
         }
     }
 
     pub(crate) fn new(
+        capability_model: TypecheckCapabilityModel,
         entry_identity: PackageIdentity,
         packages: BTreeMap<PackageIdentity, TypedPackage>,
     ) -> Self {
         Self {
+            capability_model,
             entry_identity,
             packages,
         }
+    }
+
+    pub fn capability_model(&self) -> TypecheckCapabilityModel {
+        self.capability_model
     }
 
     pub fn entry_identity(&self) -> &PackageIdentity {
@@ -144,7 +322,346 @@ impl TypedWorkspace {
 }
 
 impl TypedProgram {
+    pub(crate) fn ownership_flow_state(&self) -> OwnershipFlowState {
+        OwnershipFlowState {
+            moved_bindings: self.moved_bindings.clone(),
+            eventual_moves: self.eventual_moves.clone(),
+            recoverable_eventual_obligations: self.recoverable_eventual_obligations.clone(),
+        }
+    }
+
+    pub(crate) fn restore_ownership_flow(&mut self, state: &OwnershipFlowState) {
+        self.moved_bindings.clone_from(&state.moved_bindings);
+        self.eventual_moves.clone_from(&state.eventual_moves);
+        self.recoverable_eventual_obligations
+            .clone_from(&state.recoverable_eventual_obligations);
+    }
+
+    pub(crate) fn merge_ownership_flows(
+        &mut self,
+        baseline: &OwnershipFlowState,
+        branches: &[OwnershipFlowState],
+    ) {
+        if branches.is_empty() {
+            self.restore_ownership_flow(baseline);
+            return;
+        }
+        self.moved_bindings.clear();
+        self.eventual_moves.clear();
+        self.recoverable_eventual_obligations.clear();
+        for branch in branches {
+            for (symbol, origin) in &branch.moved_bindings {
+                self.moved_bindings
+                    .entry(*symbol)
+                    .or_insert_with(|| origin.clone());
+            }
+            for (symbol, kind) in &branch.eventual_moves {
+                self.eventual_moves.entry(*symbol).or_insert(*kind);
+            }
+            // Recoverable-eventual obligations are must-handle state. If any
+            // continuing branch still owns the obligation, it remains live
+            // after the merge. This intentionally differs from a normal move:
+            // handling the eventual on only one runtime path is insufficient.
+            for (symbol, obligation) in &branch.recoverable_eventual_obligations {
+                self.recoverable_eventual_obligations
+                    .entry(*symbol)
+                    .or_insert_with(|| obligation.clone());
+            }
+        }
+    }
+
+    pub(crate) fn mark_binding_moved(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
+        self.moved_bindings.entry(symbol).or_insert(origin);
+    }
+
+    pub(crate) fn mark_binding_reinitialized(
+        &mut self,
+        symbol: SymbolId,
+        origin: Option<SyntaxOrigin>,
+    ) {
+        if let Some(origin) = origin {
+            self.record_ownership_event(symbol, OwnershipEventKind::Reinitialize, origin);
+        }
+        self.moved_bindings.remove(&symbol);
+        self.eventual_moves.remove(&symbol);
+    }
+
+    pub(crate) fn mark_eventual_transferred(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
+        if !self.moved_bindings.contains_key(&symbol) {
+            self.eventual_moves
+                .insert(symbol, EventualMoveKind::Transfer);
+        }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
+        self.moved_bindings.entry(symbol).or_insert(origin);
+        self.recoverable_eventual_obligations.remove(&symbol);
+    }
+
+    pub(crate) fn mark_eventual_awaited(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
+        if !self.moved_bindings.contains_key(&symbol) {
+            self.eventual_moves.insert(symbol, EventualMoveKind::Await);
+        }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
+        self.moved_bindings.entry(symbol).or_insert(origin);
+        self.recoverable_eventual_obligations.remove(&symbol);
+    }
+
+    pub(crate) fn register_recoverable_eventual_obligation(
+        &mut self,
+        symbol: SymbolId,
+        owner_scope: ScopeId,
+        activation_scope: ScopeId,
+        origin: Option<SyntaxOrigin>,
+    ) {
+        self.recoverable_eventual_obligations.insert(
+            symbol,
+            RecoverableEventualObligation {
+                owner_scope,
+                activation_scope,
+                origin,
+            },
+        );
+    }
+
+    pub(crate) fn recoverable_eventual_obligation(
+        &self,
+        symbol: SymbolId,
+    ) -> Option<&RecoverableEventualObligation> {
+        self.recoverable_eventual_obligations.get(&symbol)
+    }
+
+    pub(crate) fn recoverable_eventual_obligations(
+        &self,
+    ) -> impl Iterator<Item = (SymbolId, &RecoverableEventualObligation)> {
+        self.recoverable_eventual_obligations
+            .iter()
+            .map(|(symbol, obligation)| (*symbol, obligation))
+    }
+
+    pub(crate) fn release_recoverable_eventual_obligations_in_scope(&mut self, scope: ScopeId) {
+        self.recoverable_eventual_obligations
+            .retain(|_, obligation| obligation.owner_scope != scope);
+    }
+
+    fn record_ownership_event(
+        &mut self,
+        symbol: SymbolId,
+        kind: OwnershipEventKind,
+        origin: SyntaxOrigin,
+    ) {
+        let event = OwnershipEvent { kind, origin };
+        let history = self.ownership_history.entry(symbol).or_default();
+        if !history.contains(&event) {
+            history.push(event);
+        }
+    }
+
+    fn record_deferred_transfer_conflict(
+        &mut self,
+        symbol: SymbolId,
+        transfer_origin: SyntaxOrigin,
+    ) -> bool {
+        let Some(deferred_use) = self
+            .deferred_binding_uses
+            .get(&symbol)
+            .and_then(|uses| uses.first())
+            .cloned()
+        else {
+            return false;
+        };
+        self.deferred_transfer_conflict
+            .get_or_insert(DeferredTransferConflict {
+                symbol,
+                transfer_origin,
+                deferred_origin: deferred_use.origin,
+            });
+        true
+    }
+
+    pub(crate) fn register_deferred_binding_use(
+        &mut self,
+        symbol: SymbolId,
+        deferred_use: DeferredBindingUse,
+    ) {
+        let uses = self.deferred_binding_uses.entry(symbol).or_default();
+        if !uses.contains(&deferred_use) {
+            uses.push(deferred_use);
+        }
+    }
+
+    pub(crate) fn take_deferred_transfer_conflict(&mut self) -> Option<DeferredTransferConflict> {
+        self.deferred_transfer_conflict.take()
+    }
+
+    pub(crate) fn release_deferred_binding_uses_in_scope(&mut self, scope: ScopeId) {
+        self.deferred_binding_uses.retain(|_, uses| {
+            uses.retain(|deferred_use| deferred_use.scope != scope);
+            !uses.is_empty()
+        });
+    }
+
+    pub(crate) fn eventual_move_kind(&self, symbol: SymbolId) -> Option<EventualMoveKind> {
+        self.eventual_moves.get(&symbol).copied()
+    }
+
+    pub fn moved_binding_origin(&self, symbol: SymbolId) -> Option<&SyntaxOrigin> {
+        self.moved_bindings.get(&symbol)
+    }
+
+    pub fn moved_binding_origin_at(
+        &self,
+        symbol: SymbolId,
+        file: &str,
+        line: usize,
+        column: usize,
+    ) -> Option<&SyntaxOrigin> {
+        let event = self
+            .ownership_history
+            .get(&symbol)?
+            .iter()
+            .filter(|event| {
+                event.origin.file.as_deref() == Some(file)
+                    && (event.origin.line, event.origin.column) <= (line, column)
+            })
+            .max_by_key(|event| (event.origin.line, event.origin.column))?;
+        match event.kind {
+            OwnershipEventKind::Move => Some(&event.origin),
+            OwnershipEventKind::Reinitialize => None,
+        }
+    }
+
+    pub fn active_borrow_for_owner(&self, owner: SymbolId) -> Option<&ActiveBorrow> {
+        self.active_borrows
+            .get(&owner)
+            .and_then(|borrows| borrows.first())
+    }
+
+    pub fn active_borrow_binding(&self, binding: SymbolId) -> Option<&ActiveBorrow> {
+        self.borrow_bindings.get(&binding)
+    }
+
+    pub fn borrow_for_binding(&self, binding: SymbolId) -> Option<&ActiveBorrow> {
+        self.borrow_history.get(&binding)
+    }
+
+    pub fn borrow_for_owner(&self, owner: SymbolId) -> Option<&ActiveBorrow> {
+        self.owner_borrow_history.get(&owner)
+    }
+
+    pub fn borrows_for_owner(&self, owner: SymbolId) -> impl Iterator<Item = &ActiveBorrow> {
+        self.borrow_history
+            .values()
+            .filter(move |borrow| borrow.owner == owner)
+    }
+
+    pub fn returned_borrow_origin(&self, binding: SymbolId) -> Option<&SyntaxOrigin> {
+        self.returned_borrows.get(&binding)
+    }
+
+    pub(crate) fn register_borrow(&mut self, borrow: ActiveBorrow) -> Option<ActiveBorrow> {
+        let conflict = self.active_borrows.get(&borrow.owner).and_then(|active| {
+            active
+                .iter()
+                .find(|existing| borrow.mutable || existing.mutable)
+                .cloned()
+        });
+        if conflict.is_some() {
+            return conflict;
+        }
+        self.active_borrows
+            .entry(borrow.owner)
+            .or_default()
+            .push(borrow.clone());
+        self.borrow_history.insert(borrow.binding, borrow.clone());
+        self.owner_borrow_history
+            .entry(borrow.owner)
+            .or_insert_with(|| borrow.clone());
+        self.borrow_bindings.insert(borrow.binding, borrow);
+        None
+    }
+
+    pub(crate) fn give_back_borrow(&mut self, binding: SymbolId, origin: SyntaxOrigin) -> bool {
+        let Some(borrow) = self.borrow_bindings.remove(&binding) else {
+            return false;
+        };
+        if let Some(active) = self.active_borrows.get_mut(&borrow.owner) {
+            active.retain(|entry| entry.binding != binding);
+            if active.is_empty() {
+                self.active_borrows.remove(&borrow.owner);
+            }
+        }
+        self.returned_borrows.insert(binding, origin);
+        true
+    }
+
+    pub(crate) fn release_borrows_in_scope(&mut self, scope: ScopeId) {
+        let bindings = self
+            .borrow_bindings
+            .iter()
+            .filter_map(|(binding, borrow)| (borrow.scope == scope).then_some(*binding))
+            .collect::<Vec<_>>();
+        for binding in bindings {
+            if let Some(borrow) = self.borrow_bindings.remove(&binding) {
+                if let Some(active) = self.active_borrows.get_mut(&borrow.owner) {
+                    active.retain(|entry| entry.binding != binding);
+                    if active.is_empty() {
+                        self.active_borrows.remove(&borrow.owner);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn active_mutex_guard(&self, mutex: SymbolId) -> Option<&ActiveMutexGuard> {
+        self.active_mutex_guards.get(&mutex)
+    }
+
+    pub(crate) fn register_mutex_guard(
+        &mut self,
+        mutex: SymbolId,
+        guard: ActiveMutexGuard,
+    ) -> Option<ActiveMutexGuard> {
+        if let Some(active) = self.active_mutex_guards.get(&mutex) {
+            return Some(active.clone());
+        }
+        self.active_mutex_guards.insert(mutex, guard);
+        None
+    }
+
+    pub(crate) fn release_mutex_guard(
+        &mut self,
+        mutex: SymbolId,
+        scope: ScopeId,
+    ) -> Option<ActiveMutexGuard> {
+        let guard = self.active_mutex_guards.get(&mutex)?;
+        if guard.scope != scope {
+            return None;
+        }
+        self.active_mutex_guards.remove(&mutex)
+    }
+
+    pub(crate) fn release_mutex_guards_in_scope(&mut self, scope: ScopeId) {
+        self.active_mutex_guards
+            .retain(|_, guard| guard.scope != scope);
+    }
+
     pub fn from_resolved(resolved: fol_resolver::ResolvedProgram) -> Self {
+        Self::from_resolved_with_model(resolved, TypecheckCapabilityModel::Std)
+    }
+
+    pub(crate) fn from_resolved_with_model(
+        resolved: fol_resolver::ResolvedProgram,
+        capability_model: TypecheckCapabilityModel,
+    ) -> Self {
         let mut type_table = TypeTable::new();
         let builtins = BuiltinTypeIds::install(&mut type_table);
         let source_units = resolved
@@ -173,6 +690,13 @@ impl TypedProgram {
                         source_unit_id: symbol.source_unit,
                         declared_type: None,
                         receiver_type: None,
+                        param_defaults: Vec::new(),
+                        generic_params: Vec::new(),
+                        generic_constraints: BTreeMap::new(),
+                        is_mutable: symbol.is_mutable,
+                        is_mutex: false,
+                        is_channel_sender_capture: false,
+                        channel_receiver_params: BTreeSet::new(),
                     },
                 )
             })
@@ -212,6 +736,7 @@ impl TypedProgram {
             .collect::<BTreeMap<_, _>>();
 
         Self {
+            capability_model,
             resolved,
             type_table,
             builtins,
@@ -219,12 +744,90 @@ impl TypedProgram {
             symbols,
             nodes,
             references,
+            standards: BTreeMap::new(),
+            conformances: BTreeMap::new(),
             apparent_type_overrides: BTreeMap::new(),
+            active_instantiations: std::collections::BTreeSet::new(),
+            method_call_targets: BTreeMap::new(),
+            call_signatures: BTreeMap::new(),
+            constraint_call_sites: std::collections::BTreeSet::new(),
+            record_layouts: BTreeMap::new(),
+            moved_bindings: BTreeMap::new(),
+            eventual_moves: BTreeMap::new(),
+            recoverable_eventual_obligations: BTreeMap::new(),
+            ownership_history: BTreeMap::new(),
+            active_borrows: BTreeMap::new(),
+            borrow_bindings: BTreeMap::new(),
+            borrow_history: BTreeMap::new(),
+            owner_borrow_history: BTreeMap::new(),
+            returned_borrows: BTreeMap::new(),
+            active_mutex_guards: BTreeMap::new(),
+            deferred_binding_uses: BTreeMap::new(),
+            deferred_transfer_conflict: None,
         }
+    }
+
+    /// Store the ordered field layout (with defaults) for a record type. Keyed
+    /// by the interned record `CheckedTypeId` so record-initializer checking and
+    /// lowering can recover declaration order and per-field defaults.
+    pub(crate) fn set_record_layout(
+        &mut self,
+        type_id: CheckedTypeId,
+        layout: Vec<RecordFieldLayout>,
+    ) {
+        self.record_layouts.insert(type_id, layout);
+    }
+
+    /// The ordered field layout for a record type, if one was recorded.
+    pub fn record_layout(&self, type_id: CheckedTypeId) -> Option<&[RecordFieldLayout]> {
+        self.record_layouts
+            .get(&type_id)
+            .map(|fields| fields.as_slice())
+    }
+
+    pub fn record_method_call_target(&mut self, syntax_id: SyntaxNodeId, symbol_id: SymbolId) {
+        self.method_call_targets.insert(syntax_id, symbol_id);
+    }
+
+    pub fn method_call_target(&self, syntax_id: SyntaxNodeId) -> Option<SymbolId> {
+        self.method_call_targets.get(&syntax_id).copied()
+    }
+
+    pub(crate) fn record_call_signature(
+        &mut self,
+        syntax_id: SyntaxNodeId,
+        signature: RoutineType,
+    ) {
+        self.call_signatures.insert(syntax_id, signature);
+    }
+
+    pub(crate) fn call_signature(&self, syntax_id: SyntaxNodeId) -> Option<&RoutineType> {
+        self.call_signatures.get(&syntax_id)
+    }
+
+    pub fn record_constraint_call_site(&mut self, syntax_id: SyntaxNodeId) {
+        self.constraint_call_sites.insert(syntax_id);
+    }
+
+    /// True when the method call at `syntax_id` targets a required routine of
+    /// a generic-parameter constraint; the concrete callee is only known
+    /// after monomorphization.
+    pub fn is_constraint_call_site(&self, syntax_id: SyntaxNodeId) -> bool {
+        self.constraint_call_sites.contains(&syntax_id)
+    }
+
+    pub fn method_call_targets(&self) -> impl Iterator<Item = (SyntaxNodeId, SymbolId)> + '_ {
+        self.method_call_targets
+            .iter()
+            .map(|(syntax_id, symbol_id)| (*syntax_id, *symbol_id))
     }
 
     pub fn package_name(&self) -> &str {
         self.resolved.package_name()
+    }
+
+    pub fn capability_model(&self) -> TypecheckCapabilityModel {
+        self.capability_model
     }
 
     pub fn resolved(&self) -> &fol_resolver::ResolvedProgram {
@@ -286,11 +889,36 @@ impl TypedProgram {
         self.references.values()
     }
 
+    pub fn typed_standard(&self, symbol_id: SymbolId) -> Option<&TypedStandard> {
+        self.standards.get(&symbol_id)
+    }
+
+    pub fn all_typed_standards(&self) -> impl Iterator<Item = &TypedStandard> {
+        self.standards.values()
+    }
+
+    pub fn typed_conformance(&self, symbol_id: SymbolId) -> Option<&TypedConformance> {
+        self.conformances.get(&symbol_id)
+    }
+
+    pub fn all_typed_conformances(&self) -> impl Iterator<Item = &TypedConformance> {
+        self.conformances.values()
+    }
+
     pub(crate) fn typed_reference_mut(
         &mut self,
         reference_id: fol_resolver::ReferenceId,
     ) -> Option<&mut TypedReference> {
         self.references.get_mut(&reference_id)
+    }
+
+    pub(crate) fn record_typed_standard(&mut self, standard: TypedStandard) {
+        self.standards.insert(standard.symbol_id, standard);
+    }
+
+    pub(crate) fn record_typed_conformance(&mut self, conformance: TypedConformance) {
+        self.conformances
+            .insert(conformance.type_symbol_id, conformance);
     }
 
     pub(crate) fn record_node_type(
@@ -374,7 +1002,18 @@ impl TypedProgram {
             .insert(shell_type, apparent_type);
     }
 
-    pub(crate) fn apparent_type_override(&self, type_id: CheckedTypeId) -> Option<CheckedTypeId> {
+    /// Mark a generic instantiation as being expanded. Returns `false` if it is
+    /// already in progress (a recursive self-reference), so the caller can stop
+    /// expanding and use the interned nominal node instead.
+    pub(crate) fn begin_instantiation(&mut self, instance: CheckedTypeId) -> bool {
+        self.active_instantiations.insert(instance)
+    }
+
+    pub(crate) fn end_instantiation(&mut self, instance: CheckedTypeId) {
+        self.active_instantiations.remove(&instance);
+    }
+
+    pub fn apparent_type_override(&self, type_id: CheckedTypeId) -> Option<CheckedTypeId> {
         self.apparent_type_overrides.get(&type_id).copied()
     }
 }
@@ -382,10 +1021,46 @@ impl TypedProgram {
 #[cfg(test)]
 mod tests {
     use super::{TypedProgram, TypedWorkspace};
-    use crate::{BuiltinType, CheckedType};
+    use crate::{BuiltinType, CheckedType, TypecheckCapabilityModel};
     use fol_parser::ast::{AstParser, ParsedSourceUnitKind};
-    use fol_resolver::resolve_package;
+    use fol_resolver::{resolve_package, PackageIdentity, PackageSourceKind};
     use fol_stream::FileStream;
+    use std::collections::BTreeMap;
+
+    fn package_identity(name: &str) -> PackageIdentity {
+        PackageIdentity {
+            source_kind: PackageSourceKind::Entry,
+            canonical_root: format!("/tmp/{name}"),
+            display_name: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn typed_workspace_retains_capability_model() {
+        let identity = package_identity("demo");
+        let workspace = TypedWorkspace::new(
+            TypecheckCapabilityModel::Core,
+            identity.clone(),
+            BTreeMap::new(),
+        );
+
+        assert_eq!(workspace.capability_model(), TypecheckCapabilityModel::Core);
+        assert_eq!(workspace.entry_identity(), &identity);
+        assert_eq!(workspace.package_count(), 0);
+    }
+
+    #[test]
+    fn typed_program_defaults_to_std_capability_model() {
+        let program = TypedProgram::from_resolved(fol_resolver::ResolvedProgram::new(
+            fol_parser::ast::ParsedPackage {
+                package: "demo".to_string(),
+                source_units: Vec::new(),
+                syntax_index: fol_parser::ast::SyntaxIndex::default(),
+            },
+        ));
+
+        assert_eq!(program.capability_model(), TypecheckCapabilityModel::Std);
+    }
 
     #[test]
     fn typed_program_shell_installs_builtin_types_for_resolved_programs() {
@@ -463,7 +1138,7 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join("src")).expect("should create temp source dir");
         std::fs::write(root.join("build.fol"), "`build`\n").expect("should write build file");
-        std::fs::write(root.join("src/main.fol"), "var value: int = 1\n")
+        std::fs::write(root.join("src/main.fol"), "var value: int = 1;\n")
             .expect("should write ordinary source");
 
         let mut stream =

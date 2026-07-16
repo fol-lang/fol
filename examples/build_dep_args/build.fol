@@ -1,0 +1,42 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_dep_args", version = "0.1.0" });
+
+    var graph = build.graph();
+    var jobs = graph.option({ name = "jobs", kind = "int", default = 4 });
+    var flavor = graph.option({ name = "flavor", kind = "enum", default = "strict" });
+
+    var shared = build.add_dep({
+        alias = "shared",
+        source = "loc",
+        target = "deps/shared",
+        mode = "lazy",
+        args = {
+            jobs = jobs,
+            flavor = flavor,
+        },
+    });
+    build.add_dep({
+        alias = "assets",
+        source = "loc",
+        target = "deps/assets",
+        mode = "on-demand",
+    });
+    build.add_dep({
+        alias = "logtiny",
+        source = "git",
+        target = "git+https://github.com/bresilla/logtiny.git",
+        mode = "eager",
+    });
+
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    var shared_root = shared.module("root");
+    app.import(shared_root);
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

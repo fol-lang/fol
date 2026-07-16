@@ -1,0 +1,11 @@
+use std: pkg = {"std"};
+
+fun[] banner(prefix: str = "std", extras: ... str): str = {
+    return prefix + extras[0];
+};
+
+fun[] main(): int = {
+    var extras: seq[str] = {"-ready"};
+    var shown: str = std::io::echo_str(banner(...extras));
+    return .len(shown);
+};

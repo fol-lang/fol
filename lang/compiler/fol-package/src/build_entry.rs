@@ -1,21 +1,13 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildEntrySignatureExpectation {
-    pub parameter_type_names: Vec<String>,
     pub return_type_names: Vec<String>,
 }
 
 impl BuildEntrySignatureExpectation {
     pub fn canonical() -> Self {
         Self {
-            parameter_type_names: vec!["Graph".to_string(), "build::Graph".to_string()],
             return_type_names: vec!["non".to_string(), "none".to_string()],
         }
-    }
-
-    pub fn accepts_parameter_type(&self, name: &str) -> bool {
-        self.parameter_type_names
-            .iter()
-            .any(|candidate| candidate == name)
     }
 
     pub fn accepts_return_type(&self, name: &str) -> bool {
@@ -127,7 +119,7 @@ pub fn validate_build_entry_cardinality(
     match candidates {
         [] => Err(vec![BuildEntryValidationError::new(
             BuildEntryValidationErrorKind::MissingEntry,
-            "build.fol must declare exactly one canonical `pro[] build(graph: Graph): non` entry",
+            "build.fol must declare exactly one canonical `pro[] build(): non` entry",
         )]),
         [candidate] => Ok(ValidatedBuildEntry {
             candidate: candidate.clone(),
@@ -157,17 +149,10 @@ pub fn validate_build_entry_cardinality(
 pub fn validate_build_entry_parameter_shape(
     entry: ValidatedBuildEntry,
 ) -> Result<ValidatedBuildEntry, Vec<BuildEntryValidationError>> {
-    if entry.candidate.parameter_names.len() != 1 {
+    if !entry.candidate.parameter_names.is_empty() {
         return Err(vec![BuildEntryValidationError::new(
             BuildEntryValidationErrorKind::WrongParameterCount,
-            "canonical build entry must declare exactly one parameter",
-        )]);
-    }
-
-    if entry.candidate.parameter_names[0].trim().is_empty() {
-        return Err(vec![BuildEntryValidationError::new(
-            BuildEntryValidationErrorKind::WrongParameterCount,
-            "canonical build entry parameter must have a non-empty binding name",
+            "canonical build entry must not declare parameters; use `.graph()` inside `build.fol` instead",
         )]);
     }
 
@@ -176,27 +161,12 @@ pub fn validate_build_entry_parameter_shape(
 
 pub fn validate_build_entry_parameter_type(
     entry: ValidatedBuildEntry,
-    expectation: &BuildEntrySignatureExpectation,
+    _expectation: &BuildEntrySignatureExpectation,
 ) -> Result<ValidatedBuildEntry, Vec<BuildEntryValidationError>> {
-    let Some(parameter_type_name) = entry
-        .candidate
-        .parameter_type_names
-        .first()
-        .and_then(|name| name.as_deref())
-    else {
+    if !entry.candidate.parameter_type_names.is_empty() {
         return Err(vec![BuildEntryValidationError::new(
             BuildEntryValidationErrorKind::WrongParameterType,
-            "canonical build entry parameter must name the canonical build graph type",
-        )]);
-    };
-
-    if !expectation.accepts_parameter_type(parameter_type_name) {
-        return Err(vec![BuildEntryValidationError::new(
-            BuildEntryValidationErrorKind::WrongParameterType,
-            format!(
-                "canonical build entry parameter type '{}' is not one of the canonical build graph types",
-                parameter_type_name
-            ),
+            "canonical build entry does not accept a public `Graph` parameter type; use `.graph()` inside `build.fol` instead",
         )]);
     }
 
@@ -257,14 +227,11 @@ mod tests {
     };
 
     #[test]
-    fn canonical_build_entry_signature_expectation_requires_graph_parameter_and_non_return() {
+    fn canonical_build_entry_signature_expectation_requires_non_return_only() {
         let expectation = BuildEntrySignatureExpectation::canonical();
 
-        assert!(expectation.accepts_parameter_type("Graph"));
-        assert!(expectation.accepts_parameter_type("build::Graph"));
         assert!(expectation.accepts_return_type("non"));
         assert!(expectation.accepts_return_type("none"));
-        assert!(!expectation.accepts_parameter_type("int"));
     }
 
     #[test]
@@ -273,8 +240,8 @@ mod tests {
             source_unit_path: "build.fol".to_string(),
             syntax_id: fol_parser::ast::SyntaxNodeId(7),
             name: "build".to_string(),
-            parameter_names: vec!["graph".to_string()],
-            parameter_type_names: vec![Some("Graph".to_string())],
+            parameter_names: Vec::new(),
+            parameter_type_names: Vec::new(),
             return_type_name: Some("non".to_string()),
         };
         let validated = ValidatedBuildEntry {
@@ -309,16 +276,7 @@ mod tests {
                             name: "build".to_string(),
                             receiver_type: None,
                             captures: Vec::new(),
-                            params: vec![fol_parser::ast::Parameter {
-                                name: "graph".to_string(),
-                                param_type: fol_parser::ast::FolType::Named {
-                                    syntax_id: None,
-                                    name: "Graph".to_string(),
-                                },
-                                is_borrowable: false,
-                                is_mutex: false,
-                                default: None,
-                            }],
+                            params: Vec::new(),
                             return_type: Some(fol_parser::ast::FolType::None),
                             error_type: None,
                             body: Vec::new(),
@@ -342,7 +300,7 @@ mod tests {
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].source_unit_path, "build.fol");
-        assert_eq!(candidates[0].parameter_names, vec!["graph".to_string()]);
+        assert!(candidates[0].parameter_names.is_empty());
         assert_eq!(candidates[0].return_type_name.as_deref(), Some("non"));
     }
 
@@ -360,16 +318,7 @@ mod tests {
                     node: fol_parser::ast::AstNode::DefDecl {
                         options: Vec::new(),
                         name: "build".to_string(),
-                        params: vec![fol_parser::ast::Parameter {
-                            name: "graph".to_string(),
-                            param_type: fol_parser::ast::FolType::Named {
-                                syntax_id: None,
-                                name: "Graph".to_string(),
-                            },
-                            is_borrowable: false,
-                            is_mutex: false,
-                            default: None,
-                        }],
+                        params: Vec::new(),
                         def_type: fol_parser::ast::FolType::Named {
                             syntax_id: None,
                             name: "Graph".to_string(),
@@ -405,16 +354,7 @@ mod tests {
                         name: "build".to_string(),
                         receiver_type: None,
                         captures: Vec::new(),
-                        params: vec![fol_parser::ast::Parameter {
-                            name: "graph".to_string(),
-                            param_type: fol_parser::ast::FolType::Named {
-                                syntax_id: None,
-                                name: "Graph".to_string(),
-                            },
-                            is_borrowable: false,
-                            is_mutex: false,
-                            default: None,
-                        }],
+                        params: Vec::new(),
                         return_type: Some(fol_parser::ast::FolType::None),
                         error_type: None,
                         body: Vec::new(),
@@ -445,16 +385,7 @@ mod tests {
                     node: fol_parser::ast::AstNode::DefDecl {
                         options: Vec::new(),
                         name: "build".to_string(),
-                        params: vec![fol_parser::ast::Parameter {
-                            name: "graph".to_string(),
-                            param_type: fol_parser::ast::FolType::Named {
-                                syntax_id: None,
-                                name: "Graph".to_string(),
-                            },
-                            is_borrowable: false,
-                            is_mutex: false,
-                            default: None,
-                        }],
+                        params: Vec::new(),
                         def_type: fol_parser::ast::FolType::Named {
                             syntax_id: None,
                             name: "Graph".to_string(),
@@ -488,8 +419,8 @@ mod tests {
             source_unit_path: "build.fol".to_string(),
             syntax_id: fol_parser::ast::SyntaxNodeId(1),
             name: "build".to_string(),
-            parameter_names: vec!["graph".to_string()],
-            parameter_type_names: vec![Some("Graph".to_string())],
+            parameter_names: Vec::new(),
+            parameter_type_names: Vec::new(),
             return_type_name: Some("non".to_string()),
         };
         let validated = validate_build_entry_cardinality(&syntax, &[candidate.clone()])
@@ -498,14 +429,14 @@ mod tests {
     }
 
     #[test]
-    fn parameter_shape_validation_requires_exactly_one_named_parameter() {
+    fn parameter_shape_validation_requires_no_parameters() {
         let valid = ValidatedBuildEntry {
             candidate: BuildEntryCandidate {
                 source_unit_path: "build.fol".to_string(),
                 syntax_id: fol_parser::ast::SyntaxNodeId(1),
                 name: "build".to_string(),
-                parameter_names: vec!["graph".to_string()],
-                parameter_type_names: vec![Some("Graph".to_string())],
+                parameter_names: Vec::new(),
+                parameter_type_names: Vec::new(),
                 return_type_name: Some("non".to_string()),
             },
         };
@@ -516,8 +447,8 @@ mod tests {
                 source_unit_path: "build.fol".to_string(),
                 syntax_id: fol_parser::ast::SyntaxNodeId(2),
                 name: "build".to_string(),
-                parameter_names: vec!["left".to_string(), "right".to_string()],
-                parameter_type_names: vec![Some("Graph".to_string()), Some("Graph".to_string())],
+                parameter_names: vec!["graph".to_string()],
+                parameter_type_names: vec![Some("Graph".to_string())],
                 return_type_name: Some("non".to_string()),
             },
         };
@@ -530,15 +461,15 @@ mod tests {
     }
 
     #[test]
-    fn parameter_type_validation_requires_canonical_graph_type_names() {
+    fn parameter_type_validation_rejects_public_graph_type_usage() {
         let expectation = BuildEntrySignatureExpectation::canonical();
         let valid = ValidatedBuildEntry {
             candidate: BuildEntryCandidate {
                 source_unit_path: "build.fol".to_string(),
                 syntax_id: fol_parser::ast::SyntaxNodeId(1),
                 name: "build".to_string(),
-                parameter_names: vec!["graph".to_string()],
-                parameter_type_names: vec![Some("build::Graph".to_string())],
+                parameter_names: Vec::new(),
+                parameter_type_names: Vec::new(),
                 return_type_name: Some("non".to_string()),
             },
         };
@@ -550,12 +481,12 @@ mod tests {
                 syntax_id: fol_parser::ast::SyntaxNodeId(2),
                 name: "build".to_string(),
                 parameter_names: vec!["graph".to_string()],
-                parameter_type_names: vec![Some("int".to_string())],
+                parameter_type_names: vec![Some("Graph".to_string())],
                 return_type_name: Some("non".to_string()),
             },
         };
         let errors = validate_build_entry_parameter_type(invalid, &expectation)
-            .expect_err("non-graph parameter types should fail semantic build entry validation");
+            .expect_err("public Graph parameter types should fail semantic build entry validation");
         assert_eq!(
             errors[0].kind,
             BuildEntryValidationErrorKind::WrongParameterType
@@ -570,8 +501,8 @@ mod tests {
                 source_unit_path: "build.fol".to_string(),
                 syntax_id: fol_parser::ast::SyntaxNodeId(1),
                 name: "build".to_string(),
-                parameter_names: vec!["graph".to_string()],
-                parameter_type_names: vec![Some("Graph".to_string())],
+                parameter_names: Vec::new(),
+                parameter_type_names: Vec::new(),
                 return_type_name: Some("non".to_string()),
             },
         };
@@ -582,8 +513,8 @@ mod tests {
                 source_unit_path: "build.fol".to_string(),
                 syntax_id: fol_parser::ast::SyntaxNodeId(2),
                 name: "build".to_string(),
-                parameter_names: vec!["graph".to_string()],
-                parameter_type_names: vec![Some("Graph".to_string())],
+                parameter_names: Vec::new(),
+                parameter_type_names: Vec::new(),
                 return_type_name: Some("int".to_string()),
             },
         };
@@ -624,16 +555,7 @@ mod tests {
                     name: "build".to_string(),
                     receiver_type: None,
                     captures: Vec::new(),
-                    params: vec![fol_parser::ast::Parameter {
-                        name: "graph".to_string(),
-                        param_type: fol_parser::ast::FolType::Named {
-                            syntax_id: None,
-                            name: "int".to_string(),
-                        },
-                        is_borrowable: false,
-                        is_mutex: false,
-                        default: None,
-                    }],
+                    params: Vec::new(),
                     return_type: Some(fol_parser::ast::FolType::Named {
                         syntax_id: None,
                         name: "int".to_string(),
@@ -653,16 +575,7 @@ mod tests {
                     name: "build".to_string(),
                     receiver_type: None,
                     captures: Vec::new(),
-                    params: vec![fol_parser::ast::Parameter {
-                        name: "graph".to_string(),
-                        param_type: fol_parser::ast::FolType::Named {
-                            syntax_id: None,
-                            name: "Graph".to_string(),
-                        },
-                        is_borrowable: false,
-                        is_mutex: false,
-                        default: None,
-                    }],
+                    params: Vec::new(),
                     return_type: Some(fol_parser::ast::FolType::None),
                     error_type: None,
                     body: Vec::new(),

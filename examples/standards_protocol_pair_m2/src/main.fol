@@ -1,0 +1,24 @@
+std geo: pro = {
+    fun area(): int;
+    fun perimeter(): int;
+};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun twice(value: int): int = {
+    return value + value;
+};
+
+fun (Rect)area(): int = {
+    return twice(1);
+};
+
+fun (Rect)perimeter(): int = {
+    return twice(2);
+};
+
+fun[] main(): int = {
+    return 0;
+};

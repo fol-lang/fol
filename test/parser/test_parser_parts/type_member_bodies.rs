@@ -136,7 +136,7 @@ fn test_record_type_accepts_alias_members() {
                     ..
                 }
                 if name == "Distance"
-                    && members.iter().any(|member| matches!(member, AstNode::AliasDecl { name, target: FolType::Named { name: target , ..} } if name == "Unit" && target == "str"))
+                    && members.iter().any(|member| matches!(member, AstNode::AliasDecl { name, target: FolType::Named { name: target , ..}, .. } if name == "Unit" && target == "str"))
             )));
         }
         _ => panic!("Expected program node"),
@@ -192,7 +192,7 @@ fn test_entry_type_accepts_alias_members() {
                     ..
                 }
                 if name == "Status"
-                    && members.iter().any(|member| matches!(member, AstNode::AliasDecl { name, target: FolType::Named { name: target , ..} } if name == "Label" && target == "str"))
+                    && members.iter().any(|member| matches!(member, AstNode::AliasDecl { name, target: FolType::Named { name: target , ..}, .. } if name == "Label" && target == "str"))
             )));
         }
         _ => panic!("Expected program node"),

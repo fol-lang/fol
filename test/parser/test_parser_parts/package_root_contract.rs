@@ -5,7 +5,6 @@ enum RootDeclFamily {
     Use,
     Def,
     Seg,
-    Imp,
     Var,
     Lab,
     Fun,
@@ -21,7 +20,6 @@ fn source_unit_has_root_decl_family(source_unit: &ParsedSourceUnit, family: Root
         (AstNode::UseDecl { .. }, RootDeclFamily::Use)
         | (AstNode::DefDecl { .. }, RootDeclFamily::Def)
         | (AstNode::SegDecl { .. }, RootDeclFamily::Seg)
-        | (AstNode::ImpDecl { .. }, RootDeclFamily::Imp)
         | (AstNode::VarDecl { .. }, RootDeclFamily::Var)
         | (AstNode::LabDecl { .. }, RootDeclFamily::Lab)
         | (AstNode::FunDecl { .. }, RootDeclFamily::Fun)
@@ -50,7 +48,6 @@ fn test_decl_package_accepts_supported_file_root_declaration_families() {
         ("test/parser/simple_use_bare_mod_type.fol", RootDeclFamily::Use),
         ("test/parser/simple_def_module.fol", RootDeclFamily::Def),
         ("test/parser/simple_seg_module.fol", RootDeclFamily::Seg),
-        ("test/parser/simple_imp_basic.fol", RootDeclFamily::Imp),
         ("test/parser/simple_var.fol", RootDeclFamily::Var),
         ("test/parser/simple_lab_decl.fol", RootDeclFamily::Lab),
         ("test/parser/simple_fun.fol", RootDeclFamily::Fun),

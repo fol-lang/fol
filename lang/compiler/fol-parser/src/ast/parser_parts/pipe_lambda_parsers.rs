@@ -18,7 +18,10 @@ impl AstParser {
             loop {
                 let name_token = tokens.curr(false)?;
                 let name = Self::expect_named_label(&name_token, "Expected lambda parameter name")?;
-                names.push(name);
+                // Record the lambda parameter NAME token so tooling can locate
+                // its declaration; the resolver derives the origin from this id.
+                let name_syntax_id = self.record_syntax_origin(&name_token);
+                names.push((name, name_syntax_id));
                 let _ = tokens.bump();
 
                 self.skip_ignorable(tokens)?;
@@ -86,15 +89,15 @@ impl AstParser {
                 ));
             }
 
-            for name in names {
+            for (name, name_syntax_id) in names {
                 params.push(Parameter {
-                    is_borrowable: name.chars().all(|ch| {
-                        !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
-                    }),
+                    is_borrowable: false,
                     is_mutex: false,
+                    is_variadic,
                     name,
                     param_type: param_type.clone(),
                     default: default.clone(),
+                    syntax_id: name_syntax_id,
                 });
             }
 

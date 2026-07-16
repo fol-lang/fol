@@ -5,7 +5,10 @@ impl AstParser {
         if nodes.len() == 1 {
             nodes.into_iter().next().expect("one node")
         } else {
-            AstNode::Block { statements: nodes }
+            AstNode::Block {
+                syntax_id: None,
+                statements: nodes,
+            }
         }
     }
 
@@ -31,11 +34,6 @@ impl AstParser {
 
         if matches!(key, KEYWORD::Keyword(BUILDIN::Var)) {
             let nodes = self.parse_var_decl(tokens)?;
-            return Ok(nodes);
-        }
-
-        if matches!(key, KEYWORD::Keyword(BUILDIN::Let)) {
-            let nodes = self.parse_let_decl(tokens)?;
             return Ok(nodes);
         }
 
@@ -71,11 +69,6 @@ impl AstParser {
 
         if matches!(key, KEYWORD::Keyword(BUILDIN::Seg)) {
             let node = self.parse_seg_decl(tokens)?;
-            return Ok(vec![node]);
-        }
-
-        if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-            let node = self.parse_imp_decl(tokens)?;
             return Ok(vec![node]);
         }
 
@@ -162,7 +155,19 @@ impl AstParser {
             return Ok(vec![node]);
         }
 
-        if (AstParser::token_can_be_logical_name(&key) || key.is_textual_literal())
+        if matches!(key, KEYWORD::Keyword(BUILDIN::Dfr)) {
+            let node = self.parse_dfr_stmt(tokens)?;
+            return Ok(vec![node]);
+        }
+
+        if matches!(key, KEYWORD::Keyword(BUILDIN::Edf)) {
+            let node = self.parse_edf_stmt(tokens)?;
+            return Ok(vec![node]);
+        }
+
+        if (AstParser::token_can_be_logical_name(&key)
+            || key.is_textual_literal()
+            || matches!(key, KEYWORD::Symbol(SYMBOL::Star)))
             && self.lookahead_is_assignment(tokens)
         {
             let node = self.parse_assignment_stmt(tokens)?;

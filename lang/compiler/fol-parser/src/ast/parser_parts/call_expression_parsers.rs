@@ -68,6 +68,7 @@ impl AstParser {
             syntax_id: self.record_syntax_origin(&name_token),
             surface: crate::ast::CallSurface::DotIntrinsic,
             name,
+            type_args: Vec::new(),
             args,
         })
     }
@@ -158,6 +159,14 @@ impl AstParser {
         }
     }
 
+    fn ast_node_is_unpack_argument(node: &AstNode) -> bool {
+        match node {
+            AstNode::Unpack { .. } => true,
+            AstNode::Commented { node, .. } => Self::ast_node_is_unpack_argument(node.as_ref()),
+            _ => false,
+        }
+    }
+
     pub(super) fn parse_call_args(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
@@ -203,7 +212,8 @@ impl AstParser {
             );
 
             let is_named = Self::ast_node_is_named_argument(&arg);
-            if !is_named && seen_named_arg {
+            let is_unpack = Self::ast_node_is_unpack_argument(&arg);
+            if !is_named && !is_unpack && seen_named_arg {
                 return Err(ParseError::from_token(
                     &token,
                     "Positional call arguments are not allowed after named arguments".to_string(),

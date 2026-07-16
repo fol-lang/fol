@@ -1,0 +1,19 @@
+fun[] main(flag: bol): int = {
+    dfr {
+        .echo(1);
+    };
+    {
+        dfr {
+            .echo(2);
+        };
+        when(flag) {
+            case(true) {
+                .echo(3);
+            }
+            * {
+                .echo(4);
+            }
+        };
+    };
+    return 7;
+};

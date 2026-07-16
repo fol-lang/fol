@@ -1,4 +1,5 @@
-pro[] build(graph: Graph): non = {
+pro[] build(): non = {
+    var graph = .graph();
     var lib = graph.add_static_lib({
         name = "auth",
         root = "src/lib.fol",

@@ -1,0 +1,29 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "shared", version = "0.1.0" });
+
+    var graph = build.graph();
+    var api = graph.add_module({ name = "api_mod", root = "src/root.fol" });
+    var lib = graph.add_static_lib({
+        name = "shared",
+        root = "src/root.fol",
+        fol_model = "memo",
+    });
+    var schema = graph.write_file({
+        name = "schema",
+        path = "gen/schema.fol",
+        contents = "var generated: int = 1;\n",
+    });
+    var config = graph.file_from_root("config/defaults.toml");
+    var assets = graph.dir_from_root("assets");
+    var install = graph.install(lib);
+
+    build.export_module({ name = "api", module = api });
+    build.export_artifact({ name = "runtime", artifact = lib });
+    build.export_step({ name = "install", step = install });
+    build.export_file({ name = "defaults", file = config });
+    build.export_dir({ name = "public", dir = assets });
+    build.export_path({ name = "schema-path", path = schema });
+    build.export_output({ name = "schema", output = schema });
+    return;
+};

@@ -1,4 +1,5 @@
-pro[] build(graph: Graph): non = {
+pro[] build(): non = {
+    var graph = .build().graph();
 var target = graph.standard_target();
 var optimize = graph.standard_optimize();
 var app = graph.add_exe({

@@ -1,8 +1,8 @@
-use warn: std = {fmt/log}
-use assert: std = {system/debug}
-use locker: loc = {../file/path}
-use osth: std = {os/path}
-use log, sync, color: std = {fmt/log}, {os/sync}, {fmt/color};
+use warn: pkg = {"fmt/log"}
+use assert: pkg = {"system/debug"}
+use locker: loc = {"../file/path"}
+use osth: pkg = {"os/path"}
+use log, sync, color: pkg = {"fmt/log"}, {os/sync}, {fmt/color};
 
 pro dirent: non = {
     def 'obj': alt = 'rec[obj]'

@@ -82,6 +82,18 @@ impl AstParser {
                 continue;
             }
 
+            if matches!(key, KEYWORD::Keyword(BUILDIN::Dfr)) {
+                body.push(self.parse_dfr_stmt(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if matches!(key, KEYWORD::Keyword(BUILDIN::Edf)) {
+                body.push(self.parse_edf_stmt(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
             if matches!(
                 key,
                 KEYWORD::Keyword(BUILDIN::Panic)
@@ -114,12 +126,6 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Let)) {
-                body.extend(self.parse_let_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
             if matches!(key, KEYWORD::Keyword(BUILDIN::Con)) {
                 body.extend(self.parse_con_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;
@@ -140,12 +146,6 @@ impl AstParser {
 
             if matches!(key, KEYWORD::Keyword(BUILDIN::Seg)) {
                 body.push(self.parse_seg_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-                body.push(self.parse_imp_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;
                 continue;
             }
@@ -247,7 +247,31 @@ impl AstParser {
                 continue;
             }
 
-            if (AstParser::token_can_be_logical_name(&key) || key.is_textual_literal())
+            if self.lookahead_is_spawn_expression(tokens) {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if self.lookahead_has_top_level_pipe(tokens) {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if matches!(
+                key,
+                KEYWORD::Symbol(SYMBOL::Bang) | KEYWORD::Symbol(SYMBOL::Hash)
+            ) || matches!(token.con().trim(), "!" | "#")
+            {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
+            if (AstParser::token_can_be_logical_name(&key)
+                || key.is_textual_literal()
+                || matches!(key, KEYWORD::Symbol(SYMBOL::Star)))
                 && self.lookahead_is_assignment(tokens)
                 && self.can_start_assignment(tokens)
             {
@@ -502,12 +526,6 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Let)) {
-                body.extend(self.parse_let_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
             if matches!(key, KEYWORD::Keyword(BUILDIN::Con)) {
                 body.extend(self.parse_con_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;
@@ -546,12 +564,6 @@ impl AstParser {
 
             if matches!(key, KEYWORD::Keyword(BUILDIN::Seg)) {
                 body.push(self.parse_seg_decl(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
-            if matches!(key, KEYWORD::Keyword(BUILDIN::Imp)) {
-                body.push(self.parse_imp_decl(tokens)?);
                 self.consume_required_semicolon(tokens)?;
                 continue;
             }

@@ -1,5 +1,13 @@
 # Matching
 
+Current boundary:
+
+- only `is` arms (plus the `case` and `*` default forms) are the current
+  compiler surface
+- `in` (range/set matching) and `has` (membership) arms are declared syntax
+  whose semantics are later-milestone work; the compiler rejects them with
+  explicit boundary diagnostics
+
 ## Variable
 As variable assignment:
 ```

@@ -166,12 +166,12 @@ fn missing_canonical_build_error(origin: Option<SyntaxOrigin>) -> PackageError {
     match origin {
         Some(origin) => PackageError::with_origin(
             PackageErrorKind::InvalidInput,
-            "build.fol must declare exactly one canonical `pro[] build(graph: Graph): non` entry",
+            "build.fol must declare exactly one canonical `pro[] build(): non` entry",
             origin,
         ),
         None => PackageError::new(
             PackageErrorKind::InvalidInput,
-            "build.fol must declare exactly one canonical `pro[] build(graph: Graph): non` entry",
+            "build.fol must declare exactly one canonical `pro[] build(): non` entry",
         ),
     }
 }
@@ -227,7 +227,7 @@ mod tests {
     fn package_build_parser_accepts_canonical_semantic_build_files() {
         let build_path = write_build_fixture(
             "semantic_modern_build",
-            "pro[] build(graph: Graph): non = {\n    return graph\n}\n",
+            "pro[] build(): non = {\n    return;\n};\n",
         );
 
         let build =
@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(error.kind(), PackageErrorKind::InvalidInput);
         assert!(error
             .to_string()
-            .contains("canonical `pro[] build(graph: Graph): non` entry"));
+            .contains("canonical `pro[] build(): non` entry"));
 
         fs::remove_dir_all(build_path.parent().unwrap()).ok();
     }
@@ -257,7 +257,7 @@ mod tests {
     fn package_build_parser_rejects_old_def_build_headers() {
         let build_path = write_build_fixture(
             "legacy_def_build",
-            "def build(graph: Graph): non = graph;\n",
+            "def build(): non = graph;\n",
         );
 
         let error =
@@ -275,7 +275,7 @@ mod tests {
     fn package_build_parser_rejects_plain_pro_build_headers() {
         let build_path = write_build_fixture(
             "plain_pro_build",
-            "pro build(graph: Graph): non = {\n    return graph\n}\n",
+            "pro build(): non = {\n    return;\n};\n",
         );
 
         let error =
@@ -284,7 +284,7 @@ mod tests {
         assert_eq!(error.kind(), PackageErrorKind::InvalidInput);
         assert!(error
             .to_string()
-            .contains("canonical `pro[] build(graph: Graph): non` entry"));
+            .contains("canonical `pro[] build(): non` entry"));
 
         fs::remove_dir_all(build_path.parent().unwrap()).ok();
     }
@@ -292,13 +292,13 @@ mod tests {
     #[test]
     fn package_build_parser_rejects_wrong_build_signatures_with_exact_origins() {
         let build_path =
-            write_build_fixture("wrong_signature", "pro[] build(graph: int): int = graph;\n");
+            write_build_fixture("wrong_signature", "pro[] build(graph: int): non = {\n    return;\n};\n");
 
         let error =
             parse_package_build(&build_path).expect_err("Wrong semantic build signatures fail");
 
         assert_eq!(error.kind(), PackageErrorKind::InvalidInput);
-        assert!(error.to_string().contains("canonical build entry parameter type"));
+        assert!(error.to_string().contains("must not declare parameters"));
 
         fs::remove_dir_all(build_path.parent().unwrap()).ok();
     }
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn package_build_parser_keeps_exact_origins_for_parse_failures() {
         let build_path =
-            write_build_fixture("build_parse_origin", "pro[] build(graph: Graph): non = {\n");
+            write_build_fixture("build_parse_origin", "pro[] build(): non = 42 @ 7;\n");
 
         let error = parse_package_build(&build_path)
             .expect_err("Malformed build files should preserve parse-error origins");
@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn package_build_parser_rejects_build_files_without_canonical_entry() {
         let build_path =
-            write_build_fixture("helper_only", "fun[] helper(): int = {\n    return 1\n}\n");
+            write_build_fixture("helper_only", "fun[] helper(): int = {\n    return 1;\n};\n");
 
         let error = parse_package_build(&build_path)
             .expect_err("Build files without canonical build entry should fail");
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(error.kind(), PackageErrorKind::InvalidInput);
         assert!(error
             .to_string()
-            .contains("canonical `pro[] build(graph: Graph): non` entry"));
+            .contains("canonical `pro[] build(): non` entry"));
 
         fs::remove_dir_all(build_path.parent().unwrap()).ok();
     }
@@ -342,7 +342,7 @@ mod tests {
     fn semantic_build_mode_classification_prefers_validated_build_entries() {
         let build_path = write_build_fixture(
             "semantic_build_mode",
-            "pro[] build(graph: Graph): non = {\n    return graph\n}\n",
+            "pro[] build(): non = {\n    return;\n};\n",
         );
         let mut stream = FileStream::from_file(
             build_path
@@ -368,7 +368,7 @@ mod tests {
     fn shared_build_mode_parser_returns_classified_mode() {
         let build_path = write_build_fixture(
             "build_mode_parser",
-            "pro[] build(graph: Graph): non = {\n    return graph\n}\n",
+            "pro[] build(): non = {\n    return;\n};\n",
         );
 
         let mode = parse_package_build_mode(&build_path)
@@ -389,7 +389,7 @@ mod tests {
     fn ast_build_extraction_requires_the_canonical_semantic_entry() {
         let build_path = write_build_fixture(
             "ast_semantic_only",
-            "pro[] build(graph: Graph): non = {\n    return graph\n}\n",
+            "pro[] build(): non = {\n    return;\n};\n",
         );
         let mut stream = FileStream::from_file(
             build_path

@@ -5,16 +5,30 @@ Intrinsics are compiler-owned language operations.
 They are not ordinary library functions, and they are not imported through
 `use`.
 
-FOL currently keeps three layers separate:
+FOL currently keeps compiler intrinsics and three API tiers separate:
 
 - intrinsics:
   compiler-owned operations such as `.eq(...)`, `.len(...)`, `check(...)`, and
   `panic(...)`
 - `core`:
-  ordinary foundational library code that should work across targets
+  the minimal runtime model with no heap and no source-level hosted OS/runtime
+  APIs
+- `memo`:
+  alloc-like heap-backed library/runtime support without source-level hosted
+  OS/runtime APIs
 - `std`:
-  broader library code such as filesystem, networking, serialization, and other
-  richer services
+  the hosted API tier layered on `memo` by an explicit bundled internal
+  dependency, with shipped services such as console I/O
+
+This split is not a source-level import trick and not an object-system feature.
+`core` and `memo` are artifact capability models selected through `fol_model`
+in `build.fol`. Bundled `std` is not a third model; it is declared separately
+with `build.add_dep({ alias = "std", source = "internal", target = "standard" })`
+for a `memo` artifact that needs hosted source APIs.
+
+Whether an artifact can be launched is orthogonal. Host-compatible `core` and
+`memo` programs can use `fol code run` or `fol code test` without bundled
+`std`; the frontend launching them does not expose extra intrinsics.
 
 If an operation can live as an ordinary library API, that is usually the better
 home for it. Intrinsics are reserved for surfaces the compiler must understand
@@ -66,9 +80,22 @@ compiler.
 The current compiler implements this subset end to end through type checking and
 lowering.
 
-For current `V1`, backend execution of the implemented intrinsic set is
-expected to go through `fol-runtime` where policy matters. In practice that
-means:
+For current `V1`, backend execution of the implemented intrinsic set still goes
+through the current runtime layer where policy matters. The runtime contract is
+split by the artifact's `fol_model` and active bundled dependency, so the rule
+is:
+
+- `core` artifacts must not rely on heap-backed or source-level hosted APIs
+- `memo` artifacts may use heap-backed facilities but not source-level hosted
+  APIs
+- bundled `std` wrappers require a `memo` artifact plus explicit internal
+  `standard` dependency
+
+All three API tiers may back executable artifacts. Process entry and
+recoverable outcome adaptation are backend-only support, not bundled-std
+intrinsics.
+
+In the current implementation that means:
 
 - `.len(...)` uses the runtime length helper
 - `.echo(...)` uses the runtime echo hook and formatting contract
@@ -123,6 +150,10 @@ Current `V1` rule:
   - `map[...]`
 
 In the current compiler, `.len(...)` is the only implemented query intrinsic.
+Under the runtime model split, array `.len(...)` belongs to `core`, while
+string and dynamic-container `.len(...)` belongs to `memo`. It remains
+available when a `memo` artifact also declares bundled `std` because the hosted
+tier layers on top of `memo`; `.len(...)` does not itself require `std`.
 
 ### Diagnostic
 
@@ -133,10 +164,13 @@ In the current compiler, `.len(...)` is the only implemented query intrinsic.
 Current `V1` rule:
 
 - `.echo(...)` accepts exactly one argument
-- it emits the value through the `fol-runtime` debug hook
+- it requires a `memo` artifact with the explicit bundled `std` dependency
+- it emits the value through the hosted runtime hook
 - it then forwards the same value unchanged
 
-So this is valid:
+`.echo(...)` belongs to `std`, not `core` or `memo`.
+
+With that build contract, this is valid:
 
 ```fol
 fun[] main(flag: bol): bol = {
@@ -153,7 +187,9 @@ panic("fatal")
 
 Current `V1` rule:
 
-- `check(expr)` asks whether a recoverable routine call failed and returns `bol`
+- `check(expr)` asks whether a recoverable `/ ErrorType` expression failed and
+  returns `bol`; that expression may be a direct routine call or, in V3, an
+  awaited recoverable eventual
 - `panic(...)` aborts control flow immediately
 
 These are described in more detail in the recoverable-error chapter.
@@ -189,15 +225,14 @@ These are intentionally reserved now so the language can grow without
 accidental user-space name collisions, but they are not part of the current
 `V1` compiler.
 
-### Reserved for later `V3`
+### Reserved for `V4` interop
 
 - `.de_alloc(...)`
-- `.give_back(...)`
-- `.address_of(...)`
-- `.pointer_value(...)`
-- `.borrow_from(...)`
 
-These depend on later ownership, pointer, and low-level systems semantics.
+Explicit deallocation is not part of the V3 memory model. Unique heap values
+drop implicitly, borrowing uses `#owner` and `!borrow`, and typed pointers use
+`&value` and `*pointer`. The old dot-root memory spellings are not reserved or
+supported aliases.
 
 ## Library-preferred surfaces
 
@@ -252,7 +287,7 @@ Likewise, recoverable routine calls such as:
 fun[] read_code(path: str): int / str = { ... }
 ```
 
-are handled with:
+and V3 recoverable results produced by `eventual | await` are handled with:
 
 - `check(expr)`
 - `expr || fallback`

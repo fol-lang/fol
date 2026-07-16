@@ -1,0 +1,4 @@
+fun[] main(): int = {
+    var boxed: Box[int] = { value = 7 };
+    return boxed.get();
+};

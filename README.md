@@ -24,3 +24,45 @@ FOL is a general-purpose, systems programming language designed for robustness, 
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the compiler pipeline, crate map, and how data flows from source to binary.
+
+## Runtime Models
+
+Every FOL artifact selects a capability mode in `build.fol`. Set `fol_model`
+explicitly for `core`; omitting it selects the default `memo` mode:
+
+- `core`: no heap and no source-level hosted runtime APIs; executable
+  artifacts are still supported
+- `memo`: heap-enabled (`str`, `vec`, `seq`, `set`, `map`), still no hosted
+  runtime APIs; executable artifacts are still supported
+
+As a Rust-oriented mental model, `core` is the FOL-source analogue of
+`#![no_std]` plus `core`, while `memo` is the analogue of `no_std` plus an
+allocator-backed `alloc` surface. This analogy describes which APIs FOL source
+may use; it does not claim that the current Rust backend emits a freestanding
+binary.
+
+There is no third model. Hosted language API capability for `memo` artifacts
+comes from declaring the bundled standard-library dependency at package level:
+
+```fol
+build.add_dep({ alias = "std", source = "internal", target = "standard" });
+```
+
+which upgrades the artifact's effective API tier to hosted and makes the
+shipped `std` package importable (`use std: pkg = {"std"};`).
+
+Bundled `std` gates hosted language APIs such as console and processor
+facilities; it does not gate `fol code run` or `fol code test`. Launching a
+host-compatible artifact or build tool is a frontend/toolchain concern,
+separate from the source-language capability model.
+
+Target compatibility is a separate execution check. `fol code build` may
+produce a cross-target artifact, but the current `fol code run` and
+`fol code test` paths reject a target that cannot execute on the build host.
+Such an artifact needs an appropriate external runner; adding bundled `std`
+does not make a foreign target locally executable.
+
+Use the smallest mode that matches the artifact contract. The full matrix,
+the effective-tier derivation, and examples are in
+[docs/runtime-models.md](docs/runtime-models.md) and
+[docs/bundled-std.md](docs/bundled-std.md).

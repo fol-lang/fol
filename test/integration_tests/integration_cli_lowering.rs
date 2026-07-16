@@ -1,5 +1,17 @@
 use super::*;
 
+    fn copied_example_root(example_path: &str) -> std::path::PathBuf {
+        let source = repo_root().join(example_path);
+        let temp_root = unique_temp_root(&format!(
+            "cli_example_{}",
+            example_path.replace('/', "_")
+        ));
+        let target = temp_root.join("workspace");
+        copy_dir_all(&source, &target);
+        std::fs::remove_dir_all(target.join(".fol")).ok();
+        target
+    }
+
     #[test]
     fn test_cli_single_file_compile_succeeds_with_builtin_str_types() {
         use std::fs;
@@ -207,6 +219,83 @@ use super::*;
     }
 
     #[test]
+    fn test_cli_lowering_condition_loops_now_succeed() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_lowering_condition_loop_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp loop lowering fixture dir");
+        fs::write(
+            temp_root.join("main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    var total: int = 0;\n",
+                "    loop(total < 3) {\n",
+                "        total = total + 1;\n",
+                "    }\n",
+                "    return total;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write loop lowering fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("loop lowering fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "CLI should lower condition loops without hitting the old boundary, got status {:?} and output:\n{}\n{}",
+            output.status.code(),
+            stdout,
+            stderr,
+        );
+        assert!(stdout.contains("Compilation successful"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_lowering_nested_blocks_now_succeed() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_lowering_block_boundary");
+        fs::create_dir_all(&temp_root).expect("Should create temp block lowering fixture dir");
+        fs::write(
+            temp_root.join("main.fol"),
+            concat!(
+                "fun[] main(): int = {\n",
+                "    var value: int = 1;\n",
+                "    {\n",
+                "        var inner: int = value + 1;\n",
+                "        value = inner;\n",
+                "    }\n",
+                "    return value;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write block lowering fixture");
+
+        let output = run_fol(&[temp_root
+            .to_str()
+            .expect("block lowering fixture path should be utf-8")]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "CLI should lower nested blocks without hitting the old boundary, got status {:?} and output:\n{}\n{}",
+            output.status.code(),
+            stdout,
+            stderr,
+        );
+        assert!(stdout.contains("Compilation successful"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn test_cli_explicit_recoverable_handling_lowers_successfully_across_multiple_routines() {
         use std::fs;
 
@@ -291,6 +380,445 @@ use super::*;
         assert!(!stdout.contains("ExtractRecoverableError"));
 
         fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_supports_generic_routines_in_v2_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_routine_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic routine fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "fun pick(T)(value: T): T = {\n",
+                "    return value;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return pick(7);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write generic routine lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("generic routine lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            output.status.success(),
+            "generic routine lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(combined.contains("GenericParameter"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_supports_multi_param_generic_routines_in_v2_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_pair_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic pair fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "fun pair(T)(left: T, right: T): T = {\n",
+                "    return right;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return pair(1, 2);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write generic pair lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("generic pair lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            output.status.success(),
+            "multi-param generic routine lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(combined.contains("GenericParameter"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_supports_generic_routines_with_default_params_in_v2_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_defaults_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp generic default fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "fun pick(T)(value: T, fallback: int = 1): T = {\n",
+                "    return value;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return pick(7);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write generic default lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("generic default lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            output.status.success(),
+            "generic default lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(combined.contains("GenericParameter"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_supports_receiver_qualified_generic_routines_in_v2_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_receiver_generic_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp receiver generic fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "typ Box: rec = {\n",
+                "    value: int\n",
+                "};\n",
+                "var current: Box = { value = 1 };\n",
+                "fun (Box)pick(T)(value: T): T = {\n",
+                "    return value;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return current.pick(7);\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write receiver generic lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("receiver generic lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            output.status.success(),
+            "receiver-qualified generic lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(combined.contains("call"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_supports_generic_routines_with_concrete_recoverable_errors_in_v2_m1() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_generic_recoverable_lowering_m1");
+        fs::create_dir_all(&temp_root).expect("Should create temp recoverable generic fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "fun pick(T)(value: T): T = {\n",
+                "    return value;\n",
+                "};\n",
+                "fun bounce(T)(value: T, fail: bol): T / str = {\n",
+                "    when(fail) {\n",
+                "        case(true) { report(\"bad\"); }\n",
+                "        * { return pick(value); }\n",
+                "    }\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    when(check(bounce(7, false))) {\n",
+                "        case(true) { return 0; }\n",
+                "        * { return 1; }\n",
+                "    }\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write recoverable generic lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("recoverable generic lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            output.status.success(),
+            "recoverable generic lowering should succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(combined.contains("recoverable-abi"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_rejects_protocol_standards_with_explicit_m2_boundary() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standards_protocol_lowering_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards lowering fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "std geo: pro = {\n",
+                "    fun area(): int;\n",
+                "};\n",
+                "typ Rect()(geo): rec = {\n",
+                "    var width: int;\n",
+                "};\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 1;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write standards lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("standards lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            output.status.success(),
+            "standards lowering should now succeed, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(combined.contains("standard geo symbol="));
+        assert!(combined.contains("requires area"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_supports_multi_routine_protocol_standards() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standards_protocol_pair_lowering_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards lowering fixture dir");
+        let fixture = temp_root.join("main.fol");
+        fs::write(
+            &fixture,
+            concat!(
+                "std geo: pro = {\n",
+                "    fun area(): int;\n",
+                "    fun perimeter(): int;\n",
+                "};\n",
+                "typ Rect()(geo): rec = {\n",
+                "    var width: int;\n",
+                "};\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 1;\n",
+                "};\n",
+                "fun (Rect)perimeter(): int = {\n",
+                "    return 4;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write multi-routine standards lowering fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            fixture
+                .to_str()
+                .expect("standards lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(output.status.success());
+        assert!(combined.contains("standard geo symbol="));
+        assert!(combined.contains("requires area"));
+        assert!(combined.contains("requires perimeter"));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_dump_lowered_supports_cross_file_protocol_standards() {
+        use std::fs;
+
+        let temp_root = unique_temp_root("cli_standards_protocol_cross_file_lowering_m2");
+        fs::create_dir_all(&temp_root).expect("Should create temp standards lowering fixture dir");
+        fs::write(
+            temp_root.join("00_std.fol"),
+            "std geo: pro = { fun area(): int; };\n",
+        )
+        .expect("Should write cross-file standard fixture");
+        fs::write(
+            temp_root.join("10_main.fol"),
+            concat!(
+                "typ Rect()(geo): rec = {\n",
+                "    var width: int;\n",
+                "};\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 1;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return 0;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write cross-file main fixture");
+
+        let output = run_fol(&[
+            "--dump-lowered",
+            temp_root
+                .to_str()
+                .expect("standards lowering fixture path should be utf-8"),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(output.status.success());
+        assert!(combined.contains("standard geo symbol="));
+        assert!(combined.contains("conformance type="));
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_cli_full_chain_builds_positive_standards_examples() {
+        let examples = [
+            "examples/standards_protocol_m2",
+            "examples/standards_protocol_pair_m2",
+            "examples/standards_protocol_multi_m2",
+        ];
+
+        for example in examples {
+            let root = copied_example_root(example);
+            let output = run_fol_in_dir(&root, &["code", "build"]);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            assert!(
+                output.status.success(),
+                "example '{example}' should now build cleanly: stdout=\n{}\nstderr=\n{}",
+                stdout,
+                stderr
+            );
+
+            std::fs::remove_dir_all(root).ok();
+        }
+    }
+
+    #[test]
+    fn test_cli_full_chain_keeps_negative_standards_examples_failing_cleanly() {
+        let cases = [
+            (
+                "examples/fail_standard_missing_routine_m2",
+                vec!["code", "check"],
+                "missing required routine 'perimeter'",
+            ),
+            (
+                "examples/fail_standard_signature_m2",
+                vec!["code", "check"],
+                "routine 'area' has incompatible signature",
+            ),
+            (
+                "examples/fail_standard_import_ambiguity_m2",
+                vec!["code", "check"],
+                "standard 'geo' is ambiguous in lexical scope",
+            ),
+        ];
+
+        for (example, args, expected) in cases {
+            let root = copied_example_root(example);
+            let output = run_fol_in_dir(&root, &args);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let combined = format!("{stdout}\n{stderr}");
+
+            assert!(
+                !output.status.success(),
+                "example '{example}' should stay on its current failure boundary: stdout=\n{}\nstderr=\n{}",
+                stdout,
+                stderr
+            );
+            assert!(
+                combined.contains(expected),
+                "example '{example}' should keep boundary '{expected}': stdout=\n{}\nstderr=\n{}",
+                stdout,
+                stderr
+            );
+
+            std::fs::remove_dir_all(root).ok();
+        }
+    }
+
+    #[test]
+    fn test_cli_full_chain_rejects_the_generic_plus_standards_seam_cleanly() {
+        let root = copied_example_root("examples/fail_generic_standard_constraint_m1m2");
+        let output = run_fol_in_dir(&root, &["code", "build"]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout}\n{stderr}");
+
+        assert!(
+            !output.status.success(),
+            "generic-plus-standards seam example should fail cleanly: stdout=\n{}\nstderr=\n{}",
+            stdout,
+            stderr
+        );
+        assert!(
+            combined.contains("requires type 'Plain' to satisfy standard 'geo'"),
+            "generic-plus-standards seam should surface the generic conformance failure: stdout=\n{}\nstderr=\n{}",
+            stdout,
+            stderr
+        );
+
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

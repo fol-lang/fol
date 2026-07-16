@@ -38,7 +38,6 @@ impl KEYWORD {
                 | KEYWORD::Keyword(BUILDIN::Pro)
                 | KEYWORD::Keyword(BUILDIN::Typ)
                 | KEYWORD::Keyword(BUILDIN::Ali)
-                | KEYWORD::Keyword(BUILDIN::Imp)
                 | KEYWORD::Keyword(BUILDIN::Lab)
                 | KEYWORD::Keyword(BUILDIN::Con)
         )

@@ -96,9 +96,9 @@ mod tests {
         use super::sanitize_revision_segment;
 
         // forward-slash traversal
-        assert_eq!(sanitize_revision_segment("../evil"), "__evil");
+        assert_eq!(sanitize_revision_segment("../evil"), "___evil");
         // backslash traversal
-        assert_eq!(sanitize_revision_segment("..\\evil"), "__evil");
+        assert_eq!(sanitize_revision_segment("..\\evil"), "___evil");
         // null byte
         assert_eq!(sanitize_revision_segment("abc\x00def"), "abc_def");
         // combined traversal

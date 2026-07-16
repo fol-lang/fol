@@ -26,7 +26,19 @@ pub fn insert_local_named_symbol(
     };
     let canonical_name = fol_types::canonical_identifier_key(name);
     let duplicate_key = top_level_duplicate_key(semantic_node(node), &canonical_name);
-    insert_local_symbol(program, source_unit_id, scope_id, name, kind, duplicate_key)
+    let origin = semantic_node(node)
+        .syntax_id()
+        .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+        .cloned();
+    insert_local_symbol_with_origin(
+        program,
+        source_unit_id,
+        scope_id,
+        name,
+        kind,
+        duplicate_key,
+        origin,
+    )
 }
 
 pub fn insert_local_symbol(
@@ -36,6 +48,26 @@ pub fn insert_local_symbol(
     name: &str,
     kind: SymbolKind,
     duplicate_key: String,
+) -> Result<SymbolId, ResolverError> {
+    insert_local_symbol_with_origin(
+        program,
+        source_unit_id,
+        scope_id,
+        name,
+        kind,
+        duplicate_key,
+        None,
+    )
+}
+
+pub fn insert_local_symbol_with_origin(
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    name: &str,
+    kind: SymbolKind,
+    duplicate_key: String,
+    origin: Option<fol_parser::ast::SyntaxOrigin>,
 ) -> Result<SymbolId, ResolverError> {
     let canonical_name = fol_types::canonical_identifier_key(name);
     // Resolver contract: one scope cannot redefine the same binding shape, but
@@ -93,10 +125,11 @@ pub fn insert_local_symbol(
         kind,
         scope: scope_id,
         source_unit: source_unit_id,
-        origin: None,
+        origin,
         visibility: None,
         declaration_scope: None,
         mounted_from: None,
+        is_mutable: false,
     });
     if let Some(symbol) = program.symbols.get_mut(symbol_id) {
         symbol.id = symbol_id;

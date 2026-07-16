@@ -1,3 +1,12 @@
-pro[] build(graph: Graph): non = {
-    return graph;
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "json",
+        version = "0.1.0",
+    });
+    build.add_dep({
+        alias = "core",
+        source = "pkg",
+        target = "core",
+    });
 };

@@ -1,0 +1,7 @@
+fun[] main(): int = {
+    var ready: bol = choose(1, true);
+    when(ready) {
+        case(true) { return pick(7); }
+        * { return 0; }
+    }
+};

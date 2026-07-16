@@ -1,0 +1,14 @@
+typ Counter: rec = {
+    total: int
+};
+
+fun (Counter)shift(values: ... int): int = {
+    return 0;
+};
+
+fun[] main(): int = {
+    var current: Counter = {
+        total = 9,
+    };
+    return current.shift("bad");
+};

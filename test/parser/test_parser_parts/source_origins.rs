@@ -60,7 +60,8 @@ fn test_parse_package_retains_successful_top_level_origins() {
 
     assert_eq!(fun_origin.file.as_deref(), Some(expected_path.as_str()));
     assert_eq!(fun_origin.line, 3);
-    assert_eq!(fun_origin.column, 1);
+    // Routine items anchor at the declared NAME (`beta`), not the keyword.
+    assert_eq!(fun_origin.column, 5);
 }
 
 #[test]
@@ -124,7 +125,9 @@ fn test_parse_package_retains_nested_routine_origins() {
     let inner_origin = ast_node_origin(&parsed, &outer_body[0]);
     assert_eq!(inner_origin.file.as_deref(), Some(expected_path.as_str()));
     assert_eq!(inner_origin.line, 2);
-    assert_eq!(inner_origin.column, 5);
+    // Routine declarations anchor their origin at the declared NAME, so
+    // symbols, diagnostics, and editor tokens point at `inner`, not `fun`.
+    assert_eq!(inner_origin.column, 9);
 }
 
 #[test]
@@ -134,7 +137,7 @@ fn test_parse_package_retains_nested_use_decl_origins() {
     let fixture = temp_root.join("nested_use.fol");
     fs::write(
         &fixture,
-        "fun outer(): int = {\n    use warn: loc = {pkg::warn};\n    return 0;\n};\n",
+        "fun outer(): int = {\n    use warn: loc = {\"pkg::warn\"};\n    return 0;\n};\n",
     )
     .expect("Should write temporary nested-use fixture");
 

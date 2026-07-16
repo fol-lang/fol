@@ -37,10 +37,34 @@ fn check_typing_rejects_plain_values() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("check(...) requires a routine call result with '/ ErrorType' in V1")
+                    .contains("check(...) requires a recoverable expression with '/ ErrorType'")
         }),
         "Expected an invalid check diagnostic, got: {errors:?}"
     );
+}
+
+#[test]
+fn statement_position_recoverable_calls_cannot_discard_errors() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] load(fail: bol): int / int = {\n\
+             when(fail) {\n\
+                 case(true) { report 9; }\n\
+                 * { return 7; }\n\
+             }\n\
+         };\n\
+         fun[] main(): int = {\n\
+             load(true);\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(errors.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::InvalidInput
+            && error
+                .message()
+                .contains("statement-position expression cannot use '/ ErrorType'")
+    }), "statement-position recoverable calls must be rejected by typecheck: {errors:#?}");
 }
 
 #[test]
@@ -75,7 +99,7 @@ fn check_typing_rejects_err_shell_values_explicitly() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("check(...) inspects routine call results with '/ ErrorType', not err[...] shell values in V1")
+                    .contains("check(...) inspects recoverable '/ ErrorType' expressions")
         }),
         "Expected the err-shell check diagnostic, got: {errors:?}"
     );
@@ -116,7 +140,7 @@ fn pipe_or_typing_rejects_err_shell_values_explicitly() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("'||' handles routine call results with '/ ErrorType', not err[...] shell values in V1")
+                    .contains("'||' handles recoverable '/ ErrorType' expressions")
         }),
         "Expected the err-shell pipe-or diagnostic, got: {errors:?}"
     );
@@ -141,6 +165,41 @@ fn pipe_or_typing_rejects_incompatible_fallback_values() {
                 && error.message().contains("recoverable-error fallback")
         }),
         "Expected an incompatible fallback diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
+fn pipe_or_fallback_reinitialization_does_not_erase_the_success_path_move() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+         fun[] load(fail: bol): int / int = {\n\
+             when(fail) {\n\
+                 case(true) { report 1; }\n\
+                 * { return 5; }\n\
+             }\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var first: int = 1;\n\
+             var second: int = 2;\n\
+             var[mut] pointer: ptr[int] = &first;\n\
+             consume(pointer);\n\
+             var value: int = load(false) || when(true) {\n\
+                 case(true) { pointer = &second; 7; }\n\
+                 * { pointer = &second; 8; }\n\
+             };\n\
+             return *pointer + value;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error
+                    .message()
+                    .contains("use of moved heap-owned binding 'pointer'")
+        }),
+        "the successful call path skips the fallback reinitialization: {errors:#?}"
     );
 }
 
@@ -829,6 +888,7 @@ fn record_initializer_typing_accepts_nested_record_construction() {
             symbol: employee_id,
             name: "Employee".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
 }
@@ -1083,6 +1143,7 @@ fn entry_value_typing_accepts_named_entry_binding_return_and_call_contexts() {
             symbol: status_id,
             name: "Status".to_string(),
             kind: DeclaredTypeKind::Type,
+            args: Vec::new(),
         })
     );
 }

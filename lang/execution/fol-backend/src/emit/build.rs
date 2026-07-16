@@ -5,8 +5,10 @@ use crate::{
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
-use super::skeleton::emit_generated_crate_skeleton;
+use super::skeleton::emit_generated_crate_skeleton_for_config;
 
 pub fn backend_build_paths(output_root: &Path) -> BackendBuildPaths {
     BackendBuildPaths {
@@ -215,6 +217,16 @@ fn built_binary_output_path(
         .join(package_name))
 }
 
+fn wait_for_emitted_path(path: &Path) -> bool {
+    for _ in 0..20 {
+        if path.exists() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
 pub fn build_runtime_rlib_with_rustc(
     paths: &BackendBuildPaths,
     machine_target: &BackendMachineTarget,
@@ -363,7 +375,7 @@ pub fn build_generated_crate_with_rustc(
             ),
         ));
     }
-    if !binary_path.exists() {
+    if !wait_for_emitted_path(&binary_path) {
         return Err(BackendError::new(
             BackendErrorKind::BuildFailure,
             format!(
@@ -382,7 +394,7 @@ pub fn emit_backend_artifact(
 ) -> BackendResult<BackendArtifact> {
     let paths = prepare_backend_build_paths(output_root)?;
     let build_root = PathBuf::from(&paths.build_root);
-    let source_artifact = emit_generated_crate_skeleton(session)?;
+    let source_artifact = emit_generated_crate_skeleton_for_config(session, config)?;
     let crate_root = write_generated_crate(&build_root, &source_artifact)?;
 
     if matches!(config.mode, BackendMode::EmitSource) {

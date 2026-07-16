@@ -48,5 +48,11 @@ contract answering questions such as:
 - how aliases interact with explicit conversion
 - how future foreign/ABI types participate in conversion
 
+That last point is deliberately later work:
+
+- C ABI and Rust interop are planned `V4` features
+- casting rules for foreign or ABI-facing types should be specified together
+  with that `V4` interop contract, not guessed earlier
+
 Until that contract exists, `V1` treats cast syntax as parsed-but-unsupported
 instead of guessing semantics.

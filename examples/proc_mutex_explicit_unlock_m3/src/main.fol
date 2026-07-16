@@ -1,0 +1,18 @@
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+fun[] update(counter[mux]: Counter): int = {
+    counter.lock();
+    counter.value = 42;
+    var result: int = counter.value;
+    counter.unlock();
+    return std::io::echo_int(result);
+};
+
+fun[] main(): int = {
+    var counter: Counter = { value = 0 };
+    return update(counter);
+};

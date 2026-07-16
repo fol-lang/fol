@@ -13,5 +13,6 @@ fol-parser = { path = "../fol-parser" }
 fol-diagnostics = { path = "../fol-diagnostics" }
 fol-lexer = { path = "../fol-lexer" }
 fol-stream = { path = "../fol-stream" }
+stacker = "0.1.24"
 
 [dev-dependencies]

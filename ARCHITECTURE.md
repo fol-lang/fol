@@ -3,6 +3,60 @@
 This document describes how the FOL compiler is organized, how crates
 depend on each other, and how data flows from source to binary.
 
+## Build Surface Layers
+
+The public `build.fol` surface is intentionally layered.
+
+Current public layering:
+
+- `.build()`
+  ambient package build context
+- `build.meta({...})`
+  package identity and package metadata
+- `build.add_dep({...})`
+  direct dependency declarations
+- `build.graph()`
+  artifact, step, option, and generated-file graph mutation
+
+This split is intentional:
+
+- package metadata is not graph mutation
+- direct dependency declarations are not artifact declarations
+- graph construction should not become a catch-all stringly package API
+
+Near-term build-system expansion should stay inside this layering rather than
+replace it:
+
+- dependency handles returned from `build.add_dep({...})`
+- unified output handles for generated and copied files
+- explicit dependency build-argument forwarding
+- cleaner install-prefix/output-root behavior
+
+The design constraint is:
+
+- richer build values on top of the current layers
+- no return to YAML manifests
+- no reintroduction of public `Graph`/`Build` type names
+
+### Capability and execution are separate
+
+Build evaluation produces two related but distinct decisions:
+
+1. An artifact selects `fol_model = "core" | "memo"` (`memo` is the default).
+   A package-level internal `standard` dependency raises only a `memo`
+   artifact's effective API tier to hosted; a `core` artifact remains `core`.
+2. A run or test command checks whether the selected machine target can execute
+   on the build host. This check does not inspect bundled-std presence.
+
+That split mirrors the useful part of Rust's `no_std` model: FOL `core` is the
+no-FOL-heap source surface, and `memo` adds alloc-like source facilities.
+Toolchain process launching, compiler/linker execution, and the backend-only
+entry adapter are implementation substrate rather than language capabilities.
+
+The current frontend has no cross-target runner hook. It may build a foreign
+target, but `run` and `test` reject that target until it is handed to an
+appropriate external runner. Adding bundled `std` does not affect that check.
+
 ## Workspace layout
 
 ```
@@ -16,7 +70,7 @@ lang/
     fol-intrinsics    compiler-owned builtin operation registry
     fol-package       package identity, metadata, git, lockfiles
     fol-resolver      whole-program name resolution and scope graph
-    fol-typecheck     type checking and inference for V1 subset
+    fol-typecheck     type checking, inference, and capability enforcement
     fol-lower         typed AST to backend-oriented lowered IR
 
   execution/      back-end: IR --> binary + runtime
@@ -91,7 +145,7 @@ LAYER 3 — build system + packages                             │             
   │  owns all build logic:     │ │  re-exports fol-build     ││                   │
   │   - build graph IR         │ │  adds package concerns:   ││                   │
   │   - build.fol API surface  │ │   - PackageIdentity       ││                   │
-  │   - build.fol executor     │ │   - package.yaml parsing  ││                   │
+  │   - build.fol executor     │ │   - build.fol metadata    ││                   │
   │   - artifact definitions   │ │   - git fetch/clone       ││                   │
   │   - step ordering          │ │   - lockfile handling     ││                   │
   │   - option resolution      │ │   - build entry validation││                   │
@@ -132,7 +186,7 @@ LAYER 5 — type checking                                                       
   │                   fol-typecheck                      │                        │
   │                                                      │                        │
   │  resolved names --> typed workspace                  │                        │
-  │  type inference and checking for V1 subset           │                        │
+  │  checks shipped V1, V2, and V3 language surfaces     │                        │
   │  scalars, records, entries, containers, routines     │                        │
   │  error types, shell types, conversions               │                        │
   │                                                      │                        │
@@ -225,15 +279,15 @@ The tooling crates sit beside the pipeline and reach into multiple layers.
 How a FOL source file becomes a binary:
 
 ```
-  *.fol source files                         package.yaml
-       │                                          │
-       ▼                                          ▼
+  *.fol source files                         build.fol
+       │                                        │
+       ▼                                        ▼
   ┌──────────┐                              ┌───────────┐
   │fol-stream│  read files into             │fol-package│  parse package
-  │          │  character streams           │           │  metadata and
-  └────┬─────┘                              │           │  identity
-       │                                    └─────┬─────┘
-       ▼                                          │
+  │          │  character streams           │           │  metadata,
+  └────┬─────┘                              │           │  dependencies,
+       │                                    │           │  and identity
+       ▼                                    └─────┬─────┘
   ┌──────────┐                                    │
   │fol-lexer │  chars --> tokens                  │
   │          │  (4-stage pipeline)                │
@@ -254,7 +308,8 @@ How a FOL source file becomes a binary:
                     │fol-build │                  │
                     │          │ evaluate         │
                     │          │ build.fol into   │
-                    │          │ build graph:     │
+                    │          │ metadata, deps,  │
+                    │          │ and build graph: │
                     │          │  - artifacts     │
                     │          │  - steps         │
                     │          │  - options       │
@@ -335,7 +390,7 @@ declarations, codegen definitions, and capability enforcement.
 through thin shim modules (each `build_*.rs` file is a single
 `pub use fol_build::*` line). On top of that, `fol-package` adds its
 own package-level concerns: `PackageIdentity`, `PackageMetadata`
-(from `package.yaml`), git fetching, lockfile handling, package session
+(from `build.fol`), git fetching, lockfile handling, package session
 and root discovery, and build entry validation.
 
 Downstream crates import through `fol-package` as a single entry point.
@@ -345,25 +400,43 @@ Downstream crates import through `fol-package` as a single entry point.
 `fol-resolver` depends on both `fol-build` and `fol-package` because
 name resolution must understand:
 
-- package boundaries and source kinds (entry, local, std, installed)
+- internal package identities (entry, local, bundled standard, fetched
+  package), without exposing the internal standard identity as a public import
+  source kind
 - build-declared modules and their root paths
 - inter-package dependency surfaces and export mounts
-- how `use loc`, `use std`, and `use pkg` imports map to real packages
+- how local imports and dependency-backed quoted `use ...: pkg = {"alias"}`
+  imports map to real packages, including the explicit internal `standard`
+  dependency
 
 Without the build graph, the resolver cannot know which modules exist
 or how packages expose their namespaces.
 
 ### fol-runtime is standalone
 
-`fol-runtime` has zero workspace dependencies. It is a pure Rust
-library that gets compiled separately by `fol-backend` using `rustc`
-and linked into the output binary as an `.rlib`. It provides:
+`fol-runtime` has zero workspace dependencies. It is one pure Rust library
+with internal `core`, `memo`, and `std` modules. The backend compiles it
+separately with `rustc` and links the required surface into the output binary
+as an `.rlib`.
 
-- container types (vec, seq, set, map)
-- string support
-- shell types (opt, err)
-- error handling / recovery ABI (`FolRecover`)
-- builtin operation implementations
+- `core` provides no-heap scalar, array, shell, and intrinsic support
+- `memo` adds strings, dynamic containers, and alloc-like heap support without
+  source-visible hosted APIs
+- `std` adds source-visible hosted hooks plus V3 tasks, channels, selection,
+  mutexes, and eventuals
+
+Executable entry and recoverable process-outcome adaptation live in the shared,
+backend-only `fol_runtime::process` adapter. Generated wrappers call that
+adapter directly; it is not re-exported by `core`, `memo`, or `std` and does not
+widen source-language capability.
+
+The public build modes remain only `core` and `memo`. An explicit bundled
+internal `standard` dependency upgrades a `memo` artifact to the hosted API
+tier; `std` is not a third `fol_model`.
+
+These module boundaries constrain generated FOL-program access. They do not
+claim that the current compiler, Rust backend, or process adapter is
+freestanding or forbidden from using build-host allocation internally.
 
 Generated Rust code calls into `fol-runtime` types and functions.
 
@@ -387,6 +460,11 @@ The LSP server in `fol-editor` runs the compiler pipeline up through
 definition, and document symbols. It does not invoke lowering or the
 backend — only the front-end phases needed for editor feedback.
 
+That compiler reuse does not make every editor mirror automatic. Syntax and UX
+changes still require an explicit audit of completion, semantic tokens,
+navigation, formatting, Tree-sitter grammar/queries/corpus, and public
+parse/highlight/symbol commands.
+
 ### fol-frontend orchestrates everything
 
 `fol-frontend` is the only crate that depends on nearly every other
@@ -398,14 +476,37 @@ wires the full pipeline together based on the user's command
 
 See `plan/VERSIONS.md` for the full rationale.
 
-- **V1** — core language: scalars, records, entries, functions,
-  procedures, control flow, basic containers, error handling, aliases.
-  The compiler pipeline is complete end-to-end for this subset.
+- **V1** — the shipped core language: scalars, records, entries, routines,
+  control flow, containers, recoverable errors, aliases, the current `dfr`
+  form, runtime models, and the build surface.
 
-- **V2** — advanced semantics: generics, standards/protocols,
-  blueprints, contracts, metaprogramming, advanced type inference.
-  Requires conformance checking and constraint machinery.
+- **V2** — the shipped narrow advanced-language subset: executable generic
+  routines/types and protocol standards with direct procedural conformance.
+  Blueprints and broader contract/metaprogramming work remain outside that
+  landed subset.
 
-- **V3** — systems interop: ownership, borrowing, pointers,
-  concurrency (eventuals, coroutines), C ABI, native linking, foreign
-  declarations. Requires runtime model decisions and linker integration.
+- **V3** — the shipped systems-semantics release. Its memory pillar provides
+  ownership, lexical borrowing, typed unique/shared pointers, and
+  ownership-aware `dfr` / `edf`. Its processor pillar provides OS-thread task
+  spawning, channels, `select`, `[mux]`, and internal eventuals through
+  `| async` / `| await`.
+
+- **V4** — later interop/backend-boundary work: C ABI, Rust interop, native
+  linking contracts, foreign declarations, and related conversion/diagnostic
+  surfaces.
+
+### V3 completeness boundary
+
+A V3 change is complete only when the same contract is represented across:
+
+- parser/resolver/typecheck and ownership-aware lowering
+- runtime/backend transfer, cleanup, and execution behavior
+- evaluated frontend artifact capabilities and routed command legality
+- structured diagnostics, code explanations, and LSP diagnostic adaptation
+- formatter/source scanning and public tooling commands
+- LSP completion, hover, navigation, symbols, semantic tokens, and positions
+- Tree-sitter grammar, highlight/locals/symbol queries, and executable corpus
+- canonical positive/failure examples, tests, docs, plans, and book chapters
+
+These layers may reuse compiler truth, but none may silently preserve a dead V3
+form or infer a wider runtime tier than the selected artifact.

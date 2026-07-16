@@ -12,6 +12,15 @@ where the right-hand side sees the left-hand side as `this`.
 
 ## Ordinary value piping
 
+Current boundary:
+
+- the ordinary value-pipe (`left | ... this`) shown in this section is later
+  design work, not part of the current compiler surface
+- the recoverable-call surfaces below (`check(...)` and `||`) are the current
+  compiler surface
+- the specialized `call() | async` and `eventual | await` processor stages are
+  shipped V3 `std`-only forms; they do not enable general `this`-based piping
+
 Use `|` when you want to continue transforming a normal value:
 
 ```fol
@@ -56,7 +65,8 @@ are not imported library functions.
 
 ## `check(expr)`
 
-`check(expr)` asks whether a recoverable routine call failed.
+`check(expr)` asks whether a recoverable `/ ErrorType` expression failed. That
+may be a direct routine call or, in V3, an awaited recoverable eventual.
 
 It returns `bol`.
 
@@ -69,7 +79,8 @@ fun main(path: str): int / str = {
 }
 ```
 
-This is the current `V1` inspection surface for recoverable calls.
+This is the current inspection surface for direct V1 recoverable calls and V3
+awaited recoverable results.
 
 ## `||` fallback
 
@@ -115,13 +126,35 @@ fun must_succeed(path: str): int = {
 }
 ```
 
-## What plain `|` does not mean in current V1
+## V3 async and await stages
+
+V3 ships two exact processor pipe stages:
+
+```fol
+fun[] load_async(path: str): int = {
+    var pending = read_code(path) | async;
+    return (pending | await) || 0;
+}
+
+fun[] async_failed(path: str): bol = {
+    var pending = read_code(path) | async;
+    return check(pending | await);
+}
+```
+
+`| async` starts a direct named call on an OS thread and produces an internal
+eventual. `| await` consumes that eventual binding and blocks for its result. If
+the original call is recoverable, the awaited result must flow immediately into
+`check(...)` or `||`. These stages require the explicit bundled `std`
+dependency; see [Eventuals](../900_processor/100_eventuals.md).
+
+## What ordinary `|` does not mean
 
 The current compiler does not claim that plain `|` automatically forwards both
 the success value and the error to the next stage.
 
 That older description is too broad for the current implementation.
 
-For recoverable calls in `V1`, use `check(expr)` or `expr || fallback`, and
-treat ordinary `|` as value piping rather than the main recoverable-error
-mechanism.
+For recoverable calls, use `check(expr)` or `expr || fallback`. The exact V3
+`async` and `await` stages above are specialized processor forms; they do not
+make the later general value-pipe design part of the shipped language.

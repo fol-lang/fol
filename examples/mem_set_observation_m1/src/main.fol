@@ -1,0 +1,12 @@
+fun[] main(): int = {
+    var values: set[int] = {9};
+    var first: int = values[0];
+    var sum: int = 0;
+    for (value in values) {
+        sum = sum + value;
+    }
+    when(first + sum) {
+        case(18) { return 0; }
+        * { panic "set observation failed"; }
+    }
+};

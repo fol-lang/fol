@@ -15,7 +15,10 @@ use super::references::{
     is_builtin_diagnostic_call, record_function_call_reference, record_identifier_reference,
     record_qualified_function_call_reference, record_qualified_identifier_reference,
 };
-use super::scope::{insert_generic_symbols, insert_local_named_symbol, insert_local_symbol};
+use super::scope::{
+    insert_generic_symbols, insert_local_named_symbol, insert_local_symbol,
+    insert_local_symbol_with_origin,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RoutineContext {
@@ -51,6 +54,30 @@ pub fn traverse_top_level_item(
 }
 
 pub fn traverse_node(
+    session: &mut ResolverSession,
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    node: &AstNode,
+    is_top_level_node: bool,
+    routine_context: Option<RoutineContext>,
+) -> Result<(), ResolverError> {
+    // Traversal recurses with the AST; grow the stack in segments so deep
+    // (but legal) nesting cannot overflow small worker-thread stacks.
+    stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+        traverse_node_inner(
+            session,
+            program,
+            source_unit_id,
+            scope_id,
+            node,
+            is_top_level_node,
+            routine_context,
+        )
+    })
+}
+
+fn traverse_node_inner(
     session: &mut ResolverSession,
     program: &mut ResolvedProgram,
     source_unit_id: SourceUnitId,
@@ -181,7 +208,7 @@ pub fn traverse_node(
         AstNode::QualifiedIdentifier { path } => {
             record_qualified_identifier_reference(program, source_unit_id, scope_id, path)?;
         }
-        AstNode::BinaryOp { left, right, .. } => {
+        AstNode::BinaryOp { op, left, right } => {
             traverse_node(
                 session,
                 program,
@@ -191,15 +218,24 @@ pub fn traverse_node(
                 false,
                 routine_context,
             )?;
-            traverse_node(
-                session,
-                program,
-                source_unit_id,
-                scope_id,
-                right,
-                false,
-                routine_context,
-            )?;
+            // `as` / `cast` right-hand sides are type positions, not value
+            // references; typecheck owns the explicit unsupported-casting
+            // boundary, so the resolver must not misreport them as
+            // unresolved value names.
+            if !matches!(
+                op,
+                fol_parser::ast::BinaryOperator::As | fol_parser::ast::BinaryOperator::Cast
+            ) {
+                traverse_node(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    right,
+                    false,
+                    routine_context,
+                )?;
+            }
         }
         AstNode::UnaryOp { operand, .. } => {
             traverse_node(
@@ -333,6 +369,17 @@ pub fn traverse_node(
         | AstNode::Break
         | AstNode::AsyncStage
         | AstNode::AwaitStage => {}
+        AstNode::Dfr { syntax_id, body } | AstNode::Edf { syntax_id, body } => {
+            traverse_block_body(
+                session,
+                program,
+                source_unit_id,
+                scope_id,
+                *syntax_id,
+                body,
+                routine_context,
+            )?;
+        }
         AstNode::MethodCall { object, args, .. } => {
             traverse_node(
                 session,
@@ -588,7 +635,13 @@ pub fn traverse_node(
                 ..
             } = semantic_node(node)
             {
-                types::resolve_type_reference(session, program, source_unit_id, scope_id, type_hint)?;
+                types::resolve_type_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    type_hint,
+                )?;
             }
             if let Some(value) = value {
                 traverse_node(
@@ -602,14 +655,29 @@ pub fn traverse_node(
                 )?;
             }
             if !is_top_level_node {
-                insert_local_symbol(
+                let binding_syntax_id = match semantic_node(node) {
+                    AstNode::VarDecl { syntax_id, .. } => *syntax_id,
+                    _ => None,
+                };
+                let binding_origin = binding_syntax_id
+                    .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+                    .cloned();
+                let symbol_id = insert_local_symbol_with_origin(
                     program,
                     source_unit_id,
                     scope_id,
                     name,
                     SymbolKind::ValueBinding,
                     format!("symbol#{}", fol_types::canonical_identifier_key(name)),
+                    binding_origin,
                 )?;
+                if let AstNode::VarDecl { options, .. } = semantic_node(node) {
+                    if fol_parser::ast::binding_is_mutable(options) {
+                        if let Some(symbol) = program.symbols.get_mut(symbol_id) {
+                            symbol.is_mutable = true;
+                        }
+                    }
+                }
             }
         }
         AstNode::LabDecl { name, value, .. } => {
@@ -618,7 +686,13 @@ pub fn traverse_node(
                 ..
             } = semantic_node(node)
             {
-                types::resolve_type_reference(session, program, source_unit_id, scope_id, type_hint)?;
+                types::resolve_type_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    type_hint,
+                )?;
             }
             if let Some(value) = value {
                 traverse_node(
@@ -632,14 +706,29 @@ pub fn traverse_node(
                 )?;
             }
             if !is_top_level_node {
-                insert_local_symbol(
+                let binding_syntax_id = match semantic_node(node) {
+                    AstNode::LabDecl { syntax_id, .. } => *syntax_id,
+                    _ => None,
+                };
+                let binding_origin = binding_syntax_id
+                    .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+                    .cloned();
+                let symbol_id = insert_local_symbol_with_origin(
                     program,
                     source_unit_id,
                     scope_id,
                     name,
                     SymbolKind::LabelBinding,
                     format!("symbol#{}", fol_types::canonical_identifier_key(name)),
+                    binding_origin,
                 )?;
+                if let AstNode::LabDecl { options, .. } = semantic_node(node) {
+                    if fol_parser::ast::binding_is_mutable(options) {
+                        if let Some(symbol) = program.symbols.get_mut(symbol_id) {
+                            symbol.is_mutable = true;
+                        }
+                    }
+                }
             }
         }
         AstNode::DestructureDecl { pattern, value, .. } => {
@@ -648,7 +737,13 @@ pub fn traverse_node(
                 ..
             } = semantic_node(node)
             {
-                types::resolve_type_reference(session, program, source_unit_id, scope_id, type_hint)?;
+                types::resolve_type_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    type_hint,
+                )?;
             }
             traverse_node(
                 session,
@@ -699,60 +794,87 @@ pub fn traverse_node(
                 routine_context,
             )?;
         }
-        AstNode::Loop { condition, body } => {
+        AstNode::Loop {
+            syntax_id,
+            condition,
+            body,
+        } => {
             statements::traverse_loop_node(
                 session,
                 program,
                 source_unit_id,
                 scope_id,
+                *syntax_id,
                 condition.as_ref(),
                 body,
                 routine_context,
             )?;
         }
-        AstNode::Select {
-            channel,
-            binding,
-            body,
-        } => {
-            traverse_node(
-                session,
-                program,
-                source_unit_id,
-                scope_id,
-                channel,
-                false,
-                routine_context,
-            )?;
-            let select_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
-            if let Some(binding) = binding {
-                insert_local_symbol(
-                    program,
-                    source_unit_id,
-                    select_scope,
-                    binding,
-                    SymbolKind::ValueBinding,
-                    format!("symbol#{}", fol_types::canonical_identifier_key(binding)),
-                )?;
-            }
-            for statement in body {
+        AstNode::Select { arms, default, .. } => {
+            for arm in arms {
                 traverse_node(
                     session,
                     program,
                     source_unit_id,
-                    select_scope,
-                    statement,
+                    scope_id,
+                    &arm.channel,
                     false,
                     routine_context,
                 )?;
+                let select_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
+                let binding_origin = arm
+                    .binding_syntax_id
+                    .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+                    .cloned();
+                insert_local_symbol_with_origin(
+                    program,
+                    source_unit_id,
+                    select_scope,
+                    &arm.binding,
+                    SymbolKind::ValueBinding,
+                    format!(
+                        "symbol#{}",
+                        fol_types::canonical_identifier_key(&arm.binding)
+                    ),
+                    binding_origin,
+                )?;
+                for statement in &arm.body {
+                    traverse_node(
+                        session,
+                        program,
+                        source_unit_id,
+                        select_scope,
+                        statement,
+                        false,
+                        routine_context,
+                    )?;
+                }
+            }
+            if let Some(default) = default {
+                let default_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
+                for statement in default {
+                    traverse_node(
+                        session,
+                        program,
+                        source_unit_id,
+                        default_scope,
+                        statement,
+                        false,
+                        routine_context,
+                    )?;
+                }
             }
         }
-        AstNode::Block { statements } => {
+        AstNode::Block {
+            syntax_id,
+            statements,
+        } => {
             traverse_block_body(
                 session,
                 program,
                 source_unit_id,
                 scope_id,
+                *syntax_id,
                 statements,
                 routine_context,
             )?;
@@ -773,7 +895,13 @@ pub fn traverse_node(
             }
         }
         AstNode::Inquiry { target, body } => {
-            inquiry::resolve_inquiry_target(program, source_unit_id, scope_id, target, routine_context)?;
+            inquiry::resolve_inquiry_target(
+                program,
+                source_unit_id,
+                scope_id,
+                target,
+                routine_context,
+            )?;
             for statement in body {
                 traverse_node(
                     session,
@@ -788,7 +916,7 @@ pub fn traverse_node(
         }
         AstNode::TypeDecl {
             generics,
-            contracts,
+            explicit_contracts,
             type_def,
             ..
         } => {
@@ -806,10 +934,49 @@ pub fn traverse_node(
                     )?;
                 }
             }
-            for contract in contracts {
-                types::resolve_type_reference(session, program, source_unit_id, type_scope, contract)?;
+            for contract in explicit_contracts {
+                types::resolve_contract_reference(
+                    session,
+                    program,
+                    source_unit_id,
+                    type_scope,
+                    contract,
+                )?;
             }
             types::resolve_type_definition(session, program, source_unit_id, type_scope, type_def)?;
+        }
+        AstNode::StdDecl {
+            syntax_id,
+            generics,
+            body,
+            ..
+        } => {
+            let standard_scope =
+                program.add_scope(ScopeKind::StandardDeclaration, scope_id, source_unit_id);
+            program.record_scope_for_syntax(*syntax_id, standard_scope);
+            insert_generic_symbols(program, source_unit_id, standard_scope, generics)?;
+            for generic in generics {
+                for constraint in &generic.constraints {
+                    types::resolve_type_reference(
+                        session,
+                        program,
+                        source_unit_id,
+                        standard_scope,
+                        constraint,
+                    )?;
+                }
+            }
+            for member in body {
+                traverse_node(
+                    session,
+                    program,
+                    source_unit_id,
+                    standard_scope,
+                    member,
+                    false,
+                    None,
+                )?;
+            }
         }
         AstNode::AliasDecl { target, .. } => {
             types::resolve_type_reference(session, program, source_unit_id, scope_id, target)?;
@@ -831,43 +998,11 @@ pub fn traverse_node(
         AstNode::SegDecl { seg_type, .. } => {
             types::resolve_type_reference(session, program, source_unit_id, scope_id, seg_type)?;
         }
-        AstNode::ImpDecl {
-            generics,
-            target,
-            body,
-            ..
-        } => {
-            let impl_scope =
-                program.add_scope(ScopeKind::TypeDeclaration, scope_id, source_unit_id);
-            insert_generic_symbols(program, source_unit_id, impl_scope, generics)?;
-            for generic in generics {
-                for constraint in &generic.constraints {
-                    types::resolve_type_reference(
-                        session,
-                        program,
-                        source_unit_id,
-                        impl_scope,
-                        constraint,
-                    )?;
-                }
-            }
-            types::resolve_type_reference(session, program, source_unit_id, impl_scope, target)?;
-            for member in body {
-                traverse_node(
-                    session,
-                    program,
-                    source_unit_id,
-                    impl_scope,
-                    member,
-                    false,
-                    routine_context,
-                )?;
-            }
-        }
-        AstNode::StdDecl { .. } | AstNode::Literal(_) | AstNode::PatternWildcard => {}
+        AstNode::Literal(_) | AstNode::PatternWildcard => {}
         AstNode::UseDecl {
             name,
             path_type,
+            import_target,
             path_segments,
             ..
         } => {
@@ -887,6 +1022,7 @@ pub fn traverse_node(
                     symbol_id,
                     name,
                     path_type.clone(),
+                    import_target.clone(),
                     path_segments.clone(),
                 );
                 imports::resolve_import_target_with_session(session, program, import_id)?;
@@ -902,10 +1038,12 @@ pub fn traverse_block_body(
     program: &mut ResolvedProgram,
     source_unit_id: SourceUnitId,
     parent_scope: ScopeId,
+    syntax_id: Option<fol_parser::ast::syntax::SyntaxNodeId>,
     statements: &[AstNode],
     routine_context: Option<RoutineContext>,
 ) -> Result<(), ResolverError> {
     let block_scope = program.add_scope(ScopeKind::Block, parent_scope, source_unit_id);
+    program.record_scope_for_syntax(syntax_id, block_scope);
     for statement in statements {
         traverse_node(
             session,

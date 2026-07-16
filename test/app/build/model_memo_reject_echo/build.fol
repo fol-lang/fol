@@ -1,0 +1,12 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "model_mem_reject_echo", version = "0.1.0" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "model_mem_reject_echo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+
+    graph.install(app);
+};

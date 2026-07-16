@@ -5,6 +5,19 @@ use fol_frontend::{
 use std::fs;
 use std::path::PathBuf;
 
+fn package_build(name: &str) -> String {
+    format!(
+        concat!(
+            "pro[] build(): non = {{\n",
+            "    var build = .build();\n",
+            "    build.meta({{ name = \"{name}\", version = \"0.1.0\" }});\n",
+            "    return;\n",
+            "}};\n",
+        ),
+        name = name
+    )
+}
+
 fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "fol_frontend_workspace_model_{}_{}_{}",
@@ -24,10 +37,8 @@ fn workspace_config_and_model_round_trip_through_public_api() {
     let lib = root.join("lib");
     fs::create_dir_all(&app).expect("should create app member");
     fs::create_dir_all(&lib).expect("should create lib member");
-    fs::write(app.join("package.yaml"), "name: app\nversion: 0.1.0\n")
-        .expect("should write app manifest");
-    fs::write(lib.join("package.yaml"), "name: lib\nversion: 0.1.0\n")
-        .expect("should write lib manifest");
+    fs::write(app.join("build.fol"), package_build("app")).expect("should write app build");
+    fs::write(lib.join("build.fol"), package_build("lib")).expect("should write lib build");
     fs::write(
         root.join("fol.work.yaml"),
         concat!(
@@ -72,6 +83,7 @@ fn workspace_info_and_list_summaries_are_stable_through_public_api() {
         build_root: PathBuf::from("/tmp/demo/.fol/build"),
         cache_root: PathBuf::from("/tmp/demo/.fol/cache"),
         git_cache_root: PathBuf::from("/tmp/demo/.fol/cache/git"),
+        install_prefix: PathBuf::from("/tmp/demo/.fol/install"),
     };
 
     let info = work_info(&workspace);

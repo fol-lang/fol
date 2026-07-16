@@ -2,9 +2,9 @@ use super::args::{
     BuildCommand, BuildOptionArgs, BuildStepArgs, CheckCommand, CodeCommand, CodeSubcommand,
     CompileRootArgs, CompleteCommand, CompletionCommand, CompletionShellArg, DirectTargetArg,
     EditorPathCommand, EditorReferenceCommand, EditorRenameCommand, EmitCommand,
-    EmitLoweredCommand, EmitRustCommand, EmitSubcommand, FetchCommand, FrontendCommand,
-    FrontendOutputArgs, FrontendProfile, FrontendProfileArgs, InitCommand, NewCommand,
-    PackCommand, PackSubcommand, RunCommand, TestCommand, ToolCommand, ToolSubcommand,
+    EmitLoweredCommand, EmitRustCommand, EmitSubcommand, ExplainCommand, FetchCommand,
+    FrontendCommand, FrontendOutputArgs, FrontendProfile, FrontendProfileArgs, InitCommand,
+    NewCommand, PackCommand, PackSubcommand, RunCommand, TestCommand, ToolCommand, ToolSubcommand,
     TreeCommand, TreeGenerateCommand, TreeSubcommand, UnitCommand, UpdateCommand, WorkCommand,
     WorkSubcommand,
 };
@@ -272,7 +272,7 @@ fn editor_subcommands_parse_edge_flags_and_output_modes() {
         references.command,
         Some(FrontendCommand::Tool(ToolCommand {
             output: FrontendOutputArgs {
-                output: OutputMode::Plain,
+                output: Some(OutputMode::Plain),
             },
             command: ToolSubcommand::References(EditorReferenceCommand {
                 path: "demo/main.fol".to_string(),
@@ -286,7 +286,7 @@ fn editor_subcommands_parse_edge_flags_and_output_modes() {
         rename.command,
         Some(FrontendCommand::Tool(ToolCommand {
             output: FrontendOutputArgs {
-                output: OutputMode::Json,
+                output: Some(OutputMode::Json),
             },
             command: ToolSubcommand::Rename(EditorRenameCommand {
                 path: "demo/main.fol".to_string(),
@@ -323,6 +323,65 @@ fn completion_command_parses_requested_shell() {
             }),
         }))
     );
+}
+
+#[test]
+fn explain_command_parses_under_the_code_group() {
+    let plain = parse_clean(&["fol", "code", "explain", "T1003"]);
+    let cmd_json = parse_clean(&["fol", "code", "explain", "R1003", "--output", "json"]);
+    let cmd_json_short = parse_clean(&["fol", "code", "explain", "--json", "P1001"]);
+
+    assert_eq!(
+        plain.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Explain(ExplainCommand {
+                code: "T1003".to_string(),
+                output: None,
+            }),
+        }))
+    );
+    assert_eq!(
+        cmd_json.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Explain(ExplainCommand {
+                code: "R1003".to_string(),
+                output: Some(OutputMode::Json),
+            }),
+        }))
+    );
+    assert_eq!(
+        cmd_json_short.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Explain(ExplainCommand {
+                code: "P1001".to_string(),
+                output: Some(OutputMode::Json),
+            }),
+        }))
+    );
+}
+
+#[test]
+fn explain_command_requires_a_code() {
+    let error = try_parse_clean(&["fol", "code", "explain"]).expect_err("explain needs a code");
+    assert!(matches!(error.kind, ParseErrorKind::MissingValue(_)));
+}
+
+#[test]
+fn top_level_explain_command_is_removed() {
+    // `fol explain` no longer exists; the token is treated as a direct input
+    // target, not an explain command.
+    let cli = parse_clean(&["fol", "explain", "T1003"]);
+    assert!(
+        cli.command.is_none(),
+        "top-level explain must not resolve to a command"
+    );
+    assert_eq!(cli.input.as_deref(), Some("explain"));
 }
 
 #[test]
@@ -446,10 +505,49 @@ fn output_flag_parses_global_output_mode() {
         cli.command,
         Some(FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs {
-                output: OutputMode::Json
+                output: Some(OutputMode::Json)
             },
             profile: default_profile_args(),
             command: CodeSubcommand::Build(BuildCommand::default()),
+        }))
+    );
+}
+
+#[test]
+fn root_output_override_is_not_copied_into_command_defaults() {
+    let cli = parse_clean(&["fol", "--output", "json", "code", "check"]);
+
+    assert_eq!(cli.output, OutputMode::Json);
+    assert_eq!(
+        cli.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Check(CheckCommand::default()),
+        }))
+    );
+}
+
+#[test]
+fn command_local_output_overrides_are_retained_explicitly() {
+    let cli = parse_clean(&[
+        "fol", "--output", "json", "code", "--output", "plain", "check", "--output", "human",
+    ]);
+
+    assert_eq!(cli.output, OutputMode::Json);
+    assert_eq!(
+        cli.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: FrontendOutputArgs {
+                output: Some(OutputMode::Plain),
+            },
+            profile: default_profile_args(),
+            command: CodeSubcommand::Check(CheckCommand {
+                output: FrontendOutputArgs {
+                    output: Some(OutputMode::Human),
+                },
+                ..CheckCommand::default()
+            }),
         }))
     );
 }
@@ -497,18 +595,14 @@ fn cli_env_values_feed_output_and_profile_defaults() {
     assert_eq!(
         cli.command,
         Some(FrontendCommand::Code(CodeCommand {
-            output: FrontendOutputArgs {
-                output: OutputMode::Plain
-            },
+            output: default_output_args(),
             profile: FrontendProfileArgs {
                 profile: Some(FrontendProfile::Release),
                 debug: false,
                 release: false,
             },
             command: CodeSubcommand::Build(BuildCommand {
-                output: FrontendOutputArgs {
-                    output: OutputMode::Plain,
-                },
+                output: default_output_args(),
                 profile: FrontendProfileArgs {
                     profile: Some(FrontendProfile::Release),
                     debug: false,
@@ -537,7 +631,7 @@ fn explicit_flags_override_env_values() {
         cli.command,
         Some(FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs {
-                output: OutputMode::Json
+                output: Some(OutputMode::Json)
             },
             profile: FrontendProfileArgs {
                 profile: Some(FrontendProfile::Debug),
@@ -545,9 +639,7 @@ fn explicit_flags_override_env_values() {
                 release: false,
             },
             command: CodeSubcommand::Build(BuildCommand {
-                output: FrontendOutputArgs {
-                    output: OutputMode::Plain,
-                },
+                output: default_output_args(),
                 profile: FrontendProfileArgs {
                     profile: Some(FrontendProfile::Release),
                     debug: false,

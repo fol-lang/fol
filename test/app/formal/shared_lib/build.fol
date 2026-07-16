@@ -1,4 +1,7 @@
-pro[] build(graph: Graph): non = {
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "shared_lib", version = "0.1.0" });
+    var graph = build.graph();
     var lib = graph.add_shared_lib({
         name = "shared_lib",
         root = "src/lib.fol",

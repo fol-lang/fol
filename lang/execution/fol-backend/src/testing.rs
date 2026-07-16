@@ -109,16 +109,24 @@ pub(crate) fn sample_lowered_workspace_named(entry_name: &str) -> LoweredWorkspa
     entry_package
         .routine_signatures
         .insert(SymbolId(31), helper_signature);
-    entry_package.routine_decls.insert(
+    let mut main_routine = routine(
         fol_lower::LoweredRoutineId(0),
-        routine(
-            fol_lower::LoweredRoutineId(0),
-            "main",
-            Some(SymbolId(30)),
-            Some(SourceUnitId(0)),
-            Some(main_signature),
-        ),
+        "main",
+        Some(SymbolId(30)),
+        Some(SourceUnitId(0)),
+        Some(main_signature),
     );
+    // The main signature declares one bool parameter, so the routine must retain
+    // the matching param local slot; the entry wrapper feeds it from CLI args.
+    let main_param = main_routine.locals.push(fol_lower::LoweredLocal {
+        id: fol_lower::LoweredLocalId(0),
+        type_id: Some(bool_type),
+        name: Some("flag".to_string()),
+    });
+    main_routine.params.push(main_param);
+    entry_package
+        .routine_decls
+        .insert(fol_lower::LoweredRoutineId(0), main_routine);
     entry_package.routine_decls.insert(
         fol_lower::LoweredRoutineId(1),
         routine(

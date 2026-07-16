@@ -150,6 +150,9 @@ mod top_level_duplicates;
 #[path = "test_resolver_parts/type_resolution.rs"]
 mod type_resolution;
 #[cfg(test)]
+#[path = "test_resolver_parts/generic_routines.rs"]
+mod generic_routines;
+#[cfg(test)]
 #[path = "test_resolver_parts/pkg_resolution.rs"]
 mod pkg_resolution;
 #[cfg(test)]
@@ -158,6 +161,9 @@ mod provider_boundary;
 #[cfg(test)]
 #[path = "test_resolver_parts/std_resolution.rs"]
 mod std_resolution;
+#[cfg(test)]
+#[path = "test_resolver_parts/standards_m2.rs"]
+mod standards_m2;
 #[cfg(test)]
 #[path = "test_resolver_parts/unsupported_imports.rs"]
 mod unsupported_imports;

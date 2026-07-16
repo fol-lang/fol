@@ -1,1 +1,1 @@
-use file: mod[std] = std::fs::File;
+use file: mod[std] = {"std::fs::File"};

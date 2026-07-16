@@ -3,8 +3,8 @@ use crate::{
     BackendErrorKind, BackendResult,
 };
 use fol_lower::{
-    LoweredGlobal, LoweredInstr, LoweredOperand, LoweredRoutine, LoweredTypeDecl,
-    LoweredWorkspace,
+    LoweredBuiltinType, LoweredGlobal, LoweredInstr, LoweredOperand, LoweredRoutine, LoweredType,
+    LoweredTypeDecl, LoweredTypeId, LoweredTypeTable, LoweredWorkspace,
 };
 use fol_resolver::PackageIdentity;
 
@@ -107,24 +107,47 @@ pub fn resolve_type_decl(
 
 pub fn render_global_load(
     workspace: Option<&LoweredWorkspace>,
+    type_table: &LoweredTypeTable,
     global_identity: &PackageIdentity,
     global: &LoweredGlobal,
 ) -> BackendResult<String> {
+    validate_global_storage_type(type_table, global.type_id)?;
     let global_name = format!(
         "{}::{}",
         render_namespace_module_path(workspace, global_identity, global.source_unit_id)?,
         mangle_global_name(global_identity, global.id, &global.name)
     );
     if global.mutable {
+        let default_expr =
+            render_type_default_expr_in_workspace(workspace, type_table, global.type_id)?;
         Ok(format!(
-            "{}.get_or_init(|| std::sync::Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()).clone()",
-            global_name
+            "{}.get_or_init(|| std::sync::Mutex::new({default_expr})).lock().unwrap_or_else(|e| e.into_inner()).clone()",
+            global_name,
         ))
     } else {
         Ok(format!(
             "{global_name}.get_or_init(Default::default).clone()"
         ))
     }
+}
+
+pub(crate) fn validate_global_storage_type(
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+) -> BackendResult<()> {
+    let message = if type_table.moves_on_transfer(type_id) {
+        Some("move-only values cannot use clone-based global storage")
+    } else if type_table.contains_borrowed(type_id) {
+        Some("borrowed values cannot use static global storage")
+    } else if type_table.contains_shared_pointer(type_id) {
+        Some("Rc-backed shared pointers cannot use thread-safe global storage")
+    } else {
+        None
+    };
+    let Some(message) = message else {
+        return Ok(());
+    };
+    Err(BackendError::new(BackendErrorKind::InvalidInput, message))
 }
 
 pub fn render_routine_path(
@@ -229,25 +252,158 @@ pub fn render_native_intrinsic_expression(name: &str, args: &[String]) -> Backen
     }
 }
 
+pub fn render_type_default_expr_in_workspace(
+    workspace: Option<&LoweredWorkspace>,
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+) -> BackendResult<String> {
+    let Some(ty) = type_table.get(type_id) else {
+        return Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!("lowered type {:?} is missing from the type table", type_id),
+        ));
+    };
+
+    match ty {
+        LoweredType::Builtin(LoweredBuiltinType::Int) => Ok("0_i64".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Float) => Ok("0.0_f64".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Bool) => Ok("false".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Char) => Ok("'\\0'".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Str) => {
+            Ok("rt_model::FolStr::new(\"\")".to_string())
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Never) => Err(BackendError::new(
+            BackendErrorKind::Unsupported,
+            "never-typed globals cannot be default-initialized",
+        )),
+        LoweredType::GenericParameter { name } => Err(BackendError::new(
+            BackendErrorKind::Unsupported,
+            format!("backend execution for generic parameter type '{name}' is not implemented yet"),
+        )),
+        LoweredType::Named { .. } => Ok(format!(
+            "{}::default()",
+            crate::render_rust_type_in_workspace(workspace, type_table, type_id)?
+        )),
+        LoweredType::Owned { inner } => Ok(format!(
+            "Box::new({})",
+            render_type_default_expr_in_workspace(workspace, type_table, *inner)?
+        )),
+        LoweredType::Borrowed { .. } => Err(BackendError::new(
+            BackendErrorKind::Unsupported,
+            "borrowed references cannot be default-initialized",
+        )),
+        LoweredType::Pointer { target, shared } => Ok(format!(
+            "{}::new({})",
+            if *shared { "std::rc::Rc" } else { "Box" },
+            render_type_default_expr_in_workspace(workspace, type_table, *target)?
+        )),
+        LoweredType::Array {
+            element_type,
+            size: Some(_size),
+        } => {
+            let element_default =
+                render_type_default_expr_in_workspace(workspace, type_table, *element_type)?;
+            Ok(format!(
+                "std::array::from_fn(|_| ({element_default}).clone())"
+            ))
+        }
+        LoweredType::Array { size: None, .. } => Err(BackendError::new(
+            BackendErrorKind::Unsupported,
+            "unsized arrays are not supported; use vec[] for dynamic collections",
+        )),
+        LoweredType::Vector { .. } => Ok("rt_model::FolVec::new(vec![])".to_string()),
+        LoweredType::Sequence { .. } => Ok("rt_model::FolSeq::new(vec![])".to_string()),
+        LoweredType::Channel { .. } => Ok("rt::FolChannel::default()".to_string()),
+        LoweredType::ChannelSender { .. } => Ok("rt::FolSender::default()".to_string()),
+        LoweredType::Eventual { .. } => Ok("rt::FolEventual::default()".to_string()),
+        LoweredType::Set { .. } => Ok("rt_model::FolSet::from_items(vec![])".to_string()),
+        LoweredType::Map { .. } => Ok("rt_model::FolMap::from_pairs(vec![])".to_string()),
+        LoweredType::Optional { .. } => Ok("rt::FolOption::nil()".to_string()),
+        LoweredType::Error { inner } => Ok(match inner {
+            Some(inner) => format!(
+                "rt::FolError::new({})",
+                render_type_default_expr_in_workspace(workspace, type_table, *inner)?
+            ),
+            None => "rt::FolError::new(())".to_string(),
+        }),
+        LoweredType::Record { .. } | LoweredType::Entry { .. } => Ok(format!(
+            "{}::default()",
+            crate::types::render_rust_type_in_workspace(workspace, type_table, type_id)?
+        )),
+        LoweredType::Routine(routine_type) => {
+            let rendered_type =
+                crate::types::render_rust_type_in_workspace(workspace, type_table, type_id)?;
+            let dummy_params = routine_type
+                .params
+                .iter()
+                .enumerate()
+                .map(|(i, param_id)| {
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, *param_id)
+                        .map(|ty| format!("_p{i}: {ty}"))
+                })
+                .collect::<BackendResult<Vec<_>>>()?;
+            let return_clause = match (routine_type.return_type, routine_type.error_type) {
+                (Some(ret), Some(err)) => format!(
+                    " -> rt::FolRecover<{}, {}>",
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, ret)?,
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, err)?
+                ),
+                (Some(ret), None) => format!(
+                    " -> {}",
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, ret)?
+                ),
+                _ => String::new(),
+            };
+            Ok(format!(
+                "{{ fn __fol_uninit({}){return_clause} {{ unreachable!(\"uninitialized function pointer\") }} __fol_uninit as {rendered_type} }}",
+                dummy_params.join(", ")
+            ))
+        }
+    }
+}
+
 pub fn render_local_list(
+    type_table: &LoweredTypeTable,
     package_identity: &PackageIdentity,
     routine: &LoweredRoutine,
     locals: &[fol_lower::LoweredLocalId],
 ) -> BackendResult<String> {
     locals
         .iter()
-        .map(|local| render_clone_expr(package_identity, routine, *local))
+        .map(|local| render_transfer_expr(type_table, package_identity, routine, *local))
         .collect::<BackendResult<Vec<_>>>()
         .map(|items| items.join(", "))
 }
 
-pub fn render_clone_expr(
+pub fn render_transfer_expr(
+    type_table: &LoweredTypeTable,
     package_identity: &PackageIdentity,
     routine: &LoweredRoutine,
     local_id: fol_lower::LoweredLocalId,
 ) -> BackendResult<String> {
     let name = render_local_name(package_identity, routine, local_id)?;
-    Ok(format!("{name}.clone()"))
+    let local_type = routine
+        .locals
+        .get(local_id)
+        .and_then(|local| local.type_id)
+        .and_then(|type_id| type_table.get(type_id));
+    if let Some(LoweredType::Borrowed { mutable, .. }) = local_type {
+        return Ok(if *mutable {
+            format!("&mut *{name}")
+        } else {
+            name
+        });
+    }
+    let moves = routine
+        .locals
+        .get(local_id)
+        .and_then(|local| local.type_id)
+        .is_some_and(|type_id| type_table.moves_on_transfer(type_id));
+    Ok(if moves {
+        name
+    } else {
+        format!("{name}.clone()")
+    })
 }
 
 pub fn rendered_result_local(
@@ -286,6 +442,10 @@ pub fn render_local_name(
     ))
 }
 
+pub fn render_mutex_guard_name(local_id: fol_lower::LoweredLocalId) -> String {
+    format!("__fol_mutex_guard_l{}", local_id.0)
+}
+
 pub fn render_operand(operand: &LoweredOperand) -> BackendResult<String> {
     match operand {
         LoweredOperand::Local(_) => Err(BackendError::new(
@@ -300,7 +460,7 @@ pub fn render_operand(operand: &LoweredOperand) -> BackendResult<String> {
         LoweredOperand::Float(bits) => Ok(format!("f64::from_bits({bits})")),
         LoweredOperand::Bool(value) => Ok(value.to_string()),
         LoweredOperand::Char(value) => Ok(format!("{value:?}")),
-        LoweredOperand::Str(value) => Ok(format!("rt::FolStr::from({value:?})")),
+        LoweredOperand::Str(value) => Ok(format!("rt_model::FolStr::from({value:?})")),
         LoweredOperand::Nil => Ok("rt::FolOption::nil()".to_string()),
     }
 }

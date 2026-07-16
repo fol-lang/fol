@@ -1,0 +1,6 @@
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var shown: int = std::io::echo_int(9);
+    return 9;
+};

@@ -1,0 +1,29 @@
+typ[exp] Counter: rec = {
+    total: int
+};
+
+var[exp] current: Counter = {
+    total = 9,
+};
+
+fun[exp] pair(left: int, right: int = 2): int = {
+    return left + right;
+};
+
+fun[exp] score(base: int, step: int = 2, extras: ... int): int = {
+    return base + step + extras[0] + extras[1] + .len(extras);
+};
+
+fun[exp] (Counter)shift(by: int, step: int): int = {
+    return by + step;
+};
+
+fun[exp] (Counter)tally(step: int = 2, extras: ... int): int = {
+    return step + extras[0] + extras[1] + .len(extras);
+};
+
+fun[exp] lead(): Counter = {
+    return {
+        total = 9,
+    };
+};

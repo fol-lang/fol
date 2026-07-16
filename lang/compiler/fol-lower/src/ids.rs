@@ -76,11 +76,24 @@ impl<I: LoweringId, T> IdTable<I, T> {
         self.entries.iter()
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.entries.iter_mut()
+    }
+
     pub fn iter_with_ids(&self) -> impl Iterator<Item = (I, &T)> {
         self.entries
             .iter()
             .enumerate()
             .map(|(index, value)| (I::from_index(index), value))
+    }
+}
+
+impl<'table, I: LoweringId, T> IntoIterator for &'table IdTable<I, T> {
+    type Item = &'table T;
+    type IntoIter = std::slice::Iter<'table, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.iter()
     }
 }
 

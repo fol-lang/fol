@@ -1,4 +1,5 @@
 use super::*;
+use crate::ast::SelectArm;
 
 impl AstParser {
     pub(super) fn parse_select_stmt(
@@ -12,56 +13,82 @@ impl AstParser {
                 "Expected 'select' statement".to_string(),
             ));
         }
+        let syntax_id = self.record_syntax_origin(&select_token);
 
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
 
         let open = tokens.curr(false)?;
-        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::RoundO)) {
+        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
             return Err(ParseError::from_token(
                 &open,
-                "Expected '(' after 'select'".to_string(),
+                "Expected '{' after 'select'; the old select(channel as binding) form is not supported"
+                    .to_string(),
             ));
         }
         let _ = tokens.bump();
-        self.skip_ignorable(tokens)?;
-
-        let channel = self.parse_range_expression(tokens)?;
-        self.skip_ignorable(tokens)?;
-
-        let mut binding = None;
-        if matches!(
-            tokens.curr(false).map(|token| token.key()),
-            Ok(KEYWORD::Keyword(BUILDIN::As))
-        ) {
+        let mut arms = Vec::new();
+        let mut default = None;
+        for _ in 0..128 {
+            self.skip_ignorable(tokens)?;
+            let token = tokens.curr(false)?;
+            if matches!(token.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
+                let _ = tokens.bump();
+                return Ok(AstNode::Select {
+                    syntax_id,
+                    arms,
+                    default,
+                });
+            }
+            if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)) {
+                if default.is_some() {
+                    return Err(ParseError::from_token(
+                        &token,
+                        "select can declare only one default arm".to_string(),
+                    ));
+                }
+                let _ = tokens.bump();
+                default = Some(self.parse_branch_body(tokens)?);
+                continue;
+            }
+            if !matches!(token.key(), KEYWORD::Keyword(BUILDIN::When)) {
+                return Err(ParseError::from_token(
+                    &token,
+                    "Expected 'when channel as binding', '*', or '}' in select".to_string(),
+                ));
+            }
             let _ = tokens.bump();
             self.skip_ignorable(tokens)?;
-
+            let channel = self.parse_range_expression(tokens)?;
+            self.skip_ignorable(tokens)?;
+            let as_token = tokens.curr(false)?;
+            if !matches!(as_token.key(), KEYWORD::Keyword(BUILDIN::As)) {
+                return Err(ParseError::from_token(
+                    &as_token,
+                    "Expected 'as' after select channel".to_string(),
+                ));
+            }
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
             let binding_token = tokens.curr(false)?;
-            binding = Some(Self::expect_named_label(
+            let binding = Self::expect_named_label(
                 &binding_token,
-                "Expected binding name after 'as' in select statement",
-            )?);
+                "Expected message binding after 'as' in select arm",
+            )?;
+            let binding_syntax_id = self.record_syntax_origin(&binding_token);
             let _ = tokens.bump();
-            self.skip_ignorable(tokens)?;
+            let body = self.parse_branch_body(tokens)?;
+            arms.push(SelectArm {
+                channel,
+                binding,
+                binding_syntax_id,
+                body,
+            });
         }
-
-        let close = tokens.curr(false)?;
-        if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::RoundC)) {
-            return Err(ParseError::from_token(
-                &close,
-                "Expected ')' after select header".to_string(),
-            ));
-        }
-        let _ = tokens.bump();
-        self.skip_ignorable(tokens)?;
-
-        let body = self.parse_branch_body(tokens)?;
-        Ok(AstNode::Select {
-            channel: Box::new(channel),
-            binding,
-            body,
-        })
+        Err(ParseError::from_token(
+            &open,
+            "Select arm parsing exceeded safety bound".to_string(),
+        ))
     }
 
     pub(super) fn parse_builtin_call_stmt(
@@ -126,6 +153,7 @@ impl AstParser {
             syntax_id,
             surface: crate::ast::CallSurface::KeywordIntrinsic,
             name,
+            type_args: Vec::new(),
             args,
         })
     }
@@ -534,6 +562,7 @@ impl AstParser {
             ));
         }
 
+        let syntax_id = self.record_syntax_origin(&loop_token);
         let _ = tokens.bump();
         self.skip_ignorable(tokens)?;
 
@@ -578,6 +607,7 @@ impl AstParser {
         };
 
         Ok(AstNode::Loop {
+            syntax_id,
             condition: Box::new(condition),
             body,
         })
@@ -772,6 +802,14 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<AstNode, ParseError> {
+        let dereference = tokens
+            .curr(false)
+            .ok()
+            .is_some_and(|token| matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)));
+        if dereference {
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+        }
         let path = self.parse_qualified_path(
             tokens,
             "Expected assignment target",
@@ -834,7 +872,14 @@ impl AstParser {
             }
         }
 
-        Ok(target)
+        Ok(if dereference {
+            AstNode::UnaryOp {
+                op: UnaryOperator::Deref,
+                operand: Box::new(target),
+            }
+        } else {
+            target
+        })
     }
 
     pub(super) fn parse_call_stmt(
@@ -891,6 +936,7 @@ impl AstParser {
                 syntax_id: path.syntax_id(),
                 surface: crate::ast::CallSurface::Plain,
                 name: path.joined(),
+                type_args: Vec::new(),
                 args,
             }
         })
@@ -931,6 +977,7 @@ impl AstParser {
         let args = self.parse_open_paren_and_call_args(tokens, "Expected '(' after method name")?;
 
         Ok(AstNode::MethodCall {
+            syntax_id: self.record_syntax_origin(&method_token),
             object: Box::new(object),
             method,
             args,

@@ -1,0 +1,5 @@
+fun[] main(): int = {
+    @var owner: int = 3;
+    @var moved: int = owner;
+    return owner;
+};

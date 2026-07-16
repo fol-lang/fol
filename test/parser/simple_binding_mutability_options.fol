@@ -1,3 +1,3 @@
 var[mut] counter: int = 1;
-let[] message: str = "hi";
+var[imu] message: str = "hi";
 con[imu] answer: int = 42;

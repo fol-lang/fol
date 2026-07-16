@@ -109,8 +109,8 @@ pub fn module_name() -> &'static str {
 mod tests {
     use super::FolRecover;
     use crate::{
+        memo::FolStr,
         shell::{FolError, FolOption},
-        strings::FolStr,
     };
 
     #[test]

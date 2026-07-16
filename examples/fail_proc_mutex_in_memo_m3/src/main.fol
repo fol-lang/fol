@@ -1,0 +1,7 @@
+fun[] update(value[mux]: int): int = {
+    return value;
+};
+
+fun[] main(): int = {
+    return update(1);
+};

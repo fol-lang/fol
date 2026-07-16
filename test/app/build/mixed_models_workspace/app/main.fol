@@ -1,0 +1,5 @@
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    return std::io::echo_int(7);
+};

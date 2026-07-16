@@ -1,7 +1,7 @@
 use shared: loc = {"../shared"};
-use fmt: std = {"fmt"};
-use math: pkg = {math};
+use std: pkg = {"std"};
+use math: pkg = {"math"};
 
 fun[] main(): int = {
-    return fmt::double(plus_one(math::src::pkg_answer));
+    return std::fmt::double(plus_one(math::src::pkg_answer));
 };

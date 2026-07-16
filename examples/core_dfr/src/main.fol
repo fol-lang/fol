@@ -1,0 +1,8 @@
+fun[] main(): int = {
+    dfr {
+        var done: int = 1;
+    };
+
+    var values: arr[int, 2] = {3, 4};
+    return .len(values) + values[0] + values[1];
+};

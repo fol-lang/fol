@@ -1,0 +1,7 @@
+fun pick(T)(value: T): T = {
+    return value;
+};
+
+fun choose(T, U)(left: T, right: U): U = {
+    return right;
+};

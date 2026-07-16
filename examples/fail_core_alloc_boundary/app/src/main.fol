@@ -1,0 +1,5 @@
+use shared: loc = {"../../shared"};
+
+fun[] main(): int = {
+    return .len(shared.label());
+};

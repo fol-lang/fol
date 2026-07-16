@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_pkg_type_references_lower_structurally() {
+fn test_former_std_type_references_now_lower_as_pkg() {
     let mut file_stream = FileStream::from_file("test/parser/simple_source_pkg_types.fol")
         .expect("Should read pkg source-kind type fixture");
 
@@ -18,15 +18,11 @@ fn test_pkg_type_references_lower_structurally() {
                 AstNode::UseDecl {
                     name,
                     path_type: FolType::Package { name: kind_name },
-                    path_segments,
+                    import_target,
                     ..
                 } if name == "json"
                     && kind_name.is_empty()
-                    && path_segments.as_slice()
-                        == [fol_parser::ast::UsePathSegment {
-                            separator: None,
-                            spelling: "json".to_string(),
-                        }]
+                    && import_target == "json"
             )));
             assert!(declarations.iter().any(|node| matches!(
                 node,
@@ -101,15 +97,15 @@ fn test_loc_type_references_lower_structurally() {
 }
 
 #[test]
-fn test_std_type_references_lower_structurally() {
+fn test_pkg_type_references_lower_structurally() {
     let mut file_stream = FileStream::from_file("test/parser/simple_source_std_types.fol")
-        .expect("Should read std source-kind type fixture");
+        .expect("Should read pkg source-kind type fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
     let ast = parser
         .parse(&mut lexer)
-        .expect("Parser should lower std source-kind types");
+        .expect("Parser should lower pkg source-kind types");
 
     match ast {
         AstNode::Program { declarations } => {
@@ -117,7 +113,7 @@ fn test_std_type_references_lower_structurally() {
                 node,
                 AstNode::UseDecl {
                     name,
-                    path_type: FolType::Standard { name: kind_name },
+                    path_type: FolType::Package { name: kind_name },
                     ..
                 } if name == "fmt" && kind_name.is_empty()
             )));
@@ -126,7 +122,7 @@ fn test_std_type_references_lower_structurally() {
                 AstNode::TypeDecl {
                     name,
                     type_def: TypeDefinition::Alias {
-                        target: FolType::Standard { name: kind_name }
+                        target: FolType::Package { name: kind_name }
                     },
                     ..
                 } if name == "StdPkg" && kind_name == "pkg"

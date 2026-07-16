@@ -15,7 +15,10 @@ impl AstParser {
         if statements.len() == 1 {
             Ok(statements.into_iter().next().expect("one statement"))
         } else {
-            Ok(AstNode::Block { statements })
+            Ok(AstNode::Block {
+                syntax_id: None,
+                statements,
+            })
         }
     }
 
@@ -135,10 +138,6 @@ impl AstParser {
             return self.pipe_stage_from_nodes(self.parse_var_decl(tokens)?, &token);
         }
 
-        if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Let)) {
-            return self.pipe_stage_from_nodes(self.parse_let_decl(tokens)?, &token);
-        }
-
         if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Con)) {
             return self.pipe_stage_from_nodes(self.parse_con_decl(tokens)?, &token);
         }
@@ -165,10 +164,6 @@ impl AstParser {
 
         if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Seg)) {
             return self.parse_seg_decl(tokens);
-        }
-
-        if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Imp)) {
-            return self.parse_imp_decl(tokens);
         }
 
         if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Std))

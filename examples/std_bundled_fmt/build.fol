@@ -1,0 +1,13 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "std_bundled_fmt", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "std_bundled_fmt",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+};

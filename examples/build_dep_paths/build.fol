@@ -1,0 +1,32 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_dep_paths", version = "0.1.0" });
+
+    var shared = build.add_dep({
+        alias = "shared",
+        source = "loc",
+        target = "deps/shared",
+    });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    var run = graph.add_run(app);
+    var config = shared.file("defaults");
+    var assets = shared.dir("public");
+    var schema_path = shared.path("schema-path");
+    var schema_output = shared.generated("schema");
+    var api = shared.module("api");
+
+    app.import(api);
+    run.add_file_arg(config);
+    graph.install_file({ name = "defaults", source = config });
+    graph.install_file({ name = "schema-path", source = schema_path });
+    graph.install_file({ name = "schema-output", source = schema_output });
+    graph.install_dir({ name = "public", source = assets });
+    graph.install(app);
+    return;
+};

@@ -1,51 +1,78 @@
 # Standards
 
-This chapter describes `V2` contract/conformance design rather than current
-`V1` compiler behavior.
+This chapter now has a split status:
 
-Current milestone note:
+- one narrow `V2` Milestone 2 subset is implemented
+- the broader standards design is still future `V2`
 
-- standards are not part of the implemented `V1` typechecker
-- blueprints and extensions are not part of the implemented `V1` typechecker
-- examples here are semantic design examples for a later milestone
+Current implemented Milestone 2 subset:
 
-## Satndard
+- protocol standards declared with `std name: pro = { ... }`
+- required receiver-qualified routine signatures only
+- type-side conformance claims through the existing contract-header shape
+- exact routine-signature matching for conformance
+- current hardened example set for that subset is:
+  - `examples/standards_protocol_m2`
+  - `examples/standards_protocol_pair_m2`
+  - `examples/standards_protocol_multi_m2`
+  - `examples/fail_standard_blueprint_m2`
+  - `examples/fail_standard_as_type_m2`
+  - `examples/fail_standard_missing_routine_m2`
+  - `examples/fail_standard_signature_m2`
+  - `examples/fail_standard_import_ambiguity_m2`
 
-A standard is an established norm or requirement for a repeatable technical task. It is usually a formal declaration that establishes uniform technical criteria, methods, processes, and practices. 
+Still future:
 
-S, what is a to be considered a standard:
+- blueprint standards as real semantic contracts
+- extended standards as real semantic contracts
+- required data-member conformance
+- standards as ordinary concrete types
+- dispatch/inference driven by standards
+- object-style method semantics
 
-- A standard specification is an explicit set of requirements for an item, object or service. It is often used to formalize the technical aspects of a procurement agreement or contract. 
-- A standard test method describes a definitive procedure that produces a test result. It may involve making a careful personal observation or conducting a highly technical measurement. 
-- A standard procedure gives a set of instructions for performing operations or functions.
-- A standard guide is general information or options that do not require a specific course of action.
-- A standard definition is formally established terminology.
+Part of the current shipped full-`V2` contract:
 
+- standards-as-constraints through protocol standards
+- procedural constrained-generic call binding
+- static conformance checking for those constraints
+- calling a constraint's required routines on the constrained generic
+  parameter itself: `fun measure(T: sized)(thing: T): int = { return
+  thing.size(); };` monomorphizes per instantiation, dispatching to each
+  conformer's own receiver routine (or the standard's default body) at
+  compile time
+- blueprint standards (`std X: blu`) as static field contracts
+- extended standards (`std X: ext`) combining required routines and fields
 
-In FOL, standards are named collections of receiver-qualified routine
-signatures and/or required data, created with `std`. They are not class
-hierarchies. They are procedural/data contracts:
-```
+The intent of standards is procedural and data-oriented. They are not class
+hierarchies, inheritance trees, or object systems.
+
+## Standard
+
+In later milestones, a standard is intended to be a named collection of
+required receiver-qualified routine signatures and/or required data, created
+with `std`.
+
+```fol
 std geometry: pro = {
     fun area(): flt[64];
     fun perim(): flt[64];
 };
 ```
 
-There are three types of standards, 
+The shipped forms are:
 
-- protocol `pro[]` that enforce just function implementation
-- blueprint `blu[]` that enforces just data implementation
-- extended `ext[]`, that enforces function and data:
-```
+- protocol `pro[]` for required routines
+- blueprint `blu[]` for required data
+- extended `ext[]` for routines plus data
+
+```fol
 std geometry: pro = {
     fun area(): flt[64];
     fun perim(): flt[64];
 };
-
 
 std geometry: blu = {
-    var color: rgb; 
+    var color: rgb;
     var size: int;
 };
 
@@ -56,77 +83,69 @@ std geometry: ext = {
     var size: int;
 };
 ```
+
 ## Contract
-A contract is a legally binding agreement that recognises and governs the rights and duties of the parties to the agreement. A contract is enforceable because it meets the requirements and approval of an higher authority. An agreement typically involves a written declaration given in exchange for something of value that binds the maker to do. Its an specific act which gives to the person to whom the declaration is made the right to expect and enforce performance. In the event of breach of contract, the higher authority will refrain the contract from acting.
 
-In fol contracts are used to bind a type to a standard. If a type declares to use a standard, it is the job of the contract (compiler internally) to see the standard full-filled.
+Current Milestone 2 support allows a type to declare that it satisfies a
+protocol standard and requires matching receiver-qualified routines.
 
+Current implemented shape:
+
+```fol
+std geo: pro = {
+    fun area(): int;
+};
+
+typ Rect()(geo): rec = {
+    var width: int;
+};
+
+fun (Rect)area(): int = {
+    return 1;
+};
 ```
+
+This subset is intentionally narrow:
+
+- only `pro` is semantic today
+- only required routines are semantic today
+- richer requirement forms such as generic, receiver-qualified, and capturing
+  standard requirements remain unsupported
+- the type claim is checked procedurally
+- lowering preserves protocol-standard and conformance metadata for audits and
+  procedural backend lowering
+- backend execution works for the checked-in positive protocol examples through
+  ordinary receiver-qualified routine calls, not through a runtime object model
+- editor hardening now covers contract-header hover/definition on checked-in
+  standards examples while keeping broader required-routine hover support out
+  of the claimed contract
+
+The broader design remains future work. Later milestones may allow a type to
+declare that it satisfies richer standards and check required data and
+receiver-qualified routines together.
+
+```fol
 std geo: pro = {
     fun area(): flt[64];
     fun perim(): flt[64];
 };
 
-std rect(geo): rec[] = {                                             // this type makes a contract to use the geometry standard
+std rect(geo): rec[] = {
     width: int[64];
     heigh: int[64];
 }
-
-```
-Now we can make `rect` records, but we have to respect the contract. If we
-don't implement the required receiver-qualified routines, the compiler should
-reject uses that require that contract.
-```
-var aRectangle: rect = { width = 5, heigh = 6 }                      // this throws an error, we haven't fullfill the ocntract
 ```
 
-To do so, we need first to create the required `rect` receiver-qualified
-routines, then instantiate a record value:
+Under that design, `rect` would need matching receiver-qualified routines such
+as:
 
-```
+```fol
 fun (rect)area(): flt[64] = { result = self.width + self.heigh }
 fun (rect)perim(): flt[64] = { result = 2 * self.width + 2 * self.heigh }
-
-var aRectangle: rect = { width = 5, heigh = 6 }                     // this from here on will work
 ```
 
-The benefit of standards is that a routine parameter may require a standard
-contract, and then any type that satisfies that contract may be used there:
+The goal is still procedural. A call like `shape.area()` remains sugar for a
+receiver-qualified routine call, not an object-owned virtual method.
 
-```
-std geo: pro = {
-    fun area(): flt[64];
-    fun perim(): flt[64];
-};
-
-typ rect(geo): rec[] = {                                            // this type makes a contract to use the geometry standard
-    width: int[64]; 
-    heigh: int[64]; 
-}
-fun (rect)area(): flt[64] = { result = self.width + self.heigh }
-fun (rect)perim(): flt[64] = { result = 2 * self.width + 2 * self.heigh }
-
-typ circle(geo): rec[] = {                                          // another type makes a contract to use the geometry standard
-    radius: int[64]; 
-}
-fun (circle)area(): flt[64] = { result = math::const.pi * self.radius ** 2 }
-fun (circle)perim(): flt[64] = { result = 2 * math::const.pi * self.radius}
-
-typ square: rec[] = {                                               // this type does not make contract with `geo`
-    heigh: int[64] 
-}
-
-pro measure( shape: geo) { .echo(shape.area() + "m2") }        // a siple method to print the standard's area
-
-// instantiate two record values
-var aRectangle: rect = { width = 5, heigh = 6 }                      // creating a new rectangle
-var aCircle: circle = { radius = 5 }                                 // creating a new rectangle
-var aSquare: square = { heigh = 6 }                                  // creating a new square
-
-
-// to call the measure function that rpints the surface
-measure(aRectangle)                                                  // this prints: 30m2
-measure(aSquare)                                                     // this throws error, square does not satisfy the contract
-measure(aCircle)                                                     // this prints: 78m2
-
-```
+For the current full `V2` target, broader dispatch and inference semantics stay
+outside the shipped contract.

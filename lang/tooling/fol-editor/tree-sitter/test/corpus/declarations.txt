@@ -2,14 +2,246 @@
 Declarations
 ==================
 
-use shared: loc = {shared::lib}
-ali Result: seq[str]
+use shared: loc = {"../shared"};
+con ResultLabel = "ready";
+lab attempt: int = 1;
+ali Result: seq[str];
 typ User: rec = {
     name: str
-}
+};
+typ Rect()(geo): rec = {
+    var width: int;
+};
 fun load(path: str): str / str = {
-    return path
-}
+    return path;
+};
+pro apply(path: str): str = {
+    return path;
+};
 log ready(): bol = {
-    return true
-}
+    return true;
+};
+fun (Rect)area(): int = {
+    return self.width;
+};
+std geo: pro = {
+    fun area(): int;
+};
+std geometry: pro = {
+    fun area(): flt[64];
+};
+typ Box(T): rec = {
+    value: T
+};
+ali IntBox: Box[int];
+fun pick(T)(value: T): T = {
+    return value;
+};
+fun (Box[T])unwrap(T)(fallback: T): T = {
+    return self.value;
+};
+
+---
+
+(source_file
+  (use_decl
+    (identifier)
+    (source_kind)
+    (string_literal))
+  (con_decl
+    (typed_binding
+      (identifier))
+    (expr
+      (expr_atom
+        (string_literal))))
+  (lab_decl
+    (typed_binding
+      (identifier)
+      (type_expr
+        (identifier)))
+    (expr
+      (expr_atom
+        (integer_literal))))
+  (ali_decl
+    (identifier)
+    (type_expr
+      (container_type
+        (type_expr
+          (identifier)))))
+  (typ_decl
+    (identifier)
+    (record_type)
+    (type_block
+      (record_field
+        (typed_binding
+          (identifier)
+          (type_expr
+            (identifier))))))
+  (typ_decl
+    (identifier)
+    (generic_params)
+    (type_contract_claims
+      (type_expr
+        (identifier)))
+    (record_type)
+    (type_block
+      (field_decl
+        (typed_binding
+          (identifier)
+          (type_expr
+            (identifier))))))
+  (fun_decl
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (error_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (identifier))))))))
+  (pro_decl
+    (plain_pro_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (identifier))))))))
+  (log_decl
+    (plain_log_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (boolean_literal))))))))
+  (fun_decl
+    (method_decl
+      (receiver
+        (type_expr
+          (identifier)))
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (field_access
+                  (self_expr)
+                  (identifier)))))))))
+  (std_decl
+    (identifier)
+    (standard_block
+      (standard_requirement
+        (identifier)
+        (params)
+        (return_type
+          (type_expr
+            (identifier))))))
+  (std_decl
+    (identifier)
+    (standard_block
+      (standard_requirement
+        (identifier)
+        (params)
+        (return_type
+          (type_expr
+            (generic_type_expr
+              (identifier)
+              (integer_literal)))))))
+  (typ_decl
+    (identifier)
+    (type_contract_claims
+      (type_expr
+        (identifier)))
+    (record_type)
+    (type_block
+      (record_field
+        (typed_binding
+          (identifier)
+          (type_expr
+            (identifier))))))
+  (ali_decl
+    (identifier)
+    (type_expr
+      (generic_type_expr
+        (identifier)
+        (type_expr
+          (identifier)))))
+  (fun_decl
+    (plain_fun_decl
+      (identifier)
+      (generic_params
+        (generic_param
+          (identifier)))
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (identifier))))))))
+  (fun_decl
+    (method_decl
+      (receiver
+        (type_expr
+          (generic_type_expr
+            (identifier)
+            (type_expr
+              (identifier)))))
+      (identifier)
+      (generic_params
+        (generic_param
+          (identifier)))
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (field_access
+                  (self_expr)
+                  (identifier))))))))))

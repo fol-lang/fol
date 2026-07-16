@@ -1,4 +1,0 @@
-fun typed_locals(source: int): int = {
-    let cache: map[str, vec[pkg::Value] = source;
-    return cache;
-}

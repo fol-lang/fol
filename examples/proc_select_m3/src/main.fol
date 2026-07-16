@@ -1,0 +1,30 @@
+use std: pkg = {"std"};
+
+fun[] produce(channel: chn[int]): int = {
+    42 | channel[tx];
+    return 42;
+};
+
+fun[] main(): int = {
+    var first: chn[int];
+    var second: chn[int];
+    [>]produce(second);
+    var[mut] selected: int = 0;
+    select {
+        when first as value {
+            selected = value;
+        }
+        when second as value {
+            selected = value;
+        }
+    };
+    select {
+        when first as ignored {
+            selected = ignored;
+        }
+        * {
+            selected = selected;
+        }
+    };
+    return std::io::echo_int(selected);
+};

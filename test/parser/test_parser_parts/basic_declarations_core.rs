@@ -42,54 +42,6 @@ fn test_basic_parsing() {
 }
 
 #[test]
-fn test_top_level_let_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_let.fol").expect("Should read let test file");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-    let ast = parser
-        .parse(&mut lexer)
-        .expect("Parser should parse top-level let declarations");
-
-    match ast {
-        AstNode::Program { declarations } => {
-            let has_inferred_let = declarations.iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::VarDecl { name, type_hint, value, options }
-                    if name == "message"
-                        && type_hint.is_none()
-                        && value.is_some()
-                        && options.contains(&fol_parser::ast::VarOption::Immutable)
-                )
-            });
-
-            let has_typed_let = declarations.iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::VarDecl {
-                        name,
-                        type_hint: Some(FolType::Int { size: None, signed: true }),
-                        value: Some(_),
-                        options
-                    }
-                    if name == "count"
-                        && options.contains(&fol_parser::ast::VarOption::Immutable)
-                )
-            });
-
-            assert!(
-                has_inferred_let,
-                "Parser should lower let message = ... into immutable VarDecl"
-            );
-            assert!(has_typed_let, "Parser should parse typed let declaration");
-        }
-        _ => panic!("Should return Program node"),
-    }
-}
-
-#[test]
 fn test_top_level_con_parsing() {
     let mut file_stream =
         FileStream::from_file("test/parser/simple_con.fol").expect("Should read con test file");
@@ -105,7 +57,7 @@ fn test_top_level_con_parsing() {
             let has_inferred_con = declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::VarDecl { name, type_hint, value, options }
+                    AstNode::VarDecl { name, type_hint, value, options, .. }
                     if name == "message"
                         && type_hint.is_none()
                         && value.is_some()
@@ -120,7 +72,8 @@ fn test_top_level_con_parsing() {
                         name,
                         type_hint: Some(FolType::Int { size: None, signed: true }),
                         value: Some(_),
-                        options
+                        options,
+                        ..
                     }
                     if name == "count"
                         && options.contains(&fol_parser::ast::VarOption::Immutable)
@@ -153,7 +106,7 @@ fn test_top_level_alias_parsing() {
             let has_text_alias = declarations.iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::AliasDecl { name, target: FolType::Named { name: target_name , ..} }
+                    AstNode::AliasDecl { name, target: FolType::Named { name: target_name , ..}, .. }
                     if name == "Text" && target_name == "str"
                 )
             });
@@ -163,8 +116,7 @@ fn test_top_level_alias_parsing() {
                     node,
                     AstNode::AliasDecl {
                         name,
-                        target: FolType::Int { size: None, signed: true }
-                    }
+                        target: FolType::Int { size: None, signed: true }, .. }
                     if name == "Count"
                 )
             });
@@ -201,8 +153,7 @@ fn test_alias_parsing_supports_qualified_target_types() {
                         node,
                         AstNode::AliasDecl {
                             name,
-                            target
-                        } if name == "ResultAlias"
+                            target, .. } if name == "ResultAlias"
                             && fol_type_has_qualified_segments(target, &["pkg", "result", "Value"])
                     )
                 }),

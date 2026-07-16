@@ -1,11 +1,7 @@
 use super::calls::{resolve_reference_symbol, resolve_reference_type_id};
 use super::cursor::{canonical_symbol_key, LoweredValue, RoutineCursor, WorkspaceDeclIndex};
 use super::expressions::lower_expression_expected;
-use crate::{
-    control::LoweredInstrKind,
-    ids::LoweredTypeId,
-    LoweringError, LoweringErrorKind,
-};
+use crate::{control::LoweredInstrKind, ids::LoweredTypeId, LoweringError, LoweringErrorKind};
 use fol_parser::ast::{AstNode, Literal};
 use fol_resolver::{PackageIdentity, ReferenceKind, ScopeId, SourceUnitId};
 use std::collections::BTreeMap;
@@ -26,13 +22,14 @@ pub(crate) fn literal_type_id(
     checked_type_map.get(&builtin).copied()
 }
 
-
 pub(crate) fn describe_unary_operator(op: &fol_parser::ast::UnaryOperator) -> &'static str {
     match op {
         fol_parser::ast::UnaryOperator::Neg => "neg",
         fol_parser::ast::UnaryOperator::Not => "not",
         fol_parser::ast::UnaryOperator::Ref => "ref",
         fol_parser::ast::UnaryOperator::Deref => "deref",
+        fol_parser::ast::UnaryOperator::BorrowFrom => "borrow-from",
+        fol_parser::ast::UnaryOperator::GiveBack => "give-back",
         fol_parser::ast::UnaryOperator::Unwrap => "unwrap",
     }
 }
@@ -74,12 +71,7 @@ pub(crate) fn resolve_entry_variant_target(
 ) -> Result<Option<(PackageIdentity, fol_resolver::SymbolId, String)>, LoweringError> {
     let (resolved_symbol, checked_type) = match object {
         AstNode::Identifier { syntax_id, name } => (
-            resolve_reference_symbol(
-                typed_package,
-                *syntax_id,
-                ReferenceKind::Identifier,
-                name,
-            )?,
+            resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::Identifier, name)?,
             resolve_reference_type_id(
                 typed_package,
                 checked_type_map,
@@ -232,7 +224,19 @@ pub(crate) fn lower_entry_variant_access(
         ));
     };
 
-    if expected_type == Some(entry_variant.type_id) {
+    // Mirror the typecheck's entry-variant typing: a bare access denotes a
+    // value of the entry type and is constructed as such. It only coerces to
+    // its stored payload when an explicit *concrete non-entry* expectation
+    // asks for it (e.g. returning `Color.BLUE` as `str`). A generic-parameter
+    // expectation (or no expectation) leaves the value as the entry, matching
+    // how argument-driven generic inference bound the parameter to the entry
+    // type.
+    let construct_entry = match expected_type {
+        Some(expected) if expected == entry_variant.type_id => true,
+        None => true,
+        Some(expected) => type_table.contains_generic_parameter(expected),
+    };
+    if construct_entry {
         let payload = match (&entry_variant.payload_type, &entry_variant.default) {
             (Some(payload_type), Some(default)) => Some(
                 lower_expression_expected(
@@ -314,13 +318,60 @@ pub(crate) fn lower_assignment_target(
     target: &AstNode,
     lowered_value: LoweredValue,
 ) -> Result<LoweredValue, LoweringError> {
-    let resolved_symbol = match target {
-        AstNode::Identifier { syntax_id, name } => resolve_reference_symbol(
+    // Field assignment into a mutable record binding, e.g. `counter.total = 5`.
+    if let AstNode::FieldAccess { object, field } = target {
+        return lower_field_assignment_target(
+            typed_package,
+            current_identity,
+            decl_index,
+            cursor,
+            object,
+            field,
+            lowered_value,
+        );
+    }
+    if let AstNode::UnaryOp {
+        op: fol_parser::ast::UnaryOperator::Deref,
+        operand,
+    } = target
+    {
+        let AstNode::Identifier { syntax_id, name } = operand.as_ref() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "dereference assignment requires a pointer binding identifier",
+            ));
+        };
+        let resolved = resolve_reference_symbol(
             typed_package,
             *syntax_id,
             ReferenceKind::Identifier,
             name,
-        )?,
+        )?;
+        let pointer = cursor
+            .routine
+            .local_symbols
+            .get(&resolved.id)
+            .copied()
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "dereference assignment pointer is not a lowered local",
+                )
+            })?;
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::StoreDeref {
+                pointer,
+                value: lowered_value.local_id,
+            },
+        )?;
+        return Ok(lowered_value);
+    }
+
+    let resolved_symbol = match target {
+        AstNode::Identifier { syntax_id, name } => {
+            resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::Identifier, name)?
+        }
         AstNode::QualifiedIdentifier { path } => resolve_reference_symbol(
             typed_package,
             path.syntax_id(),
@@ -330,7 +381,8 @@ pub(crate) fn lower_assignment_target(
         _ => {
             return Err(LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
-                "assignment targets must lower from plain or qualified identifiers",
+                "assignment targets must lower from plain or qualified identifiers, \
+                 a field of a mutable record binding, or a unique-pointer dereference",
             ))
         }
     };
@@ -370,6 +422,63 @@ pub(crate) fn lower_assignment_target(
         None,
         LoweredInstrKind::StoreGlobal {
             global: global_id,
+            value: lowered_value.local_id,
+        },
+    )?;
+    Ok(lowered_value)
+}
+
+/// Lower `<binding>.<field> = <value>` into a `StoreField` against the binding's
+/// own local. Typecheck has already verified the binding is a mutable record.
+fn lower_field_assignment_target(
+    typed_package: &fol_typecheck::TypedPackage,
+    _current_identity: &PackageIdentity,
+    _decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    object: &AstNode,
+    field: &str,
+    lowered_value: LoweredValue,
+) -> Result<LoweredValue, LoweringError> {
+    let resolved_symbol = match object {
+        AstNode::Identifier { syntax_id, name } => {
+            resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::Identifier, name)?
+        }
+        AstNode::QualifiedIdentifier { path } => resolve_reference_symbol(
+            typed_package,
+            path.syntax_id(),
+            ReferenceKind::QualifiedIdentifier,
+            &path.joined(),
+        )?,
+        _ => {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "nested field assignment targets are not supported",
+            ))
+        }
+    };
+
+    let Some(local_id) = cursor
+        .routine
+        .local_symbols
+        .get(&resolved_symbol.id)
+        .copied()
+    else {
+        // Only local record bindings support field assignment for now; a global
+        // record field store would need a distinct lowered lvalue form.
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            format!(
+                "field assignment into non-local binding '{}' is not supported",
+                resolved_symbol.name
+            ),
+        ));
+    };
+
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::StoreField {
+            base: local_id,
+            field: field.to_string(),
             value: lowered_value.local_id,
         },
     )?;

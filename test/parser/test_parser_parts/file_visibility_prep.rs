@@ -38,7 +38,6 @@ fn top_level_name(node: &AstNode) -> Option<&str> {
         | AstNode::AliasDecl { name, .. }
         | AstNode::DefDecl { name, .. }
         | AstNode::SegDecl { name, .. }
-        | AstNode::ImpDecl { name, .. }
         | AstNode::StdDecl { name, .. } => Some(name.as_str()),
         _ => None,
     }
@@ -51,10 +50,10 @@ fn test_visibility_marked_declarations_stay_in_their_own_source_units() {
         &temp_root,
         &[
             ("00_public.fol", "var[exp] shared: int = 1;\n"),
-            ("10_hidden.fol", "let[hid] local: int = 2;\n"),
+            ("10_hidden.fol", "var[imu,hid] local: int = 2;\n"),
             (
                 "nested/20_branch.fol",
-                "use[hidden] cache: loc = {core::cache};\nvar branch: int = 3;\n",
+                "use[hidden] cache: loc = {\"core::cache\"};\nvar branch: int = 3;\n",
             ),
         ],
     );
@@ -116,10 +115,10 @@ fn test_parsed_top_levels_distinguish_package_namespace_and_file_scope() {
         &temp_root,
         &[
             ("00_public.fol", "var[exp] shared: int = 1;\n"),
-            ("10_hidden.fol", "let[hid] local: int = 2;\n"),
+            ("10_hidden.fol", "var[imu,hid] local: int = 2;\n"),
             (
                 "nested/20_branch.fol",
-                "use[hidden] cache: loc = {core::cache};\nvar branch: int = 3;\n",
+                "use[hidden] cache: loc = {\"core::cache\"};\nvar branch: int = 3;\n",
             ),
         ],
     );

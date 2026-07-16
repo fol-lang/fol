@@ -31,7 +31,6 @@ enum SourceUnitDeclFamily {
     Use,
     Def,
     Seg,
-    Imp,
     Var,
     Lab,
     Fun,
@@ -50,7 +49,6 @@ fn source_unit_has_decl_family(
         (AstNode::UseDecl { .. }, SourceUnitDeclFamily::Use)
         | (AstNode::DefDecl { .. }, SourceUnitDeclFamily::Def)
         | (AstNode::SegDecl { .. }, SourceUnitDeclFamily::Seg)
-        | (AstNode::ImpDecl { .. }, SourceUnitDeclFamily::Imp)
         | (AstNode::VarDecl { .. }, SourceUnitDeclFamily::Var)
         | (AstNode::LabDecl { .. }, SourceUnitDeclFamily::Lab)
         | (AstNode::FunDecl { .. }, SourceUnitDeclFamily::Fun)
@@ -308,11 +306,6 @@ fn test_parse_package_assigns_all_supported_root_decl_families_to_matching_sourc
             "02_seg.fol",
             "test/parser/simple_seg_module.fol",
             SourceUnitDeclFamily::Seg,
-        ),
-        (
-            "03_imp.fol",
-            "test/parser/simple_imp_basic.fol",
-            SourceUnitDeclFamily::Imp,
         ),
         ("04_var.fol", "test/parser/simple_var.fol", SourceUnitDeclFamily::Var),
         (

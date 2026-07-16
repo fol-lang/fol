@@ -1,2 +1,2 @@
-use[+] pub_math: loc = {core::math};
-use[-] hid_math: loc = {core::math};
+use[+] pub_math: loc = {"core::math"};
+use[-] hid_math: loc = {"core::math"};

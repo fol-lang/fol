@@ -316,7 +316,7 @@ fn test_resolver_rejects_use_loc_targets_that_define_build_fol() {
     .expect("Should write the imported value fixture");
     fs::write(
         temp_root.join("shared/build.fol"),
-        "pro[] build(graph: Graph): non = {\n    return graph;\n};\n",
+        "pro[] build(): non = {\n    return;\n};\n",
     )
     .expect("Should write the formal package build marker");
     fs::write(

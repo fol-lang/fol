@@ -1,0 +1,12 @@
+{
+  "name": "tree-sitter-fol",
+  "version": "0.1.0",
+  "private": true,
+  "grammars": [
+    {
+      "name": "fol",
+      "scope": "source.fol",
+      "file-types": ["fol"]
+    }
+  ]
+}

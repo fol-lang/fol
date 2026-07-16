@@ -1,0 +1,30 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_system_tool", version = "0.1.0" });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    var schema = graph.file_from_root("schema/api.yaml");
+    var defaults = graph.write_file({
+        name = "defaults",
+        path = "gen/defaults.txt",
+        contents = "strict",
+    });
+    var bindings = graph.add_system_tool({
+        tool = "flatc",
+        args = { "--fol" },
+        file_args = { schema, defaults },
+        env = { MODE = "strict" },
+        output = "gen/schema.fol",
+    });
+    var codegen = graph.step("codegen", "Generate schema bindings");
+
+    codegen.attach(bindings);
+    app.add_generated(bindings);
+    graph.install(app);
+    return;
+};

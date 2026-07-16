@@ -687,7 +687,7 @@ fn test_regular_blocks_support_nested_definitions() {
                         if name == "build"
                             && body.iter().any(|stmt| matches!(
                                 stmt,
-                                AstNode::Block { statements }
+                                AstNode::Block { statements, .. }
                                 if statements.iter().any(|nested| matches!(
                                     nested,
                                     AstNode::DefDecl {

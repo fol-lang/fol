@@ -1,0 +1,24 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "mixed_models_workspace", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var corelib = graph.add_static_lib({
+        name = "corelib",
+        root = "core/lib.fol",
+        fol_model = "core",
+    });
+    var memolib = graph.add_static_lib({
+        name = "memolib",
+        root = "memo/lib.fol",
+        fol_model = "memo",
+    });
+    var tool = graph.add_exe({
+        name = "tool",
+        root = "app/main.fol",
+        fol_model = "memo",
+    });
+
+    graph.install(tool);
+    graph.add_run(tool);
+};

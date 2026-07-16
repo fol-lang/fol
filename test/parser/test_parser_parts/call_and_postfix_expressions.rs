@@ -334,7 +334,12 @@ fn test_chained_postfix_expressions_mix_fields_indexes_and_methods() {
                         AstNode::Assignment { value, .. }
                         if matches!(
                             value.as_ref(),
-                            AstNode::MethodCall { object, method, args }
+                            AstNode::MethodCall {
+                                object,
+                                method,
+                                args,
+                                ..
+                            }
                             if method == "format"
                                 && args.is_empty()
                                 && matches!(
@@ -678,7 +683,10 @@ fn test_top_level_loop_iteration_shape_matches_function_loop_shape() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -723,7 +731,10 @@ fn test_top_level_for_iteration_shape_matches_loop_shape() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -775,7 +786,10 @@ fn test_top_level_each_iteration_shape_matches_loop_shape() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None
@@ -827,7 +841,10 @@ fn test_top_level_each_iteration_supports_silent_binder() {
         AstNode::Program { declarations } => declarations
             .iter()
             .find_map(|node| {
-                if let AstNode::Loop { condition, body } = node {
+                if let AstNode::Loop {
+                    condition, body, ..
+                } = node
+                {
                     Some((condition.as_ref().clone(), body.clone()))
                 } else {
                     None

@@ -1,7 +1,7 @@
 fun[] bind_stage(value: int): int = {
     return value
         | var current: int = value
-        | let next: int = current
+        | var[imu] next: int = current
         | con final: int = next
         | lab named: int = final;
 };

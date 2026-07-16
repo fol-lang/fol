@@ -1,7 +1,37 @@
-use crate::dependency::{
-    DependencyBuildEvaluationMode, DependencyBuildSurface,
-};
+use crate::dependency::{DependencyBuildEvaluationMode, DependencyBuildSurface};
 use crate::graph::{BuildOptionId, BuildOptionKind};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitDependencyVersionSelector {
+    Branch(String),
+    Tag(String),
+    Commit(String),
+}
+
+impl GitDependencyVersionSelector {
+    pub fn parse(raw: &str) -> Option<Self> {
+        let (kind, value) = raw.split_once(':')?;
+        let value = value.trim();
+        if value.is_empty() {
+            return None;
+        }
+        match kind.trim() {
+            "branch" => Some(Self::Branch(value.to_string())),
+            "tag" => Some(Self::Tag(value.to_string())),
+            "commit" => Some(Self::Commit(value.to_string())),
+            _ => None,
+        }
+    }
+
+    pub fn render(&self) -> String {
+        match self {
+            Self::Branch(value) => format!("branch:{value}"),
+            Self::Tag(value) => format!("tag:{value}"),
+            Self::Commit(value) => format!("commit:{value}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardTargetRequest {
@@ -217,8 +247,14 @@ pub struct BuildArtifactHandle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemLibraryHandle {
+    pub request: crate::native::SystemLibraryRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepRequest {
     pub name: String,
+    pub description: Option<String>,
     pub depends_on: Vec<crate::graph::BuildStepId>,
 }
 
@@ -283,17 +319,157 @@ pub struct InstallHandle {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputHandleKind {
+    WrittenFile,
+    CopiedFile,
+    CapturedStdout,
+    CodegenOutput,
+    DependencyGeneratedOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutputHandleLocator {
+    GeneratedFile(crate::graph::BuildGeneratedFileId),
+    DependencyGeneratedOutput {
+        dependency_alias: String,
+        output_name: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputHandle {
+    pub kind: OutputHandleKind,
+    pub locator: OutputHandleLocator,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathHandleClass {
+    File,
+    Dir,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathHandleProvenance {
+    Source,
+    Generated,
+    DependencyGenerated,
+    DependencyPath,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathHandle {
+    pub class: PathHandleClass,
+    pub provenance: PathHandleProvenance,
+    pub relative_path: String,
+}
+
+impl OutputHandle {
+    pub fn generated_file_id(&self) -> Option<crate::graph::BuildGeneratedFileId> {
+        match self.locator {
+            OutputHandleLocator::GeneratedFile(id) => Some(id),
+            OutputHandleLocator::DependencyGeneratedOutput { .. } => None,
+        }
+    }
+
+    pub fn path_handle(&self, relative_path: impl Into<String>) -> PathHandle {
+        let provenance = match self.locator {
+            OutputHandleLocator::GeneratedFile(_) => PathHandleProvenance::Generated,
+            OutputHandleLocator::DependencyGeneratedOutput { .. } => {
+                PathHandleProvenance::DependencyGenerated
+            }
+        };
+        PathHandle {
+            class: PathHandleClass::File,
+            provenance,
+            relative_path: relative_path.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFileHandle {
     pub generated_file_id: crate::graph::BuildGeneratedFileId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceFileHandle {
+    pub relative_path: String,
+}
+
+impl SourceFileHandle {
+    pub fn path_handle(&self) -> PathHandle {
+        PathHandle {
+            class: PathHandleClass::File,
+            provenance: PathHandleProvenance::Source,
+            relative_path: self.relative_path.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceDirHandle {
+    pub relative_path: String,
+}
+
+impl SourceDirHandle {
+    pub fn path_handle(&self) -> PathHandle {
+        PathHandle {
+            class: PathHandleClass::Dir,
+            provenance: PathHandleProvenance::Source,
+            relative_path: self.relative_path.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DependencySourceKind {
+    Local,
+    PackageStore,
+    Git,
+    Internal,
+}
+
+impl DependencySourceKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Local => "loc",
+            Self::PackageStore => "pkg",
+            Self::Git => "git",
+            Self::Internal => "internal",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DependencyRequest {
     pub alias: String,
+    pub source_kind: DependencySourceKind,
     pub package: String,
+    pub args: BTreeMap<String, DependencyArgValue>,
     pub evaluation_mode: Option<DependencyBuildEvaluationMode>,
+    pub git_version: Option<GitDependencyVersionSelector>,
+    pub git_hash: Option<String>,
     pub surface: Option<DependencyBuildSurface>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DependencyArgValue {
+    Bool(bool),
+    Int(i64),
+    String(String),
+    OptionRef(String),
+}
+
+impl DependencyArgValue {
+    pub fn resolve(&self, options: &crate::option::ResolvedBuildOptionSet) -> Option<String> {
+        match self {
+            Self::Bool(value) => Some(value.to_string()),
+            Self::Int(value) => Some(value.to_string()),
+            Self::String(value) => Some(value.clone()),
+            Self::OptionRef(name) => options.get(name.as_str()).map(str::to_string),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -306,6 +482,9 @@ pub struct DependencyHandle {
     pub modules: crate::dependency::DependencyModuleSurfaceSet,
     pub artifacts: crate::dependency::DependencyArtifactSurfaceSet,
     pub steps: crate::dependency::DependencyStepSurfaceSet,
+    pub files: crate::dependency::DependencyFileSurfaceSet,
+    pub dirs: crate::dependency::DependencyDirSurfaceSet,
+    pub paths: crate::dependency::DependencyPathSurfaceSet,
     pub generated_outputs: crate::dependency::DependencyGeneratedOutputSurfaceSet,
 }
 

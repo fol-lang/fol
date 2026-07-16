@@ -3,8 +3,8 @@ use crate::{
     model::{ResolvedProgram, ResolvedWorkspace},
     traverse, ResolverError, ResolverErrorKind, ResolverResult,
 };
-use fol_package::{PackageSession, PreparedPackage};
-use fol_parser::ast::{ParsedPackage, UsePathSegment};
+use fol_package::{effective_std_root, PackageSession, PreparedPackage};
+use fol_parser::ast::ParsedPackage;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -39,7 +39,7 @@ pub(crate) struct LoadedPackage {
     pub program: ResolvedProgram,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ResolverSession {
     config: ResolverConfig,
     package_session: PackageSession,
@@ -49,10 +49,14 @@ pub struct ResolverSession {
 
 impl ResolverSession {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_config(ResolverConfig::default())
     }
 
     pub fn with_config(config: ResolverConfig) -> Self {
+        let config = ResolverConfig {
+            std_root: effective_std_root(config.std_root.as_deref()),
+            ..config
+        };
         Self {
             package_session: PackageSession::with_config(package_config_from_resolver(&config)),
             config,
@@ -170,14 +174,14 @@ impl ResolverSession {
         self.load_prepared_package(prepared)
     }
 
-    pub(crate) fn load_package_from_store(
+    pub(crate) fn load_package_from_store_target(
         &mut self,
         store_root: &Path,
-        package_path: &[UsePathSegment],
+        import_target: &str,
     ) -> Result<LoadedPackage, ResolverError> {
         let prepared = self
             .package_session
-            .load_package_from_store(store_root, package_path)?;
+            .load_package_from_store_target(store_root, import_target)?;
         self.load_prepared_package(prepared)
     }
 
@@ -240,7 +244,15 @@ impl ResolverSession {
     }
 }
 
-pub(crate) fn package_source_kind(source_kind: PackageSourceKind) -> fol_package::PackageSourceKind {
+impl Default for ResolverSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub(crate) fn package_source_kind(
+    source_kind: PackageSourceKind,
+) -> fol_package::PackageSourceKind {
     match source_kind {
         PackageSourceKind::Entry => fol_package::PackageSourceKind::Entry,
         PackageSourceKind::Local => fol_package::PackageSourceKind::Local,
@@ -258,7 +270,9 @@ pub(crate) fn package_config_from_resolver(config: &ResolverConfig) -> fol_packa
     }
 }
 
-pub(crate) fn resolver_package_identity(identity: &fol_package::PackageIdentity) -> PackageIdentity {
+pub(crate) fn resolver_package_identity(
+    identity: &fol_package::PackageIdentity,
+) -> PackageIdentity {
     PackageIdentity {
         source_kind: match identity.source_kind {
             fol_package::PackageSourceKind::Entry => PackageSourceKind::Entry,

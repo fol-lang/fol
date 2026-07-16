@@ -1,0 +1,32 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_dep_modes", version = "0.1.0" });
+
+    build.add_dep({
+        alias = "core",
+        source = "loc",
+        target = "deps/core",
+        mode = "eager",
+    });
+    build.add_dep({
+        alias = "shared",
+        source = "loc",
+        target = "deps/shared",
+        mode = "lazy",
+    });
+    build.add_dep({
+        alias = "assets",
+        source = "loc",
+        target = "deps/assets",
+        mode = "on-demand",
+    });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    return;
+};

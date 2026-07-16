@@ -1,0 +1,33 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_output_handles", version = "0.1.0" });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "demo",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    var run = graph.add_run(app);
+    var cfg = graph.write_file({
+        name = "cfg",
+        path = "config/generated.toml",
+        contents = "mode=demo",
+    });
+    var banner_src = graph.file_from_root("assets/banner.txt");
+    var banner = graph.copy_file({
+        name = "banner",
+        source = banner_src,
+        path = "config/banner.txt",
+    });
+
+    app.add_generated(cfg);
+    app.add_generated(banner);
+    run.add_file_arg(cfg);
+    run.add_file_arg(banner);
+
+    graph.install(app);
+    graph.install_file({ name = "generated-cfg", source = cfg });
+    graph.install_file({ name = "copied-banner", source = banner });
+    return;
+};

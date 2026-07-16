@@ -74,27 +74,9 @@ fn fol_type_named_text_is(typ: &FolType, expected: &str) -> bool {
     typ.named_text().as_deref() == Some(expected)
 }
 
-fn use_path_segments_text(
-    path_segments: &[fol_parser::ast::UsePathSegment],
-) -> String {
-    let mut path = String::new();
-
-    for segment in path_segments {
-        if let Some(separator) = &segment.separator {
-            path.push_str(match separator {
-                fol_parser::ast::UsePathSeparator::Slash => "/",
-                fol_parser::ast::UsePathSeparator::DoubleColon => "::",
-            });
-        }
-        path.push_str(&segment.spelling);
-    }
-
-    path
-}
-
 fn use_decl_path_text(node: &AstNode) -> Option<String> {
     match node {
-        AstNode::UseDecl { path_segments, .. } => Some(use_path_segments_text(path_segments)),
+        AstNode::UseDecl { import_target, .. } => Some(import_target.clone()),
         _ => None,
     }
 }
@@ -327,9 +309,6 @@ mod quoted_function_type_refs;
 #[path = "test_parser_parts/quoted_iteration_binders.rs"]
 mod quoted_iteration_binders;
 #[cfg(test)]
-#[path = "test_parser_parts/implementation_declarations.rs"]
-mod implementation_declarations;
-#[cfg(test)]
 #[path = "test_parser_parts/illegal_token_contexts_expressions.rs"]
 mod illegal_token_contexts_expressions;
 #[cfg(test)]
@@ -531,6 +510,9 @@ mod variadic_parameters;
 #[path = "test_parser_parts/while_loops.rs"]
 mod while_loops;
 #[cfg(test)]
+#[path = "test_parser_parts/v2_generics_m1.rs"]
+mod v2_generics_m1;
+#[cfg(test)]
 #[path = "test_parser_parts/routine_headers_and_when_forms.rs"]
 mod routine_headers_and_when_forms;
 #[cfg(test)]
@@ -570,6 +552,9 @@ mod type_member_bodies;
 #[path = "test_parser_parts/type_contracts.rs"]
 mod type_contracts;
 #[cfg(test)]
+#[path = "test_parser_parts/v2_standards_m2.rs"]
+mod v2_standards_m2;
+#[cfg(test)]
 #[path = "test_parser_parts/type_group_declarations.rs"]
 mod type_group_declarations;
 #[cfg(test)]
@@ -587,3 +572,9 @@ mod unary_and_call_argument_errors;
 #[cfg(test)]
 #[path = "test_parser_parts/unmatched_paren_errors.rs"]
 mod unmatched_paren_errors;
+#[cfg(test)]
+#[path = "test_parser_parts/dfr_statements.rs"]
+mod dfr_statements;
+#[cfg(test)]
+#[path = "test_parser_parts/parameter_options.rs"]
+mod parameter_options;

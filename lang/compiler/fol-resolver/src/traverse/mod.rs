@@ -6,11 +6,9 @@ mod scope;
 pub use node::{traverse_node, traverse_top_level_item};
 
 use crate::{
-    collect::top_level_scope_id,
-    model::ResolvedProgram,
-    ResolverError, ResolverSession, SourceUnitId,
+    collect::top_level_scope_id, model::ResolvedProgram, ResolverError, ResolverSession,
+    SourceUnitId,
 };
-
 
 pub fn collect_routine_scopes(
     session: &mut ResolverSession,

@@ -6,59 +6,17 @@ impl AstParser {
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_name_error: &str,
         missing_group_name_error: &str,
-        missing_mutex_close_error: &str,
-    ) -> Result<(Vec<String>, bool), ParseError> {
+    ) -> Result<Vec<(String, Option<SyntaxNodeId>, bool, bool)>, ParseError> {
         let token = tokens.curr(false)?;
 
-        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::RoundO))
-            && matches!(
-                self.next_significant_key_from_window(tokens),
-                Some(KEYWORD::Symbol(SYMBOL::RoundO))
-            )
-        {
-            let _ = tokens.bump();
-            self.skip_ignorable(tokens)?;
-
-            let second_open = tokens.curr(false)?;
-            if !matches!(second_open.key(), KEYWORD::Symbol(SYMBOL::RoundO)) {
-                return Err(ParseError::from_token(
-                    &second_open,
-                    "Expected second '(' to start mutex parameter".to_string(),
-                ));
-            }
-            let _ = tokens.bump();
-            self.skip_ignorable(tokens)?;
-
-            let name_token = tokens.curr(false)?;
-            let name = Self::expect_named_label(&name_token, missing_name_error)?;
-            let _ = tokens.bump();
-            self.skip_ignorable(tokens)?;
-
-            let close_inner = tokens.curr(false)?;
-            if !matches!(close_inner.key(), KEYWORD::Symbol(SYMBOL::RoundC)) {
-                return Err(ParseError::from_token(
-                    &close_inner,
-                    missing_mutex_close_error.to_string(),
-                ));
-            }
-            let _ = tokens.bump();
-            self.skip_ignorable(tokens)?;
-
-            let close_outer = tokens.curr(false)?;
-            if !matches!(close_outer.key(), KEYWORD::Symbol(SYMBOL::RoundC)) {
-                return Err(ParseError::from_token(
-                    &close_outer,
-                    missing_mutex_close_error.to_string(),
-                ));
-            }
-            let _ = tokens.bump();
-            return Ok((vec![name], true));
-        }
-
         let first_name = Self::expect_named_label(&token, missing_name_error)?;
+        // Record the parameter NAME token so tooling can locate the parameter
+        // declaration; the resolver derives the symbol origin from this id.
+        let first_syntax_id = self.record_syntax_origin(&token);
 
-        let mut names = vec![first_name];
         let _ = tokens.bump();
+        let (is_borrowable, is_mutex) = self.parse_parameter_options(tokens)?;
+        let mut names = vec![(first_name, first_syntax_id, is_borrowable, is_mutex)];
 
         self.skip_ignorable(tokens)?;
         loop {
@@ -71,15 +29,96 @@ impl AstParser {
                 self.skip_ignorable(tokens)?;
                 let name_token = tokens.curr(false)?;
                 let grouped_name = Self::expect_named_label(&name_token, missing_group_name_error)?;
-                names.push(grouped_name);
+                let grouped_syntax_id = self.record_syntax_origin(&name_token);
                 let _ = tokens.bump();
+                let (is_borrowable, is_mutex) = self.parse_parameter_options(tokens)?;
+                names.push((grouped_name, grouped_syntax_id, is_borrowable, is_mutex));
                 self.skip_ignorable(tokens)?;
                 continue;
             }
             break;
         }
 
-        Ok((names, false))
+        Ok(names)
+    }
+
+    fn parse_parameter_options(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<(bool, bool), ParseError> {
+        self.skip_ignorable(tokens)?;
+        let open = tokens.curr(false)?;
+        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::SquarO)) {
+            return Ok((false, false));
+        }
+        let _ = tokens.bump();
+
+        let mut is_borrowable = false;
+        let mut is_mutex = false;
+        for _ in 0..8 {
+            self.skip_ignorable(tokens)?;
+            let option = tokens.curr(false)?;
+            if matches!(option.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+                return Err(ParseError::from_token(
+                    &option,
+                    "Expected 'bor' or 'mux' in parameter options".to_string(),
+                ));
+            }
+            match option.con().trim() {
+                "bor" | "borrow" | "borrowing" if !is_borrowable => is_borrowable = true,
+                "mux" | "mutex" if !is_mutex => is_mutex = true,
+                "bor" | "borrow" | "borrowing" => {
+                    return Err(ParseError::from_token(
+                        &option,
+                        "Duplicate 'bor' parameter option".to_string(),
+                    ));
+                }
+                "mux" | "mutex" => {
+                    return Err(ParseError::from_token(
+                        &option,
+                        "Duplicate 'mux' parameter option".to_string(),
+                    ));
+                }
+                _ => {
+                    return Err(ParseError::from_token(
+                        &option,
+                        format!(
+                            "Unknown parameter option '{}'; expected 'bor' or 'mux'",
+                            option.con().trim()
+                        ),
+                    ));
+                }
+            }
+            if is_borrowable && is_mutex {
+                return Err(ParseError::from_token(
+                    &option,
+                    "Parameter options 'bor' and 'mux' cannot be combined".to_string(),
+                ));
+            }
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let separator = tokens.curr(false)?;
+            if matches!(separator.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+                let _ = tokens.bump();
+                return Ok((is_borrowable, is_mutex));
+            }
+            if matches!(
+                separator.key(),
+                KEYWORD::Symbol(SYMBOL::Comma) | KEYWORD::Symbol(SYMBOL::Semi)
+            ) {
+                let _ = tokens.bump();
+                continue;
+            }
+            return Err(ParseError::from_token(
+                &separator,
+                "Expected ',', ';', or ']' in parameter options".to_string(),
+            ));
+        }
+
+        Err(ParseError::from_token(
+            &open,
+            "Parameter options exceeded parser limit".to_string(),
+        ))
     }
 
     pub(super) fn parse_routine_header_list(
@@ -116,11 +155,11 @@ impl AstParser {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: function_type,
-                    is_borrowable: param_name.chars().all(|ch| {
-                        !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
-                    }),
+                    is_variadic: false,
+                    is_borrowable: false,
                     is_mutex: false,
                     default: None,
+                    syntax_id: None,
                 });
 
                 self.skip_ignorable(tokens)?;
@@ -142,11 +181,10 @@ impl AstParser {
                 ));
             }
 
-            let (names, is_mutex) = self.parse_parameter_name_group(
+            let names = self.parse_parameter_name_group(
                 tokens,
                 "Expected generic parameter name",
                 "Expected parameter name after ','",
-                "Expected closing '))' after mutex parameter name",
             )?;
 
             let mut is_variadic = false;
@@ -220,15 +258,15 @@ impl AstParser {
                 ));
             }
 
-            for name in names {
+            for (name, name_syntax_id, is_borrowable, is_mutex) in names {
                 params.push(Parameter {
                     name: name.clone(),
                     param_type: param_type.clone(),
-                    is_borrowable: name.chars().all(|ch| {
-                        !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
-                    }),
+                    is_variadic,
+                    is_borrowable,
                     is_mutex,
                     default: default.clone(),
+                    syntax_id: name_syntax_id,
                 });
             }
 
@@ -258,10 +296,7 @@ impl AstParser {
         }
 
         let error = if let Ok(token) = tokens.curr(false) {
-            ParseError::from_token(
-                &token,
-                "Generic parsing exceeded safety bound".to_string(),
-            )
+            ParseError::from_token(&token, "Generic parsing exceeded safety bound".to_string())
         } else {
             ParseError {
                 kind: ParseErrorKind::Syntax,
@@ -307,13 +342,15 @@ impl AstParser {
                     let error = if let Ok(token) = tokens.curr(false) {
                         ParseError::from_token(
                             &token,
-                            "Variadic parameters are not allowed in routine generic headers".to_string(),
+                            "Variadic parameters are not allowed in routine generic headers"
+                                .to_string(),
                         )
                     } else {
                         ParseError {
                             kind: ParseErrorKind::Syntax,
-                            message: "Variadic parameters are not allowed in routine generic headers"
-                                .to_string(),
+                            message:
+                                "Variadic parameters are not allowed in routine generic headers"
+                                    .to_string(),
                             file: None,
                             line: 0,
                             column: 0,
@@ -437,10 +474,7 @@ impl AstParser {
         }
 
         let error = if let Ok(token) = tokens.curr(false) {
-            ParseError::from_token(
-                &token,
-                "Generic parsing exceeded safety bound".to_string(),
-            )
+            ParseError::from_token(&token, "Generic parsing exceeded safety bound".to_string())
         } else {
             ParseError {
                 kind: ParseErrorKind::Syntax,
@@ -525,10 +559,7 @@ impl AstParser {
         }
 
         let error = if let Ok(token) = tokens.curr(false) {
-            ParseError::from_token(
-                &token,
-                "Routine options exceeded parser limit".to_string(),
-            )
+            ParseError::from_token(&token, "Routine options exceeded parser limit".to_string())
         } else {
             ParseError {
                 kind: ParseErrorKind::Syntax,
@@ -576,11 +607,11 @@ impl AstParser {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: function_type,
-                    is_borrowable: param_name.chars().all(|ch| {
-                        !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
-                    }),
+                    is_variadic: false,
+                    is_borrowable: false,
                     is_mutex: false,
                     default: None,
+                    syntax_id: None,
                 });
 
                 self.skip_ignorable(tokens)?;
@@ -602,20 +633,19 @@ impl AstParser {
                 ));
             }
 
-            let (names, is_mutex) = self.parse_parameter_name_group(
+            let names = self.parse_parameter_name_group(
                 tokens,
                 "Expected parameter name",
                 "Expected parameter name after ','",
-                "Expected closing '))' after mutex parameter name",
             )?;
-            let first_name = names[0].clone();
+            let first_name = names[0].0.clone();
             if !seen_names.insert(canonical_identifier_key(&first_name)) {
                 return Err(ParseError::from_token(
                     &token,
                     format!("Duplicate parameter name '{}'", first_name),
                 ));
             }
-            for grouped_name in names.iter().skip(1) {
+            for (grouped_name, _, _, _) in names.iter().skip(1) {
                 if !seen_names.insert(canonical_identifier_key(grouped_name)) {
                     let name_token = tokens.curr(false)?;
                     return Err(ParseError::from_token(
@@ -683,15 +713,15 @@ impl AstParser {
                 ));
             }
 
-            for param_name in names {
+            for (param_name, name_syntax_id, is_borrowable, is_mutex) in names {
                 params.push(Parameter {
                     name: param_name.clone(),
                     param_type: param_type.clone(),
-                    is_borrowable: param_name.chars().all(|ch| {
-                        !ch.is_ascii_lowercase() && (ch.is_ascii_alphanumeric() || ch == '_')
-                    }),
+                    is_variadic,
+                    is_borrowable,
                     is_mutex,
                     default: default.clone(),
+                    syntax_id: name_syntax_id,
                 });
             }
 
@@ -742,7 +772,14 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_name_message: &str,
-    ) -> Result<(Option<FolType>, String), ParseError> {
+    ) -> Result<
+        (
+            Option<FolType>,
+            String,
+            fol_lexer::lexer::stage3::element::Element,
+        ),
+        ParseError,
+    > {
         let mut receiver_type = None;
         let current = tokens.curr(false)?;
 
@@ -790,6 +827,6 @@ impl AstParser {
         let name_token = tokens.curr(false)?;
         let name = Self::expect_named_label(&name_token, missing_name_message)?;
         let _ = tokens.bump();
-        Ok((receiver_type, name))
+        Ok((receiver_type, name, name_token))
     }
 }

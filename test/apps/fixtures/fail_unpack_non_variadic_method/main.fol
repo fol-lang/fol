@@ -1,0 +1,15 @@
+typ Counter: rec = {
+    total: int
+};
+
+fun (Counter)read(step: int): int = {
+    return step;
+};
+
+fun[] main(): int = {
+    var current: Counter = {
+        total = 9,
+    };
+    var extras: seq[int] = {4, 5};
+    return current.read(...extras);
+};

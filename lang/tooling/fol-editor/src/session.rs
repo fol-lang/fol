@@ -28,7 +28,7 @@ impl Default for EditorConfig {
             full_document_sync: false,
             root_markers: vec![
                 "fol.work.yaml".to_string(),
-                "package.yaml".to_string(),
+                "build.fol".to_string(),
                 ".git".to_string(),
             ],
         }
@@ -62,7 +62,7 @@ mod tests {
             config.root_markers,
             vec![
                 "fol.work.yaml".to_string(),
-                "package.yaml".to_string(),
+                "build.fol".to_string(),
                 ".git".to_string()
             ]
         );

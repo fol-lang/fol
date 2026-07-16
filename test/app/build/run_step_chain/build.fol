@@ -1,10 +1,15 @@
-pro[] build(graph: Graph): non = {
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "run_step_chain", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
     var target = graph.standard_target();
     var optimize = graph.standard_optimize();
     var lint = graph.step("lint");
     var app = graph.add_exe({
         name = "run_step_chain",
         root = "src/main.fol",
+        fol_model = "memo",
         target = target,
         optimize = optimize,
     });

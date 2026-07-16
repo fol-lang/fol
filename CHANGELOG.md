@@ -1,5 +1,3212 @@
 # Changelog
 
+## [0.2.0] - 2026-07-16
+
+### <!-- 0 -->⛰️  Features
+
+- Merge V3 into develop
+- Sync editor tooling
+- Mirror all v3 contracts
+- Complete processor pillar
+- Land memory pillar prep
+- Add precise parameter declaration origins
+- Move `explain` subcommand under `code` group
+- Add `fol explain` command for diagnostic codes
+- Implement LSP navigation and structural features
+- Hint fol pack fetch on missing deps
+- Record field defaults in grammar
+- Record defaults + positional init
+- Qualified refs + grammar + lsp fixes
+- Alias exp + variadic + path anchors
+- More on phase 2
+- Tree-sitter for V2 syntax additions
+- Generic standards end-to-end
+- Extended standards protocol plus blueprint
+- Blueprint example and generic-constraint path
+- Blueprint standards as static field contracts
+- Generic error types end-to-end
+- Default standard routine implementations
+- Pin constrained generic types end-to-end
+- Add generic_turbofish_m1 example
+- Typecheck explicit generic-call type args
+- Parse explicit generic-call turbofish syntax
+- Record method call targets for lowering
+- Unify generic receivers in method resolution
+- Allow generic receiver routine signatures
+- Support generic type trees
+- Lower protocol standards
+- Check standard constraints
+- Emit generic types
+- Typecheck generic types
+- Harden generic routine edges
+- Execute generic routines
+- Lower generic routines
+- Resolve generic type refs
+- Close standards audits
+- Harden standards boundaries
+- Add protocol conformance core
+- Freeze standards m2 baseline
+- Stop generics before lowering
+- Typecheck generic routines
+- Grow fmt and io
+- Harden hosted split
+- Drop std build mode
+- Require quoted import targets
+- Finish explicit standard split
+- Split std from modes
+- Remove ambient std import
+- Add internal standard deps
+- Rename mem to memo
+- Harden bundled std ux
+- Bootstrap bundled io
+- Bootstrap bundled fmt
+- Close mem cutover
+- Finish mem example cutover
+- Align mem runtime contract
+- Rename alloc to mem
+- Harden bundled std flow
+- Seed bundled std tree
+- Bundle default std root
+- Finish git dep cutover
+- Cut over git dep selectors
+- Verify git dep hashes
+- Finish dep arg ergonomics
+- Add generated dir handles
+- Add typed system libs
+- Report install outputs
+- Surface dependency modes
+- Route path consumers
+- Add path handle type
+- Add dependency path queries
+- Add explicit path exports
+- Validate dep export queries
+- Add typed system tools
+- Harden explicit exports
+- Add dep modes and step help
+- Add source path handles
+- Add explicit dep exports
+- Add install prefix model
+- Harden dep surfaces steps
+- Forward explicit dep args
+- Route install file handles
+- Add output handle types
+- Feed dep modules back
+- Type add_dep return
+- Add logtiny git dep
+- Adopt build-only package roots
+- Load formal metadata from build
+- Validate build metadata
+- Extract build metadata
+- Correct meta config fields
+- Route build graph handle
+- Support ambient build eval
+- Separate build and graph lookup
+- Define build config shapes
+- Define build context methods
+- Add internal build context
+- Hide public graph surface
+- Switch to ambient graph access
+- Generate highlight query
+- Filter completion by model
+- Typecheck lsp by model
+- Cache semantic model
+- Recover workspace model
+- Add model facts
+- Add compiler facts
+- Add support for nested block scopes in lowering
+- Add tests for CLI example build and run
+- Add records, collections, and named calls examples
+- Add mixed model workspace
+- Add model example packages
+- Clarify routed model errors
+- Surface fol models
+- Route core without prelude
+- Route heap types by model
+- Use std runtime entry
+- Tier runtime imports
+- Add runtime tier model
+- Define model layering
+- Add model modules
+- Set crate direction
+- Add split crates
+- Guard route models
+- Gate run test model
+- Gate len by model
+- Gate core heap types
+- Gate echo by model
+- Wire fol model
+- Thread fol model
+- Keep library fol models
+- Plumb fol model eval
+- Shape fol model configs
+- Add fol model enum
+- Improve call argument lowering and type-checking
+- Implement V1 defer statement
+- Support unpack arguments after named arguments
+- Variadic free calls
+- Method default params
+- Default free params
+- Method named args
+- Typecheck named args
+- Reject nonhost execution
+- Target generated rustc
+- Target runtime rustc
+- Scope outputs by target
+- Map fol targets to rust
+- Thread machine target
+- Add machine target config
+- Default builds to rustc
+- Build crates with rustc
+- Build runtime with rustc
+- Colorize help text output
+- Support passing named routines as function values
+- Support calling function-typed variables via f(x) syntax
+- Support function type annotations and anonymous routine E2E
+- Implement anonymous routine and invoke lowering
+- Type anonymous routines and invoke
+- Add RoutineRef and CallIndirect instructions
+- Render routine types as fn pointers
+- Implement entry variant construction lowering
+- Implement procedure-style method call lowering
+- Implement procedure-style free call lowering
+- Implement iteration loop lowering
+- Implement slice access end-to-end
+- Implement binary and unary operator lowering
+- Rename current-package symbols
+- Expand same-file rename
+- Add workspace symbols
+- Ship formatting
+- Add unresolved quickfix
+- Add signature help
+- Add rename cli
+- Add references cli
+- Add semantic token cli
+- Add semantic tokens
+- Advertise refs and rename
+- Add safe local rename
+- Add lsp references
+- Default to incremental sync
+- Apply ranged lsp edits
+- Support incremental edits
+- Semicolon changes
+- Semicolon changes
+- FrontendError implements ToDiagnostic
+- Add colorized diagnostic rendering
+- Streamline LSP and CLI error handling
+- Create language facts manifest
+- Strict recoverable typing
+- Dedup diagnostics and show error codes
+- Show error codes in human output
+- Split files in under 1000loc
+- Wire -D options and build inputs into evaluate_build_source
+- Add loop/when/helper control flow to build executor
+- Expand build API to Zig parity with modules and run args
+- Implement workspace build plan execution
+- Enhance FOL syntax highlighting and grammar
+- Stabilize completion item shaping
+- Harden dot intrinsic completion fallback
+- Complete v1 dot intrinsic suggestions
+- Detect dot completion contexts
+- Complete qualified namespace suggestions
+- Detect qualified completion contexts
+- Complete named type suggestions
+- Complete builtin type suggestions
+- Detect type completion contexts
+- Complete imported symbol suggestions
+- Complete current-package declaration suggestions
+- Complete routine parameter suggestions
+- Complete local binding suggestions
+- Advertise completion provider
+- Add completion request handling
+- Export tree bundle queries from snapshot registry
+- Improve highlight command inspection output
+- Tighten dotted intrinsic highlighting
+- Highlight type annotation punctuation
+- Highlight type references
+- Highlight shell boundaries
+- Highlight import source kinds
+- Highlight control and effect keywords
+- Distinguish declaration name highlights
+- Highlight declaration modifiers
+- Anchor highlight keywords to grammar nodes
+- Implement basic LSP stdio server and improve diagnostics
+- Add tree-sitter bundle generation
+- Add lsp root guidance and close milestone
+- Harden symbols and editor command outputs
+- Add lsp navigation and symbol support
+- Add lsp diagnostics foundation
+- Add editor command family
+- Add symbols query snapshots
+- Extend tree-sitter v1 coverage and locals query
+- Add tree-sitter grammar and highlight assets
+- Add document store and session shells
+- Add error and document path foundations
+- Add workspace crate foundation
+- Clean git cache roots safely
+- Prune stale git materializations
+- Add workspace dependency reporting
+- Report revision changes during update
+- Add locked fetch workflows and update shell
+- Materialize manifest dependencies during fetch
+- Materialize git dependencies into cache and store
+- Add lockfile model and stable text format
+- Add git materialization session shell
+- Define revision-aware git store paths
+- Define deterministic git cache paths
+- Add git cache root config plumbing
+- Add manifest dependency declarations
+- Normalize git locator identity
+- Parse revision git selectors
+- Parse tag git selectors
+- Parse branch git selectors
+- Parse git scheme locators
+- Parse ssh git locators
+- Parse https git locators
+- Add git locator model
+- Init
+- Adopt roc-style human output
+- Report explicit build and emit roots
+- Add in-dir frontend dispatch helpers
+- Route command workflows through frontend dispatch
+- Add workspace discovery guidance notes
+- Add frontend error guidance rendering
+- Highlight paths in human output
+- Broaden visible command aliases
+- Add cli env precedence
+- Add output env loading
+- Add contextual completion hooks
+- Add internal completion hook
+- Add fish completion generation
+- Add zsh completion generation
+- Add bash completion generation
+- Add completion command parsing
+- Add package store safety boundaries
+- Add cache root cleanup
+- Add build root cleanup
+- Add clean and completion command shells
+- Report emit artifact roots
+- Add emit lowered orchestration
+- Add emit rust orchestration
+- Add emit command tree
+- Add package selection for test
+- Add test command orchestration
+- Add keep build dir integration
+- Add run arg passthrough
+- Add build artifact summaries
+- Add profile-aware build roots
+- Add run command orchestration
+- Add build command orchestration
+- Add check command orchestration
+- Add frontend env root overrides
+- Wrap package fetch diagnostics
+- Add fetch materialize summaries
+- Select package store roots
+- Add fetch command shell
+- Add package preparation shell
+- Add work list command shell
+- Add work info command shell
+- Render workspace info summaries
+- Add workspace build cache policy
+- Load workspace override roots
+- Load workspace root configs
+- Enumerate workspace member packages
+- Add frontend workspace model
+- Seed starter build files
+- Seed starter package manifests
+- Add starter source templates
+- Wire lib scaffolding targets
+- Add lib target flags
+- Add bin target flags
+- Add workspace mode flags
+- Add new command scaffolding
+- Scaffold workspace roots
+- Scaffold current package roots
+- Add init command shell
+- Add missing-root diagnostics
+- Add explicit path root selection
+- Add upward root discovery
+- Add package root discovery model
+- Add workspace root discovery model
+- Add color auto-detection
+- Add command summary rendering
+- Add json output helpers
+- Add plain output helpers
+- Add human output helpers
+- Add output helper shell
+- Add profile selection flags
+- Add global color policy flag
+- Add global output mode flag
+- Group help output by command family
+- Add root command aliases
+- Add root command families
+- Add derive-based root parser
+- Add command result model
+- Add frontend config model
+- Add output and color policy shells
+- Add structured frontend errors
+- Add public run shell
+- Add frontend workspace crate
+- Lock full v1 showcase through backend
+- Execute lowered v1 programs through rust emission
+- Wire cli backend emission and build
+- Write and build generated crates
+- Emit report panic and unreachable
+- Emit control-flow terminators
+- Emit runtime shell instructions
+- Emit optional shell construction
+- Emit recoverable error extraction
+- Emit recoverable unwraps
+- Emit recoverable checks
+- Emit runtime echo hooks
+- Emit runtime length calls
+- Emit native scalar intrinsics
+- Emit field access
+- Emit plain routine calls
+- Emit core storage instructions
+- Emit routine frame shells
+- Emit recoverable routine signatures
+- Emit routine signatures
+- Emit global declaration shells
+- Emit entry trait impls
+- Emit record trait impls
+- Emit entry enum definitions
+- Emit record struct definitions
+- Render runtime-backed rust types
+- Render builtin rust types
+- Emit namespace module shells
+- Emit package module shells
+- Emit crate root shell
+- Emit cargo manifest shell
+- Plan generated crate layout
+- Plan namespace module files
+- Plan package module roots
+- Add stable mangling helpers
+- Add backend trace models
+- Add workspace identity hashing
+- Retain workspace identity in session
+- Add workspace session shell
+- Add artifact model
+- Add config model
+- Add structured backend errors
+- Add public api shell
+- Add workspace crate foundation
+- Freeze v1 exit codes
+- Add printable failure helpers
+- Add process outcome contract
+- Add aggregate render hooks
+- Add entry trait contract
+- Add record trait contract
+- Add stable length helper
+- Add echo formatting for shells
+- Add echo formatting for containers
+- Add echo formatting for scalars
+- Add echo hook formatting trait
+- Add container render helpers
+- Add length trait across v1 families
+- Add container indexing helpers
+- Add deterministic container constructors
+- Add map container type
+- Add set container type
+- Add sequence container type
+- Add vector container type
+- Freeze array container policy
+- Format shell values explicitly
+- Add shell unwrap helpers
+- Add error shell type
+- Add optional shell type
+- Add recoverable inspection helpers
+- Add recoverable abi type
+- Add runtime string wrapper
+- Freeze scalar value policy
+- Add structured runtime errors
+- Add public api shell
+- Add workspace crate foundation
+- Clarify V1 compiler scope and future milestones
+- Render intrinsic roles explicitly
+- Add backend role metadata
+- Classify roadmap families
+- Add arithmetic and bitwise roadmap entries
+- Route cast diagnostics through intrinsics
+- Add deferred query and arithmetic placeholders
+- Report V3 intrinsic boundaries explicitly
+- Add dot echo runtime hooks
+- Type dot echo through intrinsic registry
+- Freeze dot echo contract
+- Add dedicated dot len lowering
+- Type dot len through intrinsic registry
+- Freeze dot len receiver contract
+- Type dot not through intrinsic registry
+- Lower comparison intrinsics through intrinsic ir
+- Add ordered comparison intrinsics
+- Route equality intrinsics through registry
+- Freeze comparison operand contracts
+- Add structured diagnostic helpers
+- Add lowering lookup apis
+- Add typed selection api
+- Preserve intrinsic call surfaces
+- Add registry lookup apis
+- Add canonical registry table
+- Add registry entry model
+- Add public registry model
+- Add workspace crate foundation
+- Document recoverable abi semantics
+- Freeze recoverable error abi
+- Lower recoverable call handling paths
+- Retain explicit error metadata on calls
+- Add v1 check and fallback typing
+- Retain recoverable call effects
+- Update routine error type separator to '/'
+- Honor typed aggregate container families
+- Honor typed linear container families
+- Dump deterministic lowered workspace snapshots
+- Run lowering after workspace typechecking
+- Inventory remaining unsupported surfaces
+- Lower break edges out of loops
+- Lower condition loops into cfg
+- Record entry routine candidates
+- Retain package export metadata
+- Lower shell unwrap instructions
+- Lower nil shell constructors
+- Lower entry variant constructions
+- Lower set and map literals
+- Lower linear container literals
+- Lower record initializers into constructors
+- Verify lowered control-flow graphs
+- Lower value-producing when expressions
+- Lower statement when control flow
+- Lower report calls into terminators
+- Lower return statements into terminators
+- Lower index access expressions
+- Lower field access expressions
+- Lower method calls as routine calls
+- Lower direct routine calls
+- Lower assignments into explicit stores
+- Lower body expressions into routine slots
+- Lower identifier loads
+- Add literal expression lowering
+- Lower routine declaration shells
+- Lower global storage declarations
+- Lower entry type layouts
+- Lower record type layouts
+- Lower alias declarations
+- Lower routine signatures into type data
+- Add single-program workspace shim
+- Build workspace lowering source maps
+- Retain mounted symbol provenance
+- Translate checked type ids into lowering types
+- Add lowering session shell
+- Add block ir shells
+- Add lowered type table
+- Add workspace ir shells
+- Add ir id foundation
+- Add typed workspace smoke handoff
+- Add structured diagnostics surface
+- Add public api shell
+- Add workspace crate foundation
+- Typecheck prepared workspaces
+- Support postfix unwrap typing
+- Type nil in expected shell contexts
+- Support named entry value contexts
+- Support named record initializer contexts
+- Expand apparent aggregate types across shells
+- Move imported method lookup onto typed facts
+- Import mounted symbol types from loaded packages
+- Add workspace package caching
+- Add typed workspace result models
+- Preserve mounted symbol provenance
+- Add workspace handoff model
+- Run fol-typecheck after resolution
+- Freeze v1 coercion rules
+- Type scalar operators
+- Type shell compatibility
+- Type entry value access
+- Type record initializers
+- Type set and map literals
+- Type contextual container literals
+- Add never-aware control typing
+- Type loop control flow basics
+- Type when branch results
+- Enforce routine report compatibility
+- Enforce routine return compatibility
+- Type postfix access expressions
+- Type routine and method calls
+- Enforce assignment compatibility
+- Type initializers and final bodies
+- Type literals and resolved identifiers
+- Check nested routine declarations
+- Check local binding declarations
+- Lower declaration signatures
+- Add typed result models
+- Define normalized semantic type shapes
+- Add typed program shell
+- Add canonical builtin type tables
+- Add diagnostic error plumbing
+- Add foundation crate scaffolding
+- Add guidance notes and helps
+- Add warning and info helpers
+- Add package related labels
+- Add ambiguity candidate labels
+- Add duplicate-site labels
+- Add builder helper paths
+- Route parser diagnostics structurally
+- Lower resolver errors structurally
+- Lower package errors structurally
+- Add producer lowering trait
+- Classify parser error codes
+- Add resolver error codes
+- Add package error codes
+- Render secondary labels and notes
+- Render primary source spans
+- Add migration compatibility helpers
+- Add rich diagnostic model
+- Reject directory imports with `build.fol`
+- Preserve native artifact placeholders
+- Model installed package locators
+- Prepare entry packages before resolution
+- Prepare entry packages for resolver
+- Compute prepared export mounts
+- Preload transitive package dependencies
+- Move pkg root loading into package session
+- Route std directories through package session
+- Load local directories through package session
+- Add package session foundation
+- Extract build definitions from full fol
+- Move build definition loading
+- Move package metadata loading
+- Add core package models
+- Add workspace crate shell
+- Mount pkg exports from build roots
+- Preload pkg deps from build files
+- Extract loc exports from build files
+- Extract pkg defs from build files
+- Add build definition source kinds
+- Load pkg metadata from package yaml
+- Resolve pkg imports from package stores
+- Validate installed package roots
+- Define package manifest schema
+- Load std imports from configured roots
+- Add explicit std root configuration
+- Load loc imports from directories
+- Add cached package loading entrypoints
+- Add package loading session foundation
+- Add pkg source kind
+- Retain origins for plain calls and named types
+- Retain origins for plain identifiers
+- Support hidden routine visibility
+- Route top-level lookup through source units
+- Resolve local import aliases immediately
+- Expose imported routines and types
+- Expose imported values to plain lookup
+- Resolve inquiry targets
+- Resolve qualified type references
+- Resolve named type references
+- Resolve qualified identifiers
+- Resolve local import targets
+- Resolve plain free calls
+- Add rolling binder scopes
+- Add loop binder scopes
+- Reject unsupported import kinds
+- Lower import alias records
+- Add block scope bindings
+- Surface resolver failures
+- Add routine scope traversal
+- Collect top-level symbols
+- Add source unit scope graph
+- Add foundation crate scaffolding
+- Add source-unit visibility metadata
+- Adopt package parser output
+- Add declaration-only file roots
+- Retain nested syntax origins
+- Add parsed package origins
+- Retain comments on expression list items
+- Preserve inline expression comment wrappers
+- Preserve adjacent comment nodes
+- Preserve leading body comment nodes
+- Preserve root comment nodes
+- Preserve comments past stage2
+- Preserve structured use path segments
+- Support channel endpoint access
+- Support postfix template calls
+- Support record initializer expressions
+- Support mutex routine parameters
+- Support coroutine spawn expressions
+- Support select statements
+- Support async and await pipe stages
+- Add processor keywords
+- Support access pattern captures
+- Support channel type references
+- Support postfix optional unwrap
+- Support limited type references
+- Support matching expressions
+- Widen destructuring bindings across binding forms
+- Support destructuring bindings
+- Support shorthand optional and never types
+- Support leading-dot builtin calls
+- Allow builtin method receivers for extensions
+- Support empty loop headers
+- Support named function-type parameters in routine headers
+- Support call-site unpack arguments
+- Support keyword call arguments
+- Support square type generic headers
+- Support empty object type markers
+- Support multi-name type declarations
+- Support grouped type declarations
+- Support explicit type contract headers
+- Use structural inquiry targets
+- Add nil literal expressions
+- Support union type references
+- Support bracketed any and none types
+- Lower bare never type references
+- Add never type references
+- Restrict definition parameters to macros
+- Widen definition headers and bodies
+- Retain type contract headers
+- Unify type body member namespaces
+- Support prefixed record methods
+- Support record type members
+- Support record alias members
+- Reject duplicate type routine members
+- Support entry routine members
+- Support record routine members
+- Retain type body members in ast
+- Just changes
+- Support captures on standard routines
+- Support protocol standard constants
+- Support extended standard types
+- Support extended standard aliases
+- Support blueprint standard types
+- Support blueprint standard aliases
+- Support protocol standard types
+- Support protocol standard aliases
+- Support blueprint standard methods
+- Support default protocol functions
+- Retain standard kind options
+- Remove undocumented path source-kind type
+- Support flexible test type argument separators
+- Support flexible numeric matrix type arguments
+- Support flexible numeric array type arguments
+- Support flexible array type separators
+- Support flexible scalar type option separators
+- Support flexible type argument separators
+- Support flexible routine capture separators
+- Support flexible use option separators
+- Support flexible binding option separators
+- Support flexible declaration option separators
+- Support flexible routine option separators
+- Support flexible type option separators
+- Support flexible call argument separators
+- Support flexible container separators
+- Support flexible pipe lambda parameter separators
+- Support availability invokes in statement lookahead
+- Support empty pattern access
+- Support semicolon-separated pattern assignment targets
+- Support trailing access pattern separators
+- Support semicolon-separated access patterns
+- Support pattern assignment targets
+- Support var rolling binders
+- Improve rolling binder diagnostics
+- Support semicolon-separated rolling bindings
+- Support when filters in rolling expressions
+- Support flow-bodied alternative function headers
+- Support flow-bodied pipe lambdas
+- Support flow-bodied shorthand anonymous functions
+- Support flow-bodied anonymous routines
+- Support flow-bodied logical declarations
+- Support flow-bodied procedure declarations
+- Support flow-bodied function declarations
+- Support type and module flow branch bodies
+- Support routine flow branch bodies
+- Support loop flow branch bodies
+- Support nested branch flow bodies
+- Support control flow branch bodies
+- Support block flow branch bodies
+- Support builtin flow branch bodies
+- Support declaration flow branch bodies
+- Support assignment flow branch bodies
+- Preserve anonymous logical expressions
+- Support loop flow inquiry bodies
+- Support when flow inquiry bodies
+- Support if flow inquiry bodies
+- Support block flow inquiry bodies
+- Support control flow inquiry bodies
+- Support routine flow inquiry bodies
+- Support module flow inquiry bodies
+- Support type flow inquiry bodies
+- Support builtin flow inquiry bodies
+- Support declaration flow inquiry bodies
+- Support assignment flow inquiry bodies
+- Support routine inquiry bodies
+- Support module inquiry bodies
+- Support type inquiry bodies
+- Support use inquiry bodies
+- Support builtin inquiry bodies
+- Support control inquiry bodies
+- Support declaration inquiry bodies
+- Support block and assignment inquiry bodies
+- Support qualified inquiry targets
+- Support quoted inquiry targets
+- Support named inquiry targets
+- Support block stages in pipes
+- Support invoke stages in pipes
+- Support call stages in pipes
+- Support assignment stages in pipes
+- Support flow bodies for for and each
+- Support flow bodies for while and loop
+- Support control stages in pipes
+- Support routine stages in pipes
+- Support declaration stages in pipes
+- Support binding alternative stages in pipes
+- Support binding stages in pipes
+- Support generic alternative logical headers
+- Support generic alternative procedure headers
+- Support generic alternative function headers
+- Support captures on alternative logical headers
+- Support captures on alternative procedure headers
+- Support captures on alternative function headers
+- Support parameterized alternative logical headers
+- Support parameterized alternative procedure headers
+- Support parameterized alternative function headers
+- Support alternative logical headers
+- Support alternative procedure headers
+- Support alternative function headers
+- Support loop stages in pipes
+- Support when stages in pipes
+- Support if stages in pipes
+- Retain inquiries on expression pipe lambdas
+- Reject duplicate inquiry target lists
+- Support flow inquiry bodies
+- Support semicolon inquiry targets
+- Support comma-separated inquiry targets
+- Support empty implementation markers
+- Support empty segment markers
+- Support while loops
+- Add while keyword
+- Support binding alternatives on extended members
+- Support binding alternatives on blueprint fields
+- Support binding alternatives on entry variants
+- Support binding alternatives on record fields
+- Support shorthand anonymous error types
+- Support shorthand anonymous return types
+- Support pipe lambda error types
+- Support pipe lambda return types
+- Support grouped record fields
+- Support trailing default pipe lambda parameters
+- Support binding options on entry variants
+- Support binding options on record fields
+- Mark borrowable pipe lambda parameters
+- Validate variadic pipe lambda parameters
+- Support variadic pipe lambda parameters
+- Support default pipe lambda parameters
+- Support grouped pipe lambda parameters
+- Support const extended standard members
+- Support const blueprint standard fields
+- Support const entry variants
+- Support const record fields
+- Retain inquiries in pipe lambdas
+- Retain inquiries in shorthand anonymous functions
+- Retain inquiries in anonymous routines
+- Support captures in pipe lambdas
+- Support captures in shorthand anonymous functions
+- Support captures in anonymous routines
+- Support def and seg visibility options
+- Validate declaration visibility options
+- Support implementation visibility options
+- Support multiple inquiry targets
+- Support this inquiry targets
+- Retain inquiry clause targets
+- Support block-bodied pipe lambdas
+- Support typed pipe lambdas
+- Support expression-bodied pipe lambdas
+- Retain type member metadata
+- Lower std source-kind types
+- Lower loc source-kind types
+- Lower url source-kind types
+- Lower path source-kind types
+- Support empty seg option brackets
+- Support empty def option brackets
+- Support anonymous logical expressions
+- Validate routine closure captures
+- Support named routine closure captures
+- Add dedicated seg and lab ast nodes
+- Support shorthand anonymous functions
+- Support anonymous procedure expressions
+- Support anonymous function expressions
+- Support invoke statements
+- Support suffix availability expressions
+- Support multi-pattern access expressions
+- Support multi-pattern availability access
+- Add prefix availability expressions
+- Support general invoke expressions
+- Support qualified path assignment targets
+- Support qualified path call statements
+- Support qualified path expressions
+- Support slice assignment targets
+- Support reverse slice expressions
+- Support open slice bounds
+- Add bounded slice expressions
+- Support dollar when defaults
+- Support flow bodies for when and if branches
+- Report missing pipe stages
+- Support return pipe stages
+- Support builtin pipe stages
+- Support if call stages in pipe expressions
+- Add basic pipe expressions
+- Reject duplicate extended standard members
+- Reject duplicate blueprint standard fields
+- Reject duplicate protocol standard signatures
+- Support extended standard kind brackets
+- Support blueprint standard kind brackets
+- Support protocol standard kind brackets
+- Support ext type options
+- Support empty std option brackets
+- Validate tst access arguments
+- Allow tst definitions
+- Lower tst type references
+- Support nested standard declarations
+- Support extended standard declarations
+- Support blueprint standard declarations
+- Add protocol standard declarations
+- Parse inquiry bodies as expressions
+- Reject duplicate inquiry clauses
+- Attach inquiry clauses to routines
+- Validate variadic parameter rules
+- Support variadic parameters
+- Support triple-dot ranges
+- Support direct bare use paths
+- Support direct quoted use paths
+- Support bare multi-binding rolling syntax
+- Reject duplicate rolling binders
+- Reject duplicate use names
+- Support quoted type names
+- Support quoted alias names
+- Validate use option conflicts
+- Support use visibility options
+- Add rolling expressions
+- Support quoted iteration binders
+- Support segmented quoted binding names
+- Support quoted qualified type references
+- Support quoted root type references
+- Support named generic headers
+- Support named function-type headers
+- Normalize single-quoted use paths
+- Support quoted binding names
+- Support quoted routine parameters
+- Support keyword-named routine parameters
+- Support quoted record fields and entry variants
+- Support quoted use declaration names
+- Support quoted segment and implementation names
+- Support quoted call expressions
+- Support quoted root call and assignment statements
+- Support logical names in typed loop binders
+- Support logical names in multi-binding segments
+- Support logical-name roots at top level
+- Support logical-name roots in statements
+- Support quoted assignment targets
+- Support quoted member access and calls
+- Support quoted routine names
+- Support keyword-named entry variants
+- Support keyword-named record fields
+- Support lab declarations
+- Support imp generic headers
+- Support empty imp option brackets
+- Add imp declarations
+- Support keyword-named type declarations
+- Support keyword-named bindings
+- Support keyword-named routines and calls
+- Allow keyword names in def and seg declarations
+- Support self and this expressions
+- Support lab record fields
+- Support lab entry variants
+- Support seg declarations
+- Support multi-use declarations
+- Support grouped multi-name bindings
+- Support mixed flat binding entries
+- Support grouped bindings
+- Support shared-header multi-bindings
+- Parse fun/pro custom error type signatures
+- Align lexer keywords with book AK/BK set
+- Parse unary ref and deref expressions
+- Parse unary plus primary expressions
+- Parse method call expressions in body contexts
+- Parse function call expressions in statement values
+- Parse identifier-based function call statements
+- Parse builtin diagnostic statements as call nodes
+- Support nand/nor logical lowering with token-text fallback
+- Support else-if keyword chains in parser
+- Support when-guards in loop iteration conditions
+- Parse loop iteration conditions with in
+- Support chained if lowering to nested when
+- Parse minimal if statements via when lowering
+- Parse yield statements in loop bodies
+- Parse break statements in loop bodies
+- Parse minimal loop statements
+- Parse minimal when statements with case/default
+- Add xor logical precedence layer
+- Support unary logical not expressions
+- Enforce logical and/or precedence layering
+- Parse basic use declarations
+- Parse basic procedure declarations
+- Parse basic function declarations with parameter headers
+- Parse logical and/or with comparison precedence
+- Add modulo and comparison expression parsing
+- Support compound assignment operators
+- Parse basic assignment statements
+- Support unary minus in return expressions
+- Support parenthesized return expressions
+- Add mul/div precedence for return expressions
+- Parse simple binary expressions in return statements
+- Parse basic return statements
+- Parse basic var declarations into AST
+- Parse identifiers and literals into Program nodes
+- Propagate parser error locations to diagnostics
+- Implement FOL AST and integrated parsing pipeline
+- Implement foundational Formal Logic language parser
+- Implement initial Abstract Syntax Tree and parser
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Count corpus cases
+- Narrow capture guidance
+- Align failure inventory
+- Enforce eventual handling
+- Remove public test probe
+- Reject deferred reports
+- Close semantic edge cases
+- Route qualified task calls
+- Complete pointer transfers
+- Isolate mdbook output
+- Name public models
+- Decouple std from execution
+- Share process outcome adapter
+- Code missing direct inputs
+- Stabilize root errors
+- Synchronize compiler contracts
+- Honor imported type shapes
+- Preserve aggregate drop state
+- Preserve output precedence
+- Preserve runtime ownership
+- Enforce artifact capabilities
+- Harden ownership control flow
+- Preserve mutex value transfers
+- Locate shared pointer writes
+- Preserve v3 route diagnostics
+- Harden remaining boundaries
+- Harden observation semantics
+- Close storage and abi gaps
+- Sync v3 completion semantics
+- Harden transfer boundaries
+- Sync v3 tree-sitter scopes
+- Preserve recoverable loop carriers
+- Eliminate hidden ownership clones
+- Harden transfer and tooling edges
+- Harden generic processor calls
+- Harden repeated ownership
+- Close soundness gaps
+- Harden semantic contracts
+- Recursive-type boundary, retire plan
+- Validate rename identifiers
+- Bound nesting, grow stacks in segments
+- Param names in routine identity
+- Float derives + keyword field names
+- Render diagnostics as fol syntax
+- Error count omits redundant wrapper
+- Default args part of routine identity
+- Validate roots, dedup+guard members
+- Code run forwards program output
+- Honest receiver-mutation boundary
+- Option kind str matches the book
+- Chained || joins recoverable arms
+- Size bare array literals for loops
+- Loop var scope, entry inference, mono
+- Statements may follow block statements
+- Skip routine-local use declarations
+- Assign results to hoisted locals
+- Check model + step routing + tests
+- Int dep args + dir install checks
+- Echo-format fields + emit paths
+- Char metadata + git identity
+- Mono, panic, when-arm, index fixes
+- V1/v2 hardening round fixes
+- Loc imports, mutability, ref anchors
+- Clarify constraint errors
+- Clarify generic inference
+- Parse v2 standards
+- Reject nested std decls
+- Mark fallback completions
+- Honor fol global defaults
+- Refresh workspace symbols
+- Remove routine todo stubs
+- Nest document symbols
+- Drop todo shell fallback
+- Close when-of boundary
+- Close first readiness batch
+- Repair navigation baseline
+- Typecheck method overloads
+- Improve help text formatting and readability
+- Show help instead of error on missing subcommand
+- Repair 80 pre-existing backend unit test failures
+- Improve runtime error messages in generated code
+- Remove panic paths from lexer Display and backend emit
+- Replace type catch-all with exhaustive match
+- Recover from poisoned mutex in global access
+- Replace binary operator catch-all with explicit rejections
+- Add descriptive messages to unreachable calls
+- Replace LSP serialization panics with error propagation
+- Replace silent catch-all with explicit node handling
+- Clamp peek/seek bounds and remove dead code
+- Better LSP and diagnostics
+- Normalize formatter blanks
+- Filter code actions
+- Trust resolved completions
+- Restore type completion order
+- Order type completions
+- Honor completion context
+- Prefer local completions
+- Use self-contained formal package fixtures
+- Stabilize frontend test baselines
+- Anchor declaration errors to keyword line
+- Add locations to all parse errors
+- Remove kind prefix from error Display impls
+- Add cascade suppression and error cap
+- Add error recovery — sync to next declaration after failed parse
+- Compile_error to BackendError, remove eprintln/println, dead params
+- Convert panics to errors, remove eprintln diagnostics
+- Convert panics to errors in skip_layout, skip_ignorable, depth guard
+- Remove dead code — ANY variants, unused traits, stale helpers
+- CLI dispatch safety, stderr capture, typo fixes
+- Recursion limits, scope bounds, name validation, panic removal
+- Lockfile version check, hostname validation, metadata escaping
+- Codegen escaping, dead placeholders, unreachable removal
+- Test variable names, set indexing validation
+- Catch-all diagnostic, scope validation, error taxonomy
+- Remove panicking expects, validate paths, check stdlib scope
+- Loop limit errors, depth guard overflow, unterminated comment diagnostic
+- Off-by-one, missing keywords, yeild→yield rename
+- Improve completion and hovering when LSP typecheck fails
+- Separate local and imported namespaces
+- Dedupe shadowed completion names
+- Make tree bundle generation native and honest
+- Hide root direct input from help
+- Simplify root help and preserve subcommand help
+- Repair missing pinned git materializations
+- Use package-safe git materialization roots
+- Report invalid manifest dependency forms clearly
+- Reject duplicate manifest dependency aliases
+- Harden malformed git locator diagnostics
+- Unify and colorize root help
+- Force colored human output
+- Compact option help output
+- Make root help and version frontend-owned
+- Support deep namespace app fixtures
+- Verify intrinsic lowering shapes
+- Keep unwrap scoped to shells
+- Reject implicit error shell conversion
+- Separate shells from recoverable calls
+- Reject unresolved parameter locals explicitly
+- Scope routine parameters and end-to-end lowering
+- Treat early-return when branches as control flow
+- Harden verifier reference checks
+- Report explicit unsupported lowering boundaries
+- Anchor nested aggregate diagnostics
+- Preserve reopened v1 diagnostic origins
+- Report explicit uninferred binding errors
+- Replace imported symbol fallback diagnostics
+- Reject build package source units
+- Reject v3 system surfaces
+- Reject v2 conformance surfaces
+- Reject v2 generic headers
+- Reject unsupported cast operators
+- Add source rendering fallbacks
+- Report remote locator placeholders
+- Ignore stray package.fol files
+- Require package yaml and build roots
+- Validate package yaml metadata
+- Dedupe repeated loc imports
+- Report explicit loc target errors
+- Detect package import cycles
+- Reject legacy url source kind
+- Treat str as a builtin type
+- Restrict import exposure to exported members
+- Harden ambiguity diagnostics
+- Harden unresolved diagnostics
+- Cover audited traversal surfaces
+- Reject duplicate top-level symbols
+- Preserve root comments per source unit
+- Reject root control flow and literals
+- Reject root calls and assignments
+- Report empty use path segments
+- Avoid stage3 jump drain panics
+- Avoid stage2 jump drain panics
+- Correct stage3 seek ignore lookbehind
+- Correct stage2 seek ignore lookbehind
+- Harden location visualization fallbacks
+- Clarify invalid receiver diagnostics
+- Reject invalid namespace components
+- Validate package names
+- Surface recursive traversal failures
+- Propagate sources helper failures
+- Reject overflowing prefixed literals
+- Reject overflowing decimal literals
+- Constrain yeild to routine contexts
+- Reject break outside loops
+- Reject return outside routines
+- Enforce hard file boundaries
+- Restore multi-binding expansion with destructuring
+- Keep braced assignment bodies from swallowing close braces
+- Normalize test type missing close diagnostics
+- Report missing close on empty type argument lists
+- Normalize missing close diagnostics in type brackets
+- Retain trailing inquiries on braced routines
+- Restore generated book output
+- Wire extended standard type branches
+- Parse extended standard type members
+- Publish book from docs directory
+- Disambiguate routine headers and bracket diagnostics
+- Stop stage3 bootstrap spin on short inputs
+- Restore shorthand anonymous function lookahead
+- Clarify branch flow body diagnostics
+- Anchor duplicate standard members
+- Anchor duplicate entry variants
+- Anchor grouped record duplicate diagnostics
+- Reject duplicate pipe lambda parameters
+- Label source-kind type arguments consistently
+- Resolve slice and default-body regressions
+- Keep chained builtin pipe stages left-associative
+- Disambiguate std declarations from std identifiers
+- Seed forward routines after closing blocks
+- Report callable arity mismatches in custom errors
+- Key routine signatures by arity
+- Detect conflicting duplicate routine signatures
+- Support forward routine report type checks
+- Reject builtin keyword receiver declarations
+- Reject builtin receiver types in methods
+- Register receiver-qualified method signatures
+- Require qualified method lookup in report typing
+- Report unknown method calls in custom errors
+- Infer report method-call result types
+- Report unknown routine calls in custom errors
+- Infer report call-result types from routine signatures
+- Parse builtin diagnostic arg lists with commas
+- Detect unknown identifiers inside report expressions
+- Reject unknown report identifiers in custom-error routines
+- Infer identifier expressions in report type checks
+- Type-check report expressions for custom errors
+- Allow numeric family compatibility in report type checks
+- Parse true/false keywords as boolean literals
+- Type-check report local vars against custom errors
+- Type-check report identifiers against custom errors
+- Validate report literal compatibility for custom errors
+- Enforce report value in custom-error routines
+- Report unary operand errors at EOF consistently
+- Align unary operand-missing diagnostics
+- Improve unary plus missing-operand diagnostics
+- Enforce parser forward progress across declaration branches
+- Guard parser progress during var declaration scans
+
+### <!-- 2 -->🚜 Refactor
+
+- Remove legacy let syntax
+- Remove receiver/capture/generics in std body
+- Pin standards-as-type as permanent error
+- Remove imp implementation blocks
+- Rename generic type example
+- Rename alloc seam
+- Carry target strings
+- Unify dep generated
+- Unify stdout outputs
+- Use output handles
+- Drop yaml package control
+- Close sync audit holes
+- Centralize lsp registries
+- Split highlight base
+- Use compiler facts
+- Drop prelude imports
+- Remove prelude surface
+- Move set map to alloc
+- Move vec seq to alloc
+- Move str to alloc
+- Drop entry module
+- Move entry to std
+- Move echo to std
+- Keep single model crate
+- Remove cargo build mode
+- Split build modes
+- Add runtime paths
+- Add build profile
+- Split cargo driver
+- Add build paths
+- Replace helpers with colored trait
+- Replace clap with manual arg parser
+- Remove regex, lazy_static, and colored crates
+- Remove remaining V1/V2/V3 milestone references from error messages
+- Replace milestone messages with user-friendly errors
+- Replace internal V1 milestone references with user-friendly messages
+- Replace internal milestone messages with user-friendly errors
+- Replace expression catch-all with exhaustive match
+- Remove unreachable guards in dispatch
+- Route completion by context
+- Use diagnostics directly
+- Delete Glitch trait and all impls
+- Return Vec<Diagnostic> at public API
+- Replace legacy error types with LexerError
+- Strip colors from library crates
+- Export compiler-owned display helpers
+- Extract compiler-owned LSP adapter
+- Rewrite strict diagnostics
+- Drop lowered recoverable storage
+- Drop implicit lower propagation
+- Drop typed recoverable state
+- Structural ParseErrorKind field
+- Remove legacy parse(), compatibility shim, test/legacy
+- Flatten editor commands under tool
+- Move editor commands under tool
+- Trim root group aliases
+- Remove flat cli commands
+- Group cli commands by workflow area
+- Use clap-native help rendering
+- Make the root binary frontend-owned
+- Nest language crates under lang
+- Group crates by compiler execution and tooling
+- Move compile flags off the root help
+- Remove the old root compiler driver
+- Centralize root frontend dispatch
+- Route keyword intrinsics through registry
+- Keep legacy api as entry shim
+- Centralize compiler glitch lowering
+- Drop legacy message code guessing
+- Split json renderer module
+- Split human renderer module
+- Add stable diagnostic code type
+- Remove root loading adapters
+- Retain prepared package controls
+- Move root loading helpers
+- Share canonical identifier keys
+- Keep parse as compatibility shim
+- Prefer declaration package parsing
+- Remove raw use path field
+- Cache per-source char buffers
+- Quarantine syntactic type hints
+- Replace .mod regex detection
+- Rename literal atom module
+- Split special type parsers
+- Deduplicate blueprint standard parsing
+- Split anonymous capture coverage
+- Split call argument separator coverage
+- Split container literal coverage
+- Extract inquiry flow node lowering
+- Split routine signature scanning helpers
+- Split routine declaration parsers
+- Split tst type parsing helpers
+- Split keyword-named type member coverage
+- Centralize optional semicolon consumption
+- Share call open-paren parsing
+- Unify unary prefix parsing flow
+- Deduplicate unary operand validation
+- Remove unused legacy src module tree
+- Centralize stream input error reporting
+- Simplify token predicates and displays
+
+### <!-- 3 -->📚 Documentation
+
+- Finalize shipped contract
+- Align runtime capability tiers
+- Explain no-std execution
+- Clarify version contract
+- Clarify no-std execution
+- Align shipped cross-layer contract
+- Add V3 memory and processor plans
+- Mark later-design surfaces as boundaries
+- Eager logic and numeric edge semantics
+- Pin verified runtime semantics
+- Align contract with shipped surface
+- Pin workstream O complete
+- Pin workstream N complete
+- Pin workstream M complete
+- Pin workstream L complete
+- Pin workstream K complete
+- Pin workstream J complete
+- Pin I3 and I6 complete
+- Pin I1 and I2 complete
+- Mark workstream G complete
+- Pin standards limits
+- Pin generic error boundary
+- Pin v2 example matrix
+- Align workspace symbol docs
+- Fix standards contract book
+- Refresh agents contract
+- Pin remaining narrow limits
+- Pin bundled std example path
+- Clarify standards runtime
+- Expand shipped v2 scope
+- Align v2 contract
+- Retag generic type example
+- Track follow-up slices
+- Promote execution examples
+- Close extended v2 scope
+- Close blueprint v2 scope
+- Narrow shipped v2 scope
+- Freeze surface
+- Retag milestone notes
+- Freeze dispatch scope
+- Freeze extended scope
+- Freeze blueprint scope
+- Freeze constraints
+- Freeze generic types
+- Freeze runtime strategy
+- Resolve contract scope
+- Add full contract note
+- Verify rename boundary
+- Verify code action boundary
+- Verify procedure statements
+- Verify cargo authors
+- Verify keyword summary
+- Verify query coverage
+- Verify treesitter exprs
+- Verify treesitter operators
+- Verify treesitter control
+- Verify treesitter declarations
+- Verify method call boundary
+- Verify operator boundary
+- Verify book summary
+- Verify release toolchain
+- Verify template boundary
+- Verify when-of boundary
+- Verify anon type boundary
+- Verify anon capture boundary
+- Verify entry rejection
+- Link build direction page
+- Close second hardening pass
+- Close hardening plan
+- Close standards m2
+- Close generics m1 plan
+- Mark std slices done
+- Close quoted target cutover
+- Close bootstrap plan
+- Finish bundled std audit
+- Add tier examples
+- Freeze runtime wording
+- Define path handle model
+- Audit path handle split
+- Design path exports
+- Inventory export gaps
+- State round 3 non-goals
+- Note round 3 layering
+- Audit round 3 gaps
+- Cover output handles
+- Define output migration
+- Show dependency handles
+- Add build layering note
+- Add direction note
+- Freeze surface direction
+- Align build docs
+- Remove package yaml roadmap
+- Switch root docs to build fol
+- Document ambient build api
+- Remove package yaml contract
+- Remove public graph entry
+- Declare ambient graph entry
+- Add sync contributor guide
+- Drop stale manual wording
+- Audit remaining registries
+- Add model matrix
+- Add sync contract
+- Note runtime sync
+- Audit model runtime story
+- Add selection guide
+- Add mixed model example
+- Clarify current core scope
+- Drop old heap path
+- Define model tiers
+- Extend fol model phase 2
+- Plan fol model rollout
+- Clean non-oop wording
+- Clarify alias methods
+- Clarify record methods
+- Clarify procedural methods
+- Clarify V4 for foreign interop and ABI work
+- Add initial architecture documentation
+- Simplify README content
+- Add cross compilation guide
+- Mark all remaining phases complete
+- Update PLAN.md with completed phases
+- Mark 3.7, 3.9 done, update progress
+- Defer 3.1 and 3.2, update statuses
+- Mark 3.3, 3.8 done, update 7.4
+- Mark 3.7 mostly done, 3.8 partially done
+- Check off deferred operator items in 1.1 and 1.2
+- Mark Phase 7 fully done
+- Mark 7.1, 7.2, 7.5 done with existing coverage
+- Mark Phase 3.4-3.6 and 7.3 progress
+- Update Phase 7.4 and 7.3 progress
+- Mark lowering catch-all and Phase 8 done
+- Update PLAN.md with completed items and false positives
+- Update README with installation details
+- Spell out format style
+- Lock range format policy
+- Surface semantic tokens
+- Ship refs and rename docs
+- Trim future-work surface
+- Fix workspace guidance
+- Refresh shipped lsp surface
+- Add F1xxx frontend diagnostic codes
+- Mark all slices complete
+- Mark slices 1-4 complete
+- Remove Glitch trait and library colors
+- Unified diagnostics pipeline plan
+- Strengthen feature update checklist
+- Document tree-sitter maintenance rails
+- Classify LSP semantic lookup paths
+- Unify dedup suppression policy
+- Define diagnostics-editor contract
+- Augment tooling plan with audit findings
+- Add compiler integration and checklist
+- Rewrite strict error model
+- Update diagnostics and LSP chapters
+- Mark all diagnostics overhaul slices complete
+- Mark all hardening slices complete
+- Replace build plan with V1 hardening plan
+- Add build system documentation to book
+- Switch examples to semantic build files
+- Align build status wording
+- Update build plan to focus on semantic execution
+- Add checked-in build examples
+- Update tooling and editor build file guidance
+- Rewrite book package build entry sections
+- Refresh readme build entry guidance
+- Add neovim verification acceptance
+- Capture highlight completion baseline gaps
+- Mark highlight completion plan reset
+- Document frontend editor tooling
+- Freeze editor architecture plan
+- Sync grouped cli workflow
+- Update editor plan and move future work to new file
+- Close package workflow milestone
+- Update frontend overview documentation
+- Update frontend overview documentation
+- Close frontend milestone plan
+- Sync repo status after workflow milestone
+- Add frontend workflow chapter
+- Add help examples
+- Freeze zig-style workflow targets
+- Freeze roc-inspired ux goals
+- Freeze clap derive contract
+- Freeze frontend crate boundary
+- Reset frontend milestone plan
+- Close real app hardening plan
+- Mark data and intrinsic slices done
+- Mark first app slices done
+- Close first backend milestone
+- Sync repo and diagnostics docs
+- Freeze runtime-only support dependency
+- Freeze generated crate boundary
+- Freeze lowered-workspace input boundary
+- Freeze rust-first backend direction
+- Close plan reset slice
+- Outline backend plan and progress for V1
+- Close runtime milestone plan
+- Align runtime contract surfaces
+- Sync repo status after runtime milestone
+- Add backend integration guide
+- Freeze generated crate import contract
+- Map lowered ops onto runtime support
+- Map builtins onto backend contracts
+- Add backend authorship doctests
+- Freeze v1 scope boundary
+- Outline the FOL Runtime Plan
+- Close intrinsic registry plan
+- Sync repo status docs
+- Sync intrinsic cross references
+- Rewrite intrinsic reference page
+- Close current query expansion scope
+- Freeze deferred intrinsic families
+- Freeze first implementation families
+- Freeze intrinsics terminology
+- Classify builtin families
+- Freeze parser builtin entry points
+- Update Intrinsics Plan and related docs
+- Close v1 error handling plan
+- Sync pipe recovery semantics
+- Sync recoverable error contract
+- Sync repo recoverable status
+- Audit v1 error handling contract
+- Close reopened hardening plan
+- Sync repaired v1 lowering status
+- Close lowering milestone plan
+- Explain lowering in compiler diagnostics
+- Record lowered v1 pipeline
+- Sync repo status after lowering
+- Close full v1 plan
+- Sync full v1 status
+- Sync nil and unwrap v1 contract
+- Freeze reopened v1 boundary
+- Reopen full v1 completion plan
+- Close v1 milestone plan
+- Sync v1 stage boundary
+- Freeze v1 conversion contract
+- Update compiler plans and diagnostic docs
+- Close diagnostics hardening plan
+- Sync compiler diagnostics contract
+- Sync repo status docs
+- Record current reporting gaps
+- Freeze reporting hardening scope
+- Close package migration plan
+- Sync package import contract
+- Sync package boundary status
+- Mark c abi as future build work
+- Defer explicit cache flag
+- Close package import reset
+- Reset package contract to yaml and build
+- Close import resolution continuation
+- Sync loc std pkg import contract
+- Rename url source kind to pkg
+- Close continuation phase
+- Sync milestone status
+- Update resolver plan and remove old plan
+- Clarify declaration visibility and import behaviors
+- Mark pre-resolver alignment phase
+- Sync comment retention contract
+- Record cached char buffer behavior
+- Clarify root and use path contracts
+- Freeze comment compatibility contract
+- Sync parser and stream contracts
+- Freeze qualified path comparison-key policy
+- Refresh front-end test totals
+- Remove stale workspace inventory entries
+- Refresh front-end progress snapshot
+- Freeze front-end decision summary and divergences
+- Align receiver policy with parser contract
+- Freeze identifier-rule boundary
+- Freeze numeric-family scope
+- Freeze canonical parser duplicate checks
+- Freeze fol-native package detection contract
+- Freeze mixed program root contract
+- Freeze unsupported-character lexer errors
+- Freeze parser identifier canonicalization ownership
+- Freeze literal authority fixtures
+- Freeze structured qualified path contract
+- Freeze cooked and raw literal contract
+- Freeze internal comment classification
+- Freeze illegal token parser routing
+- Record malformed-name parser routing
+- Freeze comment authority contract
+- Close quoted-name unquote contract
+- Close receiver diagnostic span item
+- Close anonymous logical consistency
+- Freeze stream identity contract
+- Freeze current stream loading model
+- Freeze namespace validation contract
+- Freeze entry-root package authority
+- Record identifier edge contract
+- Update logical routine AST contract
+- Rebuild front-end hardening plan
+- Close final front-end hardening gate
+- Summarize next-stage front-end handoff
+- Refresh readme front-end status
+- Refresh front-end progress snapshot
+- Freeze parser module ownership outcome
+- Freeze explicit unsupported parser combinations
+- Summarize corrected parser root shape
+- Freeze lexer stage overlap boundary
+- Summarize lexer quoted literal families
+- Summarize undefined behavior audit
+- Summarize parser hardening boundary freeze
+- Record hardening execution notes
+- Summarize parser expected-x diagnostics
+- Summarize parser declaration family shapes
+- Summarize parser failure-shape consistency
+- Summarize parser statement expression boundaries
+- Expand parser AST and ownership contract
+- Record quoted-family lexer failures
+- Record quoted newline lexer policy
+- Summarize parser boundary responsibilities
+- Summarize parser name and path encoding
+- Record deferred front-end debt
+- Summarize parser-owned validations
+- Summarize parser literal lowering
+- Freeze lexer contract summary
+- Summarize stream namespace and locations
+- Summarize stream identity rules
+- Summarize stream source ordering
+- Summarize lexer stage ownership
+- Mark parser backlog complete
+- Restructure spec overview and section indexes
+- Remove stale path source-kind references
+- Add parser completion backlog
+- Progress.md
+- Add mismatched forward report example
+- Note forward-declared report typing support
+- Clarify receiver type restrictions
+- Document receiver methods and report typing
+- Update parser capability status
+- Align parser claims with actual implementation
+
+### <!-- 4 -->⚡ Performance
+
+- Split diagnostics from semantics
+- Cache workspace discovery
+- Narrow analysis overlays
+- Cache semantic snapshots
+
+### <!-- 6 -->🧪 Testing
+
+- Sync diagnostic wording
+- Align capture boundaries
+- Clarify hosted tier names
+- Harden process adapter
+- Cover moved source cleanup
+- Align rename boundary
+- Declare hosted workflows
+- Align routed fixtures
+- Inspect actual import nodes
+- Query declared local binding
+- Keep generated fol valid
+- Remove legacy let
+- Use scalar status matches
+- Track root namespace
+- Declare hosted fixtures
+- Centralize example inventory
+- Guard v3 failure inventory
+- Pin nesting guard behavior
+- Round 10 emission and naming pins
+- Round 7 runtime-value pins
+- Round 6 residual bug pins
+- Round 6 pins incl runtime values
+- Regression pins for rounds 1-5
+- Fix doc_summary field drift
+- Refresh lsp example fixtures for V2
+- Pin nested generic types
+- Pin generic receivers
+- Cover constrained generics
+- Cover generic type example
+- Pin procedural standards emit
+- Gate v2 audit helper
+- Refresh generic m1 lsp
+- Verify constrained generics
+- Verify standards execution
+- Track v2 contract gate
+- Track v2 tooling gate
+- Track v2 compiler gate
+- Cover shipped v2 trees
+- Verify block lowering
+- Verify loop lowering
+- Verify when default
+- Verify build condition boundary
+- Verify build loop boundary
+- Verify build expr boundary
+- Close keyword summary gap
+- Close expression form gap
+- Close keyword operator gap
+- Close query sync gap
+- Close flow grammar gap
+- Close decl grammar gap
+- Close global default gap
+- Close completion gap
+- Close code action gap
+- Close block expr gap
+- Close loop expr gap
+- Close std decl audit
+- Close rename boundary gap
+- Close workspace symbol gap
+- Close symbol hierarchy gap
+- Close proc value gaps
+- Close when default gap
+- Harden tree-sitter inventories
+- Harden editor seam cases
+- Harden cross-file standards
+- Harden generic edge cases
+- Expand example hardening
+- Harden standards semantics
+- Expand generic hardening
+- Harden generic parser scope
+- Harden generic call boundaries
+- Freeze generic core contract
+- Harden symbols workspace
+- Harden v1 semantics
+- Freeze v1 contract
+- Close phase 2 guardrails
+- Close final contract
+- Harden quoted fixtures
+- Harden bundled std use
+- Finish runtime hardening
+- Harden runtime editor tiers
+- Harden routed model paths
+- Harden transitive boundaries
+- Add std positive fixture
+- Add alloc positive fixture
+- Add core positive fixture
+- Harden alloc rejects
+- Expand core expr rejects
+- Expand core type rejects
+- Sync docs with examples
+- Lock model matrix
+- Cover git dep fields
+- Harden examples and editor
+- Harden dep queries
+- Cover dep handle typing
+- Lock add_dep handle
+- Harden ambient build errors
+- Cover build and graph locals
+- Lock build context semantics
+- Add top-level sync suite
+- Lock registry sync helpers
+- Harden model example sync
+- Harden tree sitter sync
+- Cover mixed model lsp
+- Lock hover model context
+- Lock compiler facts
+- Cover cli model builds
+- Add runtime import regression
+- Rename stale hosted checks
+- Cover mixed model workspaces
+- Cover allowed and blocked
+- Assert core runtime imports
+- Add end-to-end fixtures
+- Cover std hosted flow
+- Cover model emission
+- Trace runtime tier
+- Smoke model modules
+- Smoke split crates
+- Cover model boundaries
+- Cover invalid fol model
+- Cover method variadics
+- Cover imported methods
+- Cover target diagnostics
+- Add rustc parity
+- Add RoutineRef, CallIndirect, and fn pointer init tests
+- Add E2E tests for error handling and edge cases
+- Add negative E2E tests for deferred features
+- Formal E2E tests done
+- Add build negative and LSP failure tests
+- Add recursive type test, mark 7.3 done
+- Add pow operator to arithmetic E2E fixture
+- Add string concatenation unit test
+- Add arithmetic, boolean, string E2E fixtures
+- Add container and expression combo tests
+- Add rolling/yield/pattern rejection tests
+- Add return/argument/assignment mismatch tests
+- Add operator type-checking error path tests
+- Add float string and remaining operator tests
+- Add block comment adjacent code test
+- Add operator lowering tests
+- Lock exact code-action scope
+- Lock build format noop
+- Lock initialize surface
+- Lock cache split reuse
+- Deepen formatter corpus
+- Narrow code action cases
+- Expand rename refusals
+- Split editor summaries
+- Harden editor cli
+- Lock recovery flows
+- Cover broken edit states
+- Lock symbol invalidation
+- Cover build cli surface
+- Snapshot public outputs
+- Cover build file edges
+- Lock mixed request flow
+- Isolate multi-file cache
+- Harden format contracts
+- Lock formatting fast path
+- Format broken inputs
+- Cover format build cases
+- Lock formatting parity
+- Deepen formatter fixtures
+- Lock quickfix cache
+- Lock signature cache
+- Expand lifecycle edges
+- Lock analysis stages
+- Lock rename boundary cases
+- Lock reference coverage
+- Lock symbol cache reuse
+- Reject placeholder tools
+- Lock tool-only cli surface
+- Lock incremental semantics
+- Lock incremental recovery
+- Trim navigation imports
+- Lock cache invalidation
+- Expand build file lsp coverage
+- Lock public lsp summary
+- Lock multi-file lifecycle
+- Stabilize temp roots
+- Reject unsupported lsp methods
+- Lock initialize capabilities
+- Trim lsp test noise
+- Stabilize temp roots
+- Stabilize temp roots
+- Unified pipeline integration tests
+- Add tree-sitter sync validation
+- Drop stale propagation examples
+- Lock err shell value contract
+- Cover strict plain use
+- Add Slice 10 fixtures and regression coverage
+- Add package-store run build fixture
+- Add build.fol fixture packages
+- Add checked-in build.fol app fixtures
+- Cover build source units in formal packages
+- Lock completion-capable tool workflows
+- Lock namespace completion coverage
+- Lock type completion coverage
+- Lock plain symbol completion coverage
+- Cover completion stdio framing
+- Keep tree bundles neovim-consumable
+- Keep generated tree bundles byte-stable
+- Lock container shell intrinsic highlight snapshots
+- Lock keyword and import highlight snapshots
+- Snapshot declaration highlight captures
+- Validate highlight queries against generated parser
+- Lock declaration head highlight captures
+- Audit highlight query grammar field shapes
+- Add public github fetch fixture
+- Cover public git fetch workflows
+- Lock manifest mismatch diagnostics
+- Allow local git file locators for fetch fixtures
+- Lock manifest dependency parsing matrix
+- Parse source-qualified manifest dependencies
+- Lock git locator acceptance matrix
+- Lock root cli compatibility boundaries
+- Lock help sections and human highlights
+- Add completion dispatch coverage
+- Lock output color and profile precedence
+- Lock plain output workflow shape
+- Add frontend diagnostics integration coverage
+- Lock root cli migration boundary
+- Add workflow walkthrough coverage
+- Add help snapshot coverage
+- Add completion integration coverage
+- Add clean integration coverage
+- Add emit integration coverage
+- Add workspace wide test traversal coverage
+- Add check build run integration coverage
+- Add fetch integration coverage
+- Lock workspace model integration coverage
+- Add init new integration coverage
+- Lock workspace discovery cases
+- Lock output compatibility matrix
+- Lock cli help and smoke coverage
+- Add remaining failure fixtures
+- Add recoverable shell and failure fixtures
+- Add recoverable propagation fixture
+- Add panic and check intrinsic fixture
+- Add not len echo fixture
+- Add comparison intrinsic fixture
+- Add cross package container fixture
+- Add map and set fixture
+- Add linear container fixture
+- Add method flow fixture
+- Add alias flow fixture
+- Add entry flow fixture
+- Add record flow fixture
+- Add mixed loc std pkg fixture
+- Add pkg transitive import fixture
+- Add pkg basic import fixture
+- Add std namespace fixture
+- Add std basic import fixture
+- Add loc recoverable fixture
+- Add loc methods fixture
+- Add loc types and records fixture
+- Add loc plain values fixture
+- Add subfolder namespace fixture
+- Add hidden visibility failure fixture
+- Add same-folder shared scope fixture
+- Add loop break fixture
+- Add when control fixture
+- Add bindings and calls fixture
+- Add scalar entry fixture
+- Add app assertion helpers
+- Add std and pkg root helpers
+- Add compile and run harness helpers
+- Add real-program fixture tree
+- Lock package graph execution and traceability
+- Cover runtime indexing and container snapshots
+- Cover container constructors
+- Cover array construction
+- Snapshot core instruction emission
+- Snapshot global and routine signatures
+- Snapshot type emission
+- Snapshot crate skeleton emission
+- Lock layout planning
+- Lock mangling determinism
+- Lock workspace identity stability
+- Add foundation smoke coverage
+- Lock ordered container behavior
+- Lock recoverable shell boundaries
+- Lock nested container formatting
+- Lock empty container invariants
+- Lock top-level outcome behavior
+- Add aggregate integration examples
+- Lock nested echo formatting
+- Keep shells distinct from recoverable results
+- Lock public recoverable abi semantics
+- Freeze roadmap bucket consistency
+- Align keyword arity diagnostics
+- Lock keyword intrinsic entries
+- Freeze keyword registry ownership
+- Cover cast intrinsic diagnostics
+- Freeze deferred cast classification
+- Lock conversion operator entries
+- Distinguish accepted and deferred query intrinsics
+- Freeze deferred query classifications
+- Cover V3 intrinsic boundary diagnostics
+- Lock deferred ownership and pointer entries
+- Cover dot echo intrinsics
+- Lock dot echo registry entry
+- Cover dot len intrinsics
+- Expand dot len family coverage
+- Lock dot len registry entry
+- Cover dot not intrinsics
+- Lock dot not lowering
+- Lock dot not diagnostics
+- Lock boolean registry entries
+- Cover intrinsic comparison calls end to end
+- Expand comparison intrinsic family coverage
+- Lock canonical identity across compiler stages
+- Lock comparison registry entries
+- Validate registry invariants
+- Lock recoverable abi workspace coverage
+- Lock v1 error misuse diagnostics
+- Lock error call propagation typing
+- Lock repaired repro families end to end
+- Lock dump output for repaired repro
+- Lock early-return when cfg shape
+- Lock exact repaired container shapes
+- Lock combined lowering repro fixture
+- Lock early-return when lowering repro
+- Lock container literal lowering repro
+- Lock parameter symbol lowering repro
+- Cover lowering failure diagnostics
+- Cover lowered workspace dumps across package graphs
+- Cover every audited unsupported boundary
+- Cover mixed package workspace lowering
+- Dedupe repeated imported packages
+- Lock aggregate and shell parity
+- Lock explicit shell lifting
+- Lock shell alias runtime lowering
+- Lock exact when block shapes
+- Lock expression parity across packages
+- Lock declaration parity across packages
+- Lock ir foundation invariants
+- Lock full-chain workspace entry parity
+- Cover imported V1 typecheck failures
+- Require imported symbol success across package roots
+- Guard against reopened internal fallbacks
+- Audit remaining generic binding fallbacks
+- Lock nil and unwrap v1 regressions
+- Freeze nil and unwrap shell contract
+- Lock aggregate parity across imports
+- Lock imported method root parity
+- Lock qualified imported parity
+- Lock imported call argument parity
+- Lock imported value context parity
+- Lock transitive imported declaration facts
+- Lock direct imported declaration facts
+- Lock imported type surface facts
+- Lock imported call reference typing
+- Lock imported value reference typing
+- Lock loaded package declaration signatures
+- Preserve local-only behavior through workspace typing
+- Lock workspace package graph retention
+- Lock reopened v1 blockers
+- Cover typecheck integration outputs
+- Lock literal family compatibility
+- Lock forward cross-file declaration typing
+- Lock alias and entry declaration typing
+- Lock type reference lowering
+- Cover rich cli outputs
+- Preserve cli json guidance fields
+- Cover warning and info rendering
+- Freeze multi-location label strategy
+- Lock non-unknown compiler codes
+- Lock real json compiler fixtures
+- Lock structured json shape
+- Lock human compiler snapshots
+- Lock rich model serialization
+- Lock baseline renderer shapes
+- Lock package root flags through fol-package
+- Lock package provider boundary semantics
+- Lock control file exclusion
+- Lock shared dependency dedupe
+- Lock package dependency cycle handling
+- Lock build extraction boundaries
+- Lock build diagnostic origins
+- Lock transitive pkg build dependencies
+- Lock pkg export namespace visibility
+- Lock pkg control file exclusion
+- Lock build file validation diagnostics
+- Dedupe shared pkg dependency loads
+- Lock transitive pkg dependency loading
+- Lock std import root semantics
+- Lock loc root mount semantics
+- Lock resolver json origin guarantees
+- Extend builtin str coverage
+- Lock file-private visibility boundaries
+- Lock alias-root coverage across qualified references
+- Lock non-matching top-level import aliases
+- Lock import exposure ambiguity and shadowing
+- Extend resolver pipeline coverage
+- Lock shadowing contract
+- Lock top-level forward references
+- Lock qualified call resolution
+- Lock comment wrapper transparency
+- Lock plain identifier resolution
+- Close source-layout alignment phase
+- Lock source unit traversal order
+- Remove flattened parser surface helper
+- Split loop use and range roots from bodies
+- Split type declaration roots from function bodies
+- Split routine header roots from when bodies
+- Split receiver roots from branching bodies
+- Scope rolling expression checks to routine bodies
+- Scope container and range checks to routine bodies
+- Scope assignment expression checks to routine bodies
+- Stop flattening routine call arguments into roots
+- Split root and routine-body control-flow checks
+- Decouple routine form checks from leaked roots
+- Decouple parser control-flow checks from leaked roots
+- Decouple parser flow checks from leaked roots
+- Route container expression checks through surface helper
+- Decouple call-argument checks from leaked roots
+- Route parser expression checks through surface helper
+- Add parser surface-node helper
+- Cover processor book examples
+- Cover leading-dot builtins in shared bodies
+- Cover book variadic call example
+- Cover book short return form example
+- Cover book default argument example
+- Cover book variadic routine example
+- Cover book higher-order return example
+- Cover book mixed keyword call example
+- Reject unpack args after keywords
+- Reject unpack call args without operands
+- Cover unpack invoke statements
+- Cover unpack method call statements
+- Cover unpack function call statements
+- Cover trailing unpack call separators
+- Cover semicolon-separated unpack call args
+- Cover unpack invoke arguments
+- Cover unpack method call arguments
+- Cover keyword invoke statements
+- Cover keyword method call statements
+- Cover keyword function call statements
+- Cover trailing keyword call separators
+- Cover semicolon-separated keyword call args
+- Cover keyword invoke arguments
+- Cover keyword method call arguments
+- Reject positional call args after keywords
+- Cover mixed keyword call arguments
+- Cover book block marker definition example
+- Cover book default definition example
+- Cover book alternative definition examples
+- Cover book macro definition examples
+- Cover book record contract example
+- Cover book extended standard example
+- Cover book blueprint standard example
+- Cover book protocol standard example
+- Cover book extended alias example
+- Cover generic structured implementation markers
+- Cover structured implementation targets
+- Cover named implementation constraints
+- Cover bracketed implementation generics
+- Cover empty object markers in flow bodies
+- Cover empty object members in standards
+- Cover empty object members in records
+- Cover shared empty object markers
+- Cover grouped empty object markers
+- Cover grouped type declarations in flow bodies
+- Cover grouped type members in standards
+- Cover grouped type members in records
+- Reject mismatched multi-name type definitions
+- Reject headed multi-name type declarations
+- Cover explicit type contract variants
+- Cover object type markers
+- Keep structural inquiry targets on pipe lambdas
+- Keep structural inquiry targets on anonymous routines
+- Keep structural inquiry targets on alternative headers
+- Keep structural inquiry targets on flow-bodied routines
+- Keep structural inquiry targets on named routines
+- Cover semicolon inquiry target variants
+- Reject duplicate qualified inquiry targets
+- Reject duplicate named and quoted inquiry targets
+- Cover qualified inquiry target variants
+- Cover named and quoted inquiry target variants
+- Cover self and this inquiry target variants
+- Cover separator diagnostics for malformed type references
+- Cover missing close diagnostics for array and matrix types
+- Cover missing close diagnostics for module and source-kind types
+- Cover missing close diagnostics for container type references
+- Cover missing close diagnostics for pointer and error types
+- Cover missing close diagnostics for optional multiple and union types
+- Cover missing close diagnostics for scalar and empty special types
+- Cover nil literal expressions
+- Cover union type references
+- Cover bracketed any and none types
+- Cover bare never type references
+- Cover never type references
+- Cover nested meta definitions in def bodies
+- Cover nested meta definitions
+- Cover semicolon macro parameters
+- Cover grouped macro parameters
+- Cover macro overload definitions
+- Cover default definitions
+- Cover alternative definitions
+- Cover macro definitions
+- Cover type member captures
+- Cover prefixed entry methods
+- Keep alias headers out of contracts
+- Keep constrained generics out of contracts
+- Cover named type contracts
+- Cover semicolon type contracts
+- Cover entry contracts
+- Cover multiple record contracts
+- Cover entry type members
+- Cover entry alias members
+- Cover extended standard kind options
+- Cover blueprint standard kind options
+- Cover default extended logicals
+- Cover default extended procedures
+- Cover default extended functions
+- Cover default protocol logicals
+- Cover default protocol procedures
+- Move legacy fixtures under test tree
+- Refresh stale declaration expectations
+- Cover trailing shared type arguments
+- Cover trailing test type arguments
+- Cover trailing numeric type arguments
+- Cover trailing scalar type options
+- Cover semicolon test type arguments
+- Cover semicolon scalar type options
+- Cover semicolon type args in special forms
+- Cover semicolon type args in type bodies
+- Cover semicolon type args in routines and uses
+- Cover semicolon type args in aliases and bindings
+- Cover semicolon pipe captures
+- Cover semicolon anonymous captures
+- Cover semicolon alternative captures
+- Cover semicolon named routine captures
+- Cover semicolon use options
+- Cover semicolon binding options
+- Cover semicolon declaration options
+- Cover semicolon routine options
+- Cover semicolon type options
+- Update call argument separator diagnostics
+- Cover mixed call argument separators
+- Cover semicolon invoke args
+- Cover nested semicolon call args
+- Cover semicolon call args in initializers
+- Cover trailing braced ranges
+- Cover semicolon braced ranges
+- Cover trailing container literals in bodies
+- Cover semicolon containers in call arguments
+- Cover semicolon containers in initializers
+- Cover semicolon container literals
+- Cover trailing typed pipe lambda separators
+- Cover semicolon pipe lambdas with return types
+- Cover trailing pipe lambda separators in call arguments
+- Cover trailing pipe lambda separators in initializers
+- Cover trailing pipe lambda separators
+- Cover semicolon pipe lambdas in call arguments
+- Cover semicolon pipe lambdas in initializers
+- Cover semicolon-separated pipe lambda parameters
+- Cover typed shorthand flow expressions across routine bodies
+- Cover shorthand flow error types in call arguments
+- Cover shorthand flow return types in call arguments
+- Cover shorthand flow error types in initializers
+- Cover shorthand flow return types in initializers
+- Cover shorthand flow captures with inquiries
+- Cover shorthand flow captures with return types
+- Cover shorthand anonymous flow error types
+- Cover shorthand anonymous flow return types
+- Cover availability invokes in pipe stages
+- Cover availability invokes in flow bodies
+- Cover availability invokes in inquiry bodies
+- Cover empty prefix availability invoke statements
+- Cover suffix slice availability invoke statements
+- Cover suffix pattern availability invoke statements
+- Cover suffix index availability invoke statements
+- Cover prefix availability invoke statements
+- Cover prefix availability invoke expressions
+- Cover empty access patterns and availability
+- Cover semicolon-separated pattern assignment targets
+- Cover trailing access pattern separators
+- Cover semicolon-separated access patterns
+- Cover pattern assignment targets
+- Cover var multi-binding rolling expressions
+- Cover typed var rolling binders
+- Cover keyword-named rolling binders
+- Cover quoted rolling binders
+- Cover typed silent rolling binders
+- Cover silent rolling binders
+- Cover inquiries on flow-bodied alternative routine headers
+- Cover generics on flow-bodied alternative procedures and logicals
+- Cover generics on flow-bodied alternative functions
+- Cover captures on flow-bodied alternative procedures and logicals
+- Cover captures on flow-bodied alternative functions
+- Cover parameterized alternative procedure and logical flow headers
+- Cover parameterized alternative function flow headers
+- Cover flow-bodied alternative logical headers
+- Cover flow-bodied alternative procedure headers
+- Cover inquiries on flow-bodied anonymous lambdas
+- Cover inquiries on named routine flow bodies
+- Cover multi-parameter pro and log flow bodies
+- Cover parameterized function flow bodies
+- Cover pipe expressions in call arguments
+- Cover pipe expressions in binding initializers
+- Cover double-pipe expressions
+- Cover invalid standard option brackets
+- Cover forward keyword-named report method overloads
+- Cover forward quoted report method overloads
+- Cover forward keyword-named report overloads
+- Cover forward quoted report overloads
+- Cover forward single-quoted report methods
+- Cover forward keyword-named report methods
+- Cover forward quoted report methods
+- Cover forward single-quoted report calls
+- Cover forward keyword-named report calls
+- Cover single-quoted function type references
+- Cover quoted function type references
+- Cover single-quoted type member hints
+- Cover quoted type member hints
+- Cover single-quoted use type references
+- Cover quoted use type references
+- Cover single-quoted binding type hints
+- Cover quoted binding type hints
+- Cover single-quoted iteration binders
+- Cover multiple single-quoted use names
+- Cover single-quoted array and matrix type references
+- Cover single-quoted declaration targets
+- Cover single-quoted receiver and error types
+- Cover quoted declaration targets
+- Cover quoted receiver and error types
+- Cover grouped quoted binding names
+- Cover grouped quoted parameters
+- Cover quoted array and matrix type references
+- Cover quoted type references in generic constraints
+- Cover quoted nested type references
+- Cover single-quoted named function types
+- Cover single-quoted type members
+- Cover single-quoted parameters
+- Cover single-quoted declaration names
+- Cover single-quoted generic headers
+- Cover single-quoted type references
+- Split parser error coverage modules
+- Cover forward overload report typing by arity
+- Add overload-arity report typing coverage
+- Expand duplicate signature conflict parity
+- Cover forward receiver-method report typing
+- Add procedure receiver method-call report parity
+- Add procedure receiver syntax parity cases
+- Add missing function receiver-name coverage
+- Cover malformed receiver declaration syntax
+- Extend procedure parity for custom report typing
+- Add procedure parity for custom report typing
+- Cover expression-inferred local report compatibility
+- Cover loop inferred-local report type checks
+- Cover nested inferred-local report type checks
+- Cover inferred local report type compatibility
+- Cover boolean report compatibility for custom errors
+- Cover nested report type checks with shadowing
+- Verify lexer tokenizes fun return:error signature
+- Cover mixed unary chain parsing shapes
+- Complete unary EOF operand-error parity
+- Cover chained unary ref/deref expressions
+- Cover top-level unary plus operand errors
+- Cover top-level unary minus/not operand errors
+- Cover top-level unary ref/deref operand errors
+- Cover call-arg unary ref/deref operand errors
+- Cover unary ref and deref call arguments
+- Cover unary plus on call expressions
+- Cover unary plus chaining and operand errors
+- Cover unary plus in call argument parsing
+- Improve parser matrix test readability
+- Collapse mixed call-arg error matrix coverage
+- Cover mixed unmatched-open errors in sixth call args
+- Cover mixed unmatched-close errors in fifth call args
+- Cover mixed unmatched-open errors in fifth call args
+- Cover mixed unmatched-close errors in fourth call args
+- Cover mixed unmatched-open errors in fourth call args
+- Cover mixed unmatched-close errors in third call args
+- Cover mixed unmatched-open errors in third call args
+- Cover mixed unmatched-close errors in first call args
+- Cover mixed unmatched-close errors in second call args
+- Cover mixed unmatched-open errors in second call args
+- Cover mixed unmatched-open args in method and top-level calls
+- Cover mixed unmatched-open and trailing-comma args
+- Cover unmatched open-paren in call args
+- Cover unmatched close-paren in method and top-level call args
+- Cover unmatched close-paren in call args
+- Cover nested empty-slot errors in top-level calls
+- Cover nested dangling operator in function call args
+- Cover nested dangling operator in method call args
+- Cover dangling operator in method call args
+- Cover dangling operator in call args
+- Cover nested empty-slot call errors
+- Harden multiline and malformed call parsing
+- Validate nested call trees with trailing commas
+- Cover trailing commas in call argument lists
+- Cover nested function and method call expressions
+- Cover zero-argument method calls with optional semicolons
+- Cover zero-argument calls with optional semicolons
+- Cover zero-argument builtin diagnostic statements
+- Verify nested control flow inside when case bodies
+- Cover when parsing with multiple case branches
+- Cover loop break/yeild without semicolons
+- Lock recursive lowering for multi else-if chains
+- Validate plain else keyword lowering behavior
+- Cover if-without-else lowering behavior
+- Verify top-level guarded loop AST consistency
+- Lock unary not precedence in logical chains
+- Add grouped rhs division expression coverage
+- Cover mixed precedence with left associativity
+- Assert left associativity for sub and div
+- Cover negated parenthesized return precedence
+- Cover var parsing without explicit type hints
+- Verify parser locations in human and JSON diagnostics
+- Verify ParseError carries token location
+- Replace placeholder binary smoke test
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Cleanup
+- Generic fixes for v2
+- Run workspace tests in make test
+- Finish imp keyword removal
+- Sync stable toolchain
+- Remove cross-compilation plan
+- Drop generated docs artifacts
+- Refactor C ABI and native linking documentation
+- Refactor and update internal planning documents
+- Remove all example projects
+- Clean Cargo.toml — trim root deps, unify version strings, remove redundant dev-deps
+- Version unification, dependency cleanup, legacy removal
+- Add explicit reset slices
+- Add build mode participation helpers
+- Replay install dependencies through build eval
+- Derive build determinism from explicit envelope
+- Add explicit code step flags
+- Add build graph step dependencies
+- Sync lockfile for intrinsic completion
+- Simplify release process with git-rel
+- Rework tooling documentation and add new sections
+- Sync lockfile for workspace crate
+- Add initial plan for FOL editor tooling
+- Remove build warnings
+- Remove build warning noise
+- Run ignored integration coverage from make test
+- Refactor and remove old example files
+- Remove unnecessary project files
+- Sync lockfile for package prep shell
+- Sync lockfile for frontend crate
+- Refactor PLAN.md to detail frontend development
+- Remove stale warning paths
+- Sync lockfile for backend deps
+- Sync lockfile for workspace crate
+- Sync lockfile for workspace crate
+- Refactor PLAN.md to detail lowering stage
+- Remove obsolete frontend contract documentation
+- Sync lockfile after parser lowering
+- Sync lockfile for fol-package dependency
+- Close frontend follow-up plan
+- Sync lockfile after regex removal
+- Drop unused regex dependency
+- Update plan and progress, remove unused type enum
+- Close explicit mixed-root representation item
+- Close standalone underscore decision
+- Close routine-kind decision freeze
+- Close receiver decision
+- Test unsupported ascii control characters
+- Add explicit routine-body test accessors
+- Report illegal type argument separators explicitly
+- Report illegal scalar type options explicitly
+- Report illegal type marker options explicitly
+- Report illegal routine options explicitly
+- Report illegal type options explicitly
+- Report illegal use options explicitly
+- Report illegal binding options explicitly
+- Report illegal declaration options explicitly
+- Reject malformed decimal underscores
+- Reject malformed hexadecimal literals
+- Report illegal loop binders explicitly
+- Report illegal plain binding names explicitly
+- Report illegal rest binding names explicitly
+- Report illegal type path segments explicitly
+- Report illegal record initializer fields explicitly
+- Report illegal named call arguments explicitly
+- Report illegal named function type names explicitly
+- Report illegal test type arguments explicitly
+- Report illegal typed loop binders explicitly
+- Report illegal select bindings explicitly
+- Report illegal routine generic names explicitly
+- Report illegal routine parameter names explicitly
+- Report illegal routine capture names explicitly
+- Report illegal pipe lambda parameters explicitly
+- Report illegal access capture bindings explicitly
+- Report illegal rolling binding names explicitly
+- Report illegal path and member names explicitly
+- Report illegal type member names explicitly
+- Report illegal routine names explicitly
+- Report illegal declaration names explicitly
+- Add explicit source boundary token kind
+- Make anonymous logical parsing explicit
+- Make stage3 window shifts explicit
+- Make stage2 window shifts explicit
+- Make stage1 window shifts explicit
+- Make stage0 window shifts explicit
+- Rename hexadecimal literal kind
+- Rename decimal literal kind
+- Close accidental behavior cleanup rule
+- Close explicit unsupported-mix handling
+- Close raw-vs-cooked lexer token decision
+- Close parser-facing lexer error gate
+- Mark explicit lexer literal families
+- Detect and test decimal float tokens
+- Remove deprecated FOL language plan
+- Remove unecessary files/folders/tests
+- Remove outdated FEATURES and PLANNING documents
+- Untrack progress document
+- Lower special boxed types
+- Add specialized when case forms
+- Use package version for CLI metadata
+- Remove placeholder parser locations in CLI diagnostics
+- Apply low-risk clippy cleanup pass
+- Stabilize lexer/stream flow and enforce CI quality gates
+
+### Book
+
+- Align alias docs with extension methods
+- Align number type docs with current support
+- Align literal examples with supported lowering
+- Align number families with current front-end
+- Align identifier rules with front-end boundary
+- Align comment syntax with front-end contract
+
+### Build
+
+- Add missing crate authors
+- Wire split crates
+- Replace AST-walking evaluator with BuildBodyExecutor
+- Wire build stdlib into typechecker with FolType::None fix
+- Wire BuildStdlibScope into resolver with file-bound isolation
+- Add BuildStdlibScope as unified build stdlib injection surface
+- Move runtime/eval/step/artifact/option/native to fol-build
+- Create fol-build crate, move graph/api/semantic from fol-package
+- Remove leftover compatibility build types
+- Enforce semantic build entry only
+- Delete compatibility build parsing
+- Tighten semantic entry regression coverage
+- Checkpoint new-build reset baseline
+- Support object and handle graph calls
+- Plan modern build bodies through graph route
+- Track flake lockfiles
+- Replace devbox with flake shell
+
+### Editor
+
+- Add build file lsp coverage
+
+### Frontend
+
+- Remove compatibility build routing
+- Scaffold only semantic build files
+- Refresh build scaffold wording
+- Absorb compatibility fixture naming
+- Rename workspace build request type
+- Cover broken semantic build classification
+- Classify builds from semantic package mode
+- Re-export graph driven build routing
+- Cover modern and hybrid routed planning
+- Fail ambiguous default multi-artifact steps clearly
+- Target named build steps by artifact name
+- Cover named run selection for multiple artifacts
+- Cover cli selected custom graph steps
+- Centralize workspace step selection
+- Plan default routes from graph steps
+- Share graph driven step projection
+- Consume evaluated build runtime metadata
+- Execute configured build artifacts
+- Execute graph-defined build step aliases
+- Add build file editor command coverage
+- Lock scaffolded build file templates
+- Enrich scaffolded build file templates
+- Finalize routed workspace build-step dispatch
+- Route workspace code commands through build planner
+- Add compatibility build route execution
+- Add workspace build route planning
+- Thread build step selection through config
+- Add default build step mapping
+- Add build route workflow modes
+- Add build option override flags
+
+### Integration
+
+- Lock parser cross-phase continuity
+
+### Lexer
+
+- Stream stage0 characters without full precollection
+- Test literal fixture token families
+- Split cooked and raw quote scanning
+- Add cooked and raw literal helpers
+- Rename quoted literal token families
+- Lock multiline backtick comment coverage
+- Lock stage2 comment normalization
+- Classify slash block comments internally
+- Classify slash line comments internally
+- Detect doc comments internally
+- Classify backtick comments internally
+- Add internal comment kind enum
+- Lock malformed numeric file boundaries
+- Support trailing-dot float literals
+- Reject malformed binary literals
+- Reject malformed octal literals
+- Lock cross-file boundary locations
+- Test identifier operator file boundaries
+- Test identifier comment file boundaries
+- Test identifier string file boundaries
+- Test identifier number file boundaries
+- Test slash block comment file boundaries
+- Test backtick comment file boundaries
+- Stop quoted spans at file boundaries
+- Replace synthetic file newlines with boundaries
+- Keep slash block comments as compatibility
+- Keep slash line comments as compatibility
+- Keep comment delimiters inside literals
+- Report unterminated block comments
+- Align doc comment fixtures with backticks
+- Treat backticks as comments
+- Remove dead stage2 comment helper
+- Test identifier edge cases
+- Test exact-case keyword recognition
+- Reject repeated underscore runs in identifiers
+- Stop treating illegal tokens as void
+- Split single-quoted literal tokens
+- Align unterminated backticks with illegal tokens
+- Keep physical newlines inside quoted tokens
+- Test hard errors for unrecognized chars
+- Document stage3 ownership
+- Document stage2 ownership
+- Document stage1 ownership
+- Document stage0 ownership
+- Separate touching file boundaries
+- Align unterminated quote failures
+- Keep imaginary suffixes out of scope
+- Document comment deferral contract
+- Define escape preservation policy
+- Lock token payload contract
+- Define synthetic eof source contract
+- Audit supported numeric families
+- Defer doc comments with normal comments
+- Lock backtick token policy
+- Keep unary minus parser-level
+- Lock leading-dot float behavior
+- Lock unterminated quote handling
+- Freeze comment token policy
+- Lock numeric payload spelling
+- Support uppercase numeric prefixes
+- Test comment boundary token stability
+- Lock empty-file eof startup contract
+- Fold fractional digits into float tokens
+- Remove public bootstrap token
+
+### Lower
+
+- Exclude build units from runtime lowering
+
+### Merge
+
+- Integrate V2 into develop
+
+### Package
+
+- Load pkg deps from metadata only
+- Add shared build mode parser
+- Lock generated tool round
+- Test mixed semantic generated outputs
+- Retain generated outputs in build results
+- Parse object style codegen configs
+- Parse object style system tool configs
+- Parse object style copy file configs
+- Parse object style write file configs
+- Add runtime generated file metadata
+- Add semantic generated graph methods
+- Lock dependency surface round
+- Test semantic dependency surface usage
+- Record dependency step and generated queries
+- Record dependency module and artifact queries
+- Parse object style dependency configs
+- Preserve dependency requests in build results
+- Add dependency handle query types
+- Add dependency api surface metadata
+- Add dependency surface lookup helpers
+- Lock real option value round
+- Cover option driven artifact metadata
+- Resolve deferred artifact option metadata
+- Defer artifact option config values
+- Parse user build option record configs
+- Track symbolic build option refs
+- Seed and coerce declared build options
+- Preserve user option declaration metadata
+- Add typed build option value helpers
+- Lock step handle chaining round
+- Dedupe repeated build step edges
+- Support install handle dependency chains
+- Support run handle dependency chains
+- Parse chained step handle dot calls
+- Parse nested build handle receivers
+- Track step like handles in build extraction
+- Give install handles step identity
+- Lock semantic build evaluation round
+- Drop public extractor build surface
+- Delete legacy build extractor helpers
+- Parse build body subset through ast
+- Populate evaluated build program metadata
+- Add evaluated build program surface
+- Add runtime step bindings
+- Add runtime build artifacts
+- Re-export build runtime ir
+- Add build runtime diagnostics
+- Add build runtime method calls
+- Add build runtime record helpers
+- Add build runtime statement nodes
+- Add build runtime expression nodes
+- Add build runtime local frame
+- Add build runtime value kinds
+- Add build runtime representation model
+- Seed build options from typed inputs
+- Re-export build capability model surface
+- Add forbidden build capability diagnostics
+- Add build environment policy helpers
+- Add typed build input target fields
+- Add graph construction capability preset
+- Add build runtime capability model
+- Add forbidden build capability categories
+- Clean semantic build entry call sites
+- Re-export semantic build mode helpers
+- Test parse fallback semantic build modes
+- Test session semantic build entry loading
+- Add semantic prepared build entry helpers
+- Replace build entry metadata with semantic mode
+- Stop fallback build entry inference
+- Stop ast build extraction from recording entries
+- Add semantic build mode classification helper
+- Re-export semantic build entry surface
+- Surface semantic build entry validation
+- Validate build entry return types
+- Validate build entry parameter types
+- Validate build entry parameter shape
+- Validate build entry cardinality
+- Collect semantic build entry candidates
+- Add semantic build entry candidate model
+- Add build entry signature expectations
+- Re-export build source unit kinds
+- Load build files into formal package syntax
+- Add prepared build source unit helpers
+- Re-export semantic build surface
+- Add semantic build chain metadata
+- Add semantic option config shapes
+- Add semantic artifact config shapes
+- Add canonical semantic handle methods
+- Add canonical semantic graph methods
+- Add semantic build method signature types
+- Add semantic build type families
+- Add semantic build stdlib module ids
+- Share restricted build source evaluation
+- Re-export native artifact surface
+- Retain prepared native surfaces
+- Structure native artifact attachments
+- Project compatibility native artifacts
+- Add native naming helpers
+- Add native link input models
+- Add native search path models
+- Add native artifact kinds
+- Add native artifact shell types
+- Re-export generated file surface
+- Replay generated file operations
+- Add generated file api helpers
+- Add generated output lookup helpers
+- Add codegen model types
+- Add system tool models
+- Add generated file install projections
+- Add generated file actions
+- Add generated file shell
+- Re-export dependency build surfaces
+- Retain dependency surfaces on packages
+- Extend dependency api handles
+- Add dependency evaluation modes
+- Bridge exports into dependency surfaces
+- Add dependency build handles
+- Add dependency build surface families
+- Add dependency module surfaces
+- Add dependency surface shell
+- Re-export build option surface
+- Apply resolved options to artifacts
+- Replay build options through evaluator
+- Add build option override parsing
+- Add int and path build options
+- Add build optimize mode types
+- Add build target triple types
+- Add build option declaration shell
+- Re-export build step surface
+- Summarize build step reports
+- Project build graph steps
+- Add build step reporting types
+- Add build step cache types
+- Plan build step order
+- Add build step selector types
+- Add default build step kinds
+- Add build step execution shell
+- Re-export build artifact surface
+- Add artifact report summaries
+- Project graph artifacts into definitions
+- Add artifact pipeline planning model
+- Add build artifact reports
+- Add artifact target attachment fields
+- Add build artifact config model
+- Add build artifact kinds
+- Add build artifact model shell
+- Re-export build evaluator surface
+- Report build evaluator failures
+- Replay build graph operations
+- Replay build evaluator option ops
+- Add build evaluator operation model
+- Add build evaluator determinism inputs
+- Add build evaluator diagnostics
+- Add build evaluator boundary model
+- Add build evaluator shell
+- Re-export draft build api
+- Add draft build dependency surface
+- Add draft build install methods
+- Add draft build step methods
+- Add draft build artifact methods
+- Add draft build artifact requests
+- Add draft user build options
+- Add standard build option drafts
+- Add build api entry surface
+- Re-export build graph ir
+- Validate build graph references
+- Validate build graph step cycles
+- Add build graph validation shell
+- Add build graph artifact inputs
+- Add build graph storage tables
+- Add build graph node kinds
+- Add build graph id surface
+- Re-export richer build model types
+- Test modern build entry package loading
+- Test hybrid build file parsing
+- Classify build file modes
+- Surface prepared build entry metadata
+- Detect canonical build entry defs
+- Add build entry metadata types
+- Add build compatibility accessors
+- Split build compatibility model
+
+### Parser
+
+- Add build source unit kinds
+- Expand expected-shape diagnostic matrix
+- Expand unsupported combination diagnostic matrix
+- Canonicalize trailing inquiry duplicates
+- Test mixed program root surface
+- Test canonical identifier helper directly
+- Test quote families normalize after lowering
+- Test raw quoted illegal token routing
+- Test cooked unicode escape fixture lowering
+- Test cooked literal escape fixture lowering
+- Test multiline cooked literal fixture
+- Test raw literal family fixture lowering
+- Test cooked literal family fixture lowering
+- Remove dead flat path helper
+- Preserve qualified method call receivers
+- Share qualified inquiry target paths
+- Preserve qualified type path structure
+- Add structured qualified type node
+- Preserve qualified function call paths
+- Preserve qualified identifier structure
+- Add shared qualified path node
+- Test cooked and raw escape modes end to end
+- Trim cooked multiline continuations
+- Decode numeric cooked literal escapes
+- Decode basic cooked literal escapes
+- Lower one-element quoted literals as characters
+- Keep doc comments ignorable in calls
+- Lock malformed doc comment diagnostics
+- Reject illegal direct use paths
+- Reject illegal braced use paths
+- Report illegal numeric return values
+- Report illegal numeric parameter defaults
+- Report illegal numeric call arguments
+- Lock underscored float literal lowering
+- Route illegal builtin names through builtin parsing
+- Route illegal grouped bindings through binding parsing
+- Route illegal std names through std declarations
+- Report illegal names after dot operators
+- Report malformed slash block comments in calls
+- Keep slash comments as compatibility
+- Report malformed backtick comments in calls
+- Accept backtick comments in multiline calls
+- Test generic names with inner quotes
+- Test parameter names with inner quotes
+- Test use names with inner quotes
+- Test segment names with inner quotes
+- Test type names with inner quotes
+- Test alias names with inner quotes
+- Preserve inner quotes in test block labels
+- Preserve inner quotes in inquiry targets
+- Preserve inner quotes in definition names
+- Preserve inner quotes in use paths
+- Preserve inner quotes in routine names
+- Lock invalid receiver diagnostic spans
+- Test logical method receiver retention
+- Lower named logical routines as log decls
+- Add first-class logical declaration node
+- Test illegal tokens in parameter defaults
+- Test illegal tokens in return expressions
+- Test illegal tokens in record initializers
+- Test illegal tokens in container elements
+- Test receiver retention in type members
+- Preserve receiver types on named routines
+- Report illegal tokens in type references
+- Report illegal tokens in nested expressions
+- Test canonical inquiry duplicates
+- Canonicalize inquiry duplicate checks
+- Test canonical standard member duplicates
+- Canonicalize standard member duplicates
+- Test canonical type member duplicates
+- Canonicalize type member duplicates
+- Test canonical entry variant duplicates
+- Canonicalize entry variant duplicates
+- Test canonical record field duplicates
+- Canonicalize record field duplicates
+- Test canonical rolling binding duplicates
+- Canonicalize rolling binding duplicates
+- Test canonical use-name duplicates
+- Canonicalize use-name duplicates
+- Test canonical closure capture duplicates
+- Canonicalize closure capture duplicates
+- Test canonical routine duplicates
+- Canonicalize parameter and generic duplicates
+- Add canonical identifier helper
+- Remove parser-side report validation
+- Remove leaked routine bodies from program root
+- Lock expected-x diagnostic wording
+- Lock missing-close diagnostic wording
+- Lock duplicate and conflict diagnostic wording
+- Lock unsupported combination diagnostics
+- Lock unknown option diagnostic surfaces
+- Lock when expression nesting boundaries
+- Lock top-level when statement boundaries
+- Lock body call invoke assignment boundaries
+- Lock top-level invoke boundary shape
+- Lock simple root declaration shape
+- Lock nested routine root boundaries
+- Lock top-level log root shape
+- Lock top-level pro root shape
+- Lock top-level fun root shape
+- Lock name and path AST shapes
+- Lock single-quote literal meaning
+- Lock double-quote literal meaning
+- Prove prefixed literal lowering continuity
+- Test top-level float literal lowering
+- Test top-level boolean and nil literal lowering
+- Lower top-level boolean and nil literals
+- Test exact numeric literal lowering
+- Lower prefixed and underscored numbers
+- Lock string and character literal lowering
+- Lower quoted literals without wrapper text
+- Cover nested binding alternatives
+- Cover hidden const alternatives in bodies
+- Cover export let alternatives in bodies
+- Cover composed heap alternatives
+- Cover composed mutable alternatives
+- Cover composed export alternatives
+- Cover spaced binding alternatives
+- Cover heap alternative in function bodies
+- Cover reactive alternative in function bodies
+- Cover static alternative in function bodies
+- Cover mutable alternative in function bodies
+- Cover export alternative in function bodies
+- Cover hidden const alternative
+- Cover export let alternative
+- Cover heap binding alternative
+- Cover reactive binding alternative
+- Cover static binding alternative
+- Cover hidden binding alternative
+- Cover mutable binding alternative
+- Support binding alternatives
+- Validate binding options
+- Support storage binding options
+- Support symbolic binding options
+- Support binding visibility options
+- Split binding option parser helpers
+- Support binding option brackets
+- Support cast expressions
+- Support as expressions
+- Support is expressions
+- Support has expressions
+- Support in expressions
+- Cover procedure non-scalar report expressions
+- Reject non-scalar report expressions
+- Cover procedure report containers and ranges
+- Cover nested block reports in procedures
+- Validate report identifiers in containers and ranges
+- Validate reports inside nested blocks
+- Cover typed loop binder mismatches
+- Cover typed silent loop binders
+- Cover bare def block and module types
+- Improve def type diagnostics
+- Support single-quoted def names
+- Cover nested def declarations
+- Cover quoted empty block defs
+- Allow trailing semicolons on def declarations
+- Cover typed loop-family binders
+- Support empty block def markers
+- Support quoted def names
+- Split parser files and add def declarations
+- Test routine generic default rejection
+- Report duplicate routine generics
+- Allow semicolon type generics
+- Reject duplicate type generics
+- Reject duplicate parameter names
+- Normalize quoted use paths
+- Reject duplicate type members
+- Allow colonless use declarations
+- Accept comma-separated entry variants
+- Support const declarations
+- Support logical declarations
+- Add exponent expressions
+- Support typed iteration binders
+- Support silent iteration binders
+- Support each loop syntax
+- Support for loop syntax
+- Lower bare scalar type references
+- Lower refined scalar type references
+- Lower any and none types
+- Lower bare module and block types
+- Lower module and block types
+- Support var fields in record types
+- Support grouped routine parameters
+- Cover function types in bindings
+- Support braced function types
+- Support routine parameter defaults
+- Add nested block statements
+- Allow unconstrained generic headers
+- Support empty ent marker brackets
+- Support empty rec marker brackets
+- Support type generic headers
+- Support empty use option brackets
+- Support rec type markers
+- Add entry type declarations
+- Support when star defaults
+- Support routine generic headers
+- Support type option brackets
+- Support routine option brackets
+- Lower matrix type aliases
+- Lower array type aliases
+- Lower container type aliases
+- Add record type declarations
+- Add open-end braced range expressions
+- Add when on cases
+- Add open-start range expressions
+- Add container literal expressions
+- Add range expressions
+- Cover chained assignment targets
+- Reject call assignment targets
+- Cover compound assignment targets
+- Support field and index assignment targets
+- Add when-of type cases
+- Cover complex binding type hints
+- Cover complex method receiver types
+- Cover complex use declaration types
+- Improve bracketed type error locations
+- Support bracketed type references
+- Support qualified type references
+- Add minimal type declarations
+- Add alias declarations
+- Add postfix expressions and let bindings
+
+### Plan
+
+- Add phase 3 migration note
+- Lock phase 12 absorption round
+- Add phase 12 slice tracker
+- Track generated tool round one
+- Track dependency surface round one
+- Sync real option round progress
+- Track real option value round one
+- Track step handle chaining round one
+- Track graph driven frontend round
+- Track semantic build extraction removal
+- Close build runtime ir tracker
+- Track build runtime ir round one
+- Lock build capability round one
+- Track build capability model round one
+- Track semantic build entry migration round two
+- Track semantic build entry round one
+- Track build source pipeline round one
+- Track semantic build surface round one
+- Lock docs and editor round twelve
+- Lock cli migration round eleven
+- Lock native artifact round ten
+- Lock generated file round nine
+- Lock dependency surface round eight
+- Lock build option round seven
+- Lock build step round six
+- Lock build artifact round five
+- Lock build evaluator round four
+- Lock build api round three
+- Lock build graph round two
+- Lock build roadmap round one
+- Close docs and test freeze phase
+- Close final build and test gates
+- Close front-end implementation phases
+- Close syntax-preservation working rules
+- Close front-end scope and regression rules
+- Close abandoned-compromise acceptance gate
+- Close abandoned-compromise test cleanup
+- Close mixed root executable-surface item
+- Close unchosen lazy and declaration-only branches
+- Close slash comment and imaginary branches
+- Close parser diagnostic rerun gates
+- Close unsupported combination gate
+- Close stage0 collection and location guarantees
+- Close doc refresh and contradiction gates
+- Close docs and identifier consistency gates
+- Close identifier-rule acceptance
+- Close numeric-family acceptance
+- Close parser duplicate-check audit
+- Close fol-native package detection items
+- Close mixed root contract items
+- Close unsupported-character hard error item
+- Close identifier canonicalization ownership
+- Close literal authority fixture items
+- Close structured qualified path items
+- Close cooked and raw literal items
+- Mark numeric hardening progress
+- Mark malformed-name routing audit
+- Close parser illegal-token error-surface items
+- Close lexer stage wrapper debt
+- Close namespace validation items
+- Close entry-root package detection items
+- Close identifier edge coverage items
+- Close logical routine identity items
+- Mark receiver and illegal-token progress
+- Mark parser duplicate hardening progress
+- Mark identifier duplicate hardening progress
+- Close front-end contract freeze phase
+- Close parser hardening phase gate
+- Close front-end handoff gate
+- Close intentional parser failure gate
+- Close parser module ownership gates
+- Close declaration family stability gate
+- Close parser root-shape gates
+- Close lexer hardening phase
+- Close lexer stage overlap item
+- Close lexer taxonomy stop condition
+- Close lexer quoted handling blocker
+- Close lexer literal-family conflation item
+- Close lexer quoted-family split item
+- Close undefined-behavior audit item
+- Close parser boundary clarity item
+- Close semantic-check moratorium
+- Schedule eager-loading follow-up
+- Close surgical-change rule
+- Close hardening phase order rule
+- Close no-new-syntax rule
+- Close weird-behavior documentation rule
+- Close regression-test working rule
+- Close parser diagnostic acceptance gate
+- Close parser diagnostics freeze gate
+- Close expected-x diagnostic item
+- Close declaration family audit
+- Close routine declaration audit
+- Close parser diagnostic consistency matrix
+- Close parser negative test item
+- Close parser-owned option diagnostic item
+- Close missing-close diagnostic item
+- Close unsupported combination matrix item
+- Close unsupported combination test item
+- Close statement expression boundary gate
+- Close parser ambiguity shape tests
+- Close control-flow boundary audit
+- Close parser entry-point audit
+- Close block-body statement audit
+- Close top-level statement audit
+- Answer program root contents question
+- Close parser invariant acceptance gate
+- Mark parser AST invariants documented
+- Close exact top-level AST shape test item
+- Close top-level AST regression item
+- Identify parser overlap risks
+- Define parser part ownership
+- Define parser declaration invariants
+- Define parser root invariants
+- Close parser contract summary item
+- Close grouped declaration invariant tests
+- Define grouped declaration invariants
+- Define routine body contents
+- Define current program root contents
+- Close lexer contract blocking items
+- Close lexer malformed-input blocking item
+- Close lexer payload blocking item
+- Close lexer malformed literal-family gate
+- Close lexer multiline quote behavior
+- Mark stream hardening complete
+- Close stream identity resolver gate
+- Answer parser boundary definition-of-done
+- Mark semantic-adjacent parser checks
+- Keep structural checks parser-side
+- Inventory structural parser checks
+- Close lexer payload contract gate
+- Close name and path encoding gate
+- Close path-kind separation contract
+- Close qualified-path normalization
+- Close quoted-name normalization
+- Close named-label normalization
+- Define qualified-path AST representation
+- Define quoted-name AST representation
+- Close parser name and path tests
+- Close contract stop condition
+- Mark written front-end contracts
+- Mark front-end suite rerun
+- Close lexer escape behavior gate
+- Close lexer stage responsibility gate
+- Close parser literal lowering gates
+- Close stream contract gates
+
+### Resolver
+
+- Carry build source unit kinds
+
+### Stream
+
+- Test identity changes on canonical rename
+- Prove eager multi-file loading
+- Test raw and canonical source identity
+- Align namespace validation with identifier rules
+- Derive package names from entry roots
+- Define source identity contract
+- Make eager loading intentional
+- Lock CRLF location behavior
+- Lock one-based location coordinates
+- Lock file-to-folder fallback behavior
+- Define .mod namespace interaction
+- Define valid namespace components
+- Lock nested namespace derivation
+- Lock single-file root namespace behavior
+- Test nested manifest lookup for file input
+- Test nearest nested manifest detection
+- Test logical identity under package overrides
+- Lock invalid namespace component behavior
+- Lock canonical source identity
+- Verify file boundary location resets
+- Test detached package fallback rules
+- Preserve detached package names
+- Lock traversal order with regression test
+- Make folder traversal deterministic
+
+### Typecheck
+
+- Stop rejecting build source units
+- Carry build source unit kinds
+
 ## [0.1.4] - 2024-03-02
 
 ### <!-- 1 -->🐛 Bug Fixes

@@ -26,6 +26,21 @@ fun[options] name: return_type = (params) { body }
 
 This chapter family covers parameters, calls, defaults, variadics, return values, and routine-specific semantics.
 
+Current `V1` routine model:
+
+- values are returned with an explicit `return`; there is no implicit `result`
+  variable in the current compiler
+- the short form that omits the return type is not current; the return type
+  must be declared
+- last-expression / implicit-tail return is not current
+- routine overloading is not supported; duplicate routine names are rejected
+- a routine that declares a recoverable error type (`: T / E`) must have both a
+  return path and a `report` path
+
+The sections further down that show `result = ...`, short-form omission,
+last-expression return, and same-name overloading describe earlier design, not
+the current compiler surface.
+
 ## Types
 There are two main types of routines in fol:
 
@@ -104,7 +119,15 @@ pro main: int = {
 }
 ```
 #### Mixed parameters
-Keyword and positional arguments can be used at the same time too. The only restriction with this approach is that after a keyword parameter appears in the list, all remaining parameters must be keyworded. This restriction is necessary because a position may no longer be well defined after a keyword parameter has appeared.
+Keyword and positional arguments can be used at the same time too. In `V1`,
+ordinary positional arguments must come before named arguments. After a named
+argument appears, later ordinary arguments are rejected because position is no
+longer well defined.
+
+The one supported exception is call-site unpack for the final variadic
+parameter. `...items` may appear after named arguments when it is feeding that
+final variadic input.
+
 ```
 fun[] calc(el1, el2, el3: int, el4, el5: flt): int = { result[0] = ((el1 + el2) * el4 ) - (el3 ** el5);  }
 
@@ -114,20 +137,54 @@ pro main: int = {
 }
 ```
 
-### Default arguments
-Formal parameters can have default values too. A default value is used if no actual parameter is passed to the formal parameter. The default parameter is assigned directly after the formal parameter declaration. The compiler converts the list of arguments to an array implicitly. The number of parameters needs to be known at compile time. 
+This remains invalid:
+
+```fol
+calc(el3 = 5, 4, el1 = 3)
 ```
-fun[] calc(el1, el2, el3: rise: bool = true): int = { result[0] = el1 + el2 * el3 | this | el1 + el2;  }
+
+But this is valid in `V1` when the last parameter is variadic:
+
+```fol
+fun[] score(base: int, step: int = 2, extras: ... int): int = {
+    return base;
+}
+
+fun[] run(): int = {
+    var extras: seq[int] = {4, 5};
+    return score(base = 3, ...extras);
+}
+```
+
+### Default arguments
+Formal parameters can have default values too. A default value is used if no
+actual parameter is passed to the formal parameter.
+
+In `V1`:
+
+- omitted parameters use their declared default
+- named arguments may skip over defaulted parameters
+- defaults can coexist with a final variadic parameter
+
+```
+fun[] calc(el1, el2, el3: int, rise: bool = true): int = { result[0] = el1 + el2 * el3 | this | el1 + el2;  }
 
 pro main: int = {
     calc(3,3,2);                                            // this returns 6, last positional parameter is not passed but 
                                                             // the default `true` is used from the routine declaration
     calc(3,3,2,false)                                       // this returns 12
+    calc(el1 = 3, el2 = 3, el3 = 2)                         // named arguments may also rely on the default
 }
 ```
 
 ### Variadic routine
-The use of `...` as the type of argument at the end of the argument list declares the routine as variadic. This must appear as the last argument of the routine. When variadic routine is used, the default arguments can not be used at the same time.
+The use of `...` as the type of argument at the end of the argument list
+declares the routine as variadic. This must appear as the last argument of the
+routine.
+
+In `V1`, the final variadic parameter is bound as a `seq[...]` value. Extra
+trailing call arguments are collected into that sequence.
+
 ```
 fun[] calc(rise: bool; ints: ... int): int = { result[0] = ints[0] + ints[1] + ints[2] * ints[3] | this | ints[0] + ints[1];  }
 
@@ -138,7 +195,38 @@ pro main: int = {
 }
 ```
 
-`...` is called unpack operator - just like in Golang. In the routine above, you see `...`, which means pack all incoming arguments into `seq[int]` after the first argument. The sequence then is turned into a list at compile time.
+Call-site unpack is the companion feature to variadics. It forwards an existing
+sequence into the final variadic parameter:
+
+```fol
+fun[] calc(rise: bool; ints: ... int): int = {
+    return ints[0];
+}
+
+fun[] run(values: seq[int]): int = {
+    return calc(true, ...values);
+}
+```
+
+This also works after named arguments:
+
+```fol
+fun[] score(base: int, step: int = 2, extras: ... int): int = {
+    return base;
+}
+
+fun[] run(values: seq[int]): int = {
+    return score(base = 3, ...values);
+}
+```
+
+`V1` intentionally does not support pseudo-arguments such as
+`extras[0] = 1` at call sites. Variadic inputs are still just routine
+parameters, so call binding stays limited to:
+
+- ordinary positional arguments
+- named arguments by declared parameter name
+- one final `...sequence` unpack for the variadic tail
 
 {{% notice warn %}}
 
@@ -194,6 +282,13 @@ Current intrinsic note:
 - `check(...)` is a keyword intrinsic for recoverable-call inspection
 - `panic(...)` is a keyword intrinsic for immediate abort
 - `as` and `cast` are registry-owned but still deferred in current `V1`
+
+Model reminder:
+
+- any routine example that calls `.echo(...)` assumes a `memo` artifact with
+  bundled `std` support available
+- routine examples without hosted behavior should stay valid in `core` or
+  `memo` where the surrounding chapter claims they are model-neutral
 
 The final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (so the function cnat be in the short form)). ver this can be used only in one statement body.
 ```

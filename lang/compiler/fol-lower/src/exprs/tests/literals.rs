@@ -1,12 +1,9 @@
-use super::{
-    lower_fixture_error, lower_fixture_workspace, lower_folder_fixture_error,
-    lower_folder_fixture_workspace,
-};
+use super::{lower_fixture_workspace, lower_folder_fixture_workspace};
 use super::super::cursor::{RoutineCursor, WorkspaceDeclIndex};
 use crate::{
     types::{LoweredBuiltinType, LoweredTypeTable},
-    LoweredBlock, LoweredGlobal, LoweredInstrKind, LoweredOperand, LoweredPackage,
-    LoweredRoutine, LoweredTerminator, LoweredWorkspace, LoweringErrorKind,
+    LoweredBlock, LoweredGlobal, LoweredInstrKind, LoweredLocal, LoweredOperand,
+    LoweredPackage, LoweredRoutine, LoweredTerminator, LoweredWorkspace, LoweringErrorKind,
 };
 use fol_parser::ast::AstParser;
 use fol_parser::ast::Literal;
@@ -86,34 +83,23 @@ fn literal_lowering_emits_constant_instructions_into_the_current_block() {
 
 #[test]
 fn lowering_repro_keeps_same_name_parameters_distinct_per_routine_scope() {
-    let lowered = lower_folder_fixture_workspace(&[
-        (
-            "shared/lib.fol",
-            concat!(
-                "typ[exp] User: rec = {\n",
-                "    count: int;\n",
-                "}\n",
-                "fun[exp] fallback(): int = {\n",
-                "    return 2;\n",
-                "}\n",
-                "fun[exp] (User)read(): int = {\n",
-                "    return 7;\n",
-                "}\n",
-            ),
+    let lowered = lower_folder_fixture_workspace(&[(
+        "app/main.fol",
+        concat!(
+            "fun[] build_user(flag: bol): int = {\n",
+            "    return 1;\n",
+            "};\n",
+            "fun[] choose_count(flag: bol): int = {\n",
+            "    return 2;\n",
+            "};\n",
+            "fun[] main(flag: bol): int = {\n",
+            "    when(flag) {\n",
+            "        case(true) { return build_user(flag); }\n",
+            "        * { return choose_count(flag); }\n",
+            "    }\n",
+            "};\n",
         ),
-        (
-            "app/main.fol",
-            concat!(
-                "use shared: loc = {\"../shared\"};\n",
-                "fun[] decide(flag: bol, user: User): int = {\n",
-                "    when(flag) {\n",
-                "        case(true) { user.read() }\n",
-                "        * { fallback() }\n",
-                "    }\n",
-                "}\n",
-            ),
-        ),
-    ]);
+    )]);
     let entry_package = lowered.entry_package();
     for routine_name in ["build_user", "choose_count", "main"] {
         let routine = entry_package
@@ -141,19 +127,19 @@ fn lowering_repro_keeps_same_name_parameters_distinct_per_routine_scope() {
 #[test]
 fn lowering_repro_lowers_non_empty_seq_literals_in_typed_v1_contexts() {
     let lowered = lower_fixture_workspace(concat!(
-        "fun[] take(values: seq[str]): seq[str] = {\n",
-        "    return values\n",
-        "}\n",
+        "fun[] take(values: ... str): seq[str] = {\n",
+        "    return values;\n",
+        "};\n",
         "fun[] from_binding(): seq[str] = {\n",
-        "    var names: seq[str] = {\"Ada\", \"Lin\"}\n",
-        "    return names\n",
-        "}\n",
+        "    var names: seq[str] = {\"Ada\", \"Lin\"};\n",
+        "    return names;\n",
+        "};\n",
         "fun[] from_return(): seq[str] = {\n",
-        "    return {\"Ada\", \"Lin\"}\n",
-        "}\n",
+        "    return {\"Ada\", \"Lin\"};\n",
+        "};\n",
         "fun[] from_arg(): seq[str] = {\n",
-        "    return take({\"Ada\", \"Lin\"})\n",
-        "}\n",
+        "    return take(\"Ada\", \"Lin\");\n",
+        "};\n",
     ));
 
     for routine_name in ["from_binding", "from_return", "from_arg"] {
@@ -186,18 +172,18 @@ fn lowering_repro_lowers_non_empty_set_and_map_literals_in_typed_v1_contexts() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] set_return(): set[int, str] = {\n",
         "    return {1, \"two\"}\n",
-        "}\n",
+        "};\n",
         "fun[] map_return(): map[str, int] = {\n",
         "    return {{\"US\", 45}, {\"DE\", 82}}\n",
-        "}\n",
+        "};\n",
         "fun[] from_set_index(): str = {\n",
-        "    var parts: set[int, str] = {1, \"two\"}\n",
-        "    return parts[1]\n",
-        "}\n",
+        "    var parts: set[int, str] = {1, \"two\"};\n",
+        "    return parts[1];\n",
+        "};\n",
         "fun[] from_map_index(): int = {\n",
-        "    var counts: map[str, int] = {{\"US\", 45}, {\"DE\", 82}}\n",
-        "    return counts[\"DE\"]\n",
-        "}\n",
+        "    var counts: map[str, int] = {{\"US\", 45}, {\"DE\", 82}};\n",
+        "    return counts[\"DE\"];\n",
+        "};\n",
     ));
 
     let expected = [
@@ -240,10 +226,10 @@ fn lowering_repro_keeps_exact_typed_container_instruction_shapes() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] seq_return(): seq[str] = {\n",
         "    return {\"Ada\", \"Lin\"}\n",
-        "}\n",
+        "};\n",
         "fun[] map_return(): map[str, int] = {\n",
         "    return {{\"US\", 45}, {\"DE\", 82}}\n",
-        "}\n",
+        "};\n",
     ));
 
     let seq_routine = lowered
@@ -308,26 +294,26 @@ fn lowering_repro_keeps_exact_typed_container_instruction_shapes() {
 #[test]
 fn lowering_repro_lowers_early_return_when_branches_as_statement_control_flow() {
     let lowered = lower_fixture_workspace(concat!(
-        "var enabled: bol = true\n",
-        "var default_name: str = \"Ada\"\n",
-        "var low_count: int = 1\n",
-        "var high_count: int = 7\n",
+        "var enabled: bol = true;\n",
+        "var default_name: str = \"Ada\";\n",
+        "var low_count: int = 1;\n",
+        "var high_count: int = 7;\n",
         "typ NameTag: rec = {\n",
         "    label: str;\n",
         "    code: int\n",
-        "}\n",
+        "};\n",
         "typ Audit: rec = {\n",
         "    active: bol;\n",
         "    marker: NameTag\n",
-        "}\n",
+        "};\n",
         "typ User: rec = {\n",
         "    name: str;\n",
         "    count: int;\n",
         "    audit: Audit\n",
-        "}\n",
+        "};\n",
         "fun[] build_tag(): NameTag = {\n",
         "    return { label = \"stable\", code = high_count }\n",
-        "}\n",
+        "};\n",
         "fun[] build_user(): User = {\n",
         "    return {\n",
         "        name = default_name,\n",
@@ -337,23 +323,22 @@ fn lowering_repro_lowers_early_return_when_branches_as_statement_control_flow() 
         "            marker = build_tag(),\n",
         "        },\n",
         "    }\n",
-        "}\n",
+        "};\n",
         "fun[] choose_count(): int = {\n",
         "    when(enabled) {\n",
-        "        case(true) { high_count }\n",
-        "        * { low_count }\n",
+        "        case(true) { return high_count; }\n",
+        "        * { return low_count; }\n",
         "    }\n",
-        "}\n",
-        "fun[] main(): int = {\n",
-        "    var current: User = build_user()\n",
+        "};\n",
+        "fun[] main(current: User): int = {\n",
         "    loop(enabled) {\n",
-        "        break\n",
+        "        break;\n",
         "    }\n",
         "    when(enabled) {\n",
         "        case(true) { return current.audit.marker.code }\n",
         "        * { return choose_count() }\n",
         "    }\n",
-        "}\n",
+        "};\n",
     ));
     let routine = lowered
         .entry_package()
@@ -382,7 +367,7 @@ fn lowering_repro_lowers_early_return_when_branches_as_statement_control_flow() 
 #[test]
 fn lowering_repro_keeps_exact_cfg_shape_for_early_return_when_branches() {
     let lowered = lower_fixture_workspace(
-        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { return 1 }\n        * { return 2 }\n    }\n}\n",
+        "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { return 1 }\n        * { return 2 }\n    }\n};\n",
     );
     let routine = lowered
         .entry_package()
@@ -424,11 +409,11 @@ fn lowering_repro_keeps_exact_cfg_shape_for_early_return_when_branches() {
 fn comparison_intrinsic_lowering_emits_intrinsic_calls_with_canonical_ids() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] eq_main(): bol = {\n",
-        "    return .eq(1, 1)\n",
-        "}\n",
+        "    return .eq(1, 1);\n",
+        "};\n",
         "fun[] lt_main(): bol = {\n",
-        "    return .lt(1, 2)\n",
-        "}\n",
+        "    return .lt(1, 2);\n",
+        "};\n",
     ));
 
     let entry = lowered.entry_package();
@@ -463,8 +448,8 @@ fn comparison_intrinsic_lowering_emits_intrinsic_calls_with_canonical_ids() {
 fn boolean_intrinsic_lowering_emits_intrinsic_calls_with_canonical_ids() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(flag: bol): bol = {\n",
-        "    return .not(flag)\n",
-        "}\n",
+        "    return .not(flag);\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -496,9 +481,9 @@ fn boolean_intrinsic_lowering_emits_intrinsic_calls_with_canonical_ids() {
 #[test]
 fn length_intrinsic_lowering_emits_dedicated_length_instructions() {
     let lowered = lower_fixture_workspace(concat!(
-        "fun[] main(items: seq[int]): int = {\n",
-        "    return .len(items)\n",
-        "}\n",
+        "fun[] main(items: seq[ptr[int]]): int = {\n",
+        "    return .len(items);\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -513,12 +498,22 @@ fn length_intrinsic_lowering_emits_dedicated_length_instructions() {
         .find_map(|instr| match &instr.kind {
             LoweredInstrKind::LengthOf { operand } => Some(*operand),
             _ => None,
-        });
+        })
+        .expect("length intrinsic lowering should use the dedicated LengthOf instruction");
+    let transfer_load = routine.instructions.iter().any(|instr| {
+        matches!(
+            &instr.kind,
+            LoweredInstrKind::LoadLocal { local } if *local == routine.params[0]
+        )
+    });
 
     assert_eq!(
-        lowered_len,
-        Some(routine.params[0]),
-        "length intrinsic lowering should use the dedicated LengthOf instruction",
+        lowered_len, routine.params[0],
+        "LengthOf should observe the original move-only container local",
+    );
+    assert!(
+        !transfer_load,
+        "length observation must not route a move-only container through LoadLocal",
     );
 }
 
@@ -526,8 +521,8 @@ fn length_intrinsic_lowering_emits_dedicated_length_instructions() {
 fn diagnostic_intrinsic_lowering_emits_runtime_hooks_and_forwards_values() {
     let lowered = lower_fixture_workspace(concat!(
         "fun[] main(flag: bol): bol = {\n",
-        "    return .echo(flag)\n",
-        "}\n",
+        "    return .echo(flag);\n",
+        "};\n",
     ));
 
     let routine = lowered
@@ -539,7 +534,7 @@ fn diagnostic_intrinsic_lowering_emits_runtime_hooks_and_forwards_values() {
     let intrinsic_id = fol_intrinsics::intrinsic_by_canonical_name("echo")
         .expect("echo intrinsic should exist")
         .id;
-    let lowered_hook = routine
+    let (lowered_intrinsic, hook_args) = routine
         .instructions
         .iter()
         .find_map(|instr| match &instr.kind {
@@ -547,17 +542,41 @@ fn diagnostic_intrinsic_lowering_emits_runtime_hooks_and_forwards_values() {
                 Some((*intrinsic, args.clone()))
             }
             _ => None,
-        });
+        })
+        .expect("diagnostic intrinsic lowering should emit a runtime hook");
 
     assert_eq!(
-        lowered_hook,
-        Some((intrinsic_id, vec![routine.params[0]])),
+        lowered_intrinsic, intrinsic_id,
         "diagnostic intrinsic lowering should emit a runtime hook using the canonical '.echo' intrinsic id",
     );
-    assert!(matches!(
-        routine.blocks.get(routine.entry_block).and_then(|block| block.terminator.clone()),
-        Some(LoweredTerminator::Return { value: Some(value) }) if value == routine.params[0]
-    ));
+    assert_eq!(
+        hook_args.len(),
+        1,
+        "the '.echo' runtime hook should forward exactly one argument",
+    );
+    let loaded_param = routine
+        .instructions
+        .iter()
+        .find_map(|instr| match (&instr.result, &instr.kind) {
+            (Some(result), LoweredInstrKind::LoadLocal { local })
+                if *result == hook_args[0] =>
+            {
+                Some(*local)
+            }
+            _ => None,
+        });
+    assert_eq!(
+        loaded_param,
+        Some(routine.params[0]),
+        "the '.echo' hook argument should come from loading the flag parameter",
+    );
+    assert!(
+        matches!(
+            routine.blocks.get(routine.entry_block).and_then(|block| block.terminator.clone()),
+            Some(LoweredTerminator::Return { value: Some(value) }) if value == hook_args[0]
+        ),
+        "'.echo' should forward its argument value into the return terminator",
+    );
 }
 
 #[test]
@@ -573,7 +592,11 @@ fn parser_typecheck_and_lower_keep_same_canonical_intrinsic_identity() {
     ));
     std::fs::write(
         &fixture,
-        concat!("fun[] main(): bol = {\n", "    return .eq(1, 1)\n", "}\n",),
+        concat!(
+        "fun[] main(): bol = {\n",
+        "    return .eq(1, 1);\n",
+        "};\n",
+    ),
     )
     .expect("should write lowering intrinsic identity fixture");
 
@@ -679,7 +702,7 @@ fn identifier_lowering_loads_parameter_locals_and_top_level_globals() {
     ));
     std::fs::write(
         &fixture,
-        "var count: int = 1\nfun[] main(value: int): int = { value }",
+        "var count: int = 1;\nfun[] main(value: int): non = { };",
     )
     .expect("should write lowering identifier fixture");
 
@@ -833,4 +856,80 @@ fn declaration_index_tracks_globals_and_routines_by_owning_package() {
         index.routine_id_for_symbol(&identity, fol_resolver::SymbolId(2)),
         Some(crate::LoweredRoutineId(0))
     );
+}
+
+#[test]
+fn declaration_index_keeps_colliding_routine_metadata_package_local() {
+    let app_identity = PackageIdentity {
+        source_kind: PackageSourceKind::Entry,
+        canonical_root: "/workspace/app".to_string(),
+        display_name: "app".to_string(),
+    };
+    let dep_identity = PackageIdentity {
+        source_kind: PackageSourceKind::Local,
+        canonical_root: "/workspace/dep".to_string(),
+        display_name: "dep".to_string(),
+    };
+    let routine_id = crate::LoweredRoutineId(0);
+
+    let mut app_routine = LoweredRoutine::new(routine_id, "app_task", crate::LoweredBlockId(0));
+    let app_param = app_routine.locals.push(LoweredLocal {
+        id: crate::LoweredLocalId(0),
+        type_id: Some(crate::LoweredTypeId(10)),
+        name: Some("app_value".to_string()),
+    });
+    app_routine.params.push(app_param);
+
+    let mut dep_routine = LoweredRoutine::new(routine_id, "dep_task", crate::LoweredBlockId(0));
+    dep_routine.receiver_type = Some(crate::LoweredTypeId(20));
+    let dep_param = dep_routine.locals.push(LoweredLocal {
+        id: crate::LoweredLocalId(0),
+        type_id: Some(crate::LoweredTypeId(20)),
+        name: Some("dep_receiver".to_string()),
+    });
+    dep_routine.params.push(dep_param);
+
+    let mut app_package =
+        LoweredPackage::new(crate::LoweredPackageId(0), app_identity.clone());
+    app_package.routine_decls.insert(routine_id, app_routine);
+    let mut dep_package =
+        LoweredPackage::new(crate::LoweredPackageId(1), dep_identity.clone());
+    dep_package.routine_decls.insert(routine_id, dep_routine);
+
+    let mut packages = BTreeMap::new();
+    packages.insert(app_identity.clone(), app_package);
+    packages.insert(dep_identity.clone(), dep_package);
+    let mut type_table = crate::LoweredTypeTable::new();
+    let recoverable_abi = crate::LoweredRecoverableAbi::v1(
+        type_table.intern_builtin(crate::LoweredBuiltinType::Bool),
+    );
+    let workspace = LoweredWorkspace::new(
+        app_identity.clone(),
+        packages,
+        Vec::new(),
+        type_table,
+        crate::LoweredSourceMap::new(),
+        recoverable_abi,
+    );
+
+    let index = WorkspaceDeclIndex::build(&workspace);
+
+    assert_eq!(
+        index.routine_param_types(&app_identity, routine_id),
+        Some([crate::LoweredTypeId(10)].as_slice())
+    );
+    assert_eq!(
+        index.routine_param_names(&app_identity, routine_id),
+        Some(["app_value".to_string()].as_slice())
+    );
+    assert!(!index.routine_has_receiver(&app_identity, routine_id));
+    assert_eq!(
+        index.routine_param_types(&dep_identity, routine_id),
+        Some([crate::LoweredTypeId(20)].as_slice())
+    );
+    assert_eq!(
+        index.routine_param_names(&dep_identity, routine_id),
+        Some(["dep_receiver".to_string()].as_slice())
+    );
+    assert!(index.routine_has_receiver(&dep_identity, routine_id));
 }

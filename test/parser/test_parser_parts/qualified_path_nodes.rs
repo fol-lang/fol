@@ -60,6 +60,7 @@ fn test_method_call_children_include_structured_receiver_before_args() {
         ]),
     };
     let call = AstNode::MethodCall {
+        syntax_id: None,
         object: Box::new(receiver),
         method: "read".to_string(),
         args: vec![AstNode::Literal(Literal::Integer(1))],

@@ -15,14 +15,13 @@ pub enum CompletionShellArg {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrontendOutputArgs {
-    pub output: OutputMode,
+    /// Command-local override. `None` preserves the root/global output mode.
+    pub output: Option<OutputMode>,
 }
 
 impl Default for FrontendOutputArgs {
     fn default() -> Self {
-        Self {
-            output: OutputMode::Human,
-        }
+        Self { output: None }
     }
 }
 
@@ -189,6 +188,15 @@ pub struct CompleteCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExplainCommand {
+    pub code: String,
+    /// Output mode set explicitly on the command (e.g. `code explain T1003
+    /// --output json`). When `None`, the root-level `--output`/`--json` flags
+    /// apply.
+    pub output: Option<OutputMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmitCommand {
     pub command: EmitSubcommand,
 }
@@ -244,6 +252,7 @@ pub enum CodeSubcommand {
     Test(TestCommand),
     Check(CheckCommand),
     Emit(EmitCommand),
+    Explain(ExplainCommand),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

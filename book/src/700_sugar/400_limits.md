@@ -1,5 +1,12 @@
 # Limits
 
+Current boundary:
+
+- the `type[][.range(...)]` limit surfaces are not implemented in the current
+  compiler
+- everything below describes intended design, not current behavior; limits are
+  later design work, not part of the current compiler surface
+
 Limiting is a syntactic way to set boundaries for variables. The way FOL does is by using `[]` right after the type declaration `type[]`, so: `type[options][limits]`
 
 

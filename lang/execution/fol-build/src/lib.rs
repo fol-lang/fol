@@ -14,22 +14,25 @@ pub mod native;
 pub mod option;
 pub mod runtime;
 pub mod semantic;
-pub mod step;
 pub mod stdlib;
+pub mod step;
 
 pub use api::{
     validate_build_name, BuildApi, BuildApiError, BuildApiNameError, BuildArtifactHandle,
-    BuildOptionValue, DependencyHandle, DependencyRequest, ExecutableRequest,
-    InstallArtifactRequest, InstallDirRequest, InstallFileRequest, InstallHandle, RunHandle,
-    RunRequest, SharedLibraryRequest, StandardOptimizeOption, StandardOptimizeRequest,
-    StandardTargetOption, StandardTargetRequest, StaticLibraryRequest, StepHandle, StepRequest,
-    TestArtifactRequest, UserOption, UserOptionRequest,
+    BuildOptionValue, DependencyArgValue, DependencyHandle, DependencyRequest,
+    DependencySourceKind, ExecutableRequest, GitDependencyVersionSelector, InstallArtifactRequest,
+    InstallDirRequest, InstallFileRequest, InstallHandle, OutputHandle, OutputHandleKind,
+    OutputHandleLocator, PathHandle, PathHandleClass, PathHandleProvenance, RunHandle, RunRequest,
+    SharedLibraryRequest, SourceDirHandle, SourceFileHandle, StandardOptimizeOption,
+    StandardOptimizeRequest, StandardTargetOption, StandardTargetRequest, StaticLibraryRequest,
+    StepHandle, StepRequest, SystemLibraryHandle, TestArtifactRequest, UserOption,
+    UserOptionRequest,
 };
 pub use artifact::{
-    project_graph_artifacts, BuildArtifactDefinition, BuildArtifactLinkage, BuildArtifactModelKind,
-    BuildArtifactModuleConfig, BuildArtifactOutput, BuildArtifactPipelinePlan,
-    BuildArtifactPipelineStage, BuildArtifactReport, BuildArtifactRootSource, BuildArtifactSet,
-    BuildArtifactTargetConfig,
+    project_graph_artifacts, BuildArtifactDefinition, BuildArtifactFolModel, BuildArtifactLinkage,
+    BuildArtifactModelKind, BuildArtifactModuleConfig, BuildArtifactOutput,
+    BuildArtifactPipelinePlan, BuildArtifactPipelineStage, BuildArtifactReport,
+    BuildArtifactRootSource, BuildArtifactSet, BuildArtifactTargetConfig,
 };
 pub use codegen::{
     CodegenKind, CodegenRequest, CodegenResult, GeneratedFileAction, GeneratedFileDefinition,
@@ -38,10 +41,12 @@ pub use codegen::{
 };
 pub use dependency::{
     DependencyArtifactSurface, DependencyArtifactSurfaceSet, DependencyBuildEvaluationMode,
-    DependencyBuildHandle, DependencyBuildSurface, DependencyBuildSurfaceSet,
-    DependencyGeneratedOutputSurface, DependencyGeneratedOutputSurfaceSet, DependencyModuleSurface,
-    DependencyModuleSurfaceSet, DependencySourceRootSurface, DependencyStepSurface,
-    DependencyStepSurfaceSet,
+    DependencyBuildExposure, DependencyBuildHandle, DependencyBuildSurface,
+    DependencyBuildSurfaceSet, DependencyDirSurface, DependencyDirSurfaceSet,
+    DependencyFileSurface, DependencyFileSurfaceSet, DependencyGeneratedOutputSurface,
+    DependencyGeneratedOutputSurfaceSet, DependencyModuleSurface, DependencyModuleSurfaceSet,
+    DependencyPathSurface, DependencyPathSurfaceSet, DependencySourceRootSurface,
+    DependencyStepSurface, DependencyStepSurfaceSet,
 };
 pub use eval::{
     canonical_graph_construction_capabilities, evaluate_build_plan, evaluate_build_source,
@@ -63,7 +68,7 @@ pub use graph::{
 pub use native::{
     NativeArtifactDefinition, NativeArtifactKind, NativeArtifactSet, NativeIncludePath,
     NativeLibraryPath, NativeLinkDirective, NativeLinkInput, NativeLinkMode, NativePlatform,
-    NativeSearchPathOrigin,
+    NativeSearchPathOrigin, SystemLibraryRequest,
 };
 pub use option::{
     BuildOptimizeMode, BuildOptionDeclaration, BuildOptionDeclarationSet, BuildOptionOverride,
@@ -73,25 +78,28 @@ pub use option::{
 };
 pub use runtime::{
     find_record_field, BuildExecutionRepresentation, BuildRuntimeDependency,
-    BuildRuntimeDependencyQuery, BuildRuntimeDependencyQueryKind, BuildRuntimeDiagnostic,
-    BuildRuntimeDiagnosticKind, BuildRuntimeExpr, BuildRuntimeFrame, BuildRuntimeGeneratedFile,
-    BuildRuntimeGeneratedFileKind, BuildRuntimeHandle, BuildRuntimeHandleKind, BuildRuntimeLocalId,
-    BuildRuntimeMethodCall, BuildRuntimeProgram, BuildRuntimeReceiverKind, BuildRuntimeRecordField,
-    BuildRuntimeStmt, BuildRuntimeValue,
+    BuildRuntimeDependencyExport, BuildRuntimeDependencyExportKind, BuildRuntimeDependencyQuery,
+    BuildRuntimeDependencyQueryKind, BuildRuntimeDiagnostic, BuildRuntimeDiagnosticKind,
+    BuildRuntimeExpr, BuildRuntimeFrame, BuildRuntimeGeneratedFile, BuildRuntimeGeneratedFileKind,
+    BuildRuntimeHandle, BuildRuntimeHandleKind, BuildRuntimeLocalId, BuildRuntimeMethodCall,
+    BuildRuntimeProgram, BuildRuntimeReceiverKind, BuildRuntimeRecordField, BuildRuntimeStmt,
+    BuildRuntimeValue,
 };
 pub use semantic::{
-    canonical_artifact_config_shapes, canonical_chain_metadata, canonical_graph_method_signatures,
-    canonical_handle_method_signatures, canonical_option_config_shapes,
-    canonical_option_value_kinds, BuildSemanticChainKind, BuildSemanticChainMetadata,
-    BuildSemanticMethodParameter, BuildSemanticMethodSignature, BuildSemanticOptionValueKind,
-    BuildSemanticParameterShape, BuildSemanticRecordField, BuildSemanticRecordShape,
-    BuildSemanticRecordShapeKind, BuildSemanticType, BuildSemanticTypeFamily,
-    BuildStdlibImportSurface, BuildStdlibModuleKind, BuildStdlibModulePath,
+    canonical_artifact_config_shapes, canonical_build_context_config_shapes,
+    canonical_build_context_method_signatures, canonical_chain_metadata,
+    canonical_graph_method_signatures, canonical_handle_method_signatures,
+    canonical_option_config_shapes, canonical_option_value_kinds, BuildSemanticChainKind,
+    BuildSemanticChainMetadata, BuildSemanticMethodParameter, BuildSemanticMethodSignature,
+    BuildSemanticOptionValueKind, BuildSemanticParameterShape, BuildSemanticRecordField,
+    BuildSemanticRecordShape, BuildSemanticRecordShapeKind, BuildSemanticType,
+    BuildSemanticTypeFamily, BuildStdlibImportSurface, BuildStdlibModuleKind,
+    BuildStdlibModulePath,
 };
+pub use stdlib::BuildStdlibScope;
 pub use step::{
     plan_step_order, project_graph_steps, BuildDefaultStepKind, BuildRequestedStep,
     BuildStepCacheBoundary, BuildStepCacheKey, BuildStepDefinition, BuildStepEvent,
     BuildStepEventKind, BuildStepExecutionRequest, BuildStepExecutionResult, BuildStepPlanError,
     BuildStepReport,
 };
-pub use stdlib::BuildStdlibScope;

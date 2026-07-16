@@ -28,23 +28,21 @@ fn init_root_scaffolds_binary_packages_through_public_api() {
         "fun[] main(): int = {\n    return 0\n};\n"
     );
     assert_eq!(
-        fs::read_to_string(root.join("package.yaml")).expect("should read package manifest"),
-        format!(
-            "name: {}\nversion: 0.1.0\n",
-            root.file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("app")
-        )
-    );
-    assert_eq!(
         fs::read_to_string(root.join("build.fol")).expect("should read build file"),
-        concat!(
+        format!(
+            concat!(
             "// build.fol is the package build entry file.\n",
-            "pro[] build(graph: Graph): non = {\n",
-            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+            "pro[] build(): non = {{\n",
+            "    var build = .build();\n",
+            "    build.meta({{ name = \"{name}\", version = \"0.1.0\" }});\n",
+            "    build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }});\n",
+            "    var graph = build.graph();\n",
+            "    var app = graph.add_exe({{ name = \"{name}\", root = \"src/main.fol\", fol_model = \"memo\" }});\n",
             "    graph.install(app);\n",
             "    graph.add_run(app);\n",
-            "}\n",
+            "}};\n",
+        ),
+            name = root.file_name().and_then(|name| name.to_str()).unwrap_or("app")
         )
     );
 
@@ -65,7 +63,7 @@ fn init_root_scaffolds_workspace_roots_through_public_api() {
         FrontendArtifactKind::WorkspaceRoot
     );
     assert!(root.join("fol.work.yaml").is_file());
-    assert!(!root.join("package.yaml").exists());
+    assert!(!root.join("build.fol").exists());
 
     fs::remove_dir_all(root).ok();
 }
@@ -86,8 +84,17 @@ fn new_project_scaffolds_library_packages_through_public_api() {
         "fun[exp] demo(): int = {\n    return 0\n};\n"
     );
     assert_eq!(
-        fs::read_to_string(root.join("package.yaml")).expect("should read package manifest"),
-        "name: demo\nversion: 0.1.0\n"
+        fs::read_to_string(root.join("build.fol")).expect("should read build file"),
+        concat!(
+            "// build.fol is the package build entry file.\n",
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var lib = graph.add_static_lib({ name = \"demo\", root = \"src/lib.fol\" });\n",
+            "    graph.install(lib);\n",
+            "};\n",
+        )
     );
 
     fs::remove_dir_all(parent).ok();
@@ -108,7 +115,7 @@ fn new_project_scaffolds_workspace_roots_through_public_api() {
         FrontendArtifactKind::WorkspaceRoot
     );
     assert!(root.join("fol.work.yaml").is_file());
-    assert!(!root.join("package.yaml").exists());
+    assert!(!root.join("build.fol").exists());
 
     fs::remove_dir_all(parent).ok();
 }

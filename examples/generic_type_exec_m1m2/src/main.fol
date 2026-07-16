@@ -1,0 +1,14 @@
+use std: pkg = {"std"};
+
+typ Box(T): rec = {
+    value: T
+};
+
+fun[] take(value: Box[int]): int = {
+    return value.value;
+};
+
+fun[] main(): int = {
+    var current: Box[int] = { value = 42 };
+    return std::io::echo_int(take(current));
+};

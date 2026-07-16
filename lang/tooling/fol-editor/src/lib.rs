@@ -1,7 +1,9 @@
 //! Editor tooling foundations for the FOL language.
 //!
-//! `fol-editor` will host both the Tree-sitter-facing editor syntax layer and
-//! the compiler-backed language-server layer.
+//! `fol-editor` hosts the hand-authored tree-sitter structure layer and the
+//! compiler-backed language-server layer. Name families and capability-aware
+//! editor facts should come from compiler-owned metadata instead of copied
+//! editor registries.
 
 mod commands;
 mod convert;
@@ -10,15 +12,16 @@ mod error;
 mod format;
 mod lsp;
 mod paths;
+mod positions;
 mod session;
+mod source_scan;
 mod tree_sitter;
 mod workspace;
 
 pub use commands::{
     editor_completion_file, editor_format_file, editor_highlight_file, editor_lsp_entrypoint,
-    editor_parse_file, editor_references_file, editor_rename_file,
-    editor_semantic_tokens_file, editor_symbols_file, editor_tree_generate_bundle,
-    EditorCommandSummary,
+    editor_parse_file, editor_references_file, editor_rename_file, editor_semantic_tokens_file,
+    editor_symbols_file, editor_tree_generate_bundle, EditorCommandSummary,
 };
 pub use convert::{
     dedup_lsp_diagnostics, diagnostic_to_lsp, location_to_range, LspDiagnostic,
@@ -26,24 +29,22 @@ pub use convert::{
 };
 pub use documents::{EditorDocument, EditorDocumentStore};
 pub use error::{EditorError, EditorErrorKind, EditorResult};
-pub use format::{format_document, format_document_in_place};
 pub(crate) use format::formatting_edit;
+pub use format::{format_document, format_document_in_place};
 pub use lsp::{
     run_lsp_stdio, EditorCompletionItem, EditorLspServer, JsonRpcError, JsonRpcId,
-    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, LspCodeAction,
-    LspCodeActionContext, LspCodeActionParams, LspCompletionContext, LspCompletionItem,
-    LspCompletionList, LspCompletionOptions, LspCompletionParams, LspDefinitionParams,
-    LspDocumentFormattingParams,
-    LspDidChangeTextDocumentParams, LspDidCloseTextDocumentParams, LspDidOpenTextDocumentParams,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, LspCodeAction, LspCodeActionContext,
+    LspCodeActionParams, LspCompletionContext, LspCompletionItem, LspCompletionList,
+    LspCompletionOptions, LspCompletionParams, LspDefinitionParams, LspDidChangeTextDocumentParams,
+    LspDidCloseTextDocumentParams, LspDidOpenTextDocumentParams, LspDocumentFormattingParams,
     LspDocumentSymbol, LspDocumentSymbolParams, LspHover, LspHoverParams, LspInitializeParams,
-    LspInitializeResult, LspParameterInformation, LspPublishDiagnosticsParams,
-    LspReferenceContext, LspReferenceParams, LspRenameParams, LspSemanticTokens,
-    LspSemanticTokensLegend, LspSemanticTokensOptions, LspSemanticTokensParams,
-    LspServerCapabilities, LspServerInfo, LspSignatureHelp, LspSignatureHelpOptions,
-    LspSignatureHelpParams, LspSignatureInformation,
+    LspInitializeResult, LspParameterInformation, LspPublishDiagnosticsParams, LspReferenceContext,
+    LspReferenceParams, LspRenameParams, LspSemanticTokens, LspSemanticTokensLegend,
+    LspSemanticTokensOptions, LspSemanticTokensParams, LspServerCapabilities, LspServerInfo,
+    LspSignatureHelp, LspSignatureHelpOptions, LspSignatureHelpParams, LspSignatureInformation,
     LspTextDocumentContentChangeEvent, LspTextDocumentIdentifier, LspTextDocumentItem,
-    LspTextDocumentSyncOptions, LspTextEdit, LspVersionedTextDocumentIdentifier,
-    LspWorkspaceEdit, LspWorkspaceSymbol, LspWorkspaceSymbolParams,
+    LspTextDocumentSyncOptions, LspTextEdit, LspVersionedTextDocumentIdentifier, LspWorkspaceEdit,
+    LspWorkspaceSymbol, LspWorkspaceSymbolParams,
 };
 pub use paths::{EditorDocumentPath, EditorDocumentUri};
 pub use session::{EditorConfig, EditorSession};
@@ -55,8 +56,7 @@ pub use tree_sitter::{
 };
 pub use workspace::{
     map_document_workspace, materialize_analysis_overlay, EditorAnalysisOverlay,
-    EditorWorkspaceRoots,
-    EditorWorkspaceMapping,
+    EditorWorkspaceMapping, EditorWorkspaceRoots,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +91,10 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     fn repo_root() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().expect("repo root should resolve")
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("repo root should resolve")
     }
 
     fn lsp_message(value: &str) -> String {
@@ -173,9 +176,33 @@ mod tests {
             .command,
             "references"
         );
+        // Rename resolution needs a resolved workspace, which only exists for
+        // real packages. The package-less `record_flow` fixture backs the other
+        // file commands, so build a small self-contained package for the rename
+        // smoke check.
+        let rename_root = std::env::temp_dir().join(format!(
+            "fol_editor_public_rename_pkg_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(rename_root.join("src")).unwrap();
+        std::fs::create_dir_all(rename_root.join(".git")).unwrap();
+        std::fs::write(
+            rename_root.join("build.fol"),
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"rename_smoke\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"rename_smoke\", root = \"src/main.fol\", fol_model = \"core\" });\n    return;\n};\n",
+        )
+        .unwrap();
+        std::fs::write(
+            rename_root.join("src/main.fol"),
+            "fun[] helper(): int = {\n    return 7;\n};\n\nfun[] main(): int = {\n    return helper();\n};\n",
+        )
+        .unwrap();
         assert_eq!(
             editor_rename_file(
-                &path,
+                &rename_root.join("src/main.fol"),
                 LspPosition {
                     line: 5,
                     character: 11,
@@ -186,6 +213,7 @@ mod tests {
             .command,
             "rename"
         );
+        std::fs::remove_dir_all(&rename_root).ok();
         assert_eq!(
             editor_semantic_tokens_file(&path).unwrap().command,
             "semantic-tokens"
@@ -202,14 +230,18 @@ mod tests {
     #[test]
     fn lsp_and_workspace_shells_are_publicly_constructible() {
         let root = std::env::temp_dir().join(format!(
-            "fol_editor_public_lsp_workspace_{}_{}", std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch").as_nanos()
+            "fol_editor_public_lsp_workspace_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
         ));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(root.join("package.yaml"), "name: demo\nversion: 0.1.0\n").unwrap();
-        std::fs::write(root.join("build.fol"), "pro[] build(graph: Graph): non = {\n    return graph;\n};\n").unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
+        std::fs::write(root.join("build.fol"), "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n").unwrap();
         let file = src.join("main.fol");
         let text = "fun[] main(): int = {\n    return 0;\n};\n";
         std::fs::write(&file, text).unwrap();
@@ -273,10 +305,11 @@ mod tests {
         ));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(root.join("package.yaml"), "name: demo\nversion: 0.1.0\n").unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
         std::fs::write(
             root.join("build.fol"),
-            "pro[] build(graph: Graph): non = {\n    return graph;\n};\n",
+            "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"sample\", version = \"0.1.0\" });\n    var graph = build.graph();\n    graph.add_exe({ name = \"sample\", root = \"src/main.fol\", fol_model = \"memo\" });\n    return;\n};\n",
         )
         .unwrap();
         let file = src.join("main.fol");

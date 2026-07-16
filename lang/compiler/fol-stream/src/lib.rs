@@ -349,7 +349,7 @@ fn from_dir(directory: &str) -> Result<Vec<String>, StreamError> {
         if entry.path().is_dir() {
             // CRITICAL: Skip .mod directories - this is the key innovation!
             // .mod directories contain module-specific mixed content
-            if filename.ends_with(".mod") {
+            if filename.ends_with(".mod") || filename == ".fol" {
                 continue;
             }
 
@@ -600,6 +600,43 @@ mod unit_tests {
                 .collect::<Vec<_>>(),
             expected_buffers,
             "Streaming across file boundaries should reuse precomputed character buffers without rebuilding them"
+        );
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn from_dir_skips_internal_fol_workspace_directory() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "fol_stream_skip_internal_fol_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("System time should be after unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp_root.join(".fol/cache"))
+            .expect("Should create internal .fol directory");
+        fs::write(temp_root.join("src.fol"), "fun[] main(): int = {\n    return 7;\n};\n")
+            .expect("Should write visible source file");
+        fs::write(
+            temp_root.join(".fol/cache/generated.fol"),
+            "fun[] ghost(): int = {\n    return 0;\n};\n",
+        )
+        .expect("Should write hidden internal source file");
+
+        let discovered = from_dir(
+            temp_root
+                .to_str()
+                .expect("Temp root path should be valid UTF-8"),
+        )
+        .expect("Directory traversal should succeed");
+
+        assert_eq!(discovered.len(), 1);
+        assert!(
+            discovered[0].ends_with("src.fol"),
+            "Only visible package sources should be discovered: {:?}",
+            discovered
         );
 
         fs::remove_dir_all(&temp_root).ok();

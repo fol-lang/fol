@@ -1,0 +1,9 @@
+use std: pkg = {"std"};
+
+fun pick(T)(value: T): T = {
+    return value;
+};
+
+fun[] main(): int = {
+    return std::io::echo_int(pick::[int](42));
+};

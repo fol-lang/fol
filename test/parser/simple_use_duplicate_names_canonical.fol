@@ -1,1 +1,1 @@
-use math_name, MathName: loc = {core::math};
+use math_name, MathName: loc = {"core::math"};

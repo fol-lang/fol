@@ -1,0 +1,19 @@
+use std: pkg = {"std"};
+
+std drawable: ext = {
+    fun draw(): int;
+    var color: int;
+};
+
+typ Rect()(drawable): rec = {
+    var color: int;
+};
+
+fun (Rect)draw(): int = {
+    return 42;
+};
+
+fun[] main(): int = {
+    var r: Rect = { color = 3 };
+    return std::io::echo_int(r.draw());
+};

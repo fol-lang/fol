@@ -3,7 +3,7 @@ use super::super::{
     BuildEnvironmentSelectionPolicy, BuildEvaluationBoundary, BuildEvaluationResult,
     BuildRuntimeCapabilityModel, ForbiddenBuildTimeOperation,
 };
-use crate::api::DependencyRequest;
+use crate::api::{DependencyArgValue, DependencyRequest};
 use crate::graph::BuildGraph;
 use crate::option::{
     BuildOptimizeMode, BuildOptionDeclaration, BuildOptionDeclarationSet, ResolvedBuildOptionSet,
@@ -191,8 +191,15 @@ fn build_evaluation_result_keeps_declared_and_resolved_options() {
 fn build_evaluation_result_keeps_declared_dependency_requests() {
     let dependencies = vec![DependencyRequest {
         alias: "core".to_string(),
+        source_kind: crate::api::DependencySourceKind::PackageStore,
         package: "org/core".to_string(),
+        args: std::collections::BTreeMap::from([(
+            "jobs".to_string(),
+            DependencyArgValue::Int(4),
+        )]),
         evaluation_mode: Some(crate::DependencyBuildEvaluationMode::Lazy),
+        git_version: None,
+        git_hash: None,
         surface: None,
     }];
     let result = BuildEvaluationResult::new(

@@ -21,13 +21,6 @@ impl AstParser {
                     name.clone()
                 }
             }
-            FolType::Standard { name } => {
-                if name.is_empty() {
-                    "std".to_string()
-                } else {
-                    name.clone()
-                }
-            }
             FolType::Never => "nev".to_string(),
             FolType::Union { .. } => "uni".to_string(),
             _ => format!("{:?}", typ),
@@ -143,6 +136,7 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<FolType, ParseError> {
+        let _nesting = self.enter_nesting(tokens)?;
         self.skip_ignorable(tokens)?;
         let token = tokens.curr(false)?;
 
@@ -161,6 +155,14 @@ impl AstParser {
             });
         }
 
+        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::At)) {
+            let _ = tokens.bump();
+            let inner = self.parse_type_reference_tokens(tokens)?;
+            return Ok(FolType::Owned {
+                inner: Box::new(inner),
+            });
+        }
+
         if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Bang)) {
             let _ = tokens.bump();
             let _ = self.parse_type_reference_tokens(tokens)?;
@@ -171,12 +173,8 @@ impl AstParser {
             return self.parse_function_type_reference(tokens);
         }
 
-        let first_name = Self::token_to_named_label(&token).ok_or_else(|| {
-            ParseError::from_token(
-                &token,
-                "Expected type reference".to_string(),
-            )
-        })?;
+        let first_name = Self::token_to_named_label(&token)
+            .ok_or_else(|| ParseError::from_token(&token, "Expected type reference".to_string()))?;
         let mut path =
             QualifiedPath::with_syntax_id(vec![first_name], self.record_syntax_origin(&token));
         let mut name = path.joined();
@@ -218,6 +216,28 @@ impl AstParser {
         }
 
         let base_name = name.clone();
+        if !path.is_qualified() && base_name == "opt" {
+            self.skip_ignorable(tokens)?;
+            if matches!(
+                tokens.curr(false).map(|token| token.key()),
+                Ok(KEYWORD::Symbol(SYMBOL::At))
+            ) {
+                let inner = self.parse_type_reference_tokens(tokens)?;
+                return Ok(FolType::Optional {
+                    inner: Box::new(inner),
+                });
+            }
+            if tokens
+                .curr(false)
+                .ok()
+                .is_some_and(|token| token.con().trim() == "ptr")
+            {
+                let inner = self.parse_type_reference_tokens(tokens)?;
+                return Ok(FolType::Optional {
+                    inner: Box::new(inner),
+                });
+            }
+        }
         if !path.is_qualified() && base_name == "url" {
             return Err(ParseError::from_token(
                 &token,

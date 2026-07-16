@@ -9,7 +9,9 @@
 //! Minimal pattern:
 //!
 //! ```no_run
-//! use fol_runtime::prelude::*;
+//! use fol_runtime::memo::{
+//!     render_record, FolEchoFormat, FolInt, FolNamedValue, FolRecord,
+//! };
 //!
 //! struct Point {
 //!     x: FolInt,
@@ -38,6 +40,12 @@
 //! let point = Point { x: 3, y: 7 };
 //! assert_eq!(point.fol_echo_format(), "Point { x: 3, y: 7 }");
 //! ```
+
+use crate::{
+    containers::FolArray,
+    memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
+    shell::{FolError, FolOption},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolNamedValue {
@@ -74,6 +82,14 @@ pub trait FolEntry {
     fn fol_entry_variant_name(&self) -> &'static str;
 
     fn fol_entry_fields(&self) -> Vec<FolNamedValue>;
+}
+
+pub trait FolEchoFormat {
+    fn fol_echo_format(&self) -> String;
+}
+
+pub fn render_echo<T: FolEchoFormat + ?Sized>(value: &T) -> String {
+    value.fol_echo_format()
 }
 
 fn join_named_values(values: &[FolNamedValue]) -> String {
@@ -119,6 +135,116 @@ pub fn render_entry_debug<T: FolEntry>(value: &T) -> String {
     render_entry(value)
 }
 
+fn join_echo<I>(items: I) -> String
+where
+    I: IntoIterator<Item = String>,
+{
+    items.into_iter().collect::<Vec<_>>().join(", ")
+}
+
+impl FolEchoFormat for i64 {
+    fn fol_echo_format(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl FolEchoFormat for f64 {
+    fn fol_echo_format(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl FolEchoFormat for bool {
+    fn fol_echo_format(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl FolEchoFormat for char {
+    fn fol_echo_format(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl FolEchoFormat for FolStr {
+    fn fol_echo_format(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl<T: FolEchoFormat + ?Sized> FolEchoFormat for Box<T> {
+    fn fol_echo_format(&self) -> String {
+        render_echo(self.as_ref())
+    }
+}
+
+impl<T: FolEchoFormat + ?Sized> FolEchoFormat for std::rc::Rc<T> {
+    fn fol_echo_format(&self) -> String {
+        render_echo(self.as_ref())
+    }
+}
+
+impl<T: FolEchoFormat, const N: usize> FolEchoFormat for FolArray<T, N> {
+    fn fol_echo_format(&self) -> String {
+        format!("arr[{}]", join_echo(self.iter().map(render_echo)))
+    }
+}
+
+impl<T: FolEchoFormat> FolEchoFormat for FolVec<T> {
+    fn fol_echo_format(&self) -> String {
+        format!(
+            "vec[{}]",
+            join_echo(self.as_slice().iter().map(render_echo))
+        )
+    }
+}
+
+impl<T: FolEchoFormat> FolEchoFormat for FolSeq<T> {
+    fn fol_echo_format(&self) -> String {
+        format!(
+            "seq[{}]",
+            join_echo(self.as_slice().iter().map(render_echo))
+        )
+    }
+}
+
+impl<T: FolEchoFormat + Ord> FolEchoFormat for FolSet<T> {
+    fn fol_echo_format(&self) -> String {
+        format!(
+            "set{{{}}}",
+            join_echo(self.as_set().iter().map(render_echo))
+        )
+    }
+}
+
+impl<K: FolEchoFormat + Ord, V: FolEchoFormat> FolEchoFormat for FolMap<K, V> {
+    fn fol_echo_format(&self) -> String {
+        format!(
+            "map{{{}}}",
+            join_echo(self.as_map().iter().map(|(key, value)| format!(
+                "{}: {}",
+                render_echo(key),
+                render_echo(value)
+            )))
+        )
+    }
+}
+
+impl<T: FolEchoFormat> FolEchoFormat for FolOption<T> {
+    fn fol_echo_format(&self) -> String {
+        match self {
+            FolOption::Some(value) => format!("some({})", render_echo(value)),
+            FolOption::Nil => "nil".to_string(),
+        }
+    }
+}
+
+impl<T: FolEchoFormat> FolEchoFormat for FolError<T> {
+    fn fol_echo_format(&self) -> String {
+        format!("err({})", render_echo(self.as_ref()))
+    }
+}
+
 pub fn module_name() -> &'static str {
     "aggregate"
 }
@@ -126,10 +252,9 @@ pub fn module_name() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        render_entry, render_entry_debug, render_record, render_record_debug, FolEntry,
-        FolNamedValue, FolRecord,
+        render_echo, render_entry, render_entry_debug, render_record, render_record_debug,
+        FolEchoFormat, FolEntry, FolNamedValue, FolRecord,
     };
-    use crate::builtins::render_echo;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct DemoPoint {
@@ -244,8 +369,8 @@ mod tests {
     }
 
     #[test]
-    fn prelude_example_shapes_show_backend_authorship_pattern() {
-        use crate::prelude::{
+    fn model_module_example_shapes_show_backend_authorship_pattern() {
+        use crate::memo::{
             render_entry, render_record, FolEchoFormat, FolEntry, FolInt, FolNamedValue, FolRecord,
         };
 

@@ -7,12 +7,12 @@ use crate::api::{
 use crate::codegen::{CodegenRequest, SystemToolRequest};
 use crate::graph::BuildGraph;
 use crate::option::{
-    BuildOptimizeMode, BuildOptionDeclarationSet, BuildTargetTriple,
-    ResolvedBuildOptionSet,
+    BuildOptimizeMode, BuildOptionDeclarationSet, BuildTargetTriple, ResolvedBuildOptionSet,
 };
 use crate::runtime::{
-    BuildRuntimeArtifact, BuildRuntimeDependency, BuildRuntimeDependencyQuery,
-    BuildRuntimeGeneratedFile, BuildRuntimeProgram, BuildRuntimeStepBinding,
+    BuildRuntimeArtifact, BuildRuntimeDependency, BuildRuntimeDependencyExport,
+    BuildRuntimeDependencyQuery, BuildRuntimeGeneratedFile, BuildRuntimeProgram,
+    BuildRuntimeStepBinding,
 };
 use fol_parser::ast::SyntaxOrigin;
 use std::collections::BTreeMap;
@@ -27,6 +27,7 @@ pub struct BuildEvaluationRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BuildEvaluationInputs {
     pub working_directory: String,
+    pub install_prefix: String,
     pub target: Option<BuildTargetTriple>,
     pub optimize: Option<BuildOptimizeMode>,
     pub options: BTreeMap<String, String>,
@@ -37,6 +38,7 @@ pub struct BuildEvaluationInputs {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BuildEvaluationInputEnvelope {
     pub working_directory: String,
+    pub install_prefix: String,
     pub target: Option<BuildTargetTriple>,
     pub optimize: Option<BuildOptimizeMode>,
     pub options: BTreeMap<String, String>,
@@ -70,8 +72,9 @@ impl BuildEvaluationInputEnvelope {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "cwd={};target={};optimize={};options=[{}];declared_env=[{}];env=[{}]",
+            "cwd={};prefix={};target={};optimize={};options=[{}];declared_env=[{}];env=[{}]",
             self.working_directory,
+            self.install_prefix,
             target,
             optimize,
             options,
@@ -122,6 +125,7 @@ impl BuildEvaluationInputs {
     pub fn explicit_envelope(&self) -> BuildEvaluationInputEnvelope {
         BuildEvaluationInputEnvelope {
             working_directory: self.working_directory.clone(),
+            install_prefix: self.install_prefix.clone(),
             target: self.target.clone(),
             optimize: self.optimize,
             options: self.options.clone(),
@@ -166,20 +170,59 @@ pub enum BuildEvaluationOperationKind {
     AddRun(BuildEvaluationRunRequest),
     InstallArtifact(BuildEvaluationInstallArtifactRequest),
     InstallFile(InstallFileRequest),
+    InstallGeneratedFile {
+        name: String,
+        generated_name: String,
+    },
+    InstallGeneratedDir {
+        name: String,
+        generated_name: String,
+    },
     InstallDir(InstallDirRequest),
     WriteFile(WriteFileRequest),
     CopyFile(CopyFileRequest),
     SystemTool(SystemToolRequest),
+    SystemToolDir(SystemToolRequest),
     Codegen(CodegenRequest),
+    CodegenDir(CodegenRequest),
     Dependency(DependencyRequest),
-    ArtifactLink { artifact: String, linked: String },
-    ArtifactImport { artifact: String, module_name: String },
-    ArtifactAddGenerated { artifact: String, generated_name: String },
-    RunAddArg { run_name: String, kind: BuildEvaluationRunArgKind, value: String },
-    RunCapture { run_name: String, output_name: String },
-    RunSetEnv { run_name: String, key: String, value: String },
-    StepAttach { step_name: String, generated_name: String },
-    Unsupported { label: String },
+    ArtifactLink {
+        artifact: String,
+        linked: String,
+    },
+    ArtifactLinkSystemLibrary {
+        artifact: String,
+        request: crate::native::SystemLibraryRequest,
+    },
+    ArtifactImport {
+        artifact: String,
+        module_name: String,
+    },
+    ArtifactAddGenerated {
+        artifact: String,
+        generated_name: String,
+    },
+    RunAddArg {
+        run_name: String,
+        kind: BuildEvaluationRunArgKind,
+        value: String,
+    },
+    RunCapture {
+        run_name: String,
+        output_name: String,
+    },
+    RunSetEnv {
+        run_name: String,
+        key: String,
+        value: String,
+    },
+    StepAttach {
+        step_name: String,
+        generated_name: String,
+    },
+    Unsupported {
+        label: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,6 +235,7 @@ pub enum BuildEvaluationRunArgKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildEvaluationStepRequest {
     pub name: String,
+    pub description: Option<String>,
     pub depends_on: Vec<String>,
 }
 
@@ -254,6 +298,7 @@ pub struct EvaluatedBuildProgram {
     pub artifacts: Vec<BuildRuntimeArtifact>,
     pub generated_files: Vec<BuildRuntimeGeneratedFile>,
     pub dependencies: Vec<BuildRuntimeDependency>,
+    pub dependency_exports: Vec<BuildRuntimeDependencyExport>,
     pub dependency_queries: Vec<BuildRuntimeDependencyQuery>,
     pub step_bindings: Vec<BuildRuntimeStepBinding>,
     pub result: BuildEvaluationResult,

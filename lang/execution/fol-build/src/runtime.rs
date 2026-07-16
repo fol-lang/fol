@@ -1,3 +1,5 @@
+use crate::artifact::BuildArtifactFolModel;
+use crate::api::DependencySourceKind;
 use crate::dependency::DependencyBuildEvaluationMode;
 use std::collections::BTreeMap;
 
@@ -35,6 +37,7 @@ pub enum BuildRuntimeGeneratedFileKind {
     Copy,
     ToolOutput,
     CodegenOutput,
+    GeneratedDir,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +45,7 @@ pub struct BuildRuntimeArtifact {
     pub name: String,
     pub kind: BuildRuntimeArtifactKind,
     pub root_module: String,
+    pub fol_model: BuildArtifactFolModel,
     pub target: Option<String>,
     pub optimize: Option<String>,
 }
@@ -77,9 +81,15 @@ impl BuildRuntimeArtifact {
             name: name.into(),
             kind,
             root_module: root_module.into(),
+            fol_model: BuildArtifactFolModel::Memo,
             target: None,
             optimize: None,
         }
+    }
+
+    pub fn with_fol_model(mut self, fol_model: BuildArtifactFolModel) -> Self {
+        self.fol_model = fol_model;
+        self
     }
 
     pub fn with_target_config(
@@ -126,8 +136,28 @@ impl BuildRuntimeStepBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRuntimeDependency {
     pub alias: String,
+    pub source_kind: DependencySourceKind,
     pub package: String,
+    pub args: BTreeMap<String, String>,
     pub evaluation_mode: Option<DependencyBuildEvaluationMode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildRuntimeDependencyExportKind {
+    Module,
+    Artifact,
+    Step,
+    File,
+    Dir,
+    Path,
+    GeneratedOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildRuntimeDependencyExport {
+    pub name: String,
+    pub target_name: String,
+    pub kind: BuildRuntimeDependencyExportKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +165,9 @@ pub enum BuildRuntimeDependencyQueryKind {
     Module,
     Artifact,
     Step,
+    File,
+    Dir,
+    Path,
     GeneratedOutput,
 }
 
@@ -147,6 +180,7 @@ pub struct BuildRuntimeDependencyQuery {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildRuntimeHandleKind {
+    BuildContext,
     Graph,
     Artifact,
     GeneratedFile,
@@ -325,7 +359,9 @@ mod tests {
         BuildRuntimeRecordField, BuildRuntimeStepBinding, BuildRuntimeStepBindingKind,
         BuildRuntimeStmt, BuildRuntimeValue,
     };
+    use crate::artifact::BuildArtifactFolModel;
     use crate::dependency::DependencyBuildEvaluationMode;
+    use std::collections::BTreeMap;
 
     #[test]
     fn runtime_programs_record_the_chosen_execution_representation() {
@@ -346,6 +382,7 @@ mod tests {
 
         assert_eq!(exe.kind, BuildRuntimeArtifactKind::Executable);
         assert_eq!(exe.root_module, "src/app.fol");
+        assert_eq!(exe.fol_model, BuildArtifactFolModel::Memo);
         assert_eq!(exe.target, None);
         assert_eq!(exe.optimize, None);
         assert_eq!(test.kind, BuildRuntimeArtifactKind::Test);
@@ -372,11 +409,13 @@ mod tests {
     }
 
     #[test]
-    fn runtime_artifacts_can_carry_target_and_optimize_metadata() {
+    fn runtime_artifacts_can_carry_fol_model_target_and_optimize_metadata() {
         let artifact =
             BuildRuntimeArtifact::new("app", BuildRuntimeArtifactKind::Executable, "src/app.fol")
+                .with_fol_model(BuildArtifactFolModel::Core)
                 .with_target_config(Some("x86_64-linux-gnu"), Some("release-fast"));
 
+        assert_eq!(artifact.fol_model, BuildArtifactFolModel::Core);
         assert_eq!(artifact.target.as_deref(), Some("x86_64-linux-gnu"));
         assert_eq!(artifact.optimize.as_deref(), Some("release-fast"));
     }
@@ -402,6 +441,10 @@ mod tests {
 
     #[test]
     fn runtime_values_cover_the_initial_build_handle_and_option_surface() {
+        let build = BuildRuntimeValue::Handle(BuildRuntimeHandle::new(
+            BuildRuntimeHandleKind::BuildContext,
+            "build",
+        ));
         let graph = BuildRuntimeValue::Handle(BuildRuntimeHandle::new(
             BuildRuntimeHandleKind::Graph,
             "graph",
@@ -413,6 +456,13 @@ mod tests {
         let target = BuildRuntimeValue::Target("x86_64-linux-gnu".to_string());
         let optimize = BuildRuntimeValue::Optimize("release-safe".to_string());
 
+        assert!(matches!(
+            build,
+            BuildRuntimeValue::Handle(BuildRuntimeHandle {
+                kind: BuildRuntimeHandleKind::BuildContext,
+                ..
+            })
+        ));
         assert!(matches!(
             graph,
             BuildRuntimeValue::Handle(BuildRuntimeHandle {
@@ -461,22 +511,28 @@ mod tests {
     fn runtime_dependency_records_capture_alias_package_and_query_kind() {
         let dependency = BuildRuntimeDependency {
             alias: "core".to_string(),
+            source_kind: crate::api::DependencySourceKind::PackageStore,
             package: "org/core".to_string(),
+            args: BTreeMap::from([("target".to_string(), "wasm32-freestanding".to_string())]),
             evaluation_mode: Some(DependencyBuildEvaluationMode::Lazy),
         };
         let query = BuildRuntimeDependencyQuery {
             dependency_alias: "core".to_string(),
             query_name: "bindings".to_string(),
-            kind: BuildRuntimeDependencyQueryKind::GeneratedOutput,
+            kind: BuildRuntimeDependencyQueryKind::Path,
         };
 
         assert_eq!(dependency.alias, "core");
         assert_eq!(dependency.package, "org/core");
         assert_eq!(
+            dependency.args.get("target").map(String::as_str),
+            Some("wasm32-freestanding")
+        );
+        assert_eq!(
             dependency.evaluation_mode,
             Some(DependencyBuildEvaluationMode::Lazy)
         );
-        assert_eq!(query.kind, BuildRuntimeDependencyQueryKind::GeneratedOutput);
+        assert_eq!(query.kind, BuildRuntimeDependencyQueryKind::Path);
         assert_eq!(query.query_name, "bindings");
     }
 

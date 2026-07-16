@@ -1,0 +1,5 @@
+use math: loc = {"math"};
+
+fun[exp] answer(): int = {
+    return math::answer();
+};

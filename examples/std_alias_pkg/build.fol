@@ -1,0 +1,13 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "std_alias_pkg", version = "0.1.0" });
+    build.add_dep({ alias = "standard_lib", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "std_alias_pkg",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+};

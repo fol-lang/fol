@@ -1,10 +1,13 @@
-fun[] make_static_lib(graph: Graph, name: str, root: str): Artifact = {
-    return graph.add_static_lib({ name = name, root = root });
+fun[] make_static_lib(name: str, root: str): Artifact = {
+    return .build().graph().add_static_lib({ name = name, root = root });
 };
 
-pro[] build(graph: Graph): non = {
-    var core = make_static_lib(graph, "core", "src/core/lib.fol");
-    var io   = make_static_lib(graph, "io",   "src/io/lib.fol");
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "helper_routine", version = "0.1.0" });
+    var graph = build.graph();
+    var core = make_static_lib("core", "src/core/lib.fol");
+    var io   = make_static_lib("io",   "src/io/lib.fol");
     var app  = graph.add_exe({ name = "app", root = "src/main.fol" });
     app.link(core);
     app.link(io);

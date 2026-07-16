@@ -1,13 +1,11 @@
-use super::capabilities::{
-    canonical_graph_construction_capabilities, BuildEvaluationBoundary,
-};
+use super::capabilities::{canonical_graph_construction_capabilities, BuildEvaluationBoundary};
 use super::error::{
     evaluation_api_error, evaluation_error, evaluation_invalid_input, BuildEvaluationError,
     BuildEvaluationErrorKind,
 };
 use super::types::{
-    BuildEvaluationOperationKind, BuildEvaluationRequest,
-    BuildEvaluationResult, BuildEvaluationRunArgKind,
+    BuildEvaluationOperationKind, BuildEvaluationRequest, BuildEvaluationResult,
+    BuildEvaluationRunArgKind,
 };
 use crate::api::BuildApi;
 use crate::option::{
@@ -16,6 +14,23 @@ use crate::option::{
     UserOptionDeclaration,
 };
 use std::collections::BTreeMap;
+
+fn parse_dependency_module_identity(name: &str) -> Option<(&str, &str)> {
+    let rest = name.strip_prefix("dep::")?;
+    let (alias, rest) = rest.split_once("::module::")?;
+    Some((alias, rest))
+}
+
+fn parse_dependency_output_identity(name: &str) -> Option<(&str, &str, &str)> {
+    let rest = name.strip_prefix("dep::")?;
+    for kind in ["generated", "path"] {
+        let marker = format!("::{kind}::");
+        if let Some((alias, query_name)) = rest.split_once(marker.as_str()) {
+            return Some((alias, kind, query_name));
+        }
+    }
+    None
+}
 
 pub fn evaluate_build_plan(
     request: &BuildEvaluationRequest,
@@ -29,7 +44,7 @@ pub fn evaluate_build_plan(
     let raw_option_overrides = request.inputs.options.clone();
     let mut resolved_options = ResolvedBuildOptionSet::new();
     let mut graph = crate::graph::BuildGraph::new();
-    let mut api = BuildApi::new(&mut graph);
+    let mut api = BuildApi::with_install_prefix(&mut graph, request.inputs.install_prefix.clone());
 
     for operation in &request.operations {
         match &operation.kind {
@@ -106,6 +121,7 @@ pub fn evaluate_build_plan(
                 let handle = api
                     .step(crate::StepRequest {
                         name: operation_request.name.clone(),
+                        description: operation_request.description.clone(),
                         depends_on,
                     })
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
@@ -179,6 +195,58 @@ pub fn evaluate_build_plan(
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
                 step_names.insert(operation_request.name.clone(), handle.step_id);
             }
+            BuildEvaluationOperationKind::InstallGeneratedFile {
+                name,
+                generated_name,
+            } => {
+                let handle = if let Some(generated_id) =
+                    generated_names.get(generated_name).copied()
+                {
+                    api.install_generated_file(name.clone(), generated_id)
+                        .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?
+                } else if let Some((alias, _kind, query_name)) =
+                    parse_dependency_output_identity(generated_name)
+                {
+                    api.install_file(crate::InstallFileRequest {
+                        name: name.clone(),
+                        path: format!("$dep/{alias}/{query_name}"),
+                        depends_on: Vec::new(),
+                    })
+                    .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?
+                } else {
+                    return Err(evaluation_invalid_input(
+                        format!("unknown generated file '{generated_name}' in graph.install_file"),
+                        operation.origin.clone(),
+                    ));
+                };
+                step_names.insert(name.clone(), handle.step_id);
+            }
+            BuildEvaluationOperationKind::InstallGeneratedDir {
+                name,
+                generated_name,
+            } => {
+                let handle = if let Some(generated_id) =
+                    generated_names.get(generated_name).copied()
+                {
+                    api.install_generated_dir(name.clone(), generated_id)
+                        .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?
+                } else if let Some((alias, _kind, query_name)) =
+                    parse_dependency_output_identity(generated_name)
+                {
+                    api.install_dir(crate::InstallDirRequest {
+                        name: name.clone(),
+                        path: format!("$dep/{alias}/{query_name}"),
+                        depends_on: Vec::new(),
+                    })
+                    .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?
+                } else {
+                    return Err(evaluation_invalid_input(
+                        format!("unknown generated dir '{generated_name}' in graph.install_dir"),
+                        operation.origin.clone(),
+                    ));
+                };
+                step_names.insert(name.clone(), handle.step_id);
+            }
             BuildEvaluationOperationKind::InstallDir(operation_request) => {
                 let handle = api
                     .install_dir(operation_request.clone())
@@ -189,13 +257,31 @@ pub fn evaluate_build_plan(
                 let handle = api
                     .write_file(operation_request.clone())
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
-                generated_names.insert(operation_request.name.clone(), handle.generated_file_id);
+                let generated_file_id = handle.generated_file_id().ok_or_else(|| {
+                    evaluation_invalid_input(
+                        format!(
+                            "output '{}' from graph.write_file must resolve to a local generated file",
+                            operation_request.name
+                        ),
+                        operation.origin.clone(),
+                    )
+                })?;
+                generated_names.insert(operation_request.name.clone(), generated_file_id);
             }
             BuildEvaluationOperationKind::CopyFile(operation_request) => {
                 let handle = api
                     .copy_file(operation_request.clone())
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
-                generated_names.insert(operation_request.name.clone(), handle.generated_file_id);
+                let generated_file_id = handle.generated_file_id().ok_or_else(|| {
+                    evaluation_invalid_input(
+                        format!(
+                            "output '{}' from graph.copy_file must resolve to a local generated file",
+                            operation_request.name
+                        ),
+                        operation.origin.clone(),
+                    )
+                })?;
+                generated_names.insert(operation_request.name.clone(), generated_file_id);
             }
             BuildEvaluationOperationKind::SystemTool(operation_request) => {
                 let handles = api
@@ -205,9 +291,27 @@ pub fn evaluate_build_plan(
                     generated_names.insert(output.clone(), handle.generated_file_id);
                 }
             }
+            BuildEvaluationOperationKind::SystemToolDir(operation_request) => {
+                let output = operation_request.outputs.first().ok_or_else(|| {
+                    evaluation_invalid_input(
+                        "graph.add_system_tool_dir requires one output directory".to_string(),
+                        operation.origin.clone(),
+                    )
+                })?;
+                let handle = api
+                    .add_system_tool_dir(operation_request.clone())
+                    .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
+                generated_names.insert(output.clone(), handle.generated_file_id);
+            }
             BuildEvaluationOperationKind::Codegen(operation_request) => {
                 let handle = api
                     .add_codegen(operation_request.clone())
+                    .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
+                generated_names.insert(operation_request.output.clone(), handle.generated_file_id);
+            }
+            BuildEvaluationOperationKind::CodegenDir(operation_request) => {
+                let handle = api
+                    .add_codegen_dir(operation_request.clone())
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
                 generated_names.insert(operation_request.output.clone(), handle.generated_file_id);
             }
@@ -243,6 +347,18 @@ pub fn evaluate_build_plan(
                     })?;
                 api.artifact_link(artifact_id, linked_id);
             }
+            BuildEvaluationOperationKind::ArtifactLinkSystemLibrary { artifact, request } => {
+                let artifact_id = artifact_names
+                    .get(artifact)
+                    .map(|h: &crate::api::BuildArtifactHandle| h.artifact_id)
+                    .ok_or_else(|| {
+                        evaluation_invalid_input(
+                            format!("unknown artifact '{artifact}' in artifact.link"),
+                            operation.origin.clone(),
+                        )
+                    })?;
+                api.artifact_link_system_library(artifact_id, request.clone());
+            }
             BuildEvaluationOperationKind::ArtifactImport {
                 artifact,
                 module_name,
@@ -256,12 +372,23 @@ pub fn evaluate_build_plan(
                             operation.origin.clone(),
                         )
                     })?;
-                let module_id = module_names.get(module_name).copied().ok_or_else(|| {
-                    evaluation_invalid_input(
+                let module_id = if let Some(module_id) = module_names.get(module_name).copied() {
+                    module_id
+                } else if let Some((alias, query_name)) =
+                    parse_dependency_module_identity(module_name)
+                {
+                    let synthetic_name = format!("dep:{alias}:{query_name}");
+                    let module_id = api
+                        .graph_mut()
+                        .add_module(crate::graph::BuildModuleKind::Imported, synthetic_name);
+                    module_names.insert(module_name.clone(), module_id);
+                    module_id
+                } else {
+                    return Err(evaluation_invalid_input(
                         format!("unknown module '{module_name}' in artifact.import"),
                         operation.origin.clone(),
-                    )
-                })?;
+                    ));
+                };
                 api.artifact_import(artifact_id, module_id);
             }
             BuildEvaluationOperationKind::ArtifactAddGenerated {
@@ -301,14 +428,18 @@ pub fn evaluate_build_plan(
                         crate::graph::BuildRunArg::Literal(value.clone())
                     }
                     BuildEvaluationRunArgKind::GeneratedFile => {
-                        let gen_id =
-                            generated_names.get(value).copied().ok_or_else(|| {
-                                evaluation_invalid_input(
-                                    format!("unknown generated file '{value}' in run.add_file_arg"),
-                                    operation.origin.clone(),
-                                )
-                            })?;
-                        crate::graph::BuildRunArg::GeneratedFile(gen_id)
+                        if let Some(gen_id) = generated_names.get(value).copied() {
+                            crate::graph::BuildRunArg::GeneratedFile(gen_id)
+                        } else if let Some((alias, _kind, query_name)) =
+                            parse_dependency_output_identity(value)
+                        {
+                            crate::graph::BuildRunArg::Path(format!("$dep/{alias}/{query_name}"))
+                        } else {
+                            return Err(evaluation_invalid_input(
+                                format!("unknown generated file '{value}' in run.add_file_arg"),
+                                operation.origin.clone(),
+                            ));
+                        }
                     }
                     BuildEvaluationRunArgKind::Path => {
                         crate::graph::BuildRunArg::Path(value.clone())
@@ -327,9 +458,22 @@ pub fn evaluate_build_plan(
                     )
                 })?;
                 let handle = api.run_capture_stdout(step_id, output_name.clone());
-                generated_names.insert(output_name.clone(), handle.generated_file_id);
+                let generated_file_id = handle.generated_file_id().ok_or_else(|| {
+                    evaluation_invalid_input(
+                        format!(
+                            "output '{}' from run.capture_stdout must resolve to a local generated file",
+                            output_name
+                        ),
+                        operation.origin.clone(),
+                    )
+                })?;
+                generated_names.insert(output_name.clone(), generated_file_id);
             }
-            BuildEvaluationOperationKind::RunSetEnv { run_name, key, value } => {
+            BuildEvaluationOperationKind::RunSetEnv {
+                run_name,
+                key,
+                value,
+            } => {
                 let step_id = step_names.get(run_name).copied().ok_or_else(|| {
                     evaluation_invalid_input(
                         format!("unknown run step '{run_name}' in run.set_env"),
@@ -348,12 +492,15 @@ pub fn evaluate_build_plan(
                         operation.origin.clone(),
                     )
                 })?;
-                let gen_id = generated_names.get(generated_name).copied().ok_or_else(|| {
-                    evaluation_invalid_input(
-                        format!("unknown generated file '{generated_name}' in step.attach"),
-                        operation.origin.clone(),
-                    )
-                })?;
+                let gen_id = generated_names
+                    .get(generated_name)
+                    .copied()
+                    .ok_or_else(|| {
+                        evaluation_invalid_input(
+                            format!("unknown generated file '{generated_name}' in step.attach"),
+                            operation.origin.clone(),
+                        )
+                    })?;
                 api.step_attach(step_id, gen_id);
             }
             BuildEvaluationOperationKind::Unsupported { label } => {

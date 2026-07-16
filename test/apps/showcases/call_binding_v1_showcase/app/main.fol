@@ -1,0 +1,31 @@
+typ Counter: rec = {
+    total: int
+};
+
+fun[] pair(left: int, right: int = 2): int = {
+    return left + right;
+};
+
+fun[] score(base: int, step: int = 2, extras: ... int): int = {
+    return base + step + extras[0] + extras[1] + .len(extras);
+};
+
+fun (Counter)shift(step: int = 2, extras: ... int): int = {
+    return step + extras[0] + extras[1] + .len(extras);
+};
+
+fun[] call_binding_paths(): int = {
+    var current: Counter = {
+        total = 9,
+    };
+    var extras: seq[int] = {4, 5};
+    var free_named_default: int = pair(left = 3);
+    var free_named_unpack: int = score(base = 1, ...extras);
+    var method_named_unpack: int = current.shift(step = 3, ...extras);
+
+    return free_named_default + free_named_unpack + method_named_unpack;
+};
+
+fun[] main(): int = {
+    return .echo(call_binding_paths());
+};

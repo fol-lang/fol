@@ -2,9 +2,9 @@ use crate::{
     model::{ResolvedProgram, ScopeKind, SymbolKind},
     ResolverError, ResolverSession, ScopeId, SourceUnitId,
 };
-use fol_parser::ast::{AstNode, FolType, Generic, Parameter, SyntaxNodeId};
+use fol_parser::ast::{AstNode, FolType, Generic, Parameter, RoutineCapture, SyntaxNodeId};
 
-use super::super::scope::{insert_generic_symbols, insert_local_symbol};
+use super::super::scope::{insert_generic_symbols, insert_local_symbol_with_origin};
 use super::types::resolve_type_reference;
 use super::RoutineContext;
 
@@ -16,7 +16,7 @@ pub fn traverse_named_routine(
     syntax_id: &Option<SyntaxNodeId>,
     generics: &[Generic],
     receiver_type: &Option<FolType>,
-    captures: &[String],
+    captures: &[RoutineCapture],
     params: &[Parameter],
     return_type: &Option<FolType>,
     error_type: &Option<FolType>,
@@ -28,17 +28,16 @@ pub fn traverse_named_routine(
         this_available: return_type.is_some(),
     });
     program.record_scope_for_syntax(*syntax_id, routine_scope);
+    // Parameters and the receiver binding are declared by the routine header,
+    // so they borrow its origin for editor navigation.
+    let header_origin = syntax_id
+        .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+        .cloned();
 
     insert_generic_symbols(program, source_unit_id, routine_scope, generics)?;
     for generic in generics {
         for constraint in &generic.constraints {
-            resolve_type_reference(
-                session,
-                program,
-                source_unit_id,
-                routine_scope,
-                constraint,
-            )?;
+            resolve_type_reference(session, program, source_unit_id, routine_scope, constraint)?;
         }
     }
     if let Some(receiver_type) = receiver_type {
@@ -60,36 +59,52 @@ pub fn traverse_named_routine(
         )?;
     }
     if let Some(return_type) = return_type {
-        resolve_type_reference(
-            session,
-            program,
-            source_unit_id,
-            routine_scope,
-            return_type,
-        )?;
+        resolve_type_reference(session, program, source_unit_id, routine_scope, return_type)?;
     }
     if let Some(error_type) = error_type {
-        resolve_type_reference(
-            session,
-            program,
-            source_unit_id,
-            routine_scope,
-            error_type,
-        )?;
+        resolve_type_reference(session, program, source_unit_id, routine_scope, error_type)?;
     }
 
     for capture in captures {
-        insert_local_symbol(
+        let capture_origin = capture
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned();
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
-            capture,
+            &capture.name,
             SymbolKind::Capture,
-            format!("symbol#{}", fol_types::canonical_identifier_key(capture)),
+            format!(
+                "symbol#{}",
+                fol_types::canonical_identifier_key(&capture.name)
+            ),
+            capture_origin,
+        )?;
+    }
+    if receiver_type.is_some() {
+        insert_local_symbol_with_origin(
+            program,
+            source_unit_id,
+            routine_scope,
+            "self",
+            SymbolKind::Parameter,
+            format!("symbol#{}", fol_types::canonical_identifier_key("self")),
+            header_origin.clone(),
         )?;
     }
     for param in params {
-        insert_local_symbol(
+        // A parameter now carries its own NAME syntax id, so its symbol origin
+        // points at the parameter declaration span (not the routine header).
+        // The synthesized `self` receiver above keeps the header origin because
+        // it has no source token of its own.
+        let param_origin = param
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned()
+            .or_else(|| header_origin.clone());
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
@@ -99,6 +114,7 @@ pub fn traverse_named_routine(
                 "symbol#{}",
                 fol_types::canonical_identifier_key(&param.name)
             ),
+            param_origin,
         )?;
     }
 
@@ -134,7 +150,7 @@ pub fn traverse_anonymous_routine(
     source_unit_id: SourceUnitId,
     scope_id: ScopeId,
     syntax_id: &Option<SyntaxNodeId>,
-    captures: &[String],
+    captures: &[RoutineCapture],
     params: &[Parameter],
     return_type: &Option<FolType>,
     error_type: &Option<FolType>,
@@ -157,37 +173,39 @@ pub fn traverse_anonymous_routine(
         )?;
     }
     if let Some(return_type) = return_type {
-        resolve_type_reference(
-            session,
-            program,
-            source_unit_id,
-            routine_scope,
-            return_type,
-        )?;
+        resolve_type_reference(session, program, source_unit_id, routine_scope, return_type)?;
     }
     if let Some(error_type) = error_type {
-        resolve_type_reference(
-            session,
-            program,
-            source_unit_id,
-            routine_scope,
-            error_type,
-        )?;
+        resolve_type_reference(session, program, source_unit_id, routine_scope, error_type)?;
     }
 
     for capture in captures {
-        insert_local_symbol(
+        let capture_origin = capture
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned();
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
-            capture,
+            &capture.name,
             SymbolKind::Capture,
-            format!("symbol#{}", fol_types::canonical_identifier_key(capture)),
+            format!(
+                "symbol#{}",
+                fol_types::canonical_identifier_key(&capture.name)
+            ),
+            capture_origin,
         )?;
     }
 
     for param in params {
-        insert_local_symbol(
+        // Anonymous routine parameters carry their own NAME syntax id too, so
+        // give the parameter symbol its true declaration origin.
+        let param_origin = param
+            .syntax_id
+            .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
+            .cloned();
+        insert_local_symbol_with_origin(
             program,
             source_unit_id,
             routine_scope,
@@ -197,6 +215,7 @@ pub fn traverse_anonymous_routine(
                 "symbol#{}",
                 fol_types::canonical_identifier_key(&param.name)
             ),
+            param_origin,
         )?;
     }
 

@@ -135,6 +135,42 @@ fn test_method_calls_support_keyword_arguments() {
 }
 
 #[test]
+fn test_method_calls_support_unpack_after_keyword_arguments() {
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_fun_method_call_unpack_after_named.fol")
+            .expect("Should read keyword-plus-unpack method-call fixture");
+
+    let mut lexer = Elements::init(&mut file_stream);
+    let mut parser = AstParser::new();
+    let ast = parser
+        .parse(&mut lexer)
+        .expect("Parser should accept method call unpack arguments after keyword arguments");
+
+    let has_keyword_unpack_method_call = match ast {
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
+            matches!(
+                node,
+                AstNode::Assignment { value, .. }
+                if matches!(
+                    value.as_ref(),
+                    AstNode::MethodCall { method, args, .. }
+                    if method == "calc"
+                        && args.len() == 2
+                        && matches!(&args[0], AstNode::NamedArgument { name, .. } if name == "flag")
+                        && matches!(&args[1], AstNode::Unpack { .. })
+                )
+            )
+        }),
+        _ => panic!("Expected program node"),
+    };
+
+    assert!(
+        has_keyword_unpack_method_call,
+        "Method call should preserve unpack arguments after keyword arguments structurally"
+    );
+}
+
+#[test]
 fn test_invoke_expressions_support_keyword_arguments() {
     let mut file_stream = FileStream::from_file("test/parser/simple_fun_keyword_invoke_args.fol")
         .expect("Should read keyword invoke-argument fixture");

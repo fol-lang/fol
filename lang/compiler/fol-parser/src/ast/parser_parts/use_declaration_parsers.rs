@@ -3,25 +3,11 @@ use crate::ast::{UsePathSegment, UsePathSeparator};
 
 #[derive(Debug, Clone)]
 struct ParsedUsePath {
+    raw: String,
     segments: Vec<UsePathSegment>,
 }
 
 impl AstParser {
-    pub(super) fn ensure_complete_use_path(
-        &self,
-        token: &fol_lexer::lexer::stage3::element::Element,
-        path: &str,
-    ) -> Result<(), ParseError> {
-        if path.trim_end().ends_with("::") {
-            return Err(ParseError::from_token(
-                token,
-                "Expected name after '::' in use path".to_string(),
-            ));
-        }
-
-        Ok(())
-    }
-
     pub(super) fn parse_use_decl(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
@@ -74,19 +60,15 @@ impl AstParser {
             self.skip_ignorable(tokens)?;
             let token = tokens.curr(false)?;
             if matches!(token.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
-                let _ = tokens.bump();
-                let raw = self.parse_use_path(tokens)?;
+                let raw = self.parse_quoted_use_path(tokens)?;
                 let segments = self.parse_use_path_segments(&raw, &token)?;
-                paths.push(ParsedUsePath { segments });
-            } else if token.key().is_textual_literal() {
-                let raw = Self::exact_unquote_text(token.con());
-                let segments = self.parse_use_path_segments(&raw, &token)?;
-                paths.push(ParsedUsePath { segments });
-                let _ = tokens.bump();
+                paths.push(ParsedUsePath { raw, segments });
             } else {
-                let raw = self.parse_direct_use_path(tokens)?;
-                let segments = self.parse_use_path_segments(&raw, &token)?;
-                paths.push(ParsedUsePath { segments });
+                return Err(ParseError::from_token(
+                    &token,
+                    "Import targets must be written as quoted strings inside braces, for example {\"std\"}"
+                        .to_string(),
+                ));
             }
             self.skip_ignorable(tokens)?;
 
@@ -105,6 +87,42 @@ impl AstParser {
         }
 
         Ok(paths)
+    }
+
+    fn parse_quoted_use_path(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<String, ParseError> {
+        let open = tokens.curr(false)?;
+        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
+            return Err(ParseError::from_token(
+                &open,
+                "Expected '{' to start a quoted import target".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+
+        let target = tokens.curr(false)?;
+        if !target.key().is_textual_literal() {
+            return Err(ParseError::from_token(
+                &target,
+                "Import targets must be quoted string literals inside braces".to_string(),
+            ));
+        }
+        let raw = Self::exact_unquote_text(target.con());
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+
+        let close = tokens.curr(false)?;
+        if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
+            return Err(ParseError::from_token(
+                &close,
+                "Expected '}' after quoted import target".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        Ok(raw)
     }
 
     fn build_use_nodes(
@@ -135,6 +153,7 @@ impl AstParser {
                 options: options.clone(),
                 name,
                 path_type: path_type.clone(),
+                import_target: path.raw,
                 path_segments: path.segments,
             })
             .collect())
@@ -176,44 +195,6 @@ impl AstParser {
         }
 
         Ok(names)
-    }
-
-    fn parse_direct_use_path(
-        &self,
-        tokens: &mut fol_lexer::lexer::stage3::Elements,
-    ) -> Result<String, ParseError> {
-        let mut path = String::new();
-
-        for _ in 0..256 {
-            self.skip_ignorable(tokens)?;
-            let token = tokens.curr(false)?;
-            Self::reject_illegal_token(&token)?;
-
-            if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Comma))
-                || matches!(token.key(), KEYWORD::Symbol(SYMBOL::Semi))
-                || token.key().is_terminal()
-                || matches!(token.key(), KEYWORD::Void(_))
-            {
-                break;
-            }
-
-            path.push_str(token.con().trim());
-            if tokens.bump().is_none() {
-                break;
-            }
-        }
-
-        if path.is_empty() {
-            let token = tokens.curr(false)?;
-            return Err(ParseError::from_token(
-                &token,
-                "Expected use path".to_string(),
-            ));
-        }
-
-        let token = tokens.curr(false)?;
-        self.ensure_complete_use_path(&token, &path)?;
-        Ok(path)
     }
 
     fn parse_use_path_segments(

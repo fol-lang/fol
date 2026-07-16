@@ -1,1 +1,1 @@
-use warn, trace: loc = "std/warn", "std/trace";
+use warn, trace: loc = {"std/warn"}, {"std/trace"};

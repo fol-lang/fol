@@ -1,0 +1,6 @@
+use standard: pkg = {"standard_lib"};
+
+fun[] main(): int = {
+    var shown: int = standard::io::echo_int(standard::fmt::double(5));
+    return shown;
+};

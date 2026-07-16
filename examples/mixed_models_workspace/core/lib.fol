@@ -1,0 +1,3 @@
+fun[] core_checksum(values: arr[int, 3]): int = {
+    return .len(values) + values[0] + values[1] + values[2];
+};

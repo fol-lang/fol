@@ -1,0 +1,18 @@
+use shared: loc = {"../shared"};
+
+fun[] main(): int = {
+    var extras: seq[int] = {1, 2};
+    var free_named_reordered: int = pair(right = 7, left = 3);
+    var free_variadic_pack: int = score(2, 3, 4, 5);
+    var free_named_unpack: int = score(base = 1, ...extras);
+    var method_variadic_pack: int = current.tally(3, 4, 5);
+    var method_named_unpack: int = current.tally(step = 2, ...extras);
+
+    return .echo(
+        free_named_reordered
+        + free_variadic_pack
+        + free_named_unpack
+        + method_variadic_pack
+        + method_named_unpack
+    );
+};

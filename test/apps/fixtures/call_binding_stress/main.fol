@@ -1,0 +1,22 @@
+fun[] pair(left: int, right: int = 2): int = {
+    return left + right;
+};
+
+fun[] score(base: int, step: int = 2, extras: ... int): int = {
+    return base + step + extras[0] + extras[1] + .len(extras);
+};
+
+fun[] main(): int = {
+    var extras: seq[int] = {4, 5};
+    var free_named_reordered: int = pair(right = 7, left = 3);
+    var free_default_only: int = pair(8);
+    var free_variadic_pack: int = score(1, 3, 4, 5);
+    var free_named_unpack: int = score(base = 2, ...extras);
+
+    return .echo(
+        free_named_reordered
+        + free_default_only
+        + free_variadic_pack
+        + free_named_unpack
+    );
+};

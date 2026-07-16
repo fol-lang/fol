@@ -182,15 +182,34 @@ impl AstParser {
             }
             "ptr" => {
                 let args = self.parse_type_argument_list(tokens)?;
-                if args.len() != 1 {
-                    let token = tokens.curr(false)?;
-                    return Err(ParseError::from_token(
-                        &token,
-                        "Expected exactly one type argument for ptr[...]".to_string(),
-                    ));
-                }
+                let (qualifier, target) = match args.as_slice() {
+                    [target] => (crate::ast::PointerQualifier::Unique, target.clone()),
+                    [FolType::Named { name, .. }, target] if name == "shared" => {
+                        (crate::ast::PointerQualifier::Shared, target.clone())
+                    }
+                    [FolType::Named { name, .. }, target] if name == "raw" => {
+                        (crate::ast::PointerQualifier::Raw, target.clone())
+                    }
+                    [FolType::Named { name, .. }, _] => {
+                        let token = tokens.curr(false)?;
+                        return Err(ParseError::from_token(
+                            &token,
+                            format!(
+                                "Unknown pointer qualifier '{name}'; expected 'shared' or 'raw'"
+                            ),
+                        ));
+                    }
+                    _ => {
+                        let token = tokens.curr(false)?;
+                        return Err(ParseError::from_token(
+                            &token,
+                            "Expected ptr[T], ptr[shared, T], or ptr[raw, T]".to_string(),
+                        ));
+                    }
+                };
                 Ok(Some(FolType::Pointer {
-                    target: Box::new(args.into_iter().next().expect("ptr arg exists")),
+                    qualifier,
+                    target: Box::new(target),
                 }))
             }
             "err" => {

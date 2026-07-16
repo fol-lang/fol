@@ -1,0 +1,32 @@
+typ Status: ent = {
+    var OK: int = 1;
+    var FAIL: int = 2;
+};
+
+typ Counter: rec = {
+    total: int,
+    step: int,
+};
+
+fun (Counter)read(by: int = 1): int = {
+    return by + 2;
+};
+
+fun[] choose(active: bol): opt[int] = {
+    when(active) {
+        case(true) { return 7; }
+        * { return nil; }
+    }
+};
+
+fun[] main(): int = {
+    dfr {
+        var done: int = 1;
+    };
+
+    var values: arr[int, 2] = {3, 4};
+    var current: Counter = { total = 5, step = 2 };
+    var state: Status = Status.OK;
+    var chosen: opt[int] = choose(true);
+    return .len(values) + current.read() + chosen!;
+};

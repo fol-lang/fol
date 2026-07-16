@@ -1,3 +1,4 @@
-pro[] build(graph: Graph): non = {
-    return graph;
+pro[] build(): non = {
+    var graph = .graph();
+    return;
 };

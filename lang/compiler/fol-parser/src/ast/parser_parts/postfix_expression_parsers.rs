@@ -34,6 +34,7 @@ impl AstParser {
                                 syntax_id,
                                 surface: crate::ast::CallSurface::Plain,
                                 name,
+                                type_args: Vec::new(),
                                 args,
                             },
                             AstNode::QualifiedIdentifier { path } => {
@@ -69,6 +70,7 @@ impl AstParser {
                         let args = self.parse_call_args(tokens)?;
                         node = self.attach_leading_comments(
                             AstNode::MethodCall {
+                                syntax_id: self.record_syntax_origin(&member_token),
                                 object: Box::new(node),
                                 method: member,
                                 args,
@@ -90,6 +92,37 @@ impl AstParser {
                         self.parse_index_or_slice_expression(tokens, node)?,
                         leading_comments,
                     );
+                }
+                KEYWORD::Operator(OPERATOR::Path) => {
+                    // Explicit generic call turbofish: `ident::[TypeArgs](args)`.
+                    // The qualified-path parser bails out when it peeks
+                    // `::[`, leaving the `::` for this postfix branch.
+                    let is_eligible_callee = match &node {
+                        AstNode::Identifier { .. } => true,
+                        AstNode::QualifiedIdentifier { path } => !path.is_qualified(),
+                        _ => false,
+                    };
+                    if is_eligible_callee
+                        && matches!(
+                            self.next_significant_key_from_window(tokens),
+                            Some(KEYWORD::Symbol(SYMBOL::SquarO))
+                        )
+                    {
+                        let callee = match node {
+                            AstNode::Identifier { .. } => node,
+                            AstNode::QualifiedIdentifier { path } => AstNode::Identifier {
+                                syntax_id: path.syntax_id(),
+                                name: path.joined(),
+                            },
+                            other => other,
+                        };
+                        node = self.attach_leading_comments(
+                            self.parse_explicit_generic_call(tokens, callee)?,
+                            leading_comments,
+                        );
+                    } else {
+                        break;
+                    }
                 }
                 KEYWORD::Symbol(SYMBOL::Colon) => {
                     let next_key = self.next_significant_key_from_window(tokens);
@@ -147,5 +180,102 @@ impl AstParser {
         }
 
         Ok(node)
+    }
+
+    /// Parse an explicit generic call of the form `name::[TypeArgs](args)`.
+    /// Assumes the caller has already positioned `tokens` at the `::`
+    /// operator and verified that it is followed by `[`.
+    fn parse_explicit_generic_call(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+        callee: AstNode,
+    ) -> Result<AstNode, ParseError> {
+        let (name, syntax_id) = match callee {
+            AstNode::Identifier { name, syntax_id } => (name, syntax_id),
+            other => {
+                return Err(ParseError::from_token(
+                    &tokens.curr(false)?,
+                    format!(
+                        "Explicit generic calls require a plain identifier callee, got {other:?}"
+                    ),
+                ));
+            }
+        };
+
+        let path_sep = tokens.curr(false)?;
+        if !matches!(path_sep.key(), KEYWORD::Operator(OPERATOR::Path)) {
+            return Err(ParseError::from_token(
+                &path_sep,
+                "Expected '::' before explicit generic type arguments".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+
+        let open_square = tokens.curr(false)?;
+        if !matches!(open_square.key(), KEYWORD::Symbol(SYMBOL::SquarO)) {
+            return Err(ParseError::from_token(
+                &open_square,
+                "Expected '[' after '::' in explicit generic type arguments".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+
+        let mut type_args = Vec::new();
+        loop {
+            self.skip_ignorable(tokens)?;
+            let peek = tokens.curr(false)?;
+            if matches!(peek.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+                let _ = tokens.bump();
+                break;
+            }
+            let type_arg = self.parse_type_reference_tokens(tokens)?;
+            type_args.push(type_arg);
+            self.skip_ignorable(tokens)?;
+            let after = tokens.curr(false)?;
+            match after.key() {
+                KEYWORD::Symbol(SYMBOL::Comma) => {
+                    let _ = tokens.bump();
+                    continue;
+                }
+                KEYWORD::Symbol(SYMBOL::SquarC) => {
+                    let _ = tokens.bump();
+                    break;
+                }
+                _ => {
+                    return Err(ParseError::from_token(
+                        &after,
+                        "Expected ',' or ']' in explicit generic type arguments".to_string(),
+                    ));
+                }
+            }
+        }
+
+        if type_args.is_empty() {
+            return Err(ParseError::from_token(
+                &open_square,
+                "Explicit generic calls require at least one type argument".to_string(),
+            ));
+        }
+
+        self.skip_ignorable(tokens)?;
+        let open_paren = tokens.curr(false)?;
+        if !matches!(open_paren.key(), KEYWORD::Symbol(SYMBOL::RoundO)) {
+            return Err(ParseError::from_token(
+                &open_paren,
+                "Expected '(' after explicit generic type arguments".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        let args = self.parse_call_args(tokens)?;
+
+        Ok(AstNode::FunctionCall {
+            syntax_id,
+            surface: crate::ast::CallSurface::Plain,
+            name,
+            type_args,
+            args,
+        })
     }
 }

@@ -1,10 +1,19 @@
 # Variables
 
+Current boundary:
+
+- ordinary `var`, `con`, and `lab` declarations are the current compiler surface
+- `@var` and `var[new]` are the shipped V3 unique-heap forms and require
+  `fol_model = "memo"`; a `memo` artifact with bundled `std` remains
+  heap-capable too
+- the pipe-ternary and many-to-many assignment forms shown below are later
+  design work, not current behavior
+
 Here are some of the ways that variables can be defined:
 ```
 var[mut] counter: int = 98
 var[exp] label: str = "this is a string"
-var[~] ratio = 192.56
+~var ratio = 192.56
 +var short_flag = true
 var names: arr[str, 3] = { "one", "two", "three" }
 var scores: seq[int] = { 20, 25, 45, 68, 73, 98 }
@@ -37,9 +46,8 @@ pro[] main: int = {
     return newVar;
 }
 ```
-Ownership, borrowing, and pointer-level aliasing are later systems-language
-work and are described in the memory chapters as future milestones rather than
-as part of the current `V1` compiler contract.
+V3 adds explicit unique-heap ownership, lexical borrowing, and typed pointers.
+See the memory chapters for their transfer and aliasing rules.
 
 Variables can be assigned to an output of a function:
 ```
@@ -63,19 +71,22 @@ pro[] main: int = {
 ```
 ### Borrowing
 
-If we want to reference a variable, the easiest way is to borrow the variable, use inside another scope (or the same) and return it back. If the ownership is not returned manually, by the end of the scope, it gets returned automatically. 
-```
-pro[] main: int = {
-    var[~] aVar: int = 55;
+`var[bor]` creates a read-only lexical borrow. The owner is inaccessible while
+the borrow is active and becomes accessible again when the borrow's scope ends.
+The `!borrow` prefix may give it back earlier.
+
+```fol
+fun[] main(): int = {
+    var value: int = 55;
     {
-        var[bor] newVar: int = aVar         // var[bor] represents borrowing
-        .echo(newVar)                       // this return 55
-    }
-        .echo(aVar)                         // here $aVar it not accesible, as the ownership returns at the end of the scope
-        .echo(newVar)                       // we cant access the variable because the scope has ended
-}
+        var[bor] view: int = #value;
+        var seen: int = view;
+    };
+    return value;
+};
 ```
-More on borrowing you can find [here](/docs/spec/pointers/#borrowing)
+
+See [Ownership](../800_memory/100_ownership.md) for the full borrowing rules.
 
 ## Options
 As with all other blocks, `var` have their options: `var[opt]`:
@@ -84,7 +95,8 @@ Options can be of two types:
   - flags eg. `var[mut]`
   - values eg. `var[pri=2]`
 
-Flag options can have symbol aliases eg. `var[mut]` is the somename as `var[~]`.
+Some binding options have prefix alternatives. Mutable `var[mut]` may be
+written as `~var`, but `~` is never accepted inside the option brackets.
 
 ```
 |  opt   | s |   type    | description                                       | control       |
@@ -92,6 +104,8 @@ Flag options can have symbol aliases eg. `var[mut]` is the somename as `var[~]`.
 |  mut   | ~ |   flag    | making a variable mutable                         | mutability    |
 |  imu   |   |   flag    | making a variable imutable (default)              |               |
 |  sta   | ! |   flag    | making a variable a static                        |               |
+|  new   | @ |   flag    | allocating a uniquely owned heap value            | ownership     |
+|  bor   |   |   flag    | declaring a lexical borrow binding                | ownership     |
 |  rac   | ? |   flag    | making a variable reactive                        |               |
 ----------------------------------------------------------------------------------------------
 |  exp   | + |   flag    | making a global variable exported                 | visibility    |
@@ -108,7 +122,8 @@ fun[] main(): int = {
     return aVar
 }
 ```
-However, when we use two option in varable, only one can use the alternative form, so instead of using `var[mut,exp]`, this can be used `+var[mut]` or `+var[~]`, or vice varsa `~var[exp]` or `~var[+]`:
+When combining options, one may use a prefix alternative. For example,
+`var[mut,exp]` may be written as `+var[mut]` or `~var[exp]`:
 ```
 +var[mut] aVar: int = 55
 fun[] main(): int = {
@@ -118,21 +133,29 @@ fun[] main(): int = {
 ```
 ## Types
 
-### Immutable types (constants)
-By default when a variable is defined without options, it is immutable type, for example here an intiger variable:
+### Mutable variables
+By default a variable declared without options is mutable:
 ```
 pro[] main: int = {
     var aNumber: int = 5;
-    aNumber = 54;                       // reassigning varibale $aNumber thorws an error
+    aNumber = 54;
 }
 ```
-### Mutable types
-If we want a variable to be mutable, we have to explicitly pass as an option to the variable `var[mut]` or `var[~]`:
+The explicit `var[mut]` option and its `~var` prefix alternative select the
+same mutable behavior:
 ```
 pro[] main: int = {
     var[mut] aNumber: int = 5
-    var[~] anotherNumber: int = 24
+    ~var anotherNumber: int = 24
     aNumber, anotherNumber = 6          // this is completely fine, we assign two wariables new values
+}
+```
+### Immutable variables
+Use `var[imu]` when a local binding must not be reassigned:
+```
+pro[] main: int = {
+    var[imu] aNumber: int = 5;
+    aNumber = 54;                       // typecheck error: immutable binding
 }
 ```
 ### Reactive types

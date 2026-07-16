@@ -7,6 +7,9 @@ use super::syntax::SyntaxNodeId;
 pub struct QualifiedPath {
     pub segments: Vec<String>,
     pub syntax_id: Option<SyntaxNodeId>,
+    /// Syntax anchor of the final path segment (the segment that names the
+    /// referenced symbol); `syntax_id` anchors the root segment.
+    pub final_syntax_id: Option<SyntaxNodeId>,
 }
 
 impl QualifiedPath {
@@ -14,6 +17,7 @@ impl QualifiedPath {
         Self {
             segments,
             syntax_id: None,
+            final_syntax_id: None,
         }
     }
 
@@ -21,6 +25,19 @@ impl QualifiedPath {
         Self {
             segments,
             syntax_id,
+            final_syntax_id: None,
+        }
+    }
+
+    pub fn with_segment_syntax_ids(
+        segments: Vec<String>,
+        syntax_id: Option<SyntaxNodeId>,
+        final_syntax_id: Option<SyntaxNodeId>,
+    ) -> Self {
+        Self {
+            segments,
+            syntax_id,
+            final_syntax_id,
         }
     }
 
@@ -31,11 +48,16 @@ impl QualifiedPath {
                 .map(|segment| segment.to_string())
                 .collect(),
             syntax_id: None,
+            final_syntax_id: None,
         }
     }
 
     pub fn syntax_id(&self) -> Option<SyntaxNodeId> {
         self.syntax_id
+    }
+
+    pub fn final_syntax_id(&self) -> Option<SyntaxNodeId> {
+        self.final_syntax_id
     }
 
     pub fn is_qualified(&self) -> bool {
@@ -45,6 +67,13 @@ impl QualifiedPath {
     pub fn joined(&self) -> String {
         self.segments.join("::")
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PointerQualifier {
+    Unique,
+    Shared,
+    Raw,
 }
 
 /// FOL Type system
@@ -101,6 +130,9 @@ pub enum FolType {
     Optional {
         inner: Box<FolType>,
     }, // opt[T]
+    Owned {
+        inner: Box<FolType>,
+    }, // @T
     Multiple {
         types: Vec<FolType>,
     }, // mul[T1, T2, ...]
@@ -110,6 +142,7 @@ pub enum FolType {
     Never,
     Any,
     Pointer {
+        qualifier: PointerQualifier,
         target: Box<FolType>,
     },
     Error {
@@ -146,9 +179,6 @@ pub enum FolType {
         name: String,
     },
     Location {
-        name: String,
-    },
-    Standard {
         name: String,
     },
 
@@ -208,7 +238,7 @@ impl InquiryTarget {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BindingPattern {
-    Name(String),
+    Name(String, Option<SyntaxNodeId>),
     Rest(String),
     Sequence(Vec<BindingPattern>),
 }
@@ -216,7 +246,7 @@ pub enum BindingPattern {
 impl BindingPattern {
     pub fn is_destructuring(&self) -> bool {
         match self {
-            BindingPattern::Name(_) => false,
+            BindingPattern::Name(..) => false,
             BindingPattern::Rest(_) => true,
             BindingPattern::Sequence(parts) => {
                 parts.len() != 1 || parts.iter().any(BindingPattern::is_destructuring)
@@ -230,9 +260,18 @@ impl BindingPattern {
 pub struct Parameter {
     pub name: String,
     pub param_type: FolType,
-    pub is_borrowable: bool, // ALL_CAPS names are borrowable
+    pub is_borrowable: bool,
     pub is_mutex: bool,
+    /// Declared with the explicit `... T` variadic marker. The parameter's
+    /// `param_type` is the collected `seq[T]`; a plain trailing `seq[T]`
+    /// parameter is NOT variadic.
+    pub is_variadic: bool,
     pub default: Option<AstNode>,
+    /// Syntax id of the parameter NAME token, so tooling can locate the
+    /// parameter's own declaration span. The resolver derives the parameter
+    /// symbol origin from this id. `None` when the parameter was synthesized
+    /// without a source name token.
+    pub syntax_id: Option<SyntaxNodeId>,
 }
 
 /// Generic type parameters
@@ -260,6 +299,10 @@ pub enum TypeDefinition {
     Record {
         fields: HashMap<String, FolType>,
         field_meta: HashMap<String, RecordFieldMeta>,
+        /// Field names in source declaration order. `fields`/`field_meta` are
+        /// keyed maps that lose ordering; positional record initialization
+        /// binds values to fields using this declaration order.
+        field_order: Vec<String>,
         members: Vec<AstNode>,
     },
     Entry {
@@ -312,10 +355,31 @@ pub enum LoopCondition {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelEndpoint {
     Tx,
     Rx,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutineCapture {
+    pub name: String,
+    pub syntax_id: Option<SyntaxNodeId>,
+    pub endpoint: Option<ChannelEndpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelectArm {
+    pub channel: AstNode,
+    pub binding: String,
+    pub binding_syntax_id: Option<SyntaxNodeId>,
+    pub body: Vec<AstNode>,
+}
+
+impl PartialEq<String> for RoutineCapture {
+    fn eq(&self, other: &String) -> bool {
+        self.endpoint.is_none() && self.name == *other
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
