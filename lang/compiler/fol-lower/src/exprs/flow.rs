@@ -155,6 +155,7 @@ fn node_always_terminates(node: &AstNode) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_when_statement(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -290,6 +291,7 @@ pub(crate) fn lower_when_statement(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_loop_statement(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -1039,6 +1041,7 @@ pub(crate) fn lower_select_statement(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_default_when_body(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -1080,6 +1083,7 @@ fn ensure_after_block(
     *after_block.get_or_insert_with(|| cursor.create_block())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_when_expression(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -1185,6 +1189,7 @@ pub(crate) fn lower_when_expression(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_when_case_condition(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,

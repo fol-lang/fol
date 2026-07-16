@@ -103,13 +103,13 @@ impl Element {
         }
         // EOL => SEMICOLON
         else if matches!(el.curr()?.key(), KEYWORD::Symbol(SYMBOL::Semi))
-            && Self::is_soft_layout_void(&el.peek(0)?.key())
+            && Self::is_soft_layout_void(el.peek(0)?.key())
         {
             self.append(&el.peek(0)?.into());
             self.bump(el);
         }
         // EOL or SPACE => EOF
-        else if Self::is_soft_layout_void(&el.curr()?.key()) && el.peek(0)?.key().is_eof() {
+        else if Self::is_soft_layout_void(el.curr()?.key()) && el.peek(0)?.key().is_eof() {
             self.append(&el.peek(0)?.into());
             self.set_key(Void(VOID::EndFile));
             self.bump(el);

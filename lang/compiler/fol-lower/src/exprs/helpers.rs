@@ -143,6 +143,7 @@ fn type_table_entry_kind(
     .then_some(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_unwrap_expression(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -191,6 +192,7 @@ pub(crate) fn lower_unwrap_expression(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_entry_variant_access(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -341,12 +343,8 @@ pub(crate) fn lower_assignment_target(
                 "dereference assignment requires a pointer binding identifier",
             ));
         };
-        let resolved = resolve_reference_symbol(
-            typed_package,
-            *syntax_id,
-            ReferenceKind::Identifier,
-            name,
-        )?;
+        let resolved =
+            resolve_reference_symbol(typed_package, *syntax_id, ReferenceKind::Identifier, name)?;
         let pointer = cursor
             .routine
             .local_symbols

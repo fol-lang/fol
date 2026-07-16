@@ -172,8 +172,7 @@ fn test_parse_literal_rejects_out_of_range_decimal_instead_of_lowering_to_identi
 
     let error_msg = error.to_string();
     assert!(
-        error_msg
-            .contains("out of range for current parser literal lowering"),
+        error_msg.contains("out of range for current parser literal lowering"),
         "Decimal overflow should report an explicit parse failure, got: {}",
         error_msg
     );
@@ -181,10 +180,7 @@ fn test_parse_literal_rejects_out_of_range_decimal_instead_of_lowering_to_identi
 
 #[test]
 fn test_top_level_out_of_range_decimal_reports_parse_error() {
-    let error = parse_first_error_from_source(
-        "decimal_overflow",
-        "9223372036854775808\n",
-    );
+    let error = parse_first_error_from_source("decimal_overflow", "9223372036854775808\n");
 
     assert!(
         error
@@ -193,7 +189,11 @@ fn test_top_level_out_of_range_decimal_reports_parse_error() {
         "Out-of-range decimal tokens should report a parse error, got: {}",
         error.message
     );
-    assert_eq!(error.primary_location().unwrap().line, 1, "Decimal overflow should report its own line");
+    assert_eq!(
+        error.primary_location().unwrap().line,
+        1,
+        "Decimal overflow should report its own line"
+    );
     assert_eq!(
         error.primary_location().unwrap().column,
         1,
@@ -213,14 +213,13 @@ fn test_parse_literal_rejects_out_of_range_prefixed_integers() {
             "Binary",
         ),
     ] {
-        let error = parser
-            .parse_literal(literal)
-            .expect_err("Out-of-range prefixed literal should fail instead of becoming an identifier");
+        let error = parser.parse_literal(literal).expect_err(
+            "Out-of-range prefixed literal should fail instead of becoming an identifier",
+        );
 
         let error_msg = error.to_string();
         assert!(
-            error_msg
-                .contains(&format!("{family} literal")),
+            error_msg.contains(&format!("{family} literal")),
             "Prefixed overflow should use explicit {family} wording, got: {}",
             error_msg
         );
@@ -245,7 +244,11 @@ fn test_top_level_out_of_range_prefixed_literals_report_parse_errors() {
             "Out-of-range {family} tokens should report a parse error, got: {}",
             error.message
         );
-        assert_eq!(error.primary_location().unwrap().line, 1, "{family} overflow should report its own line");
+        assert_eq!(
+            error.primary_location().unwrap().line,
+            1,
+            "{family} overflow should report its own line"
+        );
         assert_eq!(
             error.primary_location().unwrap().column,
             1,
@@ -446,9 +449,8 @@ fn test_cooked_double_quotes_trim_backslash_line_continuations() {
 
 #[test]
 fn test_top_level_multiline_cooked_literal_lowers_through_fixture() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_literal_multiline_cooked.fol")
-            .expect("Should read multiline cooked literal fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_literal_multiline_cooked.fol")
+        .expect("Should read multiline cooked literal fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -554,6 +556,7 @@ fn test_top_level_boolean_and_nil_literals_lower_cleanly() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)] // The fixture intentionally contains the literal `3.14`.
 fn test_top_level_float_literal_lowers_cleanly() {
     let mut file_stream = FileStream::from_file("test/parser/simple_literal_float.fol")
         .expect("Should read float literal lowering fixture");
@@ -578,8 +581,9 @@ fn test_top_level_float_literal_lowers_cleanly() {
 
 #[test]
 fn test_top_level_trailing_dot_float_literal_lowers_cleanly() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_literal_trailing_dot_float.fol")
-        .expect("Should read trailing-dot float literal lowering fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_literal_trailing_dot_float.fol")
+            .expect("Should read trailing-dot float literal lowering fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

@@ -329,6 +329,9 @@ impl TypecheckSession {
         Ok(())
     }
 
+    // Keep recursive type translation attached to the mutable import session;
+    // the receiver is the extension point for session-level import state.
+    #[allow(clippy::only_used_in_recursion)]
     fn import_type_id(
         &mut self,
         target_program: &mut TypedProgram,

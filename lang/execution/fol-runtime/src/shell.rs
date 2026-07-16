@@ -86,12 +86,19 @@ impl<T> FolError<T> {
         Self(value)
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn as_ref(&self) -> &T {
         &self.0
     }
 
     pub fn into_inner(self) -> T {
         self.0
+    }
+}
+
+impl<T> AsRef<T> for FolError<T> {
+    fn as_ref(&self) -> &T {
+        FolError::as_ref(self)
     }
 }
 

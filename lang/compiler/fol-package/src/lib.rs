@@ -39,7 +39,7 @@ pub use build::{
 };
 pub use build_api::{
     validate_build_name, BuildApi, BuildApiError, BuildApiNameError, BuildArtifactHandle,
-    BuildOptionValue, DependencyHandle, DependencyRequest, ExecutableRequest,
+    BuildCImportRequest, BuildOptionValue, DependencyHandle, DependencyRequest, ExecutableRequest,
     GitDependencyVersionSelector, InstallArtifactRequest, InstallDirRequest, InstallFileRequest,
     InstallHandle, RunHandle, RunRequest, SharedLibraryRequest, StandardOptimizeOption,
     StandardOptimizeRequest, StandardTargetOption, StandardTargetRequest, StaticLibraryRequest,
@@ -49,7 +49,7 @@ pub use build_artifact::{
     project_graph_artifacts, BuildArtifactDefinition, BuildArtifactLinkage, BuildArtifactModelKind,
     BuildArtifactModuleConfig, BuildArtifactOutput, BuildArtifactPipelinePlan,
     BuildArtifactPipelineStage, BuildArtifactReport, BuildArtifactRootSource, BuildArtifactSet,
-    BuildArtifactTargetConfig,
+    BuildArtifactTargetConfig, BuildArtifactTargetConfigError,
 };
 pub use build_codegen::{
     CodegenKind, CodegenRequest, CodegenResult, GeneratedFileAction, GeneratedFileDefinition,
@@ -84,6 +84,7 @@ pub use build_eval::{
 };
 pub use build_graph::{
     BuildArtifact, BuildArtifactDependency, BuildArtifactId, BuildArtifactInput, BuildArtifactKind,
+    BuildCImportAttachment, BuildCImportAttachmentError, BuildCImportProviderKind,
     BuildGeneratedFile, BuildGeneratedFileId, BuildGeneratedFileKind, BuildGraph,
     BuildGraphValidationError, BuildGraphValidationErrorKind, BuildInstall, BuildInstallId,
     BuildInstallKind, BuildInstallTarget, BuildModule, BuildModuleId, BuildModuleKind, BuildOption,
@@ -96,9 +97,8 @@ pub use build_native::{
 };
 pub use build_option::{
     BuildOptimizeMode, BuildOptionDeclaration, BuildOptionDeclarationSet, BuildOptionOverride,
-    BuildOptionOverrideParseError, BuildTargetArch, BuildTargetEnvironment, BuildTargetOs,
-    BuildTargetTriple, ResolvedBuildOptionSet, StandardOptimizeDeclaration,
-    StandardTargetDeclaration, UserOptionDeclaration,
+    BuildOptionOverrideParseError, BuildTargetTriple, ResolvedBuildOptionSet,
+    StandardOptimizeDeclaration, StandardTargetDeclaration, UserOptionDeclaration,
 };
 pub use build_runtime::{
     find_record_field, BuildExecutionRepresentation, BuildRuntimeDependency,
@@ -524,8 +524,8 @@ mod tests {
             .expect("artifact should exist");
 
         assert_eq!(artifact.root_module, "src/cli-selected.fol");
-        assert_eq!(artifact.target.as_deref(), Some("aarch64-macos-gnu"));
-        assert_eq!(artifact.optimize.as_deref(), Some("release-small"));
+        assert_eq!(artifact.target.as_str(), "aarch64-apple-darwin");
+        assert_eq!(artifact.optimize, BuildOptimizeMode::ReleaseSmall);
         assert_eq!(
             evaluated.result.resolved_options.get("root"),
             Some("src/cli-selected.fol")

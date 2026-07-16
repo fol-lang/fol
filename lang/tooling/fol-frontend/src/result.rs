@@ -9,6 +9,7 @@ pub enum FrontendArtifactKind {
     Binary,
     EmittedRust,
     LoweredSnapshot,
+    InteropEvidence,
 }
 
 impl FrontendArtifactKind {
@@ -21,6 +22,7 @@ impl FrontendArtifactKind {
             Self::Binary => "binary",
             Self::EmittedRust => "emitted-rust",
             Self::LoweredSnapshot => "lowered-snapshot",
+            Self::InteropEvidence => "interop-evidence",
         }
     }
 }

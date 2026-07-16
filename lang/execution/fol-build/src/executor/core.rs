@@ -276,12 +276,17 @@ impl BuildBodyExecutor {
         }
 
         // When case sub-clauses are present, the outer expr is the match subject.
-        // Each `case(condition)` is evaluated; the first match wins.
+        // Each `case(value)` is compared with that subject; the first match wins.
+        let subject = self.eval_when_value(expr)?;
         let mut matched = false;
         for case in cases {
             match case {
                 WhenCase::Case { condition, body } => {
-                    if self.eval_condition(condition)? {
+                    let case_value = self.eval_when_value(condition)?;
+                    if matches!(
+                        (&subject, &case_value),
+                        (Some(subject), Some(case_value)) if subject == case_value
+                    ) {
                         self.exec_body(body)?;
                         matched = true;
                         break;

@@ -246,7 +246,7 @@ pub(crate) fn reject_direct_spawn_channel_receiver(
     let receiver_params = target
         .and_then(|symbol| typed.typed_symbol(symbol))
         .map(|symbol| &symbol.channel_receiver_params);
-    if !receiver_params.is_some_and(|params| !params.is_empty()) {
+    if receiver_params.is_none_or(|params| params.is_empty()) {
         return Ok(());
     }
     Err(unsupported_node_surface(
@@ -1476,7 +1476,7 @@ fn type_node_with_expectation_inner(
 
 /// Check whether an AST body contains at least one `return` statement (non-recursive into nested routines).
 fn body_contains_return(nodes: &[AstNode]) -> bool {
-    nodes.iter().any(|node| node_contains_return(node))
+    nodes.iter().any(node_contains_return)
 }
 
 fn whole_binding_assignment_symbol(
@@ -1501,7 +1501,7 @@ fn whole_binding_assignment_symbol(
 }
 
 fn body_contains_panic(nodes: &[AstNode]) -> bool {
-    nodes.iter().any(|node| node_contains_panic(node))
+    nodes.iter().any(node_contains_panic)
 }
 
 fn node_contains_panic(node: &AstNode) -> bool {
@@ -1582,7 +1582,7 @@ fn node_contains_return(node: &AstNode) -> bool {
 
 /// Check whether an AST body contains at least one `report(...)` call (non-recursive into nested routines).
 fn body_contains_report(nodes: &[AstNode]) -> bool {
-    nodes.iter().any(|node| node_contains_report(node))
+    nodes.iter().any(node_contains_report)
 }
 
 fn node_contains_report(node: &AstNode) -> bool {
@@ -1726,11 +1726,7 @@ fn reject_discarded_body_expr(
         )?;
     }
     if let Some(actual) = expr.value_type {
-        helpers::reject_discarded_recoverable_eventual(
-            typed,
-            actual,
-            node_origin(resolved, node),
-        )?;
+        helpers::reject_discarded_recoverable_eventual(typed, actual, node_origin(resolved, node))?;
     }
     Ok(())
 }

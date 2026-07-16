@@ -25,101 +25,8 @@ pub struct UserOptionDeclaration {
     pub help: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuildTargetArch {
-    X86_64,
-    Aarch64,
-}
-
-impl BuildTargetArch {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::X86_64 => "x86_64",
-            Self::Aarch64 => "aarch64",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuildTargetOs {
-    Linux,
-    Macos,
-    Windows,
-}
-
-impl BuildTargetOs {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Linux => "linux",
-            Self::Macos => "macos",
-            Self::Windows => "windows",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuildTargetEnvironment {
-    Gnu,
-    Musl,
-    Msvc,
-}
-
-impl BuildTargetEnvironment {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Gnu => "gnu",
-            Self::Musl => "musl",
-            Self::Msvc => "msvc",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuildTargetTriple {
-    pub arch: BuildTargetArch,
-    pub os: BuildTargetOs,
-    pub environment: BuildTargetEnvironment,
-}
-
-impl BuildTargetTriple {
-    pub fn parse(raw: &str) -> Option<Self> {
-        let mut parts = raw.split('-');
-        let arch = match parts.next()? {
-            "x86_64" => BuildTargetArch::X86_64,
-            "aarch64" => BuildTargetArch::Aarch64,
-            _ => return None,
-        };
-        let os = match parts.next()? {
-            "linux" => BuildTargetOs::Linux,
-            "macos" => BuildTargetOs::Macos,
-            "windows" => BuildTargetOs::Windows,
-            _ => return None,
-        };
-        let environment = match parts.next()? {
-            "gnu" => BuildTargetEnvironment::Gnu,
-            "musl" => BuildTargetEnvironment::Musl,
-            "msvc" => BuildTargetEnvironment::Msvc,
-            _ => return None,
-        };
-        if parts.next().is_some() {
-            return None;
-        }
-        Some(Self {
-            arch,
-            os,
-            environment,
-        })
-    }
-
-    pub fn render(&self) -> String {
-        format!(
-            "{}-{}-{}",
-            self.arch.as_str(),
-            self.os.as_str(),
-            self.environment.as_str()
-        )
-    }
-}
+/// Compatibility name for the now-central concrete target type.
+pub type BuildTargetTriple = fol_types::ResolvedTarget;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildOptimizeMode {
@@ -127,6 +34,12 @@ pub enum BuildOptimizeMode {
     ReleaseSafe,
     ReleaseFast,
     ReleaseSmall,
+}
+
+impl Default for BuildOptimizeMode {
+    fn default() -> Self {
+        Self::Debug
+    }
 }
 
 impl BuildOptimizeMode {
@@ -276,9 +189,8 @@ impl ResolvedBuildOptionSet {
 mod tests {
     use super::{
         BuildOptimizeMode, BuildOptionDeclaration, BuildOptionDeclarationSet, BuildOptionOverride,
-        BuildOptionOverrideParseError, BuildTargetArch, BuildTargetEnvironment, BuildTargetOs,
-        BuildTargetTriple, ResolvedBuildOptionSet, StandardOptimizeDeclaration,
-        StandardTargetDeclaration, UserOptionDeclaration,
+        BuildOptionOverrideParseError, BuildTargetTriple, ResolvedBuildOptionSet,
+        StandardOptimizeDeclaration, StandardTargetDeclaration, UserOptionDeclaration,
     };
     use crate::api::BuildOptionValue;
     use crate::graph::BuildOptionKind;
@@ -296,11 +208,7 @@ mod tests {
         set.add(BuildOptionDeclaration::StandardTarget(
             StandardTargetDeclaration {
                 name: "target".to_string(),
-                default: Some(BuildTargetTriple {
-                    arch: BuildTargetArch::X86_64,
-                    os: BuildTargetOs::Linux,
-                    environment: BuildTargetEnvironment::Gnu,
-                }),
+                default: BuildTargetTriple::parse("x86_64-linux-gnu"),
             },
         ));
         set.add(BuildOptionDeclaration::StandardOptimize(
@@ -337,14 +245,12 @@ mod tests {
     }
 
     #[test]
-    fn build_target_triple_parses_and_renders_canonical_triplets() {
+    fn build_target_triple_keeps_option_and_rust_spellings_distinct() {
         let triple =
             BuildTargetTriple::parse("x86_64-linux-gnu").expect("canonical triples should parse");
 
-        assert_eq!(triple.arch, BuildTargetArch::X86_64);
-        assert_eq!(triple.os, BuildTargetOs::Linux);
-        assert_eq!(triple.environment, BuildTargetEnvironment::Gnu);
         assert_eq!(triple.render(), "x86_64-linux-gnu");
+        assert_eq!(triple.rust_target_triple(), "x86_64-unknown-linux-gnu");
     }
 
     #[test]

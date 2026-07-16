@@ -1,7 +1,7 @@
 //! Minimal `colored`-style ANSI trait for strings.
 //!
 //! Colors are automatically disabled when stdout is not a terminal.
-//! Call [`set_enabled`] to override.
+//! Call [`set_enabled`] to override them for the current thread.
 //!
 //! ```ignore
 //! use crate::ansi::Colored;
@@ -9,27 +9,19 @@
 //! let s = "path".cyan();
 //! ```
 
+use std::cell::Cell;
 use std::io::IsTerminal;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Once;
 
-static ENABLED: AtomicBool = AtomicBool::new(false);
-static INIT: Once = Once::new();
-
-fn init() {
-    INIT.call_once(|| {
-        ENABLED.store(std::io::stdout().is_terminal(), Ordering::Relaxed);
-    });
+std::thread_local! {
+    static ENABLED: Cell<bool> = Cell::new(std::io::stdout().is_terminal());
 }
 
 pub fn set_enabled(on: bool) {
-    init();
-    ENABLED.store(on, Ordering::Relaxed);
+    ENABLED.with(|enabled| enabled.set(on));
 }
 
 pub fn enabled() -> bool {
-    init();
-    ENABLED.load(Ordering::Relaxed)
+    ENABLED.with(Cell::get)
 }
 
 // ── SGR codes ───────────────────────────────────────────────────────
@@ -64,7 +56,10 @@ pub struct Styled {
 
 impl Styled {
     fn new(text: String) -> Self {
-        Self { text, codes: Vec::new() }
+        Self {
+            text,
+            codes: Vec::new(),
+        }
     }
 
     fn with(mut self, code: &'static str) -> Self {
@@ -73,26 +68,54 @@ impl Styled {
     }
 
     // modifiers
-    pub fn bold(self) -> Self { self.with(BOLD) }
-    pub fn dim(self) -> Self { self.with(DIM) }
-    pub fn italic(self) -> Self { self.with(ITALIC) }
+    pub fn bold(self) -> Self {
+        self.with(BOLD)
+    }
+    pub fn dim(self) -> Self {
+        self.with(DIM)
+    }
+    pub fn italic(self) -> Self {
+        self.with(ITALIC)
+    }
 
     // foreground colors
-    pub fn black(self) -> Self { self.with(FG_BLACK) }
-    pub fn red(self) -> Self { self.with(FG_RED) }
-    pub fn green(self) -> Self { self.with(FG_GREEN) }
-    pub fn yellow(self) -> Self { self.with(FG_YELLOW) }
-    pub fn blue(self) -> Self { self.with(FG_BLUE) }
-    pub fn cyan(self) -> Self { self.with(FG_CYAN) }
+    pub fn black(self) -> Self {
+        self.with(FG_BLACK)
+    }
+    pub fn red(self) -> Self {
+        self.with(FG_RED)
+    }
+    pub fn green(self) -> Self {
+        self.with(FG_GREEN)
+    }
+    pub fn yellow(self) -> Self {
+        self.with(FG_YELLOW)
+    }
+    pub fn blue(self) -> Self {
+        self.with(FG_BLUE)
+    }
+    pub fn cyan(self) -> Self {
+        self.with(FG_CYAN)
+    }
 
     // bright foreground
-    pub fn bright_black(self) -> Self { self.with(FG_BRIGHT_BLACK) }
-    pub fn bright_blue(self) -> Self { self.with(FG_BRIGHT_BLUE) }
+    pub fn bright_black(self) -> Self {
+        self.with(FG_BRIGHT_BLACK)
+    }
+    pub fn bright_blue(self) -> Self {
+        self.with(FG_BRIGHT_BLUE)
+    }
 
     // background colors (for chips/badges)
-    pub fn on_red(self) -> Self { self.with(BG_RED) }
-    pub fn on_yellow(self) -> Self { self.with(BG_YELLOW) }
-    pub fn on_blue(self) -> Self { self.with(BG_BLUE) }
+    pub fn on_red(self) -> Self {
+        self.with(BG_RED)
+    }
+    pub fn on_yellow(self) -> Self {
+        self.with(BG_YELLOW)
+    }
+    pub fn on_blue(self) -> Self {
+        self.with(BG_BLUE)
+    }
 }
 
 impl std::fmt::Display for Styled {
@@ -119,48 +142,94 @@ pub trait Colored {
     fn styled(self) -> Styled;
 
     // convenience — one call gets you a Display-able Styled
-    fn bold(self) -> Styled where Self: Sized { self.styled().bold() }
-    fn dim(self) -> Styled where Self: Sized { self.styled().dim() }
+    fn bold(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().bold()
+    }
+    fn dim(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().dim()
+    }
 
-    fn black(self) -> Styled where Self: Sized { self.styled().black() }
-    fn red(self) -> Styled where Self: Sized { self.styled().red() }
-    fn green(self) -> Styled where Self: Sized { self.styled().green() }
-    fn yellow(self) -> Styled where Self: Sized { self.styled().yellow() }
-    fn blue(self) -> Styled where Self: Sized { self.styled().blue() }
-    fn cyan(self) -> Styled where Self: Sized { self.styled().cyan() }
+    fn black(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().black()
+    }
+    fn red(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().red()
+    }
+    fn green(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().green()
+    }
+    fn yellow(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().yellow()
+    }
+    fn blue(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().blue()
+    }
+    fn cyan(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().cyan()
+    }
 
-    fn bright_black(self) -> Styled where Self: Sized { self.styled().bright_black() }
-    fn bright_blue(self) -> Styled where Self: Sized { self.styled().bright_blue() }
+    fn bright_black(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().bright_black()
+    }
+    fn bright_blue(self) -> Styled
+    where
+        Self: Sized,
+    {
+        self.styled().bright_blue()
+    }
 }
 
 impl Colored for &str {
-    fn styled(self) -> Styled { Styled::new(self.to_string()) }
+    fn styled(self) -> Styled {
+        Styled::new(self.to_string())
+    }
 }
 
 impl Colored for String {
-    fn styled(self) -> Styled { Styled::new(self) }
+    fn styled(self) -> Styled {
+        Styled::new(self)
+    }
 }
 
 impl Colored for &String {
-    fn styled(self) -> Styled { Styled::new(self.clone()) }
+    fn styled(self) -> Styled {
+        Styled::new(self.clone())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // The `ENABLED` flag these tests toggle is process-global, so they must not
-    // run concurrently or they race and observe each other's state.
-    static TEST_GUARD: Mutex<()> = Mutex::new(());
-
-    fn guard() -> std::sync::MutexGuard<'static, ()> {
-        TEST_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
 
     #[test]
     fn trait_methods_emit_escape_sequences_when_enabled() {
-        let _guard = guard();
         set_enabled(true);
         assert_eq!(format!("{}", "hi".cyan()), "\x1b[36mhi\x1b[0m");
         assert_eq!(format!("{}", "err".red().bold()), "\x1b[31;1merr\x1b[0m");
@@ -169,7 +238,6 @@ mod tests {
 
     #[test]
     fn trait_methods_pass_through_when_disabled() {
-        let _guard = guard();
         set_enabled(false);
         assert_eq!(format!("{}", "hi".cyan()), "hi");
         assert_eq!(format!("{}", "err".red().bold()), "err");
@@ -178,7 +246,6 @@ mod tests {
 
     #[test]
     fn chained_modifiers_combine() {
-        let _guard = guard();
         set_enabled(true);
         let s = format!("{}", "warn".bold().yellow().dim());
         assert!(s.starts_with("\x1b[1;33;2m"));
@@ -188,12 +255,26 @@ mod tests {
 
     #[test]
     fn string_and_str_ref_both_work() {
-        let _guard = guard();
         set_enabled(true);
         let owned = String::from("owned");
         let from_owned = format!("{}", owned.red());
         let from_ref = format!("{}", "ref".red());
         assert!(from_owned.contains("owned"));
         assert!(from_ref.contains("ref"));
+    }
+
+    #[test]
+    fn enabled_override_is_isolated_per_thread() {
+        set_enabled(false);
+
+        let child_rendered = std::thread::spawn(|| {
+            set_enabled(true);
+            format!("{}", "child".cyan())
+        })
+        .join()
+        .expect("ANSI rendering thread should finish");
+
+        assert_eq!(child_rendered, "\x1b[36mchild\x1b[0m");
+        assert_eq!(format!("{}", "parent".cyan()), "parent");
     }
 }

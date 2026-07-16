@@ -399,6 +399,150 @@ fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
     fs::remove_dir_all(root).ok();
 }
 
+fn assert_routed_profile_case(
+    label: &str,
+    config: FrontendConfig,
+    requested_profile: FrontendProfile,
+    expected_optimize: fol_package::BuildOptimizeMode,
+    expected_backend_profile: fol_backend::BackendBuildProfile,
+    expected_output_profile: &str,
+) {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_build_route_profile_{label}_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var optimize = graph.standard_optimize();\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\", optimize = optimize });\n",
+            "    graph.install(app);\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0\n};\n",
+    )
+    .unwrap();
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(root.clone())],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+    let effective_config = super::super::execution_config_for_profile(&config, requested_profile);
+    let plan = plan_member_execution(
+        &FrontendMemberBuildRoute {
+            member_root: root.clone(),
+            package_name: "app".to_owned(),
+            mode: FrontendBuildWorkflowMode::Modern,
+        },
+        &effective_config,
+    )
+    .expect("profiled semantic graph should plan");
+    let selection = plan
+        .steps
+        .iter()
+        .find(|step| step.name == "build")
+        .and_then(|step| step.selection.as_ref())
+        .expect("default build step should select the executable");
+    assert_eq!(selection.optimize, expected_optimize);
+    assert_eq!(selection.backend_build_profile(), expected_backend_profile);
+    let target_directory = selection.target.rust_target_directory_name().to_owned();
+
+    let result = execute_workspace_build_route(
+        &workspace,
+        &config,
+        &FrontendWorkspaceBuildRequest {
+            requested_step: "build".to_owned(),
+            profile: requested_profile,
+            run_args: Vec::new(),
+        },
+    )
+    .expect("profiled semantic build should execute");
+    let build_root = result
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.kind == FrontendArtifactKind::BuildRoot)
+        .and_then(|artifact| artifact.path.as_ref())
+        .expect("build result should report its output identity");
+    assert_eq!(
+        build_root,
+        &workspace.build_root.join(expected_output_profile)
+    );
+    let binary = result
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.kind == FrontendArtifactKind::Binary)
+        .and_then(|artifact| artifact.path.as_ref())
+        .expect("build result should report the compiled binary");
+    assert!(binary.starts_with(build_root.join("bin").join(&target_directory)));
+    assert!(
+        build_root
+            .join("fol-backend/runtime")
+            .join(target_directory)
+            .join(expected_backend_profile.as_str())
+            .is_dir(),
+        "rustc runtime output identity must match the effective backend profile"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn requested_release_profiles_semantic_graph_and_rustc_consistently() {
+    assert_routed_profile_case(
+        "release_default",
+        FrontendConfig::default(),
+        FrontendProfile::Release,
+        fol_package::BuildOptimizeMode::ReleaseSafe,
+        fol_backend::BackendBuildProfile::Release,
+        "release",
+    );
+}
+
+#[test]
+fn explicit_optimize_precedes_requested_profile_consistently() {
+    assert_routed_profile_case(
+        "explicit_release_fast",
+        FrontendConfig {
+            build_optimize_override: Some("release-fast".to_owned()),
+            ..FrontendConfig::default()
+        },
+        FrontendProfile::Debug,
+        fol_package::BuildOptimizeMode::ReleaseFast,
+        fol_backend::BackendBuildProfile::Release,
+        "release",
+    );
+    assert_routed_profile_case(
+        "explicit_debug",
+        FrontendConfig {
+            build_optimize_override: Some("debug".to_owned()),
+            ..FrontendConfig::default()
+        },
+        FrontendProfile::Release,
+        fol_package::BuildOptimizeMode::Debug,
+        fol_backend::BackendBuildProfile::Debug,
+        "debug",
+    );
+}
+
 #[test]
 fn configured_executable_roots_drive_default_build_and_run_step_planning() {
     let root = std::env::temp_dir().join(format!(

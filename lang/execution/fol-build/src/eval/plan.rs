@@ -8,10 +8,10 @@ use super::types::{
     BuildEvaluationRunArgKind,
 };
 use crate::api::BuildApi;
+use crate::api::BuildArtifactConfigValue;
 use crate::option::{
-    BuildOptimizeMode, BuildOptionDeclaration, BuildOptionDeclarationSet, BuildTargetTriple,
-    ResolvedBuildOptionSet, StandardOptimizeDeclaration, StandardTargetDeclaration,
-    UserOptionDeclaration,
+    BuildOptimizeMode, BuildOptionDeclaration, BuildOptionDeclarationSet, ResolvedBuildOptionSet,
+    StandardOptimizeDeclaration, StandardTargetDeclaration, UserOptionDeclaration,
 };
 use std::collections::BTreeMap;
 
@@ -32,6 +32,254 @@ fn parse_dependency_output_identity(name: &str) -> Option<(&str, &str, &str)> {
     None
 }
 
+fn resolve_build_options(
+    request: &BuildEvaluationRequest,
+) -> Result<(BuildOptionDeclarationSet, ResolvedBuildOptionSet), BuildEvaluationError> {
+    let mut declarations = BuildOptionDeclarationSet::new();
+    for operation in &request.operations {
+        let declaration = match &operation.kind {
+            BuildEvaluationOperationKind::StandardTarget(value) => {
+                let default = match value.default.as_deref() {
+                    Some(raw) => fol_types::ResolvedTarget::resolve(raw),
+                    None => fol_types::ResolvedTarget::host(),
+                }
+                .map(Some)
+                .map_err(|error| {
+                    evaluation_invalid_input(error.to_string(), operation.origin.clone())
+                })?;
+                Some(BuildOptionDeclaration::StandardTarget(
+                    StandardTargetDeclaration {
+                        name: value.name.clone(),
+                        default,
+                    },
+                ))
+            }
+            BuildEvaluationOperationKind::StandardOptimize(value) => {
+                let default = match value.default.as_deref() {
+                    Some(raw) => Some(BuildOptimizeMode::parse(raw).ok_or_else(|| {
+                        evaluation_invalid_input(
+                            format!("unsupported default optimize mode '{raw}'"),
+                            operation.origin.clone(),
+                        )
+                    })?),
+                    None => Some(BuildOptimizeMode::Debug),
+                };
+                Some(BuildOptionDeclaration::StandardOptimize(
+                    StandardOptimizeDeclaration {
+                        name: value.name.clone(),
+                        default,
+                    },
+                ))
+            }
+            BuildEvaluationOperationKind::Option(value) => {
+                if matches!(
+                    value.kind,
+                    crate::graph::BuildOptionKind::Target | crate::graph::BuildOptionKind::Optimize
+                ) {
+                    return Err(evaluation_invalid_input(
+                        format!(
+                            "build option '{}' must use standard_target or standard_optimize for its declared kind",
+                            value.name
+                        ),
+                        operation.origin.clone(),
+                    ));
+                }
+                Some(BuildOptionDeclaration::User(UserOptionDeclaration {
+                    name: value.name.clone(),
+                    kind: value.kind,
+                    default: value.default.clone(),
+                    help: None,
+                }))
+            }
+            _ => None,
+        };
+        let Some(declaration) = declaration else {
+            continue;
+        };
+        if declarations.find(declaration.name()).is_some() {
+            return Err(evaluation_invalid_input(
+                format!(
+                    "build option '{}' is declared more than once",
+                    declaration.name()
+                ),
+                operation.origin.clone(),
+            ));
+        }
+        declarations.add(declaration);
+    }
+
+    let mut resolved = ResolvedBuildOptionSet::new();
+    for declaration in declarations.declarations() {
+        if let Some(default) = declaration.default_raw_value() {
+            resolved.insert(declaration.name(), default);
+        }
+    }
+    for (name, raw_value) in &request.inputs.options {
+        let declaration = declarations.find(name).ok_or_else(|| {
+            evaluation_invalid_input(format!("unknown build option override '{name}'"), None)
+        })?;
+        let coerced = declaration.coerce_raw_value(raw_value).ok_or_else(|| {
+            evaluation_invalid_input(
+                format!("build option '{name}' cannot coerce value '{raw_value}'"),
+                None,
+            )
+        })?;
+        resolved.insert(name, coerced);
+    }
+    if let Some(target) = &request.inputs.target {
+        let name = declarations
+            .declarations()
+            .iter()
+            .find_map(|declaration| match declaration {
+                BuildOptionDeclaration::StandardTarget(value) => Some(value.name.as_str()),
+                _ => None,
+            })
+            .unwrap_or("target");
+        resolved.insert(name, target.render());
+    }
+    if let Some(optimize) = request.inputs.optimize {
+        let name = declarations
+            .declarations()
+            .iter()
+            .find_map(|declaration| match declaration {
+                BuildOptionDeclaration::StandardOptimize(value) => Some(value.name.as_str()),
+                _ => None,
+            })
+            .unwrap_or("optimize");
+        resolved.insert(name, optimize.as_str());
+    }
+    Ok((declarations, resolved))
+}
+
+fn resolved_artifact_value(
+    value: &BuildArtifactConfigValue,
+    field: &str,
+    allowed_kinds: &[crate::graph::BuildOptionKind],
+    declarations: &BuildOptionDeclarationSet,
+    options: &ResolvedBuildOptionSet,
+    origin: Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<String, BuildEvaluationError> {
+    if let BuildArtifactConfigValue::OptionRef { name, kind } = value {
+        if !allowed_kinds.contains(kind) {
+            return Err(evaluation_invalid_input(
+                format!(
+                    "artifact {field} cannot use option '{name}' of kind {:?}",
+                    kind
+                ),
+                origin,
+            ));
+        }
+        let declaration = declarations.find(name).ok_or_else(|| {
+            evaluation_invalid_input(
+                format!("artifact {field} references undeclared option '{name}'"),
+                origin.clone(),
+            )
+        })?;
+        let declared_kind = match declaration {
+            BuildOptionDeclaration::StandardTarget(_) => crate::graph::BuildOptionKind::Target,
+            BuildOptionDeclaration::StandardOptimize(_) => crate::graph::BuildOptionKind::Optimize,
+            BuildOptionDeclaration::User(value) => value.kind,
+        };
+        if declared_kind != *kind {
+            return Err(evaluation_invalid_input(
+                format!(
+                    "artifact {field} option '{name}' was declared as {:?}, not {:?}",
+                    declared_kind, kind
+                ),
+                origin,
+            ));
+        }
+    }
+    value.resolve(options).ok_or_else(|| {
+        evaluation_invalid_input(
+            format!(
+                "artifact {field} requires resolved option '{}'",
+                value.placeholder_string()
+            ),
+            origin,
+        )
+    })
+}
+
+fn resolve_artifact_fields(
+    root: &BuildArtifactConfigValue,
+    target: Option<&BuildArtifactConfigValue>,
+    optimize: Option<&BuildArtifactConfigValue>,
+    request: &BuildEvaluationRequest,
+    declarations: &BuildOptionDeclarationSet,
+    options: &ResolvedBuildOptionSet,
+    origin: Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<
+    (
+        BuildArtifactConfigValue,
+        BuildArtifactConfigValue,
+        BuildArtifactConfigValue,
+    ),
+    BuildEvaluationError,
+> {
+    let root = resolved_artifact_value(
+        root,
+        "root",
+        &[
+            crate::graph::BuildOptionKind::Path,
+            crate::graph::BuildOptionKind::String,
+        ],
+        declarations,
+        options,
+        origin.clone(),
+    )?;
+    if root.trim().is_empty() {
+        return Err(evaluation_invalid_input(
+            "artifact root must not be empty",
+            origin,
+        ));
+    }
+
+    let target = if let Some(target) = &request.inputs.target {
+        target.clone()
+    } else if let Some(target) = target {
+        let raw = resolved_artifact_value(
+            target,
+            "target",
+            &[crate::graph::BuildOptionKind::Target],
+            declarations,
+            options,
+            origin.clone(),
+        )?;
+        fol_types::ResolvedTarget::resolve(&raw)
+            .map_err(|error| evaluation_invalid_input(error.to_string(), origin.clone()))?
+    } else {
+        fol_types::ResolvedTarget::host()
+            .map_err(|error| evaluation_invalid_input(error.to_string(), origin.clone()))?
+    };
+    let optimize = if let Some(optimize) = request.inputs.optimize {
+        optimize
+    } else if let Some(optimize) = optimize {
+        let raw = resolved_artifact_value(
+            optimize,
+            "optimize",
+            &[crate::graph::BuildOptionKind::Optimize],
+            declarations,
+            options,
+            origin.clone(),
+        )?;
+        BuildOptimizeMode::parse(&raw).ok_or_else(|| {
+            evaluation_invalid_input(
+                format!("unsupported artifact optimize mode '{raw}'"),
+                origin.clone(),
+            )
+        })?
+    } else {
+        BuildOptimizeMode::Debug
+    };
+
+    Ok((
+        BuildArtifactConfigValue::Literal(root),
+        BuildArtifactConfigValue::Literal(target.render()),
+        BuildArtifactConfigValue::Literal(optimize.as_str().to_string()),
+    ))
+}
+
 pub fn evaluate_build_plan(
     request: &BuildEvaluationRequest,
 ) -> Result<BuildEvaluationResult, BuildEvaluationError> {
@@ -40,68 +288,102 @@ pub fn evaluate_build_plan(
     let mut module_names: BTreeMap<String, crate::graph::BuildModuleId> = BTreeMap::new();
     let mut generated_names: BTreeMap<String, crate::graph::BuildGeneratedFileId> = BTreeMap::new();
     let mut dependency_requests = Vec::new();
-    let mut option_declarations = BuildOptionDeclarationSet::new();
-    let raw_option_overrides = request.inputs.options.clone();
-    let mut resolved_options = ResolvedBuildOptionSet::new();
+    let (option_declarations, resolved_options) = resolve_build_options(request)?;
     let mut graph = crate::graph::BuildGraph::new();
     let mut api = BuildApi::with_install_prefix(&mut graph, request.inputs.install_prefix.clone());
 
     for operation in &request.operations {
         match &operation.kind {
             BuildEvaluationOperationKind::StandardTarget(operation_request) => {
-                option_declarations.add(BuildOptionDeclaration::StandardTarget(
-                    StandardTargetDeclaration {
-                        name: operation_request.name.clone(),
-                        default: operation_request
-                            .default
-                            .as_deref()
-                            .and_then(BuildTargetTriple::parse),
-                    },
-                ));
                 api.standard_target(operation_request.clone());
             }
             BuildEvaluationOperationKind::StandardOptimize(operation_request) => {
-                option_declarations.add(BuildOptionDeclaration::StandardOptimize(
-                    StandardOptimizeDeclaration {
-                        name: operation_request.name.clone(),
-                        default: operation_request
-                            .default
-                            .as_deref()
-                            .and_then(BuildOptimizeMode::parse),
-                    },
-                ));
                 api.standard_optimize(operation_request.clone());
             }
             BuildEvaluationOperationKind::Option(operation_request) => {
-                option_declarations.add(BuildOptionDeclaration::User(UserOptionDeclaration {
-                    name: operation_request.name.clone(),
-                    kind: operation_request.kind,
-                    default: operation_request.default.clone(),
-                    help: None,
-                }));
                 api.option(operation_request.clone());
             }
             BuildEvaluationOperationKind::AddExe(operation_request) => {
+                let (root_module, target, optimize) = resolve_artifact_fields(
+                    &operation_request.root_module,
+                    operation_request.target.as_ref(),
+                    operation_request.optimize.as_ref(),
+                    request,
+                    &option_declarations,
+                    &resolved_options,
+                    operation.origin.clone(),
+                )?;
                 let handle = api
-                    .add_exe(operation_request.clone())
+                    .add_exe(crate::api::ExecutableRequest {
+                        name: operation_request.name.clone(),
+                        root_module,
+                        fol_model: operation_request.fol_model,
+                        target: Some(target),
+                        optimize: Some(optimize),
+                    })
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
                 artifact_names.insert(operation_request.name.clone(), handle);
             }
             BuildEvaluationOperationKind::AddStaticLib(operation_request) => {
+                let (root_module, target, optimize) = resolve_artifact_fields(
+                    &operation_request.root_module,
+                    operation_request.target.as_ref(),
+                    operation_request.optimize.as_ref(),
+                    request,
+                    &option_declarations,
+                    &resolved_options,
+                    operation.origin.clone(),
+                )?;
                 let handle = api
-                    .add_static_lib(operation_request.clone())
+                    .add_static_lib(crate::api::StaticLibraryRequest {
+                        name: operation_request.name.clone(),
+                        root_module,
+                        fol_model: operation_request.fol_model,
+                        target: Some(target),
+                        optimize: Some(optimize),
+                    })
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
                 artifact_names.insert(operation_request.name.clone(), handle);
             }
             BuildEvaluationOperationKind::AddSharedLib(operation_request) => {
+                let (root_module, target, optimize) = resolve_artifact_fields(
+                    &operation_request.root_module,
+                    operation_request.target.as_ref(),
+                    operation_request.optimize.as_ref(),
+                    request,
+                    &option_declarations,
+                    &resolved_options,
+                    operation.origin.clone(),
+                )?;
                 let handle = api
-                    .add_shared_lib(operation_request.clone())
+                    .add_shared_lib(crate::api::SharedLibraryRequest {
+                        name: operation_request.name.clone(),
+                        root_module,
+                        fol_model: operation_request.fol_model,
+                        target: Some(target),
+                        optimize: Some(optimize),
+                    })
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
                 artifact_names.insert(operation_request.name.clone(), handle);
             }
             BuildEvaluationOperationKind::AddTest(operation_request) => {
+                let (root_module, target, optimize) = resolve_artifact_fields(
+                    &operation_request.root_module,
+                    operation_request.target.as_ref(),
+                    operation_request.optimize.as_ref(),
+                    request,
+                    &option_declarations,
+                    &resolved_options,
+                    operation.origin.clone(),
+                )?;
                 let handle = api
-                    .add_test(operation_request.clone())
+                    .add_test(crate::api::TestArtifactRequest {
+                        name: operation_request.name.clone(),
+                        root_module,
+                        fol_model: operation_request.fol_model,
+                        target: Some(target),
+                        optimize: Some(optimize),
+                    })
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
                 artifact_names.insert(operation_request.name.clone(), handle);
             }
@@ -412,6 +694,19 @@ pub fn evaluate_build_plan(
                 })?;
                 api.artifact_add_generated(artifact_id, gen_id);
             }
+            BuildEvaluationOperationKind::ArtifactAddCImport { artifact, request } => {
+                let artifact_id = artifact_names
+                    .get(artifact)
+                    .map(|handle: &crate::api::BuildArtifactHandle| handle.artifact_id)
+                    .ok_or_else(|| {
+                        evaluation_invalid_input(
+                            format!("unknown artifact '{artifact}' in artifact.add_c_import"),
+                            operation.origin.clone(),
+                        )
+                    })?;
+                api.add_c_import(artifact_id, request.clone())
+                    .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
+            }
             BuildEvaluationOperationKind::RunAddArg {
                 run_name,
                 kind,
@@ -511,33 +806,6 @@ pub fn evaluate_build_plan(
                 ));
             }
         }
-    }
-
-    if let Some(target) = &request.inputs.target {
-        resolved_options.insert("target", target.render());
-    }
-    if let Some(optimize) = request.inputs.optimize {
-        resolved_options.insert("optimize", optimize.as_str());
-    }
-    for declaration in option_declarations.declarations() {
-        if resolved_options.get(declaration.name()).is_none() {
-            if let Some(default) = declaration.default_raw_value() {
-                resolved_options.insert(declaration.name(), default);
-            }
-        }
-    }
-    for (name, raw_value) in &raw_option_overrides {
-        let Some(declaration) = option_declarations.find(name) else {
-            resolved_options.insert(name.clone(), raw_value.clone());
-            continue;
-        };
-        let Some(coerced) = declaration.coerce_raw_value(raw_value) else {
-            return Err(evaluation_invalid_input(
-                format!("build option '{name}' cannot coerce value '{raw_value}'"),
-                None,
-            ));
-        };
-        resolved_options.insert(name.clone(), coerced);
     }
 
     if let Some(validation_error) = graph.validate().into_iter().next() {

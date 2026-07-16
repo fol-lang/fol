@@ -41,12 +41,7 @@ impl AstParser {
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<(), ParseError> {
         let mut count = 0u32;
-        loop {
-            let token = match tokens.curr(false) {
-                Ok(token) => token,
-                Err(_) => break,
-            };
-
+        while let Ok(token) = tokens.curr(false) {
             if Self::key_is_layout_ignorable(&token.key()) {
                 count += 1;
                 if count > 128 {
@@ -106,12 +101,7 @@ impl AstParser {
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<(), ParseError> {
         let mut count = 0u32;
-        loop {
-            let token = match tokens.curr(false) {
-                Ok(token) => token,
-                Err(_) => break,
-            };
-
+        while let Ok(token) = tokens.curr(false) {
             if Self::key_is_soft_ignorable(&token.key()) {
                 count += 1;
                 if count > 128 {

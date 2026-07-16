@@ -7,6 +7,8 @@ use fol_parser::ast::{AstNode, LoopCondition, WhenCase};
 use super::super::scope::insert_local_symbol;
 use super::RoutineContext;
 
+// These parameters mirror the statement AST fields plus resolver context.
+#[allow(clippy::too_many_arguments)]
 pub fn traverse_when_node(
     session: &mut ResolverSession,
     program: &mut ResolvedProgram,
@@ -111,6 +113,7 @@ pub fn traverse_when_node(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn traverse_loop_node(
     session: &mut ResolverSession,
     program: &mut ResolvedProgram,
@@ -171,8 +174,7 @@ pub fn traverse_loop_node(
                 false,
                 routine_context,
             )?;
-            let binder_scope =
-                program.add_scope(ScopeKind::LoopBinder, scope_id, source_unit_id);
+            let binder_scope = program.add_scope(ScopeKind::LoopBinder, scope_id, source_unit_id);
             program.record_scope_for_syntax(syntax_id, binder_scope);
             insert_local_symbol(
                 program,

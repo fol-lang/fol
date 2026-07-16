@@ -121,7 +121,8 @@ fn project_git_dependency_alias(
 fn dependency_git_locator(
     dependency: &fol_package::PackageDependencyDecl,
 ) -> FrontendResult<fol_package::PackageLocator> {
-    let base = fol_package::parse_package_locator(&dependency.target).map_err(FrontendError::from)?;
+    let base =
+        fol_package::parse_package_locator(&dependency.target).map_err(FrontendError::from)?;
     let Some(mut git) = base.git.clone() else {
         return Err(FrontendError::new(
             crate::FrontendErrorKind::InvalidInput,
@@ -312,7 +313,7 @@ pub fn fetch_workspace_with_config(
             Some(package.root),
         ));
     }
-    return Ok(result);
+    Ok(result)
 }
 
 pub fn fetch_workspace(workspace: &FrontendWorkspace) -> FrontendResult<FrontendCommandResult> {
@@ -469,11 +470,10 @@ fn resolve_workspace_fetch(
                                 fetch_options,
                             )
                             .map_err(FrontendError::from)
-                            .map(|materialization| {
+                            .inspect(|_| {
                                 if was_missing {
                                     repaired_materializations += 1;
                                 }
-                                materialization
                             })?
                     } else {
                         git_session
@@ -925,7 +925,11 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::write(app.join("src/main.fol"), "fun[] main(): int = { return 0; };\n").unwrap();
+        fs::write(
+            app.join("src/main.fol"),
+            "fun[] main(): int = { return 0; };\n",
+        )
+        .unwrap();
 
         let workspace = FrontendWorkspace {
             root: WorkspaceRoot::new(root.clone()),

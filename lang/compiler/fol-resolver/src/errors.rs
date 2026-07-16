@@ -35,7 +35,7 @@ impl ResolverErrorKind {
 pub struct ResolverError {
     kind: ResolverErrorKind,
     message: String,
-    origin: Option<SyntaxOrigin>,
+    origin: Option<Box<SyntaxOrigin>>,
     related_origins: Vec<(SyntaxOrigin, String)>,
     suggestions: Vec<DiagnosticSuggestion>,
 }
@@ -59,7 +59,7 @@ impl ResolverError {
         Self {
             kind,
             message: message.into(),
-            origin: Some(origin),
+            origin: Some(Box::new(origin)),
             related_origins: Vec::new(),
             suggestions: Vec::new(),
         }
@@ -74,7 +74,7 @@ impl ResolverError {
     }
 
     pub fn origin(&self) -> Option<&SyntaxOrigin> {
-        self.origin.as_ref()
+        self.origin.as_deref()
     }
 
     pub fn diagnostic_location(&self) -> Option<DiagnosticLocation> {

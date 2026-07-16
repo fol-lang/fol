@@ -392,7 +392,7 @@ pub fn render_entry_trait_impl(
     let type_name = mangle_type_name(package_identity, type_decl.runtime_type, &type_decl.name);
     let match_arms = variants
         .iter()
-        .map(|variant| render_entry_trait_match_arm(variant))
+        .map(render_entry_trait_match_arm)
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -402,7 +402,7 @@ pub fn render_entry_trait_impl(
         match_arms,
         variants
             .iter()
-            .map(|variant| render_entry_field_match_arm(variant))
+            .map(render_entry_field_match_arm)
             .collect::<Vec<_>>()
             .join("\n")
     ))

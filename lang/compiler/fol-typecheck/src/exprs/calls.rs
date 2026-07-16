@@ -1230,6 +1230,9 @@ fn routine_signature_for_method(
     }
 }
 
+// Call checking combines a routine signature with surface-specific binding
+// policy; a second request type would only mirror these local inputs.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn check_call_arguments(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -1677,10 +1680,9 @@ fn validate_mutex_argument_forwarding(
                 length: 1,
             });
 
-        if let Some((first_param, first_origin)) = forwarded.insert(
-            symbol,
-            (*param_index, argument_origin.clone()),
-        ) {
+        if let Some((first_param, first_origin)) =
+            forwarded.insert(symbol, (*param_index, argument_origin.clone()))
+        {
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::InvalidInput,
                 format!(

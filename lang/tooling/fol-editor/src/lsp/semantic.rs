@@ -1947,9 +1947,7 @@ impl SemanticSnapshot {
         );
         let contents = if borrowed {
             if target_moves {
-                format!(
-                    "*: read-only borrowed pointer cannot transfer move-only `{target_name}`"
-                )
+                format!("*: read-only borrowed pointer cannot transfer move-only `{target_name}`")
             } else {
                 format!(
                     "*: read-only borrowed pointer clones `{target_name}` without consuming the pointer"
@@ -1966,9 +1964,7 @@ impl SemanticSnapshot {
         } else if target_moves {
             format!("*: transfers move-only `{target_name}` and consumes the unique pointer")
         } else {
-            format!(
-                "*: reads clone-safe `{target_name}` without consuming the unique pointer"
-            )
+            format!("*: reads clone-safe `{target_name}` without consuming the unique pointer")
         };
         Some(LspHover {
             contents,
@@ -3603,11 +3599,11 @@ fn declared_type_symbol(
 ) -> Option<fol_resolver::SymbolId> {
     use fol_typecheck::{CheckedType, DeclaredTypeKind};
     match table.get(type_id)? {
-        CheckedType::Declared { symbol, kind, .. }
-            if matches!(kind, DeclaredTypeKind::Type | DeclaredTypeKind::Alias) =>
-        {
-            Some(*symbol)
-        }
+        CheckedType::Declared {
+            symbol,
+            kind: DeclaredTypeKind::Type | DeclaredTypeKind::Alias,
+            ..
+        } => Some(*symbol),
         CheckedType::Optional { inner } => declared_type_symbol(table, *inner),
         CheckedType::Owned { inner } | CheckedType::Borrowed { inner, .. } => {
             declared_type_symbol(table, *inner)

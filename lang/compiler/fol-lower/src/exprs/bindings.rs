@@ -5,6 +5,7 @@ use fol_parser::ast::AstNode;
 use fol_resolver::{PackageIdentity, ScopeId, SourceUnitId, SymbolKind};
 use std::collections::BTreeMap;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_local_binding(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,

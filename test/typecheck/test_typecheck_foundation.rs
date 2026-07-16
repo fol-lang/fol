@@ -72,7 +72,10 @@ fn builtin_type_tables_install_v1_scalar_types_canonically() {
     let builtins = BuiltinTypeIds::install(&mut table);
 
     assert_eq!(table.len(), 6);
-    assert_eq!(table.get(builtins.int), Some(&CheckedType::Builtin(BuiltinType::Int)));
+    assert_eq!(
+        table.get(builtins.int),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
     assert_eq!(
         table.get(builtins.str_),
         Some(&CheckedType::Builtin(BuiltinType::Str))
@@ -363,8 +366,7 @@ fn dot_graph_is_rejected_in_ordinary_source_units() {
 
     assert!(
         errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains(".graph")
+            error.kind() == TypecheckErrorKind::InvalidInput && error.message().contains(".graph")
         }),
         "Expected ordinary source to reject .graph(), got: {errors:?}"
     );
@@ -529,11 +531,15 @@ fn declaration_signature_lowering_records_top_level_type_facts() {
     let (_size_id, size) = find_typed_symbol(&typed, "size", SymbolKind::Routine);
 
     assert_eq!(
-        typed.type_table().get(distance.declared_type.expect("alias should lower")),
+        typed
+            .type_table()
+            .get(distance.declared_type.expect("alias should lower")),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
     assert_eq!(
-        typed.type_table().get(person.declared_type.expect("record should lower")),
+        typed
+            .type_table()
+            .get(person.declared_type.expect("record should lower")),
         Some(&CheckedType::Record {
             fields: BTreeMap::from([("name".to_string(), typed.builtin_types().str_)])
         })
@@ -558,7 +564,11 @@ fn declaration_signature_lowering_records_top_level_type_facts() {
         })
     );
     assert_eq!(
-        typed.type_table().get(routine.return_type.expect("routine return type should lower")),
+        typed.type_table().get(
+            routine
+                .return_type
+                .expect("routine return type should lower")
+        ),
         Some(&CheckedType::Declared {
             symbol: person_id,
             name: "Person".to_string(),
@@ -566,7 +576,14 @@ fn declaration_signature_lowering_records_top_level_type_facts() {
             args: Vec::new(),
         })
     );
-    assert_eq!(typed.resolved().source_units.get(SourceUnitId(0)).map(|unit| unit.package.as_str()), Some(typed.package_name()));
+    assert_eq!(
+        typed
+            .resolved()
+            .source_units
+            .get(SourceUnitId(0))
+            .map(|unit| unit.package.as_str()),
+        Some(typed.package_name())
+    );
 }
 
 #[test]
@@ -575,7 +592,9 @@ fn declaration_signature_lowering_keeps_builtin_str_types_builtin() {
     let (_label_id, label) = find_typed_symbol(&typed, "label", SymbolKind::ValueBinding);
 
     assert_eq!(
-        typed.type_table().get(label.declared_type.expect("binding should lower")),
+        typed
+            .type_table()
+            .get(label.declared_type.expect("binding should lower")),
         Some(&CheckedType::Builtin(BuiltinType::Str))
     );
 }
@@ -614,7 +633,9 @@ fn declaration_signature_lowering_keeps_alias_references_as_alias_symbols() {
     let (_total_id, total) = find_typed_symbol(&typed, "total", SymbolKind::ValueBinding);
 
     assert_eq!(
-        typed.type_table().get(total.declared_type.expect("binding should lower")),
+        typed
+            .type_table()
+            .get(total.declared_type.expect("binding should lower")),
         Some(&CheckedType::Declared {
             symbol: count_id,
             name: "Count".to_string(),
@@ -637,9 +658,11 @@ fn expression_typing_resolves_plain_identifier_references_to_declared_types() {
     let reference = find_typed_reference(&typed, "total", ReferenceKind::Identifier);
 
     assert_eq!(
-        typed
-            .type_table()
-            .get(reference.resolved_type.expect("identifier should receive a type")),
+        typed.type_table().get(
+            reference
+                .resolved_type
+                .expect("identifier should receive a type")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
@@ -659,9 +682,11 @@ fn expression_typing_resolves_qualified_identifier_references_to_declared_types(
     let reference = find_typed_reference(&typed, "util::total", ReferenceKind::QualifiedIdentifier);
 
     assert_eq!(
-        typed
-            .type_table()
-            .get(reference.resolved_type.expect("qualified identifier should receive a type")),
+        typed.type_table().get(
+            reference
+                .resolved_type
+                .expect("qualified identifier should receive a type")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
@@ -679,9 +704,11 @@ fn expression_typing_infers_local_binding_types_from_initializers() {
     let (_current_id, current) = find_typed_symbol(&typed, "current", SymbolKind::ValueBinding);
 
     assert_eq!(
-        typed
-            .type_table()
-            .get(current.declared_type.expect("initializer should infer local type")),
+        typed.type_table().get(
+            current
+                .declared_type
+                .expect("initializer should infer local type")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
@@ -719,9 +746,11 @@ fn expression_typing_accepts_assignments_with_matching_types() {
 
     let reference = find_typed_reference(&typed, "total", ReferenceKind::Identifier);
     assert_eq!(
-        typed
-            .type_table()
-            .get(reference.resolved_type.expect("identifier should keep its type after assignment")),
+        typed.type_table().get(
+            reference
+                .resolved_type
+                .expect("identifier should keep its type after assignment")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
@@ -760,9 +789,11 @@ fn expression_typing_types_free_calls_against_routine_signatures() {
 
     let reference = find_typed_reference(&typed, "id", ReferenceKind::FunctionCall);
     assert_eq!(
-        typed
-            .type_table()
-            .get(reference.resolved_type.expect("free call should receive a result type")),
+        typed.type_table().get(
+            reference
+                .resolved_type
+                .expect("free call should receive a result type")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
@@ -1038,9 +1069,9 @@ fn expression_typing_rejects_double_unpack_for_variadic_free_calls() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error
-                    .message()
-                    .contains("call-site unpack cannot be combined with other variadic arguments in V1")
+                && error.message().contains(
+                    "call-site unpack cannot be combined with other variadic arguments in V1",
+                )
         }),
         "Expected double-unpack diagnostic, got: {errors:?}"
     );
@@ -1221,9 +1252,9 @@ fn expression_typing_rejects_double_unpack_for_variadic_method_calls() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error
-                    .message()
-                    .contains("call-site unpack cannot be combined with other variadic arguments in V1")
+                && error.message().contains(
+                    "call-site unpack cannot be combined with other variadic arguments in V1",
+                )
         }),
         "Expected double-unpack method diagnostic, got: {errors:?}"
     );
@@ -1377,7 +1408,9 @@ fn echo_intrinsic_requires_bundled_std_effective_tier_in_core() {
     assert!(errors[0]
         .message()
         .contains("'.echo(...)' requires hosted std support"));
-    assert!(errors[0].message().contains("current artifact model is 'core'"));
+    assert!(errors[0]
+        .message()
+        .contains("current artifact model is 'core'"));
 }
 
 #[test]
@@ -1387,9 +1420,7 @@ fn owned_heap_binding_requires_memo_model() {
         "@var value = 1;",
         "var[new] value = 1;",
     ] {
-        let source = format!(
-            "fun[] main(): int = {{\n    {declaration}\n    return 0;\n}};\n"
-        );
+        let source = format!("fun[] main(): int = {{\n    {declaration}\n    return 0;\n}};\n");
         let errors = typecheck_fixture_folder_errors_with_config(
             &[("main.fol", source.as_str())],
             TypecheckConfig {
@@ -1425,7 +1456,11 @@ fn core_pointer_guidance_names_only_the_public_memo_model() {
 
     let error = errors
         .iter()
-        .find(|error| error.message().contains("pointer construction requires heap support"))
+        .find(|error| {
+            error
+                .message()
+                .contains("pointer construction requires heap support")
+        })
         .expect("core pointer construction should report its capability guidance");
     assert!(error.message().contains("choose fol_model = 'memo'"));
     assert!(!error.message().contains("add bundled std"));
@@ -1482,7 +1517,6 @@ fn move_only_shell_unwrap_consumes_the_shell_binding() {
             }),
             "{shell}[ptr[int]] must be consumed by its first unwrap: {errors:#?}"
         );
-
     }
 }
 
@@ -1644,7 +1678,10 @@ fn move_only_field_transfers_consume_the_whole_base() {
     ] {
         let typed = typecheck_fixture_folder(&[("main.fol", source)]);
         let main = find_named_routine_syntax_id(&typed, "main");
-        assert!(typed.typed_node(main).is_some(), "{surface} should typecheck");
+        assert!(
+            typed.typed_node(main).is_some(),
+            "{surface} should typecheck"
+        );
     }
 
     let errors = typecheck_fixture_folder_errors(&[(
@@ -2073,12 +2110,10 @@ fn shared_pointer_deref_rejects_move_only_pointees() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Ownership
-                && error.message().contains(
-                    "cannot move a move-only pointee out of ptr[shared, T]"
-                )
                 && error
                     .message()
-                    .contains("requires a clone-safe pointee")
+                    .contains("cannot move a move-only pointee out of ptr[shared, T]")
+                && error.message().contains("requires a clone-safe pointee")
         }),
         "Rc-backed pointers must not move their pointee: {errors:#?}"
     );
@@ -2744,13 +2779,18 @@ fn echo_intrinsic_requires_bundled_std_effective_tier_in_memo() {
     assert!(errors[0]
         .message()
         .contains("'.echo(...)' requires hosted std support"));
-    assert!(errors[0].message().contains("current artifact model is 'memo'"));
+    assert!(errors[0]
+        .message()
+        .contains("current artifact model is 'memo'"));
 }
 
 #[test]
 fn typecheck_capability_tiers_keep_memo_between_core_and_hosted_std() {
     let core_errors = typecheck_fixture_folder_errors_with_config(
-        &[("main.fol", "fun[] main(): str = {\n    return \"heap\";\n};\n")],
+        &[(
+            "main.fol",
+            "fun[] main(): str = {\n    return \"heap\";\n};\n",
+        )],
         TypecheckConfig {
             capability_model: TypecheckCapabilityModel::Core,
         },
@@ -2761,7 +2801,10 @@ fn typecheck_capability_tiers_keep_memo_between_core_and_hosted_std() {
         .contains("str requires heap support and is unavailable in 'fol_model = core'"));
 
     let mem_typed = typecheck_fixture_folder_with_config(
-        &[("main.fol", "fun[] main(): str = {\n    return \"heap\";\n};\n")],
+        &[(
+            "main.fol",
+            "fun[] main(): str = {\n    return \"heap\";\n};\n",
+        )],
         TypecheckConfig {
             capability_model: TypecheckCapabilityModel::Memo,
         },
@@ -2776,7 +2819,10 @@ fn typecheck_capability_tiers_keep_memo_between_core_and_hosted_std() {
     );
 
     let mem_echo_errors = typecheck_fixture_folder_errors_with_config(
-        &[("main.fol", "fun[] main(): int = {\n    return .echo(1);\n};\n")],
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n    return .echo(1);\n};\n",
+        )],
         TypecheckConfig {
             capability_model: TypecheckCapabilityModel::Memo,
         },
@@ -2787,7 +2833,10 @@ fn typecheck_capability_tiers_keep_memo_between_core_and_hosted_std() {
         .contains("'.echo(...)' requires hosted std support"));
 
     let std_typed = typecheck_fixture_folder_with_config(
-        &[("main.fol", "fun[] main(): int = {\n    return .echo(1);\n};\n")],
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n    return .echo(1);\n};\n",
+        )],
         TypecheckConfig {
             capability_model: TypecheckCapabilityModel::Std,
         },
@@ -2896,9 +2945,9 @@ fn deferred_blocks_reject_mutex_field_access() {
         assert!(
             errors.iter().any(|error| {
                 error.kind() == TypecheckErrorKind::Unsupported
-                    && error
-                        .message()
-                        .contains("mutex field access through 'counter' is not allowed inside dfr/edf")
+                    && error.message().contains(
+                        "mutex field access through 'counter' is not allowed inside dfr/edf",
+                    )
                     && error
                         .message()
                         .contains("delayed mutex guard effects are not modeled")
@@ -2932,9 +2981,9 @@ fn deferred_blocks_reject_mutex_guard_operations() {
             assert!(
                 errors.iter().any(|error| {
                     error.kind() == TypecheckErrorKind::Unsupported
-                        && error.message().contains(&format!(
-                            "mutex .{method}() is not allowed inside dfr/edf"
-                        ))
+                        && error
+                            .message()
+                            .contains(&format!("mutex .{method}() is not allowed inside dfr/edf"))
                         && error
                             .message()
                             .contains("delayed mutex guard effects are not modeled")
@@ -3341,7 +3390,9 @@ fn every_processor_surface_rejects_core_and_memo_models() {
                 TypecheckConfig { capability_model },
             );
             assert!(
-                errors.iter().any(|error| error.message().contains(expected)),
+                errors
+                    .iter()
+                    .any(|error| error.message().contains(expected)),
                 "{surface} should reject {capability_model:?} with '{expected}', got {errors:?}"
             );
         }
@@ -3448,9 +3499,9 @@ fn bound_recoverable_eventuals_must_be_awaited_before_return() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error.message().contains(
-        "recoverable eventual binding 'pending' must be awaited and handled"
-    )));
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("recoverable eventual binding 'pending' must be awaited and handled")));
 }
 
 #[test]
@@ -3501,9 +3552,9 @@ fn recoverable_eventuals_cannot_be_overwritten_while_unhandled() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error.message().contains(
-        "recoverable eventual binding 'pending' cannot be overwritten"
-    )));
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("recoverable eventual binding 'pending' cannot be overwritten")));
 }
 
 #[test]
@@ -3553,9 +3604,9 @@ fn transferred_recoverable_eventuals_remain_obligations() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error.message().contains(
-        "recoverable eventual binding 'moved' must be awaited and handled"
-    )));
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("recoverable eventual binding 'moved' must be awaited and handled")));
 }
 
 #[test]
@@ -3582,9 +3633,9 @@ fn recoverable_eventual_branch_obligations_require_every_path_to_handle() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error.message().contains(
-        "recoverable eventual binding 'pending' must be awaited and handled"
-    )));
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("recoverable eventual binding 'pending' must be awaited and handled")));
 }
 
 #[test]
@@ -3716,9 +3767,10 @@ fn nested_routines_cannot_await_outer_recoverable_eventuals() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error
-        .message()
-        .contains("implicit closure capture of outer local 'pending' is not supported")),
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("implicit closure capture of outer local 'pending' is not supported")),
         "nested routine must not discharge an outer eventual obligation: {errors:#?}"
     );
 }
@@ -3733,9 +3785,10 @@ fn nested_routines_reject_implicit_clone_safe_captures() {
              return action();\n\
          };\n",
     )]);
-    assert!(errors.iter().any(|error| error
-        .message()
-        .contains("implicit closure capture of outer local 'outer' is not supported")),
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("implicit closure capture of outer local 'outer' is not supported")),
         "closure capture must fail in typecheck instead of reaching lowering: {errors:#?}"
     );
 }
@@ -3750,9 +3803,10 @@ fn nested_routines_reject_implicit_capture_assignment_targets() {
              return action();\n\
          };\n",
     )]);
-    assert!(errors.iter().any(|error| error
-        .message()
-        .contains("implicit closure capture of outer local 'outer' is not supported")),
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("implicit closure capture of outer local 'outer' is not supported")),
         "assignment targets must not bypass the closure boundary: {errors:#?}"
     );
 }
@@ -3777,9 +3831,9 @@ fn recoverable_eventuals_cannot_leave_their_lexical_scope_unhandled() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error.message().contains(
-        "recoverable eventual binding 'pending' must be awaited and handled"
-    )));
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("recoverable eventual binding 'pending' must be awaited and handled")));
 }
 
 #[test]
@@ -3803,9 +3857,9 @@ fn recoverable_eventuals_cannot_escape_through_report() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error.message().contains(
-        "recoverable eventual binding 'pending' must be awaited and handled"
-    )));
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("recoverable eventual binding 'pending' must be awaited and handled")));
 }
 
 #[test]
@@ -3833,9 +3887,10 @@ fn edf_cannot_discharge_outer_recoverable_eventuals() {
                 capability_model: TypecheckCapabilityModel::Std,
             },
         );
-        assert!(errors.iter().any(|error| error
-            .message()
-            .contains("await is not allowed inside edf")),
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains("await is not allowed inside edf")),
             "error-only cleanup must not discharge a normal-path obligation: {errors:#?}"
         );
     }
@@ -3864,9 +3919,9 @@ fn recoverable_eventuals_cannot_escape_a_loop_through_break() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error.message().contains(
-        "recoverable eventual binding 'pending' must be awaited and handled"
-    )));
+    assert!(errors.iter().any(|error| error
+        .message()
+        .contains("recoverable eventual binding 'pending' must be awaited and handled")));
 }
 
 #[test]
@@ -3895,9 +3950,12 @@ fn break_rejects_recoverable_eventuals_assigned_to_outer_slots() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
-    assert!(errors.iter().any(|error| error.message().contains(
-        "recoverable eventual binding 'slot' must be awaited and handled"
-    )), "break must preserve obligations activated inside the loop: {errors:#?}");
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("recoverable eventual binding 'slot' must be awaited and handled")),
+        "break must preserve obligations activated inside the loop: {errors:#?}"
+    );
 }
 
 #[test]
@@ -4509,9 +4567,7 @@ fn qualified_omitted_defaults_preserve_processor_boundaries() {
             "values containing shared Rc pointers cannot cross",
         ),
     ] {
-        let worker = format!(
-            "fun[] inspect({parameter}): int = {{ return 0; }};\n"
-        );
+        let worker = format!("fun[] inspect({parameter}): int = {{ return 0; }};\n");
         let main = format!(
             "fun[] main(): int = {{\n\
                  {statement}\n\
@@ -4529,7 +4585,9 @@ fn qualified_omitted_defaults_preserve_processor_boundaries() {
         );
 
         assert!(
-            errors.iter().any(|error| error.message().contains(expected)),
+            errors
+                .iter()
+                .any(|error| error.message().contains(expected)),
             "{surface} should retain its omitted-argument boundary, got {errors:?}"
         );
     }
@@ -4642,10 +4700,7 @@ fn channel_receiver_effect_follows_local_aliases_and_wrappers() {
             "alias",
             "var alias = channel;\n                 return alias[rx];",
         ),
-        (
-            "wrapper",
-            "return consume(channel);",
-        ),
+        ("wrapper", "return consume(channel);"),
     ] {
         let source = format!(
             "fun[] consume(channel: chn[int]): int = {{\n\
@@ -4703,7 +4758,9 @@ fn sender_capture_alias_cannot_receive_or_call_a_consumer() {
         );
         assert!(
             errors.iter().any(|error| {
-                error.message().contains("sender-only channel endpoints cannot receive")
+                error
+                    .message()
+                    .contains("sender-only channel endpoints cannot receive")
                     || (error.message().contains("expects 'chn[int]'")
                         && error.message().contains("chn[int][tx]"))
             }),
@@ -4841,7 +4898,6 @@ fn receiver_acquisition_rejects_late_transmitter_acquisition() {
             "{surface} should reject late tx acquisition, got {errors:?}"
         );
     }
-
 
     for (surface, deferred_body) in [
         ("direct deferred endpoint", "1 | channel[tx];"),
@@ -5187,7 +5243,7 @@ fn top_level_clone_safe_scalars_and_records_remain_available() {
     let typed = typecheck_fixture_folder_with_config(
         &[(
             "main.fol",
-             "typ Snapshot: rec = { value: int };\n\
+            "typ Snapshot: rec = { value: int };\n\
              var count: int = 1;\n\
              var current: Snapshot = { value = 2 };\n\
              fun[] main(): int = { return count + current.value; };\n",
@@ -5546,9 +5602,9 @@ fn record_initializer_rejects_missing_field_without_default() {
     )]);
 
     assert!(
-        errors.iter().any(|error| {
-            error.message().contains("missing required fields: step")
-        }),
+        errors
+            .iter()
+            .any(|error| { error.message().contains("missing required fields: step") }),
         "Expected a missing-required-field diagnostic for the non-default field, got: {errors:?}"
     );
 }
@@ -5572,9 +5628,7 @@ fn record_initializer_rejects_default_type_mismatch() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::IncompatibleType
-                && error
-                    .message()
-                    .contains("default for record field 'flag'")
+                && error.message().contains("default for record field 'flag'")
         }),
         "Expected a default-type-mismatch diagnostic, got: {errors:?}"
     );
@@ -5655,7 +5709,9 @@ fn positional_record_initializer_rejects_too_many_values() {
 
     assert!(
         errors.iter().any(|error| {
-            error.message().contains("positional record initializer has 3 value(s)")
+            error
+                .message()
+                .contains("positional record initializer has 3 value(s)")
                 && error.message().contains("2 field(s)")
         }),
         "Expected a positional arity diagnostic, got: {errors:?}"
@@ -5740,9 +5796,9 @@ fn expression_typing_rejects_non_indexable_receivers() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error
-                    .message()
-                    .contains("index access requires an array, vector, sequence, set, or map receiver")
+                && error.message().contains(
+                    "index access requires an array, vector, sequence, set, or map receiver",
+                )
         }),
         "Expected a non-indexable access diagnostic, got: {errors:?}"
     );
@@ -5878,7 +5934,9 @@ fn routine_error_typing_rejects_missing_report_values() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains("report expects exactly 1 value in V1 but got 0")
+                && error
+                    .message()
+                    .contains("report expects exactly 1 value in V1 but got 0")
         }),
         "Expected a missing-report-value diagnostic, got: {errors:?}"
     );
@@ -5927,7 +5985,7 @@ fn inferred_bindings_reject_recoverable_call_results() {
          };\n",
     )]);
 
-    assert_eq!(
+    assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error.message().contains("initializer for 'current'")
@@ -5935,7 +5993,6 @@ fn inferred_bindings_reject_recoverable_call_results() {
                     .message()
                     .contains("cannot use '/ ErrorType' routine results as plain values")
         }),
-        true,
         "Expected a strict binding diagnostic, got: {errors:?}"
     );
 }
@@ -6250,9 +6307,9 @@ fn when_membership_arms_stay_on_the_explicit_v1_boundary() {
          };\n",
     )]);
     assert!(
-        has_errors
-            .iter()
-            .any(|error| error.message().contains("when/has branches are not yet supported")),
+        has_errors.iter().any(|error| error
+            .message()
+            .contains("when/has branches are not yet supported")),
         "has arms should hit the explicit boundary: {has_errors:#?}"
     );
 
@@ -6266,9 +6323,9 @@ fn when_membership_arms_stay_on_the_explicit_v1_boundary() {
          };\n",
     )]);
     assert!(
-        in_errors
-            .iter()
-            .any(|error| error.message().contains("when/in branches are not yet supported")),
+        in_errors.iter().any(|error| error
+            .message()
+            .contains("when/in branches are not yet supported")),
         "in arms should hit the explicit boundary: {in_errors:#?}"
     );
 
@@ -6307,9 +6364,9 @@ fn immutable_bindings_reject_whole_binding_reassignment() {
          };\n",
     )]);
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message().contains("cannot reassign immutable binding 'locked'")),
+        errors.iter().any(|error| error
+            .message()
+            .contains("cannot reassign immutable binding 'locked'")),
         "con bindings should refuse reassignment: {errors:#?}"
     );
 }
@@ -6346,9 +6403,9 @@ fn moved_mutable_bindings_can_be_reinitialized() {
          };\n",
     )]);
     assert!(
-        immutable_errors
-            .iter()
-            .any(|error| error.message().contains("cannot reassign immutable binding 'pointer'")),
+        immutable_errors.iter().any(|error| error
+            .message()
+            .contains("cannot reassign immutable binding 'pointer'")),
         "reinitialization must preserve ordinary mutability checks: {immutable_errors:#?}"
     );
 
@@ -6401,11 +6458,7 @@ fn moved_mutable_bindings_can_be_reinitialized() {
 #[test]
 fn loop_reinitialization_does_not_erase_the_zero_iteration_move() {
     for (surface, setup, loop_body) in [
-        (
-            "condition loop",
-            "",
-            "loop(false) { pointer = &second; };",
-        ),
+        ("condition loop", "", "loop(false) { pointer = &second; };"),
         (
             "iterable loop",
             "var values: arr[int, 1] = { 1 };",
@@ -6471,9 +6524,9 @@ fn panic_terminates_when_arms_and_stays_out_of_defer() {
          };\n",
     )]);
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message().contains("panic is not allowed inside dfr/edf blocks")),
+        errors.iter().any(|error| error
+            .message()
+            .contains("panic is not allowed inside dfr/edf blocks")),
         "dfr should keep an explicit panic boundary: {errors:#?}"
     );
 }
@@ -6631,7 +6684,10 @@ fn type_mismatch_diagnostics_render_fol_surface_syntax() {
     assert!(
         errors.iter().any(|error| {
             let m = error.message();
-            m.contains("vec[int]") && m.contains("int") && !m.contains("Builtin(") && !m.contains("Vector {")
+            m.contains("vec[int]")
+                && m.contains("int")
+                && !m.contains("Builtin(")
+                && !m.contains("Vector {")
         }),
         "mismatch should render FOL surface types: {errors:#?}"
     );
@@ -6682,9 +6738,9 @@ fn routines_keep_their_own_parameter_names_across_interning() {
          };\n",
     )]);
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message().contains("does not have a parameter named 'aaa'")),
+        errors.iter().any(|error| error
+            .message()
+            .contains("does not have a parameter named 'aaa'")),
         "the wrong name must fail at typecheck: {errors:#?}"
     );
 }

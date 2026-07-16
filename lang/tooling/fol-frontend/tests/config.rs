@@ -1,4 +1,13 @@
 use fol_frontend::{run_command_from_args_in_dir, FrontendCli, FrontendProfile, OutputMode};
+use std::sync::{Mutex, MutexGuard};
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 struct EnvGuard {
     key: &'static str,
@@ -28,6 +37,7 @@ impl Drop for EnvGuard {
 
 #[test]
 fn frontend_dispatch_uses_env_defaults_for_output() {
+    let _env = env_lock();
     let _output = EnvGuard::set("FOL_OUTPUT", "plain");
     let _profile = EnvGuard::set("FOL_PROFILE", "release");
 
@@ -42,6 +52,7 @@ fn frontend_dispatch_uses_env_defaults_for_output() {
 
 #[test]
 fn frontend_dispatch_flags_override_env_defaults_for_output_and_profile() {
+    let _env = env_lock();
     let _output = EnvGuard::set("FOL_OUTPUT", "plain");
     let _profile = EnvGuard::set("FOL_PROFILE", "release");
 

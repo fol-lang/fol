@@ -7,8 +7,11 @@ fn test_resolver_resolves_plain_identifiers_against_imported_exported_values() {
     let temp_root = unique_temp_root("import_exposure_value");
     fs::create_dir_all(temp_root.join("math"))
         .expect("Should create a temporary resolver fixture directory");
-    fs::write(temp_root.join("math/values.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the imported exported value fixture");
+    fs::write(
+        temp_root.join("math/values.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the imported exported value fixture");
     fs::write(
         temp_root.join("main.fol"),
         "use math: loc = {\"math\"};\nfun[] main(): int = {\n    return answer;\n};\n",
@@ -38,9 +41,7 @@ fn test_resolver_resolves_plain_identifiers_against_imported_exported_values() {
     let answer_reference = resolved
         .references_in_scope(routine_scope_id)
         .into_iter()
-        .find(|reference| {
-            reference.kind == ReferenceKind::Identifier && reference.name == "answer"
-        })
+        .find(|reference| reference.kind == ReferenceKind::Identifier && reference.name == "answer")
         .expect("Routine scope should record the imported plain identifier reference");
 
     assert_eq!(
@@ -92,9 +93,7 @@ fn test_resolver_resolves_plain_free_calls_against_imported_exported_routines() 
     let emit_reference = resolved
         .references_in_scope(routine_scope_id)
         .into_iter()
-        .find(|reference| {
-            reference.kind == ReferenceKind::FunctionCall && reference.name == "emit"
-        })
+        .find(|reference| reference.kind == ReferenceKind::FunctionCall && reference.name == "emit")
         .expect("Routine scope should record the imported plain free-call reference");
 
     assert_eq!(
@@ -143,9 +142,7 @@ fn test_resolver_resolves_plain_named_types_against_imported_exported_types() {
     let type_reference = resolved
         .references_in_scope(routine_scope_id)
         .into_iter()
-        .find(|reference| {
-            reference.kind == ReferenceKind::TypeName && reference.name == "Number"
-        })
+        .find(|reference| reference.kind == ReferenceKind::TypeName && reference.name == "Number")
         .expect("Routine scope should record the imported plain named-type reference");
 
     assert_eq!(
@@ -181,7 +178,9 @@ fn test_resolver_plain_import_exposure_rejects_non_exported_members() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == ResolverErrorKind::UnresolvedName
-                && error.to_string().contains("could not resolve name 'answer'")
+                && error
+                    .to_string()
+                    .contains("could not resolve name 'answer'")
         }),
         "Plain import exposure should not surface package-visible members without exp visibility"
     );
@@ -195,8 +194,11 @@ fn test_resolver_plain_import_exposure_rejects_hidden_members() {
     let temp_root = unique_temp_root("import_exposure_hidden");
     fs::create_dir_all(temp_root.join("math"))
         .expect("Should create a temporary resolver fixture directory");
-    fs::write(temp_root.join("math/values.fol"), "var[hid] answer: int = 42;\n")
-        .expect("Should write the hidden imported value fixture");
+    fs::write(
+        temp_root.join("math/values.fol"),
+        "var[hid] answer: int = 42;\n",
+    )
+    .expect("Should write the hidden imported value fixture");
     fs::write(
         temp_root.join("main.fol"),
         "use math: loc = {\"math\"};\nfun[] main(): int = {\n    return answer;\n};\n",
@@ -213,7 +215,9 @@ fn test_resolver_plain_import_exposure_rejects_hidden_members() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == ResolverErrorKind::UnresolvedName
-                && error.to_string().contains("could not resolve name 'answer'")
+                && error
+                    .to_string()
+                    .contains("could not resolve name 'answer'")
         }),
         "Plain import exposure should never surface file-private imported members"
     );
@@ -229,10 +233,16 @@ fn test_resolver_plain_import_exposure_reports_ambiguity_for_multiple_visible_im
         .expect("Should create the first imported namespace fixture directory");
     fs::create_dir_all(temp_root.join("beta"))
         .expect("Should create the second imported namespace fixture directory");
-    fs::write(temp_root.join("alpha/values.fol"), "var[exp] answer: int = 1;\n")
-        .expect("Should write the first imported exported value fixture");
-    fs::write(temp_root.join("beta/values.fol"), "var[exp] answer: int = 2;\n")
-        .expect("Should write the second imported exported value fixture");
+    fs::write(
+        temp_root.join("alpha/values.fol"),
+        "var[exp] answer: int = 1;\n",
+    )
+    .expect("Should write the first imported exported value fixture");
+    fs::write(
+        temp_root.join("beta/values.fol"),
+        "var[exp] answer: int = 2;\n",
+    )
+    .expect("Should write the second imported exported value fixture");
     fs::write(
         temp_root.join("main.fol"),
         "use alpha: loc = {\"alpha\"};\nuse beta: loc = {\"beta\"};\nfun[] main(): int = {\n    return answer;\n};\n",
@@ -265,8 +275,11 @@ fn test_resolver_plain_import_exposure_still_yields_to_local_bindings() {
     let temp_root = unique_temp_root("import_exposure_shadowing");
     fs::create_dir_all(temp_root.join("math"))
         .expect("Should create a temporary resolver fixture directory");
-    fs::write(temp_root.join("math/values.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the imported exported value fixture");
+    fs::write(
+        temp_root.join("math/values.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the imported exported value fixture");
     fs::write(
         temp_root.join("main.fol"),
         "use math: loc = {\"math\"};\nfun[] main(): int = {\n    var answer = 7;\n    return answer;\n};\n",
@@ -291,8 +304,10 @@ fn test_resolver_plain_import_exposure_still_yields_to_local_bindings() {
     let answer_reference = resolved
         .references_in_scope(routine_scope_id)
         .into_iter()
-        .filter(|reference| reference.kind == ReferenceKind::Identifier && reference.name == "answer")
-        .last()
+        .filter(|reference| {
+            reference.kind == ReferenceKind::Identifier && reference.name == "answer"
+        })
+        .next_back()
         .expect("Routine scope should record the shadowed plain identifier reference");
 
     assert_eq!(
@@ -310,8 +325,11 @@ fn test_resolver_plain_import_exposure_dedupes_repeated_imports_of_the_same_dire
     let temp_root = unique_temp_root("import_exposure_duplicate_root");
     fs::create_dir_all(temp_root.join("shared"))
         .expect("Should create a temporary resolver fixture directory");
-    fs::write(temp_root.join("shared/values.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the shared imported exported value fixture");
+    fs::write(
+        temp_root.join("shared/values.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the shared imported exported value fixture");
     fs::write(
         temp_root.join("main.fol"),
         "use alpha: loc = {\"shared\"};\nuse beta: loc = {\"shared\"};\nfun[] main(): int = {\n    return answer;\n};\n",
@@ -333,7 +351,11 @@ fn test_resolver_plain_import_exposure_dedupes_repeated_imports_of_the_same_dire
         .find(|import| import.alias_name == "beta")
         .expect("Program scope should keep the second import alias");
     let answer_symbol = resolved
-        .symbols_in_scope(alpha.target_scope.expect("First import target should resolve"))
+        .symbols_in_scope(
+            alpha
+                .target_scope
+                .expect("First import target should resolve"),
+        )
         .into_iter()
         .find(|symbol| symbol.name == "answer" && symbol.kind == SymbolKind::ValueBinding)
         .expect("Mounted imported root should keep the exported value binding");
@@ -345,9 +367,7 @@ fn test_resolver_plain_import_exposure_dedupes_repeated_imports_of_the_same_dire
     let answer_reference = resolved
         .references_in_scope(routine_scope_id)
         .into_iter()
-        .find(|reference| {
-            reference.kind == ReferenceKind::Identifier && reference.name == "answer"
-        })
+        .find(|reference| reference.kind == ReferenceKind::Identifier && reference.name == "answer")
         .expect("Routine scope should record the repeated-import plain identifier reference");
 
     assert_eq!(

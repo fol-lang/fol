@@ -116,7 +116,7 @@ pub fn build_backend_trace(
         symbol: None,
         detail: format!(
             "target={} profile={} fol_model={} runtime_tier={} runtime_module={}",
-            config.machine_target.display_name(),
+            config.machine_target.as_str(),
             config.build_profile.as_str(),
             config.fol_model.as_str(),
             config.runtime_tier().as_str(),
@@ -201,8 +201,8 @@ mod tests {
         build_backend_trace, build_emitted_source_map, BackendEmittedSourceMap,
         BackendEmittedSourceMapEntry, BackendTrace, BackendTraceKind, BackendTraceRecord,
     };
-    use crate::{BackendConfig, BackendFolModel};
     use crate::testing::{package_identity, sample_lowered_workspace};
+    use crate::{BackendConfig, BackendFolModel};
     use fol_lower::{LoweredGlobalId, LoweredSourceSymbol};
     use fol_parser::ast::SyntaxOrigin;
     use fol_resolver::PackageSourceKind;

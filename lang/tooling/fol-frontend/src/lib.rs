@@ -17,10 +17,13 @@ mod editor;
 mod errors;
 mod explain;
 mod fetch;
+mod interop;
 mod output;
 mod pretty;
 mod result;
 mod scaffold;
+#[cfg(test)]
+mod test_env;
 mod ui;
 mod work;
 mod workspace;
@@ -311,6 +314,7 @@ fn command_profile(cli: &FrontendCli) -> Option<FrontendProfile> {
 mod tests {
     use super::*;
     use crate::cli::args::{FrontendOutputArgs, FrontendProfileArgs};
+    use crate::test_env::{EnvironmentGuard, FRONTEND_ENV_KEYS};
 
     fn semantic_dispatch_build() -> String {
         [
@@ -436,6 +440,7 @@ mod tests {
 
     #[test]
     fn run_command_from_args_dispatches_buildable_frontend_commands() {
+        let _env = EnvironmentGuard::removed(FRONTEND_ENV_KEYS);
         let root =
             std::env::temp_dir().join(format!("fol_frontend_dispatch_{}", std::process::id()));
         let src = root.join("src");
@@ -458,6 +463,7 @@ mod tests {
 
     #[test]
     fn root_help_stays_root_owned() {
+        let _env = EnvironmentGuard::removed(&["FOL_OUTPUT", "FOL_PROFILE"]);
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
@@ -472,6 +478,7 @@ mod tests {
 
     #[test]
     fn subcommand_help_is_not_swallowed_by_root_help() {
+        let _env = EnvironmentGuard::removed(&["FOL_OUTPUT", "FOL_PROFILE"]);
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
@@ -488,6 +495,7 @@ mod tests {
 
     #[test]
     fn frontend_config_from_cli_keeps_build_option_overrides() {
+        let _env = EnvironmentGuard::removed(FRONTEND_ENV_KEYS);
         let cli = FrontendCli::parse_from([
             "fol",
             "code",
@@ -515,6 +523,7 @@ mod tests {
 
     #[test]
     fn frontend_config_from_cli_parses_define_shorthand_into_option_overrides() {
+        let _env = EnvironmentGuard::removed(FRONTEND_ENV_KEYS);
         let cli = FrontendCli::parse_from([
             "fol",
             "code",
@@ -542,6 +551,7 @@ mod tests {
 
     #[test]
     fn frontend_config_from_cli_keeps_selected_build_step_override() {
+        let _env = EnvironmentGuard::removed(FRONTEND_ENV_KEYS);
         let cli = FrontendCli::parse_from(["fol", "code", "build", "--step", "docs"]);
 
         let config = frontend_config_from_cli(&cli, None);
@@ -551,6 +561,7 @@ mod tests {
 
     #[test]
     fn frontend_config_resolves_output_overrides_from_most_specific_scope() {
+        let _env = EnvironmentGuard::removed(FRONTEND_ENV_KEYS);
         let cases = [
             (
                 vec!["fol", "--output", "json", "code", "check"],

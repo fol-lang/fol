@@ -9,6 +9,7 @@ use fol_parser::ast::{AstNode, ContainerType, Literal};
 use fol_resolver::{PackageIdentity, ScopeId, SourceUnitId};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_record_initializer(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -381,6 +382,7 @@ pub(crate) fn apply_expected_shell_wrap(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_container_literal(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -461,6 +463,7 @@ pub(crate) fn lower_container_literal(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_linear_container_literal(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -525,6 +528,7 @@ fn lower_linear_container_literal(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_set_literal(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -601,6 +605,7 @@ fn lower_set_literal(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_map_literal(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,

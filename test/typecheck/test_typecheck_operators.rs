@@ -10,9 +10,9 @@ fn binary_add_rejects_mismatched_types() {
     )]);
 
     assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::InvalidInput
-        }),
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::InvalidInput }),
         "Adding int and bol should be rejected, got: {errors:?}"
     );
 }
@@ -25,7 +25,7 @@ fn binary_add_accepts_matching_int_operands() {
              return 1 + 2;\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn binary_add_accepts_matching_float_operands() {
              return 1.0 + 2.0;\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn binary_add_accepts_matching_string_operands() {
              return \"hello\" + \"world\";\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -60,9 +60,9 @@ fn binary_sub_rejects_string_operands() {
     )]);
 
     assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::InvalidInput
-        }),
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::InvalidInput }),
         "Subtracting strings should be rejected, got: {errors:?}"
     );
 }
@@ -77,9 +77,9 @@ fn logical_and_rejects_int_operands() {
     )]);
 
     assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::InvalidInput
-        }),
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::InvalidInput }),
         "Logical 'and' on integers should be rejected, got: {errors:?}"
     );
 }
@@ -94,9 +94,9 @@ fn comparison_lt_rejects_bool_operands() {
     )]);
 
     assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::InvalidInput
-        }),
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::InvalidInput }),
         "Ordering comparison on booleans should be rejected, got: {errors:?}"
     );
 }
@@ -109,7 +109,7 @@ fn equality_accepts_matching_int_operands() {
              return 1 == 2;\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -122,9 +122,9 @@ fn negation_rejects_bool_operand() {
     )]);
 
     assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::InvalidInput
-        }),
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::InvalidInput }),
         "Negating a boolean should be rejected, got: {errors:?}"
     );
 }
@@ -139,9 +139,9 @@ fn not_rejects_int_operand() {
     )]);
 
     assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::InvalidInput
-        }),
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::InvalidInput }),
         "Boolean not on integer should be rejected, got: {errors:?}"
     );
 }
@@ -203,7 +203,10 @@ fn division_by_zero_type_still_valid() {
              return 10 / 0;\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0, "Division by zero is a runtime concern, not a type error");
+    assert!(
+        !typed.type_table().is_empty(),
+        "Division by zero is a runtime concern, not a type error"
+    );
 }
 
 #[test]
@@ -214,7 +217,7 @@ fn ne_operator_accepts_matching_types() {
              return a != b;\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -227,7 +230,7 @@ fn ge_le_operators_accept_ordered_types() {
              return ge and le;\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -238,7 +241,7 @@ fn vec_literal_accepts_homogeneous_int_elements() {
              return {1, 2, 3};\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -264,7 +267,7 @@ fn map_literal_accepts_matching_key_value_types() {
              return {{\"hello\", 1}, {\"world\", 2}};\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -275,7 +278,7 @@ fn opt_wrap_and_nil_typecheck_correctly() {
              return nil;\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -286,7 +289,7 @@ fn chained_boolean_logic_typechecks() {
              return (a and b) or (b xor c);\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }
 
 #[test]
@@ -297,5 +300,5 @@ fn nested_arithmetic_typechecks() {
              return (x + y) * (x - y);\n\
          };\n",
     )]);
-    assert!(typed.type_table().len() > 0);
+    assert!(!typed.type_table().is_empty());
 }

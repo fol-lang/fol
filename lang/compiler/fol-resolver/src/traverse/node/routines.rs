@@ -8,6 +8,9 @@ use super::super::scope::{insert_generic_symbols, insert_local_symbol_with_origi
 use super::types::resolve_type_reference;
 use super::RoutineContext;
 
+// Traversal parameters mirror the routine AST fields plus resolver context;
+// grouping them would add a second, duplicative routine representation.
+#[allow(clippy::too_many_arguments)]
 pub fn traverse_named_routine(
     session: &mut ResolverSession,
     program: &mut ResolvedProgram,
@@ -144,6 +147,7 @@ pub fn traverse_named_routine(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn traverse_anonymous_routine(
     session: &mut ResolverSession,
     program: &mut ResolvedProgram,

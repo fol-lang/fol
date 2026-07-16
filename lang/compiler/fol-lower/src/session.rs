@@ -128,12 +128,11 @@ impl LoweringSession {
                 package
                     .routine_decls
                     .iter()
-                    .filter_map(|(routine_id, routine)| {
-                        (routine.name == "main").then(|| LoweredEntryCandidate {
-                            package_identity: entry_identity.clone(),
-                            routine_id: *routine_id,
-                            name: routine.name.clone(),
-                        })
+                    .filter(|(_, routine)| routine.name == "main")
+                    .map(|(routine_id, routine)| LoweredEntryCandidate {
+                        package_identity: entry_identity.clone(),
+                        routine_id: *routine_id,
+                        name: routine.name.clone(),
                     })
             })
             .collect::<Vec<_>>();
@@ -212,10 +211,7 @@ fn translate_checked_type(
     let lowered_type_id = match checked_type {
         CheckedType::Builtin(builtin) => lowered_types.intern_builtin(lower_builtin(builtin)),
         CheckedType::Declared {
-            symbol,
-            name,
-            kind,
-            ..
+            symbol, name, kind, ..
         } => {
             if kind == DeclaredTypeKind::GenericParameter {
                 let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
@@ -379,13 +375,8 @@ fn translate_checked_type(
             lowered_types.intern(LoweredType::Owned { inner })
         }
         CheckedType::Borrowed { inner, mutable } => {
-            let inner = translate_checked_type(
-                lowered_types,
-                cache,
-                package_identity,
-                program,
-                inner,
-            )?;
+            let inner =
+                translate_checked_type(lowered_types, cache, package_identity, program, inner)?;
             lowered_types.intern(LoweredType::Borrowed { inner, mutable })
         }
         CheckedType::Pointer { target, shared } => {
@@ -397,13 +388,9 @@ fn translate_checked_type(
                         name,
                     })
                 }
-                _ => translate_checked_type(
-                    lowered_types,
-                    cache,
-                    package_identity,
-                    program,
-                    target,
-                )?,
+                _ => {
+                    translate_checked_type(lowered_types, cache, package_identity, program, target)?
+                }
             };
             lowered_types.intern(LoweredType::Pointer { target, shared })
         }

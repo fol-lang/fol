@@ -12,6 +12,9 @@ use super::helpers::{
 use super::type_node_with_expectation;
 use super::{TypeContext, TypedExpr};
 
+// Binding initialization needs the complete declaration mode in addition to
+// the shared type context; retaining explicit booleans keeps call sites clear.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn type_binding_initializer(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -324,9 +327,7 @@ pub(crate) fn reject_unsupported_top_level_binding_type(
     }
     let apparent = super::helpers::apparent_type_id(typed, type_id)?;
     if matches!(
-        typed
-            .type_table()
-            .get(apparent),
+        typed.type_table().get(apparent),
         Some(CheckedType::Channel { .. })
     ) {
         let message =
@@ -683,9 +684,8 @@ fn track_identifier_transfer(
 ) -> Result<(), TypecheckError> {
     if let Some(CheckedType::Borrowed { inner, .. }) = typed.type_table().get(actual_type) {
         if ownership_moves_on_transfer(typed, *inner) {
-            let message = format!(
-                "move-only value cannot be transferred out of borrow binding '{name}'"
-            );
+            let message =
+                format!("move-only value cannot be transferred out of borrow binding '{name}'");
             return Err(node_origin(resolved, value).map_or_else(
                 || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
                 |origin| {
@@ -778,18 +778,12 @@ fn track_move_only_field_transfer(
     // FOL does not expose a partially moved base in V3. Moving one field is
     // supported by consuming the entire root binding, which maps directly to
     // Rust field-move emission and keeps the remaining fields inaccessible.
-    track_identifier_transfer(
-        typed,
-        resolved,
-        context,
-        root,
-        syntax_id,
-        name,
-        actual_type,
-    )
+    track_identifier_transfer(typed, resolved, context, root, syntax_id, name, actual_type)
 }
 
-fn projection_root_identifier(node: &AstNode) -> Option<(&AstNode, fol_parser::ast::SyntaxNodeId, &str)> {
+fn projection_root_identifier(
+    node: &AstNode,
+) -> Option<(&AstNode, fol_parser::ast::SyntaxNodeId, &str)> {
     match super::helpers::strip_comments(node) {
         AstNode::Identifier {
             syntax_id: Some(syntax_id),
@@ -805,9 +799,8 @@ fn reject_move_only_projection_transfer(
     value: &AstNode,
     surface: impl std::fmt::Display,
 ) -> Result<(), TypecheckError> {
-    let message = format!(
-        "move-only {surface} cannot be transferred in V3; partial moves are not supported"
-    );
+    let message =
+        format!("move-only {surface} cannot be transferred in V3; partial moves are not supported");
     Err(node_origin(resolved, value).map_or_else(
         || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
         |origin| {
@@ -827,7 +820,10 @@ pub(crate) fn reject_repeated_outer_move(
         return Ok(());
     };
     let declaration = resolved.symbol(symbol).ok_or_else(|| {
-        internal_error("resolved move-only binding disappeared before move checking", None)
+        internal_error(
+            "resolved move-only binding disappeared before move checking",
+            None,
+        )
     })?;
     let declared_inside_loop = std::iter::successors(Some(declaration.scope), |scope_id| {
         resolved.scope(*scope_id).and_then(|scope| scope.parent)
@@ -856,10 +852,7 @@ pub(crate) fn reject_repeated_outer_move(
 /// Lowering also uses this compiler-owned classification when an operation's
 /// value category cannot be recovered faithfully from structural lowered
 /// types alone (notably nominal pointer pointees).
-pub fn ownership_moves_on_transfer(
-    typed: &TypedProgram,
-    type_id: crate::CheckedTypeId,
-) -> bool {
+pub fn ownership_moves_on_transfer(typed: &TypedProgram, type_id: crate::CheckedTypeId) -> bool {
     ownership_moves_on_transfer_inner(typed, type_id, &mut BTreeSet::new())
 }
 
@@ -889,29 +882,27 @@ fn ownership_moves_on_transfer_inner(
                 true
             }
             Some(CheckedType::Declared { symbol, args, .. }) => {
-                args.iter().any(|arg| {
-                    ownership_moves_on_transfer_inner(typed, *arg, visiting)
-                }) || typed
-                    .typed_symbol(*symbol)
-                    .and_then(|symbol| symbol.declared_type)
-                    .is_some_and(|declared| {
-                        ownership_moves_on_transfer_inner(typed, declared, visiting)
-                    })
+                args.iter()
+                    .any(|arg| ownership_moves_on_transfer_inner(typed, *arg, visiting))
+                    || typed
+                        .typed_symbol(*symbol)
+                        .and_then(|symbol| symbol.declared_type)
+                        .is_some_and(|declared| {
+                            ownership_moves_on_transfer_inner(typed, declared, visiting)
+                        })
             }
             Some(CheckedType::Array { element_type, .. })
             | Some(CheckedType::Vector { element_type })
-            | Some(CheckedType::Sequence { element_type }) => ownership_moves_on_transfer_inner(
-                typed,
-                *element_type,
-                visiting,
-            ),
+            | Some(CheckedType::Sequence { element_type }) => {
+                ownership_moves_on_transfer_inner(typed, *element_type, visiting)
+            }
             Some(CheckedType::Optional { inner })
             | Some(CheckedType::Error { inner: Some(inner) }) => {
                 ownership_moves_on_transfer_inner(typed, *inner, visiting)
             }
-            Some(CheckedType::Set { member_types }) => member_types.iter().any(|member| {
-                ownership_moves_on_transfer_inner(typed, *member, visiting)
-            }),
+            Some(CheckedType::Set { member_types }) => member_types
+                .iter()
+                .any(|member| ownership_moves_on_transfer_inner(typed, *member, visiting)),
             Some(CheckedType::Map {
                 key_type,
                 value_type,
@@ -919,12 +910,13 @@ fn ownership_moves_on_transfer_inner(
                 ownership_moves_on_transfer_inner(typed, *key_type, visiting)
                     || ownership_moves_on_transfer_inner(typed, *value_type, visiting)
             }
-            Some(CheckedType::Record { fields }) => fields.values().any(|field| {
-                ownership_moves_on_transfer_inner(typed, *field, visiting)
-            }),
-            Some(CheckedType::Entry { variants }) => variants.values().flatten().any(|variant| {
-                ownership_moves_on_transfer_inner(typed, *variant, visiting)
-            }),
+            Some(CheckedType::Record { fields }) => fields
+                .values()
+                .any(|field| ownership_moves_on_transfer_inner(typed, *field, visiting)),
+            Some(CheckedType::Entry { variants }) => variants
+                .values()
+                .flatten()
+                .any(|variant| ownership_moves_on_transfer_inner(typed, *variant, visiting)),
             Some(CheckedType::Builtin(_))
             | Some(CheckedType::Borrowed { .. })
             | Some(CheckedType::Pointer { shared: true, .. })

@@ -521,7 +521,7 @@ fn closest_visible_symbol_name(
             for symbol in program
                 .symbols_in_scope(target_scope)
                 .into_iter()
-                .filter(|symbol| import_visible_symbol(symbol))
+                .filter(import_visible_symbol)
             {
                 if !allowed_kinds.is_empty() && !allowed_kinds.contains(&symbol.kind) {
                     continue;

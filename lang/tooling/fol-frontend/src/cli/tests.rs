@@ -9,28 +9,16 @@ use super::args::{
     WorkSubcommand,
 };
 use super::parser::{FrontendCli, ParseErrorKind};
+use crate::test_env::EnvironmentGuard;
 use crate::OutputMode;
-use std::sync::{Mutex, MutexGuard, OnceLock};
-
-fn env_lock() -> MutexGuard<'static, ()> {
-    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    ENV_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("env test lock should not be poisoned")
-}
 
 fn parse_clean(args: &[&str]) -> FrontendCli {
-    let _guard = env_lock();
-    std::env::remove_var("FOL_OUTPUT");
-    std::env::remove_var("FOL_PROFILE");
+    let _env = EnvironmentGuard::removed(&["FOL_OUTPUT", "FOL_PROFILE"]);
     FrontendCli::parse_from(args.iter().map(|s| s.to_string()))
 }
 
 fn try_parse_clean(args: &[&str]) -> Result<FrontendCli, super::parser::ParseError> {
-    let _guard = env_lock();
-    std::env::remove_var("FOL_OUTPUT");
-    std::env::remove_var("FOL_PROFILE");
+    let _env = EnvironmentGuard::removed(&["FOL_OUTPUT", "FOL_PROFILE"]);
     FrontendCli::try_parse_from(args.iter().map(|s| s.to_string()))
 }
 
@@ -146,8 +134,7 @@ fn editor_subcommands_parse_through_derive_tree() {
         "11",
         "count",
     ]);
-    let semantic_tokens =
-        parse_clean(&["fol", "tool", "semantic-tokens", "demo/main.fol"]);
+    let semantic_tokens = parse_clean(&["fol", "tool", "semantic-tokens", "demo/main.fol"]);
     let tree = parse_clean(&["fol", "tool", "tree", "generate", "/tmp/fol-tree"]);
 
     assert_eq!(
@@ -585,9 +572,7 @@ fn profile_flags_normalize_to_frontend_profile_selection() {
 
 #[test]
 fn cli_env_values_feed_output_and_profile_defaults() {
-    let _guard = env_lock();
-    std::env::set_var("FOL_OUTPUT", "plain");
-    std::env::set_var("FOL_PROFILE", "release");
+    let _env = EnvironmentGuard::set(&[("FOL_OUTPUT", "plain"), ("FOL_PROFILE", "release")]);
 
     let cli = FrontendCli::parse_from(["fol", "code", "build"].iter().map(|s| s.to_string()));
 
@@ -612,19 +597,25 @@ fn cli_env_values_feed_output_and_profile_defaults() {
             }),
         }))
     );
-
-    std::env::remove_var("FOL_OUTPUT");
-    std::env::remove_var("FOL_PROFILE");
 }
 
 #[test]
 fn explicit_flags_override_env_values() {
-    let _guard = env_lock();
-    std::env::set_var("FOL_OUTPUT", "plain");
-    std::env::set_var("FOL_PROFILE", "release");
+    let _env = EnvironmentGuard::set(&[("FOL_OUTPUT", "plain"), ("FOL_PROFILE", "release")]);
 
-    let cli =
-        FrontendCli::parse_from(["fol", "code", "--output", "json", "--profile", "debug", "build"].iter().map(|s| s.to_string()));
+    let cli = FrontendCli::parse_from(
+        [
+            "fol",
+            "code",
+            "--output",
+            "json",
+            "--profile",
+            "debug",
+            "build",
+        ]
+        .iter()
+        .map(|s| s.to_string()),
+    );
 
     assert_eq!(cli.output, OutputMode::Plain);
     assert_eq!(
@@ -649,9 +640,6 @@ fn explicit_flags_override_env_values() {
             }),
         }))
     );
-
-    std::env::remove_var("FOL_OUTPUT");
-    std::env::remove_var("FOL_PROFILE");
 }
 
 #[test]

@@ -6,14 +6,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn backend_runtime_source_root_with_override(override_path: Option<&Path>) -> PathBuf {
-    override_path
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
-                .join("fol-runtime")
-        })
+    override_path.map(Path::to_path_buf).unwrap_or_else(|| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+            .join("fol-runtime")
+    })
 }
 
 pub fn backend_runtime_source_root() -> PathBuf {
@@ -54,13 +52,11 @@ pub fn backend_runtime_build_dir(
     paths: &BackendBuildPaths,
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
-) -> PathBuf {
-    let target_dir = machine_target
-        .rust_target_triple()
-        .unwrap_or_else(|| machine_target.display_name().to_string());
-    PathBuf::from(&paths.runtime_root)
+) -> BackendResult<PathBuf> {
+    let target_dir = machine_target.rust_target_directory_name();
+    Ok(PathBuf::from(&paths.runtime_root)
         .join(target_dir)
-        .join(profile.as_str())
+        .join(profile.as_str()))
 }
 
 pub fn prepare_backend_runtime_build_dir(
@@ -68,7 +64,7 @@ pub fn prepare_backend_runtime_build_dir(
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
 ) -> BackendResult<PathBuf> {
-    let runtime_dir = backend_runtime_build_dir(paths, machine_target, profile);
+    let runtime_dir = backend_runtime_build_dir(paths, machine_target, profile)?;
     fs::create_dir_all(&runtime_dir).map_err(|error| {
         BackendError::new(
             BackendErrorKind::EmissionFailure,

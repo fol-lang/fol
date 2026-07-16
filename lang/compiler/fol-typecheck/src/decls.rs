@@ -12,6 +12,8 @@ use fol_parser::ast::{
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::{BTreeMap, HashMap};
 
+type LoweredRoutineGenerics = (Vec<SymbolId>, BTreeMap<SymbolId, Vec<GenericConstraint>>);
+
 pub fn lower_declaration_signatures(typed: &mut TypedProgram) -> TypecheckResult<()> {
     let resolved = typed.resolved().clone();
     let syntax = resolved.syntax().clone();
@@ -209,47 +211,48 @@ fn lower_top_level_declaration(
             }
         }
         AstNode::DestructureDecl {
-            pattern, type_hint, ..
+            pattern,
+            type_hint: Some(type_hint),
+            ..
         } => {
-            if let Some(type_hint) = type_hint {
-                let binding_names = binding_names(pattern);
-                let symbol_scope = binding_names
-                    .first()
-                    .and_then(|name| {
-                        find_symbol_id(
-                            resolved,
-                            source_unit_id,
-                            &[SymbolKind::DestructureBinding],
-                            name,
-                        )
-                        .ok()
-                    })
-                    .and_then(|symbol_id| resolved.symbol(symbol_id).map(|symbol| symbol.scope))
-                    .ok_or_else(|| {
-                        internal_error("resolved destructure binding symbol disappeared", None)
-                    })?;
-                let type_id = lower_type(typed, resolved, symbol_scope, type_hint)?;
-                for name in binding_names {
-                    let symbol_id = find_symbol_id(
+            let binding_names = binding_names(pattern);
+            let symbol_scope = binding_names
+                .first()
+                .and_then(|name| {
+                    find_symbol_id(
                         resolved,
                         source_unit_id,
                         &[SymbolKind::DestructureBinding],
-                        &name,
-                    )?;
-                    crate::exprs::bindings::reject_unsupported_top_level_binding_type(
-                        typed,
-                        resolved,
-                        symbol_id,
-                        type_id,
-                        resolved
-                            .symbol(symbol_id)
-                            .and_then(|symbol| symbol.origin.clone())
-                            .or_else(|| node_origin(resolved, &item.node)),
-                    )?;
-                    record_symbol_type(typed, symbol_id, type_id)?;
-                }
+                        name,
+                    )
+                    .ok()
+                })
+                .and_then(|symbol_id| resolved.symbol(symbol_id).map(|symbol| symbol.scope))
+                .ok_or_else(|| {
+                    internal_error("resolved destructure binding symbol disappeared", None)
+                })?;
+            let type_id = lower_type(typed, resolved, symbol_scope, type_hint)?;
+            for name in binding_names {
+                let symbol_id = find_symbol_id(
+                    resolved,
+                    source_unit_id,
+                    &[SymbolKind::DestructureBinding],
+                    &name,
+                )?;
+                crate::exprs::bindings::reject_unsupported_top_level_binding_type(
+                    typed,
+                    resolved,
+                    symbol_id,
+                    type_id,
+                    resolved
+                        .symbol(symbol_id)
+                        .and_then(|symbol| symbol.origin.clone())
+                        .or_else(|| node_origin(resolved, &item.node)),
+                )?;
+                record_symbol_type(typed, symbol_id, type_id)?;
             }
         }
+        AstNode::DestructureDecl { .. } => {}
         AstNode::FunDecl {
             syntax_id,
             name,
@@ -936,6 +939,9 @@ fn lower_nested_declarations_in_node(
     Ok(())
 }
 
+// Signature lowering receives the routine AST fields alongside its semantic
+// context; bundling them would duplicate the parser's routine representation.
+#[allow(clippy::too_many_arguments)]
 fn lower_named_routine_signature(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -1880,7 +1886,7 @@ fn lower_routine_generic_params(
     source_unit_id: SourceUnitId,
     signature_scope: ScopeId,
     generics: &[Generic],
-) -> Result<(Vec<SymbolId>, BTreeMap<SymbolId, Vec<GenericConstraint>>), TypecheckError> {
+) -> Result<LoweredRoutineGenerics, TypecheckError> {
     let mut generic_params = Vec::new();
     let mut generic_constraints = BTreeMap::new();
     for generic in generics {

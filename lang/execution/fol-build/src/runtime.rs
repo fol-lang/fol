@@ -1,5 +1,5 @@
-use crate::artifact::BuildArtifactFolModel;
 use crate::api::DependencySourceKind;
+use crate::artifact::BuildArtifactFolModel;
 use crate::dependency::DependencyBuildEvaluationMode;
 use std::collections::BTreeMap;
 
@@ -29,6 +29,7 @@ pub enum BuildRuntimeArtifactKind {
     StaticLibrary,
     SharedLibrary,
     Test,
+    Object,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,12 +43,14 @@ pub enum BuildRuntimeGeneratedFileKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRuntimeArtifact {
+    pub artifact_id: crate::graph::BuildArtifactId,
     pub name: String,
     pub kind: BuildRuntimeArtifactKind,
     pub root_module: String,
     pub fol_model: BuildArtifactFolModel,
-    pub target: Option<String>,
-    pub optimize: Option<String>,
+    pub target: fol_types::ResolvedTarget,
+    pub optimize: crate::option::BuildOptimizeMode,
+    pub c_imports: Vec<crate::graph::BuildCImportAttachment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,17 +76,21 @@ impl BuildRuntimeGeneratedFile {
 
 impl BuildRuntimeArtifact {
     pub fn new(
+        artifact_id: crate::graph::BuildArtifactId,
         name: impl Into<String>,
         kind: BuildRuntimeArtifactKind,
         root_module: impl Into<String>,
     ) -> Self {
         Self {
+            artifact_id,
             name: name.into(),
             kind,
             root_module: root_module.into(),
             fol_model: BuildArtifactFolModel::Memo,
-            target: None,
-            optimize: None,
+            target: fol_types::ResolvedTarget::host()
+                .expect("fol-build requires a supported concrete host target"),
+            optimize: crate::option::BuildOptimizeMode::Debug,
+            c_imports: Vec::new(),
         }
     }
 
@@ -94,11 +101,16 @@ impl BuildRuntimeArtifact {
 
     pub fn with_target_config(
         mut self,
-        target: Option<impl Into<String>>,
-        optimize: Option<impl Into<String>>,
+        target: fol_types::ResolvedTarget,
+        optimize: crate::option::BuildOptimizeMode,
     ) -> Self {
-        self.target = target.map(|value| value.into());
-        self.optimize = optimize.map(|value| value.into());
+        self.target = target;
+        self.optimize = optimize;
+        self
+    }
+
+    pub fn with_c_imports(mut self, c_imports: Vec<crate::graph::BuildCImportAttachment>) -> Self {
+        self.c_imports = c_imports;
         self
     }
 }
@@ -361,6 +373,7 @@ mod tests {
     };
     use crate::artifact::BuildArtifactFolModel;
     use crate::dependency::DependencyBuildEvaluationMode;
+    use crate::option::BuildOptimizeMode;
     use std::collections::BTreeMap;
 
     #[test]
@@ -375,16 +388,25 @@ mod tests {
 
     #[test]
     fn runtime_artifacts_cover_executable_test_and_library_outputs() {
-        let exe =
-            BuildRuntimeArtifact::new("app", BuildRuntimeArtifactKind::Executable, "src/app.fol");
-        let test =
-            BuildRuntimeArtifact::new("app_test", BuildRuntimeArtifactKind::Test, "test/app.fol");
+        let exe = BuildRuntimeArtifact::new(
+            crate::graph::BuildArtifactId(0),
+            "app",
+            BuildRuntimeArtifactKind::Executable,
+            "src/app.fol",
+        );
+        let test = BuildRuntimeArtifact::new(
+            crate::graph::BuildArtifactId(1),
+            "app_test",
+            BuildRuntimeArtifactKind::Test,
+            "test/app.fol",
+        );
 
+        assert_eq!(exe.artifact_id, crate::graph::BuildArtifactId(0));
         assert_eq!(exe.kind, BuildRuntimeArtifactKind::Executable);
         assert_eq!(exe.root_module, "src/app.fol");
         assert_eq!(exe.fol_model, BuildArtifactFolModel::Memo);
-        assert_eq!(exe.target, None);
-        assert_eq!(exe.optimize, None);
+        assert_eq!(exe.target, fol_types::ResolvedTarget::host().unwrap());
+        assert_eq!(exe.optimize, BuildOptimizeMode::Debug);
         assert_eq!(test.kind, BuildRuntimeArtifactKind::Test);
         assert_eq!(test.name, "app_test");
     }
@@ -410,14 +432,43 @@ mod tests {
 
     #[test]
     fn runtime_artifacts_can_carry_fol_model_target_and_optimize_metadata() {
-        let artifact =
-            BuildRuntimeArtifact::new("app", BuildRuntimeArtifactKind::Executable, "src/app.fol")
-                .with_fol_model(BuildArtifactFolModel::Core)
-                .with_target_config(Some("x86_64-linux-gnu"), Some("release-fast"));
+        let artifact = BuildRuntimeArtifact::new(
+            crate::graph::BuildArtifactId(0),
+            "app",
+            BuildRuntimeArtifactKind::Executable,
+            "src/app.fol",
+        )
+        .with_fol_model(BuildArtifactFolModel::Core)
+        .with_target_config(
+            fol_types::ResolvedTarget::resolve("x86_64-linux-gnu").unwrap(),
+            BuildOptimizeMode::ReleaseFast,
+        );
 
         assert_eq!(artifact.fol_model, BuildArtifactFolModel::Core);
-        assert_eq!(artifact.target.as_deref(), Some("x86_64-linux-gnu"));
-        assert_eq!(artifact.optimize.as_deref(), Some("release-fast"));
+        assert_eq!(artifact.target.as_str(), "x86_64-unknown-linux-gnu");
+        assert_eq!(artifact.optimize, BuildOptimizeMode::ReleaseFast);
+    }
+
+    #[test]
+    fn runtime_artifacts_keep_exact_graph_identity_and_c_import_attachments() {
+        let artifact_id = crate::graph::BuildArtifactId(7);
+        let c_import = crate::graph::BuildCImportAttachment {
+            artifact_id,
+            header: "native/widget.h".to_string(),
+            provider: "native/widget.o".to_string(),
+            provider_kind: crate::graph::BuildCImportProviderKind::Object,
+        };
+
+        let artifact = BuildRuntimeArtifact::new(
+            artifact_id,
+            "app",
+            BuildRuntimeArtifactKind::Executable,
+            "src/app.fol",
+        )
+        .with_c_imports(vec![c_import.clone()]);
+
+        assert_eq!(artifact.artifact_id, artifact_id);
+        assert_eq!(artifact.c_imports, vec![c_import]);
     }
 
     #[test]

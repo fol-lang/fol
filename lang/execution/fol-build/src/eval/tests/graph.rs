@@ -1,6 +1,4 @@
-use super::super::{
-    evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest,
-};
+use super::super::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
 use crate::executor::BuildBodyExecutor;
 use crate::option::BuildOptimizeMode;
 use std::{
@@ -277,7 +275,10 @@ fn build_source_evaluator_rejects_public_graph_type_annotations() {
     let error = evaluate_build_source(&request, &build_path, source)
         .expect_err("public Graph type syntax should be rejected in build.fol");
 
-    assert_eq!(error.kind(), super::super::BuildEvaluationErrorKind::InvalidInput);
+    assert_eq!(
+        error.kind(),
+        super::super::BuildEvaluationErrorKind::InvalidInput
+    );
     assert!(
         error.message().contains("public `Graph` type syntax"),
         "expected Graph-type rejection, got: {error:?}"
@@ -340,8 +341,14 @@ fn build_source_evaluator_records_artifact_link_in_graph() {
         .expect("build body should produce operations");
 
     let artifacts = evaluated.result.graph.artifacts();
-    let app = artifacts.iter().find(|a| a.name == "app").expect("app artifact");
-    let lib = artifacts.iter().find(|a| a.name == "core").expect("core artifact");
+    let app = artifacts
+        .iter()
+        .find(|a| a.name == "app")
+        .expect("app artifact");
+    let lib = artifacts
+        .iter()
+        .find(|a| a.name == "core")
+        .expect("core artifact");
     let links: Vec<_> = evaluated.result.graph.artifact_links_for(app.id).collect();
     assert_eq!(links, vec![lib.id]);
 }
@@ -372,9 +379,15 @@ fn build_source_evaluator_records_artifact_import_in_graph() {
         .expect("build body should produce operations");
 
     let artifacts = evaluated.result.graph.artifacts();
-    let app = artifacts.iter().find(|a| a.name == "app").expect("app artifact");
+    let app = artifacts
+        .iter()
+        .find(|a| a.name == "app")
+        .expect("app artifact");
     let modules = evaluated.result.graph.modules();
-    let utils_module = modules.iter().find(|m| m.name == "src/utils.fol").expect("utils module");
+    let utils_module = modules
+        .iter()
+        .find(|m| m.name == "src/utils.fol")
+        .expect("utils module");
     let imports: Vec<_> = evaluated
         .result
         .graph
@@ -486,7 +499,10 @@ fn build_source_evaluator_records_run_set_env_in_graph() {
         .graph
         .run_config_for(run_step.id)
         .expect("run config should exist");
-    assert_eq!(config.env, vec![("LOG_LEVEL".to_string(), "debug".to_string())]);
+    assert_eq!(
+        config.env,
+        vec![("LOG_LEVEL".to_string(), "debug".to_string())]
+    );
 }
 
 #[test]
@@ -515,7 +531,10 @@ fn build_source_evaluator_records_step_attach_in_graph() {
         .expect("build body should produce operations");
 
     let steps = evaluated.result.graph.steps();
-    let compile = steps.iter().find(|s| s.name == "compile").expect("compile step");
+    let compile = steps
+        .iter()
+        .find(|s| s.name == "compile")
+        .expect("compile step");
     let attachments: Vec<_> = evaluated
         .result
         .graph
@@ -550,20 +569,19 @@ fn build_source_evaluator_records_artifact_add_generated_in_graph() {
         .expect("build body should produce operations");
 
     let artifacts = evaluated.result.graph.artifacts();
-    let app = artifacts.iter().find(|a| a.name == "app").expect("app artifact");
+    let app = artifacts
+        .iter()
+        .find(|a| a.name == "app")
+        .expect("app artifact");
     let generated_files = evaluated.result.graph.generated_files();
     let schema = generated_files
         .iter()
         .find(|g| g.name == "gen/schema.fol")
         .expect("schema generated file");
-    let inputs: Vec<_> = evaluated
-        .result
-        .graph
-        .artifact_inputs_for(app.id)
-        .collect();
-    assert!(inputs
-        .iter()
-        .any(|i| matches!(i, crate::graph::BuildArtifactInput::GeneratedFile(id) if *id == schema.id)));
+    let inputs: Vec<_> = evaluated.result.graph.artifact_inputs_for(app.id).collect();
+    assert!(inputs.iter().any(
+        |i| matches!(i, crate::graph::BuildArtifactInput::GeneratedFile(id) if *id == schema.id)
+    ));
 }
 
 #[test]
@@ -641,8 +659,192 @@ fn build_source_evaluator_executes_when_condition_conditionally() {
         .expect("when without matching optimize should evaluate")
         .expect("debug build should produce operations");
 
-    assert!(release_eval.result.graph.steps().iter().any(|s| s.name == "strip"));
-    assert!(!debug_eval.result.graph.steps().iter().any(|s| s.name == "strip"));
+    assert!(release_eval
+        .result
+        .graph
+        .steps()
+        .iter()
+        .any(|s| s.name == "strip"));
+    assert!(!debug_eval
+        .result
+        .graph
+        .steps()
+        .iter()
+        .any(|s| s.name == "strip"));
+}
+
+#[test]
+fn build_source_evaluator_matches_when_case_values_against_target_subject() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var target = graph.standard_target();\n",
+        "    when(target) {\n",
+        "        case(\"aarch64-linux-gnu\") { graph.step(\"arm\"); }\n",
+        "        case(\"x86_64-linux-gnu\") { graph.step(\"x86\"); }\n",
+        "        * { graph.step(\"fallback\"); }\n",
+        "    };\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+
+    let selected_steps = |target: &str| {
+        let request = BuildEvaluationRequest {
+            package_root: package_root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: package_root.display().to_string(),
+                target: Some(fol_types::ResolvedTarget::resolve(target).unwrap()),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        };
+
+        evaluate_build_source(&request, &build_path, source)
+            .expect("target case selection should evaluate")
+            .expect("standard target declaration should produce a graph")
+            .result
+            .graph
+            .steps()
+            .iter()
+            .map(|step| step.name.clone())
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(selected_steps("x86_64-unknown-linux-gnu"), vec!["x86"]);
+    assert_eq!(selected_steps("aarch64-unknown-linux-gnu"), vec!["arm"]);
+    assert_eq!(
+        selected_steps("x86_64-unknown-linux-musl"),
+        vec!["fallback"]
+    );
+}
+
+#[test]
+fn build_source_evaluator_matches_boolean_cases_against_when_subject() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var enabled = graph.option({ name = \"enabled\", kind = \"bool\", default = false });\n",
+        "    when(enabled) {\n",
+        "        case(true) { graph.step(\"enabled\"); }\n",
+        "        case(false) { graph.step(\"disabled\"); }\n",
+        "    };\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let selected_steps = |override_value: Option<&str>| {
+        let mut request = BuildEvaluationRequest {
+            package_root: package_root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: package_root.display().to_string(),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        };
+        if let Some(value) = override_value {
+            request
+                .inputs
+                .options
+                .insert("enabled".to_string(), value.to_string());
+        }
+
+        evaluate_build_source(&request, &build_path, source)
+            .expect("boolean case selection should evaluate")
+            .expect("bool option declaration should produce a graph")
+            .result
+            .graph
+            .steps()
+            .iter()
+            .map(|step| step.name.clone())
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(selected_steps(None), vec!["disabled"]);
+    assert_eq!(selected_steps(Some("true")), vec!["enabled"]);
+}
+
+#[test]
+fn build_source_evaluator_compares_integer_options_as_typed_values() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var jobs = graph.option({ name = \"jobs\", kind = \"int\", default = 8 });\n",
+        "    when(jobs == 8) { { graph.step(\"equal\"); } };\n",
+        "    when(jobs != 8) { { graph.step(\"not-equal\"); } };\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let selected_steps = |override_value: Option<&str>| {
+        let mut request = BuildEvaluationRequest {
+            package_root: package_root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: package_root.display().to_string(),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        };
+        if let Some(value) = override_value {
+            request
+                .inputs
+                .options
+                .insert("jobs".to_string(), value.to_string());
+        }
+
+        evaluate_build_source(&request, &build_path, source)
+            .expect("integer option comparison should evaluate")
+            .expect("integer option declaration should produce a graph")
+            .result
+            .graph
+            .steps()
+            .iter()
+            .map(|step| step.name.clone())
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(selected_steps(None), vec!["equal"]);
+    assert_eq!(selected_steps(Some("4")), vec!["not-equal"]);
+}
+
+#[test]
+fn build_source_evaluator_does_not_coerce_cross_type_comparisons() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var enabled = graph.option({ name = \"enabled\", kind = \"bool\", default = true });\n",
+        "    var jobs = graph.option({ name = \"jobs\", kind = \"int\", default = 8 });\n",
+        "    when(enabled == \"true\") { { graph.step(\"bool-string-equal\"); } };\n",
+        "    when(enabled != \"true\") { { graph.step(\"bool-string-different\"); } };\n",
+        "    when(jobs == \"8\") { { graph.step(\"int-string-equal\"); } };\n",
+        "    when(jobs != \"8\") { { graph.step(\"int-string-different\"); } };\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let selected_steps = evaluate_build_source(&request, &build_path, source)
+        .expect("cross-type comparisons should evaluate")
+        .expect("option declarations should produce a graph")
+        .result
+        .graph
+        .steps()
+        .iter()
+        .map(|step| step.name.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        selected_steps,
+        vec!["bool-string-different", "int-string-different"]
+    );
 }
 
 #[test]

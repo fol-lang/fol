@@ -17,6 +17,11 @@ pub struct FrontendConfig {
     pub build_optimize_override: Option<String>,
     pub build_option_overrides: Vec<String>,
     pub build_step_override: Option<String>,
+    /// Exact GCC executable used only by the certified H7 C-import lane.
+    /// No PATH lookup or implicit compiler fallback is permitted.
+    pub interop_compiler_override: Option<PathBuf>,
+    /// Existing parent used by LINC's bounded compiler probes.
+    pub interop_temporary_parent_override: Option<PathBuf>,
     pub keep_build_dir: bool,
     pub locked_fetch: bool,
     pub offline_fetch: bool,
@@ -39,6 +44,8 @@ impl Default for FrontendConfig {
             build_optimize_override: None,
             build_option_overrides: Vec::new(),
             build_step_override: None,
+            interop_compiler_override: None,
+            interop_temporary_parent_override: None,
             keep_build_dir: false,
             locked_fetch: false,
             offline_fetch: false,
@@ -49,66 +56,20 @@ impl Default for FrontendConfig {
 
 impl FrontendConfig {
     pub fn host_rust_target_triple() -> Option<&'static str> {
-        if cfg!(target_arch = "x86_64") && cfg!(target_os = "linux") && cfg!(target_env = "gnu") {
-            Some("x86_64-unknown-linux-gnu")
-        } else if cfg!(target_arch = "x86_64")
-            && cfg!(target_os = "linux")
-            && cfg!(target_env = "musl")
-        {
-            Some("x86_64-unknown-linux-musl")
-        } else if cfg!(target_arch = "aarch64")
-            && cfg!(target_os = "linux")
-            && cfg!(target_env = "gnu")
-        {
-            Some("aarch64-unknown-linux-gnu")
-        } else if cfg!(target_arch = "aarch64")
-            && cfg!(target_os = "linux")
-            && cfg!(target_env = "musl")
-        {
-            Some("aarch64-unknown-linux-musl")
-        } else if cfg!(target_arch = "x86_64")
-            && cfg!(target_os = "windows")
-            && cfg!(target_env = "gnu")
-        {
-            Some("x86_64-pc-windows-gnu")
-        } else if cfg!(target_arch = "x86_64")
-            && cfg!(target_os = "windows")
-            && cfg!(target_env = "msvc")
-        {
-            Some("x86_64-pc-windows-msvc")
-        } else if cfg!(target_arch = "aarch64")
-            && cfg!(target_os = "windows")
-            && cfg!(target_env = "msvc")
-        {
-            Some("aarch64-pc-windows-msvc")
-        } else if cfg!(target_arch = "x86_64") && cfg!(target_os = "macos") {
-            Some("x86_64-apple-darwin")
-        } else if cfg!(target_arch = "aarch64") && cfg!(target_os = "macos") {
-            Some("aarch64-apple-darwin")
-        } else {
-            None
+        fol_types::ResolvedTarget::host_rust_triple().ok()
+    }
+
+    pub fn backend_machine_target(
+        &self,
+    ) -> Result<BackendMachineTarget, fol_types::ResolveTargetError> {
+        match self.build_target_override.as_deref() {
+            Some(target) => BackendMachineTarget::resolve(target),
+            None => BackendMachineTarget::host(),
         }
     }
 
-    pub fn backend_machine_target(&self) -> BackendMachineTarget {
-        self.build_target_override
-            .as_deref()
-            .map(BackendMachineTarget::normalize_input)
-            .unwrap_or(BackendMachineTarget::Host)
-    }
-
-    pub fn machine_target_runs_on_host(&self) -> bool {
-        let machine_target = self.backend_machine_target();
-        if machine_target.is_host() {
-            return true;
-        }
-        match (
-            machine_target.rust_target_triple(),
-            Self::host_rust_target_triple(),
-        ) {
-            (Some(target), Some(host)) => target == host,
-            _ => false,
-        }
+    pub fn machine_target_runs_on_host(&self) -> Result<bool, fol_types::ResolveTargetError> {
+        self.backend_machine_target()?.runs_on_host()
     }
 
     pub fn from_env() -> Self {
@@ -129,11 +90,13 @@ impl FrontendConfig {
         config.build_root_override = std::env::var_os("FOL_BUILD_ROOT").map(PathBuf::from);
         config.cache_root_override = std::env::var_os("FOL_CACHE_ROOT").map(PathBuf::from);
         config.git_cache_root_override = std::env::var_os("FOL_GIT_CACHE_ROOT").map(PathBuf::from);
-        config.install_prefix_override =
-            std::env::var_os("FOL_INSTALL_PREFIX").map(PathBuf::from);
+        config.install_prefix_override = std::env::var_os("FOL_INSTALL_PREFIX").map(PathBuf::from);
         config.build_target_override = std::env::var("FOL_BUILD_TARGET").ok();
         config.build_optimize_override = std::env::var("FOL_BUILD_OPTIMIZE").ok();
         config.build_step_override = std::env::var("FOL_BUILD_STEP").ok();
+        config.interop_compiler_override = std::env::var_os("FOL_INTEROP_GCC").map(PathBuf::from);
+        config.interop_temporary_parent_override =
+            std::env::var_os("FOL_INTEROP_TEMP").map(PathBuf::from);
         config.build_option_overrides = std::env::var("FOL_BUILD_OPTIONS")
             .ok()
             .map(|value| {
@@ -163,6 +126,7 @@ impl FrontendConfig {
 #[cfg(test)]
 mod tests {
     use super::FrontendConfig;
+    use crate::test_env::EnvironmentGuard;
     use crate::{FrontendProfile, OutputMode};
     use fol_backend::BackendMachineTarget;
 
@@ -182,6 +146,8 @@ mod tests {
         assert!(config.build_optimize_override.is_none());
         assert!(config.build_option_overrides.is_empty());
         assert!(config.build_step_override.is_none());
+        assert!(config.interop_compiler_override.is_none());
+        assert!(config.interop_temporary_parent_override.is_none());
         assert!(!config.keep_build_dir);
         assert!(!config.locked_fetch);
         assert!(!config.offline_fetch);
@@ -190,22 +156,26 @@ mod tests {
 
     #[test]
     fn frontend_config_reads_root_overrides_from_environment() {
-        std::env::set_var("FOL_STD_ROOT", "/tmp/std");
-        std::env::set_var("FOL_PACKAGE_STORE_ROOT", "/tmp/pkg");
-        std::env::set_var("FOL_BUILD_ROOT", "/tmp/build");
-        std::env::set_var("FOL_CACHE_ROOT", "/tmp/cache");
-        std::env::set_var("FOL_GIT_CACHE_ROOT", "/tmp/git-cache");
-        std::env::set_var("FOL_INSTALL_PREFIX", "/tmp/install");
-        std::env::set_var("FOL_BUILD_TARGET", "aarch64-macos-gnu");
-        std::env::set_var("FOL_BUILD_OPTIMIZE", "release-fast");
-        std::env::set_var("FOL_BUILD_STEP", "docs");
-        std::env::set_var("FOL_BUILD_OPTIONS", "jobs=16,strip=true");
-        std::env::set_var("FOL_KEEP_BUILD_DIR", "true");
-        std::env::set_var("FOL_LOCKED", "true");
-        std::env::set_var("FOL_OFFLINE", "true");
-        std::env::set_var("FOL_REFRESH", "true");
-        std::env::set_var("FOL_OUTPUT", "json");
-        std::env::set_var("FOL_PROFILE", "release");
+        let _env = EnvironmentGuard::set(&[
+            ("FOL_STD_ROOT", "/tmp/std"),
+            ("FOL_PACKAGE_STORE_ROOT", "/tmp/pkg"),
+            ("FOL_BUILD_ROOT", "/tmp/build"),
+            ("FOL_CACHE_ROOT", "/tmp/cache"),
+            ("FOL_GIT_CACHE_ROOT", "/tmp/git-cache"),
+            ("FOL_INSTALL_PREFIX", "/tmp/install"),
+            ("FOL_BUILD_TARGET", "aarch64-macos-gnu"),
+            ("FOL_BUILD_OPTIMIZE", "release-fast"),
+            ("FOL_BUILD_STEP", "docs"),
+            ("FOL_INTEROP_GCC", "/usr/bin/gcc"),
+            ("FOL_INTEROP_TEMP", "/tmp/fol-interop"),
+            ("FOL_BUILD_OPTIONS", "jobs=16,strip=true"),
+            ("FOL_KEEP_BUILD_DIR", "true"),
+            ("FOL_LOCKED", "true"),
+            ("FOL_OFFLINE", "true"),
+            ("FOL_REFRESH", "true"),
+            ("FOL_OUTPUT", "json"),
+            ("FOL_PROFILE", "release"),
+        ]);
 
         let config = FrontendConfig::from_env();
 
@@ -245,6 +215,14 @@ mod tests {
         );
         assert_eq!(config.build_step_override.as_deref(), Some("docs"));
         assert_eq!(
+            config.interop_compiler_override,
+            Some(std::path::PathBuf::from("/usr/bin/gcc"))
+        );
+        assert_eq!(
+            config.interop_temporary_parent_override,
+            Some(std::path::PathBuf::from("/tmp/fol-interop"))
+        );
+        assert_eq!(
             config.build_option_overrides,
             vec!["jobs=16".to_string(), "strip=true".to_string()]
         );
@@ -252,29 +230,16 @@ mod tests {
         assert!(config.locked_fetch);
         assert!(config.offline_fetch);
         assert!(config.refresh_fetch);
-
-        std::env::remove_var("FOL_STD_ROOT");
-        std::env::remove_var("FOL_PACKAGE_STORE_ROOT");
-        std::env::remove_var("FOL_BUILD_ROOT");
-        std::env::remove_var("FOL_CACHE_ROOT");
-        std::env::remove_var("FOL_GIT_CACHE_ROOT");
-        std::env::remove_var("FOL_BUILD_TARGET");
-        std::env::remove_var("FOL_BUILD_OPTIMIZE");
-        std::env::remove_var("FOL_BUILD_STEP");
-        std::env::remove_var("FOL_BUILD_OPTIONS");
-        std::env::remove_var("FOL_KEEP_BUILD_DIR");
-        std::env::remove_var("FOL_LOCKED");
-        std::env::remove_var("FOL_OFFLINE");
-        std::env::remove_var("FOL_REFRESH");
-        std::env::remove_var("FOL_OUTPUT");
-        std::env::remove_var("FOL_PROFILE");
     }
 
     #[test]
     fn frontend_config_reports_host_machine_target_by_default() {
         let config = FrontendConfig::default();
 
-        assert_eq!(config.backend_machine_target(), BackendMachineTarget::Host);
+        assert_eq!(
+            config.backend_machine_target().unwrap(),
+            BackendMachineTarget::host().unwrap()
+        );
     }
 
     #[test]
@@ -285,8 +250,8 @@ mod tests {
         };
 
         assert_eq!(
-            config.backend_machine_target(),
-            BackendMachineTarget::Triple("aarch64-macos-gnu".to_string())
+            config.backend_machine_target().unwrap().as_str(),
+            "aarch64-apple-darwin"
         );
     }
 
@@ -303,9 +268,9 @@ mod tests {
             ..FrontendConfig::default()
         };
 
-        assert!(host_config.machine_target_runs_on_host());
+        assert!(host_config.machine_target_runs_on_host().unwrap());
         if FrontendConfig::host_rust_target_triple() != Some("aarch64-apple-darwin") {
-            assert!(!cross_config.machine_target_runs_on_host());
+            assert!(!cross_config.machine_target_runs_on_host().unwrap());
         }
     }
 }

@@ -4,9 +4,10 @@ mod skeleton;
 mod tests;
 
 pub use build::{
-    backend_build_paths, build_generated_crate_with_rustc, build_runtime_rlib_with_rustc,
-    emit_backend_artifact, prepare_backend_build_paths, prepare_generated_build_dir,
-    summarize_emitted_artifact, write_generated_crate,
+    backend_build_paths, build_generated_crate_with_auxiliary_plan,
+    build_generated_crate_with_rustc, build_generated_crate_with_rustc_args,
+    build_runtime_rlib_with_rustc, emit_backend_artifact, prepare_backend_build_paths,
+    prepare_generated_build_dir, summarize_emitted_artifact, write_generated_crate,
 };
 pub use runtime::{
     backend_runtime_build_dir, backend_runtime_manifest_path,

@@ -1,4 +1,6 @@
-use super::{resolve_package_from_folder, resolve_package_from_folder_with_config, unique_temp_root};
+use super::{
+    resolve_package_from_folder, resolve_package_from_folder_with_config, unique_temp_root,
+};
 use fol_resolver::{ReferenceKind, ResolverConfig, ScopeKind, SymbolKind};
 use std::fs;
 use std::path::Path;
@@ -7,7 +9,9 @@ fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).expect("copy target root should be creatable");
     for entry in fs::read_dir(from).expect("copy source root should be readable") {
         let entry = entry.expect("copy entry should be readable");
-        let entry_type = entry.file_type().expect("copy entry type should be readable");
+        let entry_type = entry
+            .file_type()
+            .expect("copy entry type should be readable");
         let to_path = to.join(entry.file_name());
         if entry_type.is_dir() {
             copy_tree(&entry.path(), &to_path);
@@ -24,8 +28,11 @@ fn test_resolver_keeps_loc_import_semantics_stable_through_package_provider() {
     let shared_root = temp_root.join("shared");
     fs::create_dir_all(&app_root).expect("Should create the importing package root fixture");
     fs::create_dir_all(&shared_root).expect("Should create the imported local directory fixture");
-    fs::write(shared_root.join("values.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the imported local value fixture");
+    fs::write(
+        shared_root.join("values.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the imported local value fixture");
     fs::write(
         shared_root.join("helpers.fol"),
         "fun[exp] emit(value: int): int = {\n    return value;\n};\n",
@@ -69,7 +76,8 @@ fn test_resolver_keeps_loc_import_semantics_stable_through_package_provider() {
         resolved
             .references_in_scope(routine_scope)
             .into_iter()
-            .find(|reference| reference.kind == ReferenceKind::Identifier && reference.name == "answer")
+            .find(|reference| reference.kind == ReferenceKind::Identifier
+                && reference.name == "answer")
             .and_then(|reference| reference.resolved),
         Some(answer_symbol.id),
     );
@@ -77,7 +85,8 @@ fn test_resolver_keeps_loc_import_semantics_stable_through_package_provider() {
         resolved
             .references_in_scope(routine_scope)
             .into_iter()
-            .find(|reference| reference.kind == ReferenceKind::FunctionCall && reference.name == "emit")
+            .find(|reference| reference.kind == ReferenceKind::FunctionCall
+                && reference.name == "emit")
             .and_then(|reference| reference.resolved),
         Some(emit_symbol.id),
     );
@@ -151,15 +160,21 @@ fn test_resolver_keeps_pkg_import_semantics_stable_through_package_provider() {
     fs::create_dir_all(store_root.join("json/src/fmt"))
         .expect("Should create the exported namespace source fixture");
     fs::create_dir_all(&app_root).expect("Should create the importing package root fixture");
-    fs::write(store_root.join("json/build.fol"), "name: json\nversion: 1.0.0\n")
-        .expect("Should write the installed package metadata fixture");
+    fs::write(
+        store_root.join("json/build.fol"),
+        "name: json\nversion: 1.0.0\n",
+    )
+    .expect("Should write the installed package metadata fixture");
     fs::write(
         store_root.join("json/build.fol"),
         "pro[] build(): non = {\n    var build = .build();\n    build.meta({\n        name = \"json\",\n        version = \"1.0.0\",\n    });\n};\n",
     )
     .expect("Should write the installed package build fixture");
-    fs::write(store_root.join("json/src/root/value.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the exported root source fixture");
+    fs::write(
+        store_root.join("json/src/root/value.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the exported root source fixture");
     fs::write(
         store_root.join("json/src/fmt/value.fol"),
         "var[exp] formatted: int = 9;\n",
@@ -204,14 +219,14 @@ fn test_resolver_keeps_pkg_import_semantics_stable_through_package_provider() {
         .find_map(|(scope_id, scope)| matches!(scope.kind, ScopeKind::Routine).then_some(scope_id))
         .expect("Resolver should create a routine scope for the importing package");
 
-    let answer_scope = resolved
-        .namespace_scope("json::src::root")
-        .expect("Pkg imports should expose semantic source namespaces through the provider boundary");
+    let answer_scope = resolved.namespace_scope("json::src::root").expect(
+        "Pkg imports should expose semantic source namespaces through the provider boundary",
+    );
     assert!(resolved
         .symbols_in_scope(answer_scope)
         .into_iter()
         .any(|symbol| symbol.name == "answer" && symbol.kind == SymbolKind::ValueBinding));
-    assert_eq!(
+    assert!(
         resolved
             .references_in_scope(routine_scope)
             .into_iter()
@@ -221,7 +236,6 @@ fn test_resolver_keeps_pkg_import_semantics_stable_through_package_provider() {
             })
             .and_then(|reference| reference.resolved)
             .is_some(),
-        true,
         "Pkg imports should still resolve qualified references through semantic source namespaces",
     );
 

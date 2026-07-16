@@ -8,8 +8,8 @@ use crate::graph::BuildGraph;
 use crate::graph::BuildOptionKind;
 
 use super::types::{
-    validate_build_name, AddModuleRequest, BuildApiError, BuildArtifactHandle, CopyFileRequest,
-    DependencyHandle, DependencyRequest, ExecutableRequest, GeneratedFileHandle,
+    validate_build_name, AddModuleRequest, BuildApiError, BuildArtifactHandle, BuildCImportRequest,
+    CopyFileRequest, DependencyHandle, DependencyRequest, ExecutableRequest, GeneratedFileHandle,
     InstallArtifactRequest, InstallDirRequest, InstallFileRequest, InstallHandle, ModuleHandle,
     OutputHandle, OutputHandleKind, OutputHandleLocator, RunHandle, RunRequest,
     SharedLibraryRequest, StandardOptimizeOption, StandardOptimizeRequest, StandardTargetOption,
@@ -91,6 +91,9 @@ impl<'a> BuildApi<'a> {
         self.add_named_artifact(
             request.name,
             request.root_module,
+            request.fol_model,
+            request.target,
+            request.optimize,
             crate::graph::BuildArtifactKind::Executable,
         )
     }
@@ -102,6 +105,9 @@ impl<'a> BuildApi<'a> {
         self.add_named_artifact(
             request.name,
             request.root_module,
+            request.fol_model,
+            request.target,
+            request.optimize,
             crate::graph::BuildArtifactKind::StaticLibrary,
         )
     }
@@ -113,6 +119,9 @@ impl<'a> BuildApi<'a> {
         self.add_named_artifact(
             request.name,
             request.root_module,
+            request.fol_model,
+            request.target,
+            request.optimize,
             crate::graph::BuildArtifactKind::SharedLibrary,
         )
     }
@@ -124,26 +133,82 @@ impl<'a> BuildApi<'a> {
         self.add_named_artifact(
             request.name,
             request.root_module,
-            crate::graph::BuildArtifactKind::Executable,
+            request.fol_model,
+            request.target,
+            request.optimize,
+            crate::graph::BuildArtifactKind::Test,
         )
     }
 
     fn add_named_artifact(
         &mut self,
         name: String,
-        root_module: String,
+        root_module: crate::api::BuildArtifactConfigValue,
+        fol_model: crate::artifact::BuildArtifactFolModel,
+        target: Option<crate::api::BuildArtifactConfigValue>,
+        optimize: Option<crate::api::BuildArtifactConfigValue>,
         kind: crate::graph::BuildArtifactKind,
     ) -> Result<BuildArtifactHandle, BuildApiError> {
         validate_build_name(&name).map_err(super::types::BuildApiError::InvalidName)?;
+        let root_module = literal_artifact_config(root_module, "root")?;
+        if root_module.trim().is_empty() {
+            return Err(BuildApiError::InvalidArtifactConfig(
+                "artifact root must not be empty".to_string(),
+            ));
+        }
+        let target = match target {
+            Some(value) => {
+                let raw = literal_artifact_config(value, "target")?;
+                fol_types::ResolvedTarget::resolve(&raw)
+                    .map_err(|error| BuildApiError::InvalidArtifactConfig(error.to_string()))?
+            }
+            None => fol_types::ResolvedTarget::host()
+                .map_err(|error| BuildApiError::InvalidArtifactConfig(error.to_string()))?,
+        };
+        let optimize = match optimize {
+            Some(value) => {
+                let raw = literal_artifact_config(value, "optimize")?;
+                crate::option::BuildOptimizeMode::parse(&raw).ok_or_else(|| {
+                    BuildApiError::InvalidArtifactConfig(format!(
+                        "unsupported artifact optimize mode '{raw}'"
+                    ))
+                })?
+            }
+            None => crate::option::BuildOptimizeMode::Debug,
+        };
         let module_id = self
             .graph
-            .add_module(crate::graph::BuildModuleKind::Source, root_module);
-        let artifact_id = self.graph.add_artifact(kind, name);
+            .add_module(crate::graph::BuildModuleKind::Source, root_module.clone());
+        let artifact_id = self.graph.add_configured_artifact(
+            kind,
+            name,
+            root_module,
+            fol_model,
+            target,
+            optimize,
+        );
         self.graph.add_artifact_module_input(artifact_id, module_id);
         Ok(BuildArtifactHandle {
             artifact_id,
             root_module_id: module_id,
         })
+    }
+
+    pub fn add_c_import(
+        &mut self,
+        artifact_id: crate::graph::BuildArtifactId,
+        request: BuildCImportRequest,
+    ) -> Result<crate::graph::BuildCImportAttachment, BuildApiError> {
+        validate_c_import_source_path("header", &request.header.relative_path)?;
+        validate_c_import_source_path("provider", &request.provider.relative_path)?;
+        self.graph
+            .add_c_import(
+                artifact_id,
+                request.header.relative_path,
+                request.provider.relative_path,
+                request.provider_kind,
+            )
+            .map_err(|error| BuildApiError::InvalidArtifactConfig(error.to_string()))
     }
 
     pub fn step(&mut self, request: StepRequest) -> Result<StepHandle, BuildApiError> {
@@ -433,7 +498,9 @@ impl<'a> BuildApi<'a> {
             return self.install_prefix.clone();
         };
         let dir = match artifact.kind {
-            crate::graph::BuildArtifactKind::Executable => "bin",
+            crate::graph::BuildArtifactKind::Executable | crate::graph::BuildArtifactKind::Test => {
+                "bin"
+            }
             crate::graph::BuildArtifactKind::StaticLibrary
             | crate::graph::BuildArtifactKind::SharedLibrary
             | crate::graph::BuildArtifactKind::Object => "lib",
@@ -594,5 +661,50 @@ impl<'a> BuildApi<'a> {
                 })
                 .unwrap_or_default(),
         })
+    }
+}
+
+fn validate_c_import_source_path(field: &str, path: &str) -> Result<(), BuildApiError> {
+    if path.trim().is_empty() {
+        return Err(BuildApiError::InvalidArtifactConfig(format!(
+            "C import {field} path must not be empty"
+        )));
+    }
+    let bytes = path.as_bytes();
+    let has_windows_drive_prefix =
+        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    if std::path::Path::new(path).is_absolute()
+        || path.starts_with('/')
+        || path.starts_with('\\')
+        || has_windows_drive_prefix
+    {
+        return Err(BuildApiError::InvalidArtifactConfig(format!(
+            "C import {field} path '{path}' must be relative to the package root"
+        )));
+    }
+    if path.split(['/', '\\']).any(|component| component == "..") {
+        return Err(BuildApiError::InvalidArtifactConfig(format!(
+            "C import {field} path '{path}' must not traverse outside the package root"
+        )));
+    }
+    if matches!(path, "$dep" | "$dep/") || path.starts_with("$dep/") || path.starts_with("$dep\\") {
+        return Err(BuildApiError::InvalidArtifactConfig(format!(
+            "C import {field} must be a local source-file path, not a dependency path"
+        )));
+    }
+    Ok(())
+}
+
+fn literal_artifact_config(
+    value: crate::api::BuildArtifactConfigValue,
+    field: &str,
+) -> Result<String, BuildApiError> {
+    match value {
+        crate::api::BuildArtifactConfigValue::Literal(value) => Ok(value),
+        crate::api::BuildArtifactConfigValue::OptionRef { name, .. } => {
+            Err(BuildApiError::InvalidArtifactConfig(format!(
+                "artifact {field} option '{name}' was not resolved before graph construction"
+            )))
+        }
     }
 }

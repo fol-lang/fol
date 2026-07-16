@@ -109,7 +109,6 @@ impl<T> FolEventual<T> {
         self.receiver
             .into_inner()
             .unwrap_or_else(|error| error.into_inner())
-            .take()
             .expect("eventual can only be awaited once")
             .recv()
             .expect("eventual producer ended without a value")

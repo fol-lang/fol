@@ -1,12 +1,14 @@
 use super::*;
 
+type ParameterNameGroupEntry = (String, Option<SyntaxNodeId>, bool, bool);
+
 impl AstParser {
     fn parse_parameter_name_group(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_name_error: &str,
         missing_group_name_error: &str,
-    ) -> Result<Vec<(String, Option<SyntaxNodeId>, bool, bool)>, ParseError> {
+    ) -> Result<Vec<ParameterNameGroupEntry>, ParseError> {
         let token = tokens.curr(false)?;
 
         let first_name = Self::expect_named_label(&token, missing_name_error)?;

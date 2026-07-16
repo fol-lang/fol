@@ -13,16 +13,10 @@ pub enum CompletionShellArg {
     Fish,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FrontendOutputArgs {
     /// Command-local override. `None` preserves the root/global output mode.
     pub output: Option<OutputMode>,
-}
-
-impl Default for FrontendOutputArgs {
-    fn default() -> Self {
-        Self { output: None }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

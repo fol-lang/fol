@@ -47,7 +47,6 @@ fn test_module_type_bad_arity_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -132,7 +131,6 @@ fn test_array_type_bad_size_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -219,7 +217,6 @@ fn test_matrix_type_bad_dimension_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -314,7 +311,6 @@ fn test_function_type_missing_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -418,7 +414,6 @@ fn test_function_type_defaults_are_rejected() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -451,14 +446,16 @@ fn test_function_parsing() {
                         "Function source should produce parser nodes"
                     );
                     assert!(
-                        only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                            matches!(
-                                node,
-                                AstNode::Return {
-                                    value: Some(value)
-                                } if matches!(value.as_ref(), AstNode::BinaryOp { .. })
-                            )
-                        }),
+                        only_root_routine_body_nodes(declarations)
+                            .into_iter()
+                            .any(|node| {
+                                matches!(
+                                    node,
+                                    AstNode::Return {
+                                        value: Some(value)
+                                    } if matches!(value.as_ref(), AstNode::BinaryOp { .. })
+                                )
+                            }),
                         "Function source should include a return node with binary expression"
                     );
                 }
@@ -486,31 +483,37 @@ fn test_function_body_con_parsing() {
 
     let (has_inferred_local, has_typed_local, has_return_identifier) = match ast {
         AstNode::Program { declarations } => {
-            let has_inferred_local = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::VarDecl { name, type_hint, value, options, .. }
-                    if name == "base"
-                        && type_hint.is_none()
-                        && value.is_some()
-                        && options.contains(&fol_parser::ast::VarOption::Immutable)
-                )
-            });
+            let has_inferred_local =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::VarDecl { name, type_hint, value, options, .. }
+                            if name == "base"
+                                && type_hint.is_none()
+                                && value.is_some()
+                                && options.contains(&fol_parser::ast::VarOption::Immutable)
+                        )
+                    });
 
-            let has_typed_local = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::VarDecl {
-                        name,
-                        type_hint: Some(FolType::Int { size: None, signed: true }),
-                        value: Some(_),
-                        options,
-                        ..
-                    }
-                    if name == "next"
-                        && options.contains(&fol_parser::ast::VarOption::Immutable)
-                )
-            });
+            let has_typed_local =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::VarDecl {
+                                name,
+                                type_hint: Some(FolType::Int { size: None, signed: true }),
+                                value: Some(_),
+                                options,
+                                ..
+                            }
+                            if name == "next"
+                                && options.contains(&fol_parser::ast::VarOption::Immutable)
+                        )
+                    });
 
             let has_return_identifier = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
@@ -608,7 +611,6 @@ fn test_nested_block_missing_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

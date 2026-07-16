@@ -180,11 +180,7 @@ fn materialize_local_bundled_std_alias(root: &std::path::Path) {
 }
 
 fn expected_runtime_import_for_model(model: &str) -> String {
-    let runtime_module = match model {
-        "memo" => "memo",
-        other => other,
-    };
-    format!("use fol_runtime::{runtime_module} as rt;")
+    format!("use fol_runtime::{model} as rt;")
 }
 
 fn positive_runtime_model_examples() -> &'static [(&'static str, &'static str)] {
@@ -5328,8 +5324,6 @@ fn test_v2_current_subset_inventory_stays_honest() {
         .expect("generic milestone note should load");
     let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
         .expect("standards milestone note should load");
-    let versions = std::fs::read_to_string(repo_root().join("plan/VERSIONS.md"))
-        .expect("version note should load");
 
     assert!(generics_note.contains("examples/generic_routine_m1"));
     assert!(generics_note.contains("examples/generic_routine_pair_m1"));
@@ -5359,15 +5353,6 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(standards_note.contains("not through a second"));
     assert!(standards_note.contains("multi-standard conformance on one type"));
     assert!(standards_note.contains("imported-standard conformance truth"));
-
-    assert!(versions.contains("Milestone 1"));
-    assert!(versions.contains("generic routine core"));
-    assert!(versions.contains("executable generic types"));
-    assert!(!versions.contains("\n- generic types\n"));
-    assert!(versions.contains("Milestone 2"));
-    assert!(versions.contains("protocol standards only"));
-    assert!(versions.contains("both `V3` pillars are implemented end to end"));
-    assert!(!versions.contains("then move into `V3` systems-semantics work"));
 }
 
 #[test]
@@ -5925,20 +5910,6 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
     assert!(standards_note.contains("default standard implementations remain unsupported"));
     assert!(standards_note
         .contains("implementation slice with compiler, backend, editor, doc, and example work"));
-}
-
-#[test]
-fn test_agents_md_keeps_current_v2_milestone_truth() {
-    let agents =
-        std::fs::read_to_string(repo_root().join("AGENTS.md")).expect("AGENTS.md should load");
-
-    assert!(agents.contains("generic routine lowering/backend execution now exist"));
-    assert!(
-        agents.contains("protocol standards now lower and the shipped positive protocol examples")
-    );
-    assert!(agents.contains("execute through ordinary procedural emission"));
-    assert!(!agents.contains("no generic lowering yet"));
-    assert!(!agents.contains("no standards lowering/backend support yet"));
 }
 
 #[test]

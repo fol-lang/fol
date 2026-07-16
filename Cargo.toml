@@ -15,6 +15,7 @@ members = [
     "lang/execution/fol-backend",
     "lang/tooling/fol-frontend",
     "lang/tooling/fol-editor",
+    "lang/tooling/fol-interop",
 ]
 
 [package]

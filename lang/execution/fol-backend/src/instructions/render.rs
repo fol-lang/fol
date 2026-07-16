@@ -80,14 +80,12 @@ pub fn render_core_instruction_in_workspace(
     instruction: &LoweredInstr,
 ) -> BackendResult<String> {
     match &instruction.kind {
-        LoweredInstrKind::ConstraintCall { method, .. } => {
-            return Err(BackendError::new(
-                BackendErrorKind::InvalidInput,
-                format!(
+        LoweredInstrKind::ConstraintCall { method, .. } => Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!(
                 "constraint call '{method}' reached backend emission without being monomorphized"
             ),
-            ))
-        }
+        )),
         LoweredInstrKind::Const(operand) => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             Ok(format!("{result} = {};", render_operand(operand)?))
@@ -332,9 +330,7 @@ pub fn render_core_instruction_in_workspace(
                 // replace the transferred field with its backend-only default
                 // sentinel; typecheck remains responsible for rejecting any
                 // semantic read of the moved field.
-                Ok(format!(
-                    "{result} = std::mem::take(&mut {base}.{field});"
-                ))
+                Ok(format!("{result} = std::mem::take(&mut {base}.{field});"))
             } else {
                 Ok(format!("{result} = {base}.{field}.clone();"))
             }
@@ -486,7 +482,10 @@ pub fn render_core_instruction_in_workspace(
                 pointer_type = *inner;
                 wrapper_dereferences += 1;
             }
-            if !matches!(type_table.get(pointer_type), Some(LoweredType::Pointer { .. })) {
+            if !matches!(
+                type_table.get(pointer_type),
+                Some(LoweredType::Pointer { .. })
+            ) {
                 return Err(BackendError::new(
                     BackendErrorKind::InvalidInput,
                     "pointer dereference operand is not pointer-backed storage",

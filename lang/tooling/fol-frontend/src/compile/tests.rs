@@ -1,5 +1,5 @@
 use super::{
-    backend_config, build_evaluation_inputs, build_workspace,
+    backend_build_profile_for_optimize, backend_config, build_evaluation_inputs, build_workspace,
     build_workspace_for_profile_with_config, build_workspace_with_config, check_workspace,
     compile_member_workspace_targeted, declared_capability_model_for_package, emit_lowered,
     emit_rust, profile_build_root, run_workspace, run_workspace_with_args_and_config,
@@ -151,30 +151,54 @@ fn backend_config_threads_frontend_machine_target_selection() {
     assert_eq!(
         backend_config(
             &default_config,
-            FrontendProfile::Debug,
             fol_backend::BackendFolModel::Std,
+            BackendMachineTarget::host().unwrap(),
+            fol_package::BuildOptimizeMode::Debug,
         )
         .machine_target,
-        BackendMachineTarget::Host
+        BackendMachineTarget::host().unwrap()
     );
     assert_eq!(
         backend_config(
             &cross_config,
-            FrontendProfile::Release,
             fol_backend::BackendFolModel::Core,
+            BackendMachineTarget::resolve("aarch64-macos-gnu").unwrap(),
+            fol_package::BuildOptimizeMode::ReleaseSafe,
         )
         .machine_target,
-        BackendMachineTarget::Triple("aarch64-macos-gnu".to_string())
+        BackendMachineTarget::resolve("aarch64-macos-gnu").unwrap()
     );
     assert_eq!(
         backend_config(
             &cross_config,
-            FrontendProfile::Release,
             fol_backend::BackendFolModel::Core,
+            BackendMachineTarget::resolve("aarch64-macos-gnu").unwrap(),
+            fol_package::BuildOptimizeMode::ReleaseSafe,
         )
         .fol_model,
         fol_backend::BackendFolModel::Core
     );
+    assert_eq!(
+        backend_config(
+            &default_config,
+            fol_backend::BackendFolModel::Std,
+            BackendMachineTarget::host().unwrap(),
+            fol_package::BuildOptimizeMode::Debug,
+        )
+        .build_profile,
+        fol_backend::BackendBuildProfile::Debug
+    );
+    for optimize in [
+        fol_package::BuildOptimizeMode::ReleaseSafe,
+        fol_package::BuildOptimizeMode::ReleaseFast,
+        fol_package::BuildOptimizeMode::ReleaseSmall,
+    ] {
+        assert_eq!(
+            backend_build_profile_for_optimize(optimize),
+            fol_backend::BackendBuildProfile::Release,
+            "{optimize:?} must select rustc's release profile"
+        );
+    }
 }
 
 #[test]
@@ -186,7 +210,7 @@ fn build_evaluation_inputs_reject_malformed_overrides() {
                 build_target_override: Some("not-a-target".to_string()),
                 ..FrontendConfig::default()
             },
-            "invalid build target",
+            "unsupported explicit machine target",
         ),
         (
             FrontendConfig {

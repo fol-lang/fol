@@ -1,5 +1,32 @@
 use super::*;
 
+fn installed_debug_host_binary(package_root: &std::path::Path) -> std::path::PathBuf {
+    let target = fol_types::ResolvedTarget::host().expect("integration host target should resolve");
+    let bin_dir = package_root
+        .join(".fol/build/debug/bin")
+        .join(target.rust_target_directory_name());
+    let mut binaries = std::fs::read_dir(&bin_dir)
+        .unwrap_or_else(|error| {
+            panic!(
+                "Should list installed binaries under canonical host target '{}': {error}",
+                bin_dir.display()
+            )
+        })
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    binaries.sort();
+    assert_eq!(
+        binaries.len(),
+        1,
+        "expected exactly one installed binary under '{}', found: {:?}",
+        bin_dir.display(),
+        binaries
+    );
+    binaries.remove(0)
+}
+
 #[test]
 fn test_cli_single_file_compile_succeeds_with_package_parser() {
     let output = run_fol(&["test/parser/simple_var.fol"]);
@@ -623,7 +650,6 @@ fn test_examples_and_docs_keep_quoted_import_targets_only() {
             repo_root().join("test/app/formal"),
             repo_root().join("docs"),
             repo_root().join("book"),
-            repo_root().join("AGENTS.md"),
         ],
         &[".fol", ".md"],
         &["use std: pkg = {std};"],
@@ -645,7 +671,6 @@ fn test_examples_and_docs_do_not_use_removed_std_source_kind_examples() {
             repo_root().join("test/app/formal"),
             repo_root().join("docs"),
             repo_root().join("book"),
-            repo_root().join("AGENTS.md"),
         ],
         &[".fol", ".md"],
         &[": std = "],
@@ -667,7 +692,6 @@ fn test_examples_fixtures_docs_and_book_do_not_use_removed_std_mode_contracts() 
             repo_root().join("test/app/formal"),
             repo_root().join("docs"),
             repo_root().join("book"),
-            repo_root().join("AGENTS.md"),
         ],
         &[".fol", ".md"],
         &["fol_model = \"std\"", "std mode"],
@@ -681,13 +705,9 @@ fn test_examples_fixtures_docs_and_book_do_not_use_removed_std_mode_contracts() 
 }
 
 #[test]
-fn test_docs_book_and_agents_keep_current_v1_editor_contract() {
+fn test_docs_and_book_keep_current_v1_editor_contract() {
     let offenders = collect_lines_containing_any(
-        &[
-            repo_root().join("docs"),
-            repo_root().join("book"),
-            repo_root().join("AGENTS.md"),
-        ],
+        &[repo_root().join("docs"), repo_root().join("book")],
         &[".md"],
         &[
             "rangeFormattingProvider",
@@ -700,7 +720,7 @@ fn test_docs_book_and_agents_keep_current_v1_editor_contract() {
 
     assert!(
         offenders.is_empty(),
-        "Docs, book, and contributor rules should not overclaim the shipped V1 editor surface:\n{}",
+        "Docs and book should not overclaim the shipped V1 editor surface:\n{}",
         offenders.join("\n")
     );
 
@@ -730,12 +750,6 @@ fn test_docs_book_and_agents_keep_current_v1_editor_contract() {
         "editor sync docs should describe the current shipped V2 editor subset"
     );
 
-    let agents =
-        std::fs::read_to_string(repo_root().join("AGENTS.md")).expect("AGENTS should exist");
-    assert!(
-        agents.contains("Current editor non-goals"),
-        "AGENTS should carry the current editor non-goal guidance"
-    );
     assert!(
         lsp_book
             .contains("generic-routine, generic-type, constrained-generic, and protocol-standard"),
@@ -2395,13 +2409,7 @@ fn test_loops_and_fallbacks_compute_correct_runtime_values() {
     );
     // Execute the installed binary directly; `fol code run` reports a
     // summary and does not forward the program's own output.
-    let bin_dir = temp_root.join(".fol/build/debug/bin/host");
-    let binary = fs::read_dir(&bin_dir)
-        .expect("Should list installed binaries")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| path.is_file())
-        .expect("runtime-value fixture should install a binary");
+    let binary = installed_debug_host_binary(&temp_root);
     let run = std::process::Command::new(&binary)
         .output()
         .expect("installed binary should execute");
@@ -2469,13 +2477,7 @@ fn test_statement_position_qualified_calls_resolve_and_run() {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
-    let bin_dir = temp_root.join(".fol/build/debug/bin/host");
-    let binary = fs::read_dir(&bin_dir)
-        .expect("Should list installed binaries")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| path.is_file())
-        .expect("statement-qualified fixture should install a binary");
+    let binary = installed_debug_host_binary(&temp_root);
     let run = std::process::Command::new(&binary)
         .output()
         .expect("installed binary should execute");
@@ -2585,13 +2587,7 @@ fn test_hardening_round6_generics_and_loops_compute_correct_runtime_values() {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
-    let bin_dir = temp_root.join(".fol/build/debug/bin/host");
-    let binary = fs::read_dir(&bin_dir)
-        .expect("Should list installed binaries")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| path.is_file())
-        .expect("round6 fixture should install a binary");
+    let binary = installed_debug_host_binary(&temp_root);
     let run = std::process::Command::new(&binary)
         .output()
         .expect("installed binary should execute");
@@ -2670,13 +2666,7 @@ fn test_record_defaults_and_positional_init_compute_correct_runtime_values() {
     );
     // Execute the installed binary directly; `fol code run` reports a
     // summary and does not forward the program's own output.
-    let bin_dir = temp_root.join(".fol/build/debug/bin/host");
-    let binary = fs::read_dir(&bin_dir)
-        .expect("Should list installed binaries")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| path.is_file())
-        .expect("record-init fixture should install a binary");
+    let binary = installed_debug_host_binary(&temp_root);
     let run = std::process::Command::new(&binary)
         .output()
         .expect("installed binary should execute");
@@ -2754,13 +2744,7 @@ fn test_chained_fallbacks_compute_correct_runtime_values() {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
-    let bin_dir = temp_root.join(".fol/build/debug/bin/host");
-    let binary = fs::read_dir(&bin_dir)
-        .expect("Should list installed binaries")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| path.is_file())
-        .expect("chained-fallback fixture should install a binary");
+    let binary = installed_debug_host_binary(&temp_root);
     let run = std::process::Command::new(&binary)
         .output()
         .expect("installed binary should execute");
@@ -2940,13 +2924,7 @@ fn test_default_arguments_survive_package_imports() {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
-    let bin_dir = temp_root.join(".fol/build/debug/bin/host");
-    let binary = fs::read_dir(&bin_dir)
-        .expect("Should list installed binaries")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| path.is_file())
-        .expect("defaults-import fixture should install a binary");
+    let binary = installed_debug_host_binary(&temp_root);
     let run = std::process::Command::new(&binary)
         .output()
         .expect("installed binary should execute");

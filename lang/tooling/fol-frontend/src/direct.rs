@@ -55,15 +55,17 @@ fn backend_profile_for_direct_compile(
     }
 }
 
-fn ensure_direct_target_runs_on_host(frontend_config: &FrontendConfig) -> FrontendResult<()> {
-    if frontend_config.machine_target_runs_on_host() {
+fn ensure_direct_target_runs_on_host(
+    machine_target: &fol_backend::BackendMachineTarget,
+) -> FrontendResult<()> {
+    if machine_target
+        .runs_on_host()
+        .map_err(|error| FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string()))?
+    {
         return Ok(());
     }
 
-    let machine_target = frontend_config.backend_machine_target();
-    let selected = machine_target
-        .rust_target_triple()
-        .unwrap_or_else(|| machine_target.display_name().to_string());
+    let selected = machine_target.rust_target_directory_name();
     let host = FrontendConfig::host_rust_target_triple().unwrap_or("unknown-host");
     Err(FrontendError::new(
         FrontendErrorKind::InvalidInput,
@@ -71,10 +73,22 @@ fn ensure_direct_target_runs_on_host(frontend_config: &FrontendConfig) -> Fronte
     ))
 }
 
+fn resolved_backend_target(
+    frontend_config: &FrontendConfig,
+) -> FrontendResult<fol_backend::BackendMachineTarget> {
+    frontend_config
+        .backend_machine_target()
+        .map_err(|error| FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string()))
+}
+
 pub fn run_direct_compile(
     config: &DirectCompileConfig,
     frontend_config: &FrontendConfig,
 ) -> FrontendResult<FrontendCommandResult> {
+    let machine_target = resolved_backend_target(frontend_config)?;
+    if matches!(config.mode, DirectCompileMode::Run { .. }) {
+        ensure_direct_target_runs_on_host(&machine_target)?;
+    }
     let fol_model =
         crate::compile::runtime_model_for_direct_input(Path::new(&config.input), frontend_config)?;
     let mut diagnostics = DiagnosticReport::new();
@@ -152,7 +166,7 @@ pub fn run_direct_compile(
             let artifact = emit_backend_artifact(
                 &backend_session,
                 &BackendConfig {
-                    machine_target: frontend_config.backend_machine_target(),
+                    machine_target: machine_target.clone(),
                     build_profile: backend_profile_for_direct_compile(frontend_config),
                     mode: if *emit_rust {
                         BackendMode::EmitSource
@@ -248,9 +262,6 @@ pub fn run_direct_compile(
         DirectCompileMode::Build { keep_build_dir }
         | DirectCompileMode::Run { keep_build_dir, .. }
         | DirectCompileMode::EmitRust { keep_build_dir } => {
-            if matches!(config.mode, DirectCompileMode::Run { .. }) {
-                ensure_direct_target_runs_on_host(frontend_config)?;
-            }
             if lowered.entry_candidates().is_empty() {
                 return Err(FrontendError::new(
                     FrontendErrorKind::InvalidInput,
@@ -267,7 +278,7 @@ pub fn run_direct_compile(
             let artifact = emit_backend_artifact(
                 &backend_session,
                 &BackendConfig {
-                    machine_target: frontend_config.backend_machine_target(),
+                    machine_target: machine_target.clone(),
                     build_profile: backend_profile_for_direct_compile(frontend_config),
                     mode: backend_mode,
                     fol_model,
@@ -381,6 +392,26 @@ pub fn run_direct_compile_with_io(
         package_store_root: config.package_store_root.clone(),
     };
     let mut diagnostics = DiagnosticReport::new();
+    let machine_target = match resolved_backend_target(frontend_config).and_then(|target| {
+        if matches!(config.mode, DirectCompileMode::Run { .. }) {
+            ensure_direct_target_runs_on_host(&target)?;
+        }
+        Ok(target)
+    }) {
+        Ok(target) => target,
+        Err(error) => {
+            diagnostics.add_error(error.to_string(), None);
+            let rendered = match frontend_config.output.mode {
+                OutputMode::Human => crate::pretty::render_report_pretty(&diagnostics),
+                OutputMode::Plain => diagnostics.output(OutputFormat::Human),
+                OutputMode::Json => diagnostics.output(OutputFormat::Json),
+            };
+            if !rendered.trim().is_empty() {
+                let _ = writeln!(stdout, "{rendered}");
+            }
+            return 1;
+        }
+    };
 
     if frontend_config.output.mode != OutputMode::Json {
         let _ = writeln!(stdout, "=== FOL Compiler (Modular) ===");
@@ -405,160 +436,89 @@ pub fn run_direct_compile_with_io(
             return 1;
         }
     };
-    match compile_file(&config.input, &resolver_config, fol_model, &mut diagnostics) {
-        Ok(lowered) => {
-            if matches!(
-                config.mode,
-                DirectCompileMode::EmitLowered
-                    | DirectCompileMode::Auto {
-                        dump_lowered: true,
-                        ..
-                    }
-            ) && frontend_config.output.mode != OutputMode::Json
-                && !diagnostics.has_errors()
-            {
-                let _ = writeln!(stdout, "{}", render_lowered_workspace(&lowered));
-            }
-            if !diagnostics.has_errors() {
-                if lowered.entry_candidates().is_empty()
-                    && !matches!(
-                        config.mode,
-                        DirectCompileMode::Check | DirectCompileMode::EmitLowered
-                    )
-                {
-                    if matches!(config.mode, DirectCompileMode::Auto { .. }) {
-                        if frontend_config.output.mode != OutputMode::Json {
-                            let _ = writeln!(stdout, "✓ Compilation successful!");
-                        }
-                    } else {
-                        diagnostics.add_error(
-                            format!("{} does not contain a runnable entrypoint", config.input),
-                            None,
-                        );
-                    }
-                } else if matches!(
-                    config.mode,
-                    DirectCompileMode::Auto {
-                        dump_lowered: true,
-                        ..
-                    }
-                ) {
-                    if frontend_config.output.mode != OutputMode::Json {
-                        let _ = writeln!(stdout, "✓ Emitted lowered snapshot!");
-                    }
-                } else if !matches!(
+    if let Ok(lowered) = compile_file(&config.input, &resolver_config, fol_model, &mut diagnostics)
+    {
+        if matches!(
+            config.mode,
+            DirectCompileMode::EmitLowered
+                | DirectCompileMode::Auto {
+                    dump_lowered: true,
+                    ..
+                }
+        ) && frontend_config.output.mode != OutputMode::Json
+            && !diagnostics.has_errors()
+        {
+            let _ = writeln!(stdout, "{}", render_lowered_workspace(&lowered));
+        }
+        if !diagnostics.has_errors() {
+            if lowered.entry_candidates().is_empty()
+                && !matches!(
                     config.mode,
                     DirectCompileMode::Check | DirectCompileMode::EmitLowered
-                ) {
-                    match matches!(config.mode, DirectCompileMode::Run { .. }) {
-                        true => match ensure_direct_target_runs_on_host(frontend_config) {
-                            Ok(()) => {
-                                let backend_session = BackendSession::new(lowered);
-                                let output_root = frontend_config.working_directory.join("target");
-                                match emit_backend_artifact(
-                                    &backend_session,
-                                    &BackendConfig {
-                                        machine_target: frontend_config.backend_machine_target(),
-                                        build_profile: backend_profile_for_direct_compile(
-                                            frontend_config,
-                                        ),
-                                        mode: match config.mode {
-                                            DirectCompileMode::Auto {
-                                                emit_rust: true, ..
-                                            } => BackendMode::EmitSource,
-                                            DirectCompileMode::EmitRust { .. } => {
-                                                BackendMode::EmitSource
-                                            }
-                                            _ => BackendMode::BuildArtifact,
-                                        },
-                                        fol_model,
-                                        keep_build_dir: match &config.mode {
-                                            DirectCompileMode::Auto { keep_build_dir, .. } => {
-                                                *keep_build_dir
-                                            }
-                                            DirectCompileMode::Build { keep_build_dir }
-                                            | DirectCompileMode::Run { keep_build_dir, .. }
-                                            | DirectCompileMode::EmitRust { keep_build_dir } => {
-                                                *keep_build_dir
-                                            }
-                                            _ => false,
-                                        },
-                                        ..BackendConfig::default()
-                                    },
-                                    &output_root,
-                                ) {
-                                    Ok(artifact) => {
-                                        if frontend_config.output.mode != OutputMode::Json {
-                                            let _ = writeln!(
-                                                stdout,
-                                                "{}",
-                                                summarize_emitted_artifact(&artifact)
-                                            );
-                                            let _ = writeln!(stdout, "✓ Compilation successful!");
-                                        }
-                                    }
-                                    Err(error) => {
-                                        diagnostics.add_error(error.to_string(), None);
-                                    }
-                                }
+                )
+            {
+                if matches!(config.mode, DirectCompileMode::Auto { .. }) {
+                    if frontend_config.output.mode != OutputMode::Json {
+                        let _ = writeln!(stdout, "✓ Compilation successful!");
+                    }
+                } else {
+                    diagnostics.add_error(
+                        format!("{} does not contain a runnable entrypoint", config.input),
+                        None,
+                    );
+                }
+            } else if matches!(
+                config.mode,
+                DirectCompileMode::Auto {
+                    dump_lowered: true,
+                    ..
+                }
+            ) {
+                if frontend_config.output.mode != OutputMode::Json {
+                    let _ = writeln!(stdout, "✓ Emitted lowered snapshot!");
+                }
+            } else if !matches!(
+                config.mode,
+                DirectCompileMode::Check | DirectCompileMode::EmitLowered
+            ) {
+                let backend_session = BackendSession::new(lowered);
+                let output_root = frontend_config.working_directory.join("target");
+                match emit_backend_artifact(
+                    &backend_session,
+                    &BackendConfig {
+                        machine_target: machine_target.clone(),
+                        build_profile: backend_profile_for_direct_compile(frontend_config),
+                        mode: match config.mode {
+                            DirectCompileMode::Auto {
+                                emit_rust: true, ..
                             }
-                            Err(error) => diagnostics.add_error(error.to_string(), None),
+                            | DirectCompileMode::EmitRust { .. } => BackendMode::EmitSource,
+                            _ => BackendMode::BuildArtifact,
                         },
-                        false => {
-                            let backend_session = BackendSession::new(lowered);
-                            let output_root = frontend_config.working_directory.join("target");
-                            match emit_backend_artifact(
-                                &backend_session,
-                                &BackendConfig {
-                                    machine_target: frontend_config.backend_machine_target(),
-                                    build_profile: backend_profile_for_direct_compile(
-                                        frontend_config,
-                                    ),
-                                    mode: match config.mode {
-                                        DirectCompileMode::Auto {
-                                            emit_rust: true, ..
-                                        } => BackendMode::EmitSource,
-                                        DirectCompileMode::EmitRust { .. } => {
-                                            BackendMode::EmitSource
-                                        }
-                                        _ => BackendMode::BuildArtifact,
-                                    },
-                                    fol_model,
-                                    keep_build_dir: match &config.mode {
-                                        DirectCompileMode::Auto { keep_build_dir, .. } => {
-                                            *keep_build_dir
-                                        }
-                                        DirectCompileMode::Build { keep_build_dir }
-                                        | DirectCompileMode::Run { keep_build_dir, .. }
-                                        | DirectCompileMode::EmitRust { keep_build_dir } => {
-                                            *keep_build_dir
-                                        }
-                                        _ => false,
-                                    },
-                                    ..BackendConfig::default()
-                                },
-                                &output_root,
-                            ) {
-                                Ok(artifact) => {
-                                    if frontend_config.output.mode != OutputMode::Json {
-                                        let _ = writeln!(
-                                            stdout,
-                                            "{}",
-                                            summarize_emitted_artifact(&artifact)
-                                        );
-                                        let _ = writeln!(stdout, "✓ Compilation successful!");
-                                    }
-                                }
-                                Err(error) => {
-                                    diagnostics.add_error(error.to_string(), None);
-                                }
-                            }
+                        fol_model,
+                        keep_build_dir: match &config.mode {
+                            DirectCompileMode::Auto { keep_build_dir, .. }
+                            | DirectCompileMode::Build { keep_build_dir }
+                            | DirectCompileMode::Run { keep_build_dir, .. }
+                            | DirectCompileMode::EmitRust { keep_build_dir } => *keep_build_dir,
+                            _ => false,
+                        },
+                        ..BackendConfig::default()
+                    },
+                    &output_root,
+                ) {
+                    Ok(artifact) => {
+                        if frontend_config.output.mode != OutputMode::Json {
+                            let _ = writeln!(stdout, "{}", summarize_emitted_artifact(&artifact));
+                            let _ = writeln!(stdout, "✓ Compilation successful!");
                         }
+                    }
+                    Err(error) => {
+                        diagnostics.add_error(error.to_string(), None);
                     }
                 }
             }
         }
-        Err(_) => {}
     }
 
     let rendered = match frontend_config.output.mode {
@@ -725,6 +685,42 @@ mod tests {
             "{}",
             error
         );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn direct_compile_rejects_unknown_targets_before_creating_build_outputs() {
+        let root =
+            std::env::temp_dir().join(format!("fol_direct_unknown_target_{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let input = root.join("main.fol");
+        fs::write(&input, "fun[] main(): int = {\n    return 0\n};\n").unwrap();
+        let config = DirectCompileConfig {
+            input: input.display().to_string(),
+            std_root: None,
+            package_store_root: None,
+            mode: DirectCompileMode::Build {
+                keep_build_dir: false,
+            },
+        };
+        let frontend_config = FrontendConfig {
+            working_directory: root.clone(),
+            build_target_override: Some("mystery-vendor-os".to_string()),
+            ..FrontendConfig::default()
+        };
+        let mut output = Vec::new();
+
+        let exit = run_direct_compile_with_io(&config, &frontend_config, &mut output);
+        let output = String::from_utf8(output).unwrap();
+
+        assert_eq!(exit, 1);
+        assert!(
+            output.contains("unsupported explicit machine target 'mystery-vendor-os'"),
+            "{output}"
+        );
+        assert!(!output.contains("FOL Compiler"), "{output}");
+        assert!(!root.join("target").exists());
 
         fs::remove_dir_all(root).ok();
     }

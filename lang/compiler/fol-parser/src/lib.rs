@@ -6,6 +6,9 @@ pub mod ast;
 pub use ast::*;
 use fol_stream::{FileStream, Source};
 
+// Keep the public parser API's concrete diagnostic type; boxing it would be a
+// source-breaking signature change for callers.
+#[allow(clippy::result_large_err)]
 pub fn parse_type_reference_text(
     source: &str,
 ) -> Result<ast::FolType, fol_diagnostics::Diagnostic> {

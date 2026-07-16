@@ -3,6 +3,10 @@ name: release
 on:
   release:
     types: [created]
+
+permissions:
+  contents: write
+
 jobs:
   release:
     name: release ${{ matrix.target }}
@@ -12,13 +16,39 @@ jobs:
       matrix:
         target: [x86_64-unknown-linux-musl]
     steps:
-      - uses: actions/checkout@master
+      - name: Checkout FOL
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: fol
+
+      - name: Checkout PARC
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: follang/lang-c
+          ref: ba603cdccc9375473eca0c42e5462cf90b6da249
+          path: parc
+
+      - name: Checkout LINC
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: follang/linc
+          ref: 37c8fb16171114b39e2283ff4b9e351fa2d5975b
+          path: linc
+
+      - name: Checkout GERC
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: follang/gerc
+          ref: 423b14aec40f509de64152ec1fcc74a9371154f1
+          path: gerc
+
       - name: Compile and release
         id: compile
-        uses: rust-build/rust-build.action@v1.4.3
+        uses: rust-build/rust-build.action@7d5b0c135ddb825f7692d4d2d75e598184d15cec # v1.4.3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          SRC_DIR: fol
           TOOLCHAIN_VERSION : stable
           RUSTTARGET: ${{ matrix.target }}
           ARCHIVE_TYPES: "zip tar.gz"

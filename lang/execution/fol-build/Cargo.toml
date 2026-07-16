@@ -10,5 +10,6 @@ fol-diagnostics = { path = "../../compiler/fol-diagnostics" }
 fol-lexer = { path = "../../compiler/fol-lexer" }
 fol-parser = { path = "../../compiler/fol-parser" }
 fol-stream = { path = "../../compiler/fol-stream" }
+fol-types = { path = "../../compiler/fol-types" }
 
 [dev-dependencies]

@@ -44,10 +44,14 @@ pub(super) fn option_exec_value(kind: OptionKind, name: String) -> ExecValue {
     match kind {
         OptionKind::Target => ExecValue::Target(name),
         OptionKind::Optimize => ExecValue::Optimize(name),
-        OptionKind::Bool => ExecValue::Bool(false), // default until resolved
-        OptionKind::Int | OptionKind::String | OptionKind::Enum | OptionKind::Path => {
-            ExecValue::OptionRef(name)
-        }
+        OptionKind::Bool
+        | OptionKind::Int
+        | OptionKind::String
+        | OptionKind::Enum
+        | OptionKind::Path => ExecValue::OptionRef {
+            name,
+            kind: build_option_kind(kind),
+        },
     }
 }
 
@@ -64,9 +68,7 @@ pub(super) fn parse_option_default(
         (OptionKind::Int, AstNode::Literal(Literal::Integer(i))) => {
             Some(crate::BuildOptionValue::Int(*i))
         }
-        (OptionKind::String, _) => {
-            resolve_str(&field.value).map(crate::BuildOptionValue::String)
-        }
+        (OptionKind::String, _) => resolve_str(&field.value).map(crate::BuildOptionValue::String),
         (OptionKind::Enum, _) => resolve_str(&field.value).map(crate::BuildOptionValue::Enum),
         (OptionKind::Path, _) => resolve_str(&field.value).map(crate::BuildOptionValue::Path),
         _ => None,

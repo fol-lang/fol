@@ -271,11 +271,19 @@ fn literal_family_policy_accepts_matching_integer_and_float_sites() {
     let good_float = find_named_routine_syntax_id(&typed, "good_float");
 
     assert_eq!(
-        typed.type_table().get(count.declared_type.expect("int literal binding should lower")),
+        typed.type_table().get(
+            count
+                .declared_type
+                .expect("int literal binding should lower")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
     assert_eq!(
-        typed.type_table().get(ratio.declared_type.expect("float literal binding should lower")),
+        typed.type_table().get(
+            ratio
+                .declared_type
+                .expect("float literal binding should lower")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Float))
     );
     assert_eq!(
@@ -298,7 +306,7 @@ fn literal_family_policy_accepts_matching_integer_and_float_sites() {
 fn v1_boundary_rejects_generic_headers_and_meta_declarations() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-         "typ Bound: rec = {\n\
+        "typ Bound: rec = {\n\
          };\n\
          typ Box(T: Bound): rec = {\n\
              value: int\n\
@@ -350,7 +358,9 @@ fn v1_boundary_rejects_generic_routine_constraints_in_all_supported_header_kinds
         .iter()
         .filter(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains("must resolve to a standard declaration")
+                && error
+                    .message()
+                    .contains("must resolve to a standard declaration")
         })
         .count();
 
@@ -451,15 +461,13 @@ fn v1_boundary_rejects_v3_expression_surfaces() {
          };\n",
     )]);
 
-    for expected in ["range expressions are not yet supported"] {
-        assert!(
-            errors.iter().any(|error| {
-                error.kind() == TypecheckErrorKind::Unsupported
-                    && error.message().contains(expected)
-            }),
-            "Expected a V3 expression boundary diagnostic containing '{expected}', got: {errors:?}"
-        );
-    }
+    let expected = "range expressions are not yet supported";
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported && error.message().contains(expected)
+        }),
+        "Expected a V3 expression boundary diagnostic containing '{expected}', got: {errors:?}"
+    );
 }
 
 #[test]
@@ -552,7 +560,9 @@ fn workspace_typechecking_caches_loaded_packages_by_identity() {
     );
 
     let typed = typecheck_fixture_workspace_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace typechecking should accept packages that do not yet use imported values");
+        .expect(
+            "Workspace typechecking should accept packages that do not yet use imported values",
+        );
 
     assert_eq!(typed.package_count(), 2);
     assert_eq!(typed.entry_program().package_name(), "app");
@@ -623,22 +633,27 @@ fn workspace_typechecking_imports_mounted_value_and_routine_types_from_foreign_p
     );
 
     let typed = typecheck_fixture_workspace_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace typechecking should import mounted symbol facts from dependency packages");
+        .expect(
+            "Workspace typechecking should import mounted symbol facts from dependency packages",
+        );
     let entry = typed.entry_program();
 
     let (_answer_id, answer) = find_typed_symbol(entry, "answer", SymbolKind::ValueBinding);
     assert_eq!(
-        entry
-            .type_table()
-            .get(answer.declared_type.expect("mounted imported values should keep translated types")),
+        entry.type_table().get(
+            answer
+                .declared_type
+                .expect("mounted imported values should keep translated types")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 
     let (_bump_id, bump) = find_typed_symbol(entry, "bump", SymbolKind::Routine);
     assert_eq!(
-        entry
-        .type_table()
-        .get(bump.declared_type.expect("mounted imported routines should keep translated signatures")),
+        entry.type_table().get(
+            bump.declared_type
+                .expect("mounted imported routines should keep translated signatures")
+        ),
         Some(&CheckedType::Routine(RoutineType {
             generic_params: Vec::new(),
             generic_constraints: BTreeMap::new(),
@@ -672,8 +687,9 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
 
     let direct = typecheck_fixture_entry_with_config(&root, "app", ResolverConfig::default())
         .expect("Direct typechecking should still accept local-only packages");
-    let workspace = typecheck_fixture_workspace_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace typechecking should preserve local-only packages");
+    let workspace =
+        typecheck_fixture_workspace_with_config(&root, "app", ResolverConfig::default())
+            .expect("Workspace typechecking should preserve local-only packages");
     let workspace_entry = workspace.entry_program();
 
     assert_eq!(workspace.package_count(), 1);
@@ -686,10 +702,11 @@ fn workspace_typechecking_preserves_local_only_success_shape() {
     let (_workspace_helper_id, workspace_helper) =
         find_typed_symbol(workspace_entry, "helper", SymbolKind::Routine);
 
-    let direct_signature = match direct
-        .type_table()
-        .get(direct_helper.declared_type.expect("direct helper should have a signature"))
-    {
+    let direct_signature = match direct.type_table().get(
+        direct_helper
+            .declared_type
+            .expect("direct helper should have a signature"),
+    ) {
         Some(CheckedType::Routine(signature)) => signature,
         other => panic!("expected direct helper routine signature, got {other:?}"),
     };
@@ -775,7 +792,9 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
     );
 
     let typed = typecheck_fixture_workspace_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace typechecking should type loaded package declarations before entry typing");
+        .expect(
+            "Workspace typechecking should type loaded package declarations before entry typing",
+        );
     let shared = &find_typed_package(&typed, "shared").program;
 
     let (count_id, _count) = find_typed_symbol(shared, "Count", SymbolKind::Alias);
@@ -783,9 +802,11 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
     let (_bump_id, bump) = find_typed_symbol(shared, "bump", SymbolKind::Routine);
 
     assert_eq!(
-        shared
-            .type_table()
-            .get(answer.declared_type.expect("loaded package values should lower declared types")),
+        shared.type_table().get(
+            answer
+                .declared_type
+                .expect("loaded package values should lower declared types")
+        ),
         Some(&CheckedType::Declared {
             symbol: count_id,
             name: "Count".to_string(),
@@ -793,10 +814,10 @@ fn workspace_typechecking_keeps_loaded_package_declaration_signatures() {
             args: Vec::new(),
         })
     );
-    let signature = match shared
-        .type_table()
-        .get(bump.declared_type.expect("loaded package routines should lower signatures"))
-    {
+    let signature = match shared.type_table().get(
+        bump.declared_type
+            .expect("loaded package routines should lower signatures"),
+    ) {
         Some(CheckedType::Routine(signature)) => signature,
         other => panic!("expected loaded package routine signature, got {other:?}"),
     };
@@ -844,8 +865,9 @@ fn workspace_expression_typing_keeps_plain_imported_value_reference_types() {
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should accept imported value references");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect("Workspace entry typing should accept imported value references");
     let reference = find_typed_reference(&typed, "answer", ReferenceKind::Identifier);
 
     assert_eq!(
@@ -867,11 +889,7 @@ fn workspace_expression_typing_keeps_plain_imported_call_types() {
         &[
             (
                 "shared/lib.fol",
-                concat!(
-                    "fun[exp] answer(): int = {\n",
-                    "    return 42;\n",
-                    "};\n",
-                ),
+                concat!("fun[exp] answer(): int = {\n", "    return 42;\n", "};\n",),
             ),
             (
                 "app/main.fol",
@@ -885,8 +903,9 @@ fn workspace_expression_typing_keeps_plain_imported_call_types() {
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should accept imported routine calls");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect("Workspace entry typing should accept imported routine calls");
     let reference = find_typed_reference(&typed, "answer", ReferenceKind::FunctionCall);
 
     assert_eq!(
@@ -927,8 +946,11 @@ fn workspace_typechecking_imports_alias_record_and_entry_type_facts() {
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should import semantic type facts for exported type surfaces");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect(
+            "Workspace entry typing should import semantic type facts for exported type surfaces",
+        );
 
     let (_count_id, count) = find_typed_symbol(&typed, "Count", SymbolKind::Type);
     let (_point_id, point) = find_typed_symbol(&typed, "Point", SymbolKind::Type);
@@ -953,7 +975,9 @@ fn workspace_typechecking_imports_alias_record_and_entry_type_facts() {
                 .declared_type
                 .expect("imported record types should keep lowered semantic types"),
         ),
-        Some(&CheckedType::Record { fields: point_fields })
+        Some(&CheckedType::Record {
+            fields: point_fields
+        })
     );
 
     let outcome_variants = BTreeMap::from([
@@ -996,8 +1020,9 @@ fn workspace_typechecking_keeps_direct_loc_import_declaration_facts() {
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should keep direct loc import declaration facts");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect("Workspace entry typing should keep direct loc import declaration facts");
 
     assert_imported_declared_count_binding_and_routine(&typed, SymbolKind::Type);
 }
@@ -1228,7 +1253,8 @@ fn build_typechecking_accepts_dependency_handle_method_calls() {
 }
 
 #[test]
-fn workspace_expression_typing_keeps_plain_imported_value_types_in_bindings_returns_and_call_args() {
+fn workspace_expression_typing_keeps_plain_imported_value_types_in_bindings_returns_and_call_args()
+{
     let root = unique_temp_dir("workspace_imported_value_contexts");
     create_dir_all(&root).expect("Fixture root should be creatable");
     write_fixture_files(
@@ -1256,7 +1282,11 @@ fn workspace_expression_typing_keeps_plain_imported_value_types_in_bindings_retu
         .expect("Workspace entry typing should accept plain imported values in all basic expression contexts");
     let references = find_typed_references(&typed, "answer", ReferenceKind::Identifier);
 
-    assert_eq!(references.len(), 3, "expected imported value references in binding, call argument, and return");
+    assert_eq!(
+        references.len(),
+        3,
+        "expected imported value references in binding, call argument, and return"
+    );
     for reference in references {
         assert_eq!(
             typed.type_table().get(

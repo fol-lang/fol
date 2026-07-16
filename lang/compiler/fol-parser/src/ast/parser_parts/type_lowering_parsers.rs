@@ -295,14 +295,12 @@ impl AstParser {
             lowered
         } else if let Some(lowered) = Self::lower_bare_source_kind_type_name(&name) {
             lowered
+        } else if path.is_qualified() && !has_suffix {
+            FolType::QualifiedNamed { path }
         } else {
-            if path.is_qualified() && !has_suffix {
-                FolType::QualifiedNamed { path }
-            } else {
-                FolType::Named {
-                    syntax_id: path.syntax_id(),
-                    name,
-                }
+            FolType::Named {
+                syntax_id: path.syntax_id(),
+                name,
             }
         };
 

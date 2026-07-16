@@ -166,6 +166,7 @@ pub(crate) fn lower_routine_bodies(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_body_nodes(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -199,6 +200,7 @@ fn lower_body_nodes(
     Ok(cursor.anonymous_routines)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_body_sequence(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -286,6 +288,7 @@ fn lower_mutex_unlocks(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_deferred_entries(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -461,6 +464,7 @@ pub(crate) fn lower_panic_terminator(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_body_node(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,

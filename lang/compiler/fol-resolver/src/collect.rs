@@ -4,8 +4,7 @@ use crate::{
     ImportId, ResolverError, ResolverErrorKind, ScopeId, SourceUnitId, SymbolId,
 };
 use fol_parser::ast::{
-    AstNode, BindingPattern, FolType, ParsedDeclScope, ParsedTopLevel,
-    UsePathSegment,
+    AstNode, BindingPattern, FolType, ParsedDeclScope, ParsedTopLevel, UsePathSegment,
 };
 
 pub fn collect_top_level_symbols(program: &mut ResolvedProgram) -> Result<(), Vec<ResolverError>> {
@@ -54,27 +53,29 @@ pub(crate) fn top_level_scope_id(
     source_unit_id: SourceUnitId,
     item: &ParsedTopLevel,
 ) -> Result<ScopeId, ResolverError> {
-    let source_unit = program
-        .source_unit(source_unit_id)
-        .ok_or_else(|| ResolverError::new(
+    let source_unit = program.source_unit(source_unit_id).ok_or_else(|| {
+        ResolverError::new(
             ResolverErrorKind::Internal,
             format!(
                 "source unit {:?} not found during symbol collection",
                 source_unit_id
             ),
-        ))?;
+        )
+    })?;
 
     match item.meta.scope {
         Some(ParsedDeclScope::File) => Ok(source_unit.scope_id),
         Some(ParsedDeclScope::Namespace) => program
             .namespace_scope(&source_unit.namespace)
-            .ok_or_else(|| ResolverError::new(
-                ResolverErrorKind::Internal,
-                format!(
-                    "namespace scope for '{}' not found for namespace-scoped declaration",
-                    source_unit.namespace
-                ),
-            )),
+            .ok_or_else(|| {
+                ResolverError::new(
+                    ResolverErrorKind::Internal,
+                    format!(
+                        "namespace scope for '{}' not found for namespace-scoped declaration",
+                        source_unit.namespace
+                    ),
+                )
+            }),
         Some(ParsedDeclScope::Package) | None => Ok(program.program_scope),
     }
 }
@@ -389,6 +390,9 @@ pub(crate) fn top_level_duplicate_key(node: &AstNode, canonical_name: &str) -> S
     }
 }
 
+// Import records deliberately accept the fully resolved AST payload so the
+// call sites cannot omit provenance fields while constructing graph entries.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn insert_import_record(
     program: &mut ResolvedProgram,
     source_unit_id: SourceUnitId,

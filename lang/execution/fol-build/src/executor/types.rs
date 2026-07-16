@@ -1,33 +1,10 @@
-use crate::api::{PathHandle, PathHandleClass, PathHandleProvenance};
+use crate::api::{BuildArtifactConfigValue, PathHandle, PathHandleClass, PathHandleProvenance};
 use crate::artifact::BuildArtifactFolModel;
 use crate::runtime::BuildRuntimeGeneratedFileKind;
 
 // ---- Extraction output types (public so eval.rs can build EvaluatedBuildProgram) ---
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecConfigValue {
-    Literal(String),
-    OptionRef(String),
-}
-
-impl ExecConfigValue {
-    pub fn placeholder_string(&self) -> String {
-        match self {
-            Self::Literal(value) => value.clone(),
-            Self::OptionRef(name) => name.clone(),
-        }
-    }
-
-    pub fn resolve(&self, options: &crate::option::ResolvedBuildOptionSet) -> String {
-        match self {
-            Self::Literal(value) => value.clone(),
-            Self::OptionRef(name) => options
-                .get(name.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| name.clone()),
-        }
-    }
-}
+pub type ExecConfigValue = BuildArtifactConfigValue;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecArtifact {
@@ -46,7 +23,10 @@ pub(super) enum ExecValue {
     Graph,
     Target(String),
     Optimize(String),
-    OptionRef(String),
+    OptionRef {
+        name: String,
+        kind: crate::graph::BuildOptionKind,
+    },
     Str(String),
     Bool(bool),
     Artifact(ExecArtifact),
@@ -55,14 +35,17 @@ pub(super) enum ExecValue {
     },
     SourceFile {
         path: String,
+        provenance: PathHandleProvenance,
     },
     SourceDir {
         path: String,
+        provenance: PathHandleProvenance,
     },
     GeneratedFile {
         name: String,
         path: String,
         kind: BuildRuntimeGeneratedFileKind,
+        provenance: PathHandleProvenance,
     },
     Step {
         name: String,

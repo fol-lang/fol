@@ -25,6 +25,43 @@ fn temp_build_package(source: &str) -> (PathBuf, PathBuf) {
 }
 
 #[test]
+fn typed_target_inputs_keep_the_documented_build_option_spelling() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var target = graph.standard_target();\n",
+        "    when(target == \"x86_64-linux-gnu\") {\n",
+        "        { graph.add_exe({ name = \"app\", root = \"src/main.fol\" }); }\n",
+        "    };\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            target: Some(fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-gnu").unwrap()),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let evaluated = evaluate_build_source(&request, &build_path, source)
+        .expect("typed target condition should evaluate")
+        .expect("matching target condition should construct an artifact");
+
+    assert_eq!(
+        evaluated.result.resolved_options.get("target"),
+        Some("x86_64-linux-gnu")
+    );
+    assert_eq!(evaluated.result.graph.artifacts().len(), 1);
+    assert_eq!(
+        evaluated.result.graph.artifacts()[0].target.as_str(),
+        "x86_64-unknown-linux-gnu"
+    );
+}
+
+#[test]
 fn build_source_evaluator_accepts_build_metadata_and_dependency_calls() {
     let source = concat!(
         "pro[] build(): non = {\n",
@@ -71,12 +108,16 @@ fn build_source_evaluator_keeps_structured_git_dependency_selectors() {
     let cases = [
         (
             "version = \"branch:main\",\n        hash = \"deadbeef\",",
-            Some(crate::GitDependencyVersionSelector::Branch("main".to_string())),
+            Some(crate::GitDependencyVersionSelector::Branch(
+                "main".to_string(),
+            )),
             Some("deadbeef"),
         ),
         (
             "version = \"tag:v0.1.0\",",
-            Some(crate::GitDependencyVersionSelector::Tag("v0.1.0".to_string())),
+            Some(crate::GitDependencyVersionSelector::Tag(
+                "v0.1.0".to_string(),
+            )),
             None,
         ),
         (
@@ -401,17 +442,17 @@ fn build_source_evaluator_allows_evaluated_option_expressions_in_dependency_args
 #[test]
 fn build_source_evaluator_rejects_missing_required_dependency_option_args() {
     let source = concat!(
-        // A standard target option with no CLI/default value stays unresolved,
-        // so passing it as a dependency arg must fail. (Bool options resolve to
-        // a default `false`, so they no longer surface a missing-value error.)
+        // Standard target/optimize handles have concrete host/debug defaults.
+        // A user option without a default stays unresolved and must fail when
+        // forwarded as a required dependency argument.
         "pro[] build(): non = {\n",
         "    var graph = .build().graph();\n",
-        "    var target = graph.standard_target();\n",
+        "    var endpoint = graph.option({ name = \"endpoint\", kind = \"str\" });\n",
         "    var dep = .build().add_dep({\n",
         "        alias = \"json\",\n",
         "        source = \"pkg\",\n",
         "        target = \"json\",\n",
-        "        args = { target = target },\n",
+        "        args = { endpoint = endpoint },\n",
         "    });\n",
         "    return;\n",
         "};\n",
@@ -431,7 +472,7 @@ fn build_source_evaluator_rejects_missing_required_dependency_option_args() {
 
     assert_eq!(
         error.message(),
-        "dependency 'json' requires resolved target option 'target' for arg 'target'"
+        "dependency 'json' requires resolved str option 'endpoint' for arg 'endpoint'"
     );
 }
 
@@ -525,7 +566,8 @@ fn build_source_evaluator_keeps_mixed_source_dependency_surface_queries_precise(
         .result
         .dependency_requests
         .iter()
-        .any(|dep| dep.alias == "json" && dep.source_kind == crate::DependencySourceKind::PackageStore));
+        .any(|dep| dep.alias == "json"
+            && dep.source_kind == crate::DependencySourceKind::PackageStore));
     assert!(evaluated
         .result
         .dependency_requests
@@ -937,6 +979,311 @@ fn build_source_evaluator_rejects_invalid_dependency_arg_shapes_with_exact_diagn
         error.message(),
         "build.add_dep config is invalid: dependency arg 'target' must evaluate to bool, int, str, or an option handle"
     );
+}
+
+#[test]
+fn build_source_evaluator_projects_typed_c_imports_through_graph_and_runtime() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+        "    var header = graph.file_from_root(\"native/widget.h\");\n",
+        "    var provider = graph.file_from_root(\"native/widget.o\");\n",
+        "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let evaluated = evaluate_build_source(&request, &build_path, source)
+        .expect("typed local C import handles should evaluate")
+        .expect("build body should produce operations");
+
+    let attachment = evaluated
+        .result
+        .graph
+        .c_imports()
+        .first()
+        .expect("authoritative graph should contain the C import");
+    assert_eq!(evaluated.result.graph.c_imports().len(), 1);
+    assert_eq!(attachment.artifact_id, crate::graph::BuildArtifactId(0));
+    assert_eq!(attachment.header, "native/widget.h");
+    assert_eq!(attachment.provider, "native/widget.o");
+    assert_eq!(
+        attachment.provider_kind,
+        crate::graph::BuildCImportProviderKind::Object
+    );
+    assert_eq!(evaluated.evaluated.artifacts.len(), 1);
+    assert_eq!(
+        evaluated.evaluated.artifacts[0].artifact_id,
+        attachment.artifact_id
+    );
+    assert_eq!(
+        evaluated.evaluated.artifacts[0].c_imports,
+        vec![attachment.clone()]
+    );
+}
+
+#[test]
+fn build_source_evaluator_rejects_non_source_c_import_handles_with_exact_provenance() {
+    let cases = [
+        (
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var graph = .build().graph();\n",
+                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "    var provider = graph.file_from_root(\"native/widget.o\");\n",
+                "    app.add_c_import({ header = \"native/widget.h\", provider = provider, provider_kind = \"object\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+            "add_c_import config is invalid: 'header' must be a local source-file handle",
+        ),
+        (
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var graph = .build().graph();\n",
+                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "    var header = graph.file_from_root(\"native/widget.h\");\n",
+                "    app.add_c_import({ header = header, provider = \"native/widget.o\", provider_kind = \"object\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+            "add_c_import config is invalid: 'provider' must be a local source-file handle",
+        ),
+        (
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var graph = .build().graph();\n",
+                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "    var header = graph.dir_from_root(\"native\");\n",
+                "    var provider = graph.file_from_root(\"native/widget.o\");\n",
+                "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+            "add_c_import config is invalid: 'header' must be a local source-file handle, not a source-dir handle",
+        ),
+        (
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var graph = .build().graph();\n",
+                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "    var header = graph.file_from_root(\"native/widget.h\");\n",
+                "    var provider = graph.write_file({ name = \"widget-object\", path = \"gen/widget.o\", contents = \"object\" });\n",
+                "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+            "add_c_import config is invalid: 'provider' must be a local source-file handle, not a generated-output handle",
+        ),
+        (
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    var graph = build.graph();\n",
+                "    var dep = build.add_dep({ alias = \"native\", source = \"pkg\", target = \"native\" });\n",
+                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "    var header = graph.file_from_root(\"native/widget.h\");\n",
+                "    var provider = dep.file(\"widget-object\");\n",
+                "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+            "add_c_import config is invalid: 'provider' must be a local source-file handle, not a dependency-file handle",
+        ),
+        (
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    var graph = build.graph();\n",
+                "    var dep = build.add_dep({ alias = \"native\", source = \"pkg\", target = \"native\" });\n",
+                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "    var header = graph.file_from_root(\"native/widget.h\");\n",
+                "    var provider = dep.dir(\"widget-objects\");\n",
+                "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+            "add_c_import config is invalid: 'provider' must be a local source-file handle, not a dependency-dir handle",
+        ),
+        (
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    var graph = build.graph();\n",
+                "    var dep = build.add_dep({ alias = \"native\", source = \"pkg\", target = \"native\" });\n",
+                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "    var header = graph.file_from_root(\"native/widget.h\");\n",
+                "    var provider = dep.path(\"widget-object\");\n",
+                "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+            "add_c_import config is invalid: 'provider' must be a local source-file handle, not a dependency-path handle",
+        ),
+        (
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    var graph = build.graph();\n",
+                "    var dep = build.add_dep({ alias = \"native\", source = \"pkg\", target = \"native\" });\n",
+                "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\" });\n",
+                "    var header = graph.file_from_root(\"native/widget.h\");\n",
+                "    var provider = dep.generated(\"widget-object\");\n",
+                "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+            "add_c_import config is invalid: 'provider' must be a local source-file handle, not a dependency-generated-output handle",
+        ),
+    ];
+
+    for (source, expected) in cases {
+        let (package_root, build_path) = temp_build_package(source);
+        let request = BuildEvaluationRequest {
+            package_root: package_root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: package_root.display().to_string(),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        };
+
+        let error = evaluate_build_source(&request, &build_path, source)
+            .expect_err("non-source C import inputs must fail closed");
+        assert_eq!(error.kind(), BuildEvaluationErrorKind::InvalidInput);
+        assert_eq!(error.message(), expected);
+    }
+}
+
+#[test]
+fn build_source_evaluator_rejects_invalid_c_import_kind_paths_and_duplicates() {
+    let cases = [
+        (
+            "/native/widget.h",
+            "native/widget.o",
+            "object",
+            "",
+            "C import header path '/native/widget.h' must be relative to the package root",
+        ),
+        (
+            "native/widget.h",
+            "../native/widget.o",
+            "object",
+            "",
+            "C import provider path '../native/widget.o' must not traverse outside the package root",
+        ),
+        (
+            "native/widget.h",
+            "native/widget.o",
+            "Object",
+            "",
+            "add_c_import config is invalid: 'provider_kind' must be exactly 'object', got 'Object'",
+        ),
+        (
+            "native/widget.h",
+            "native/widget.o",
+            "object",
+            "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+            "artifact 'artifact:0' already has C import header 'native/widget.h' with provider 'native/widget.o'",
+        ),
+        (
+            "native/widget.h",
+            "native/widget.o",
+            "object",
+            concat!(
+                "    var other_header = graph.file_from_root(\"native/other.h\");\n",
+                "    var other_provider = graph.file_from_root(\"native/other.o\");\n",
+                "    app.add_c_import({ header = other_header, provider = other_provider, provider_kind = \"object\" });\n",
+            ),
+            "artifact 'artifact:0' cannot attach more than one C import",
+        ),
+    ];
+
+    for (header, provider, provider_kind, repeated, expected) in cases {
+        let source = format!(
+            concat!(
+                "pro[] build(): non = {{\n",
+                "    var graph = .build().graph();\n",
+                "    var app = graph.add_exe({{ name = \"app\", root = \"src/main.fol\" }});\n",
+                "    var header = graph.file_from_root(\"{header}\");\n",
+                "    var provider = graph.file_from_root(\"{provider}\");\n",
+                "    app.add_c_import({{ header = header, provider = provider, provider_kind = \"{provider_kind}\" }});\n",
+                "{repeated}",
+                "    return;\n",
+                "}};\n",
+            ),
+            header = header,
+            provider = provider,
+            provider_kind = provider_kind,
+            repeated = repeated,
+        );
+        let (package_root, build_path) = temp_build_package(&source);
+        let request = BuildEvaluationRequest {
+            package_root: package_root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: package_root.display().to_string(),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        };
+
+        let error = evaluate_build_source(&request, &build_path, &source)
+            .expect_err("invalid C import configuration must fail closed");
+        assert_eq!(error.kind(), BuildEvaluationErrorKind::InvalidInput);
+        assert_eq!(error.message(), expected);
+    }
+}
+
+#[test]
+fn build_source_evaluator_requires_a_string_c_import_provider_kind() {
+    for (kind_field, expected) in [
+        (
+            "",
+            "add_c_import config is invalid: missing required string field 'provider_kind'",
+        ),
+        (
+            ", provider_kind = 1",
+            "add_c_import config is invalid: 'provider_kind' must be a string",
+        ),
+    ] {
+        let source = format!(
+            concat!(
+                "pro[] build(): non = {{\n",
+                "    var graph = .build().graph();\n",
+                "    var app = graph.add_exe({{ name = \"app\", root = \"src/main.fol\" }});\n",
+                "    var header = graph.file_from_root(\"native/widget.h\");\n",
+                "    var provider = graph.file_from_root(\"native/widget.o\");\n",
+                "    app.add_c_import({{ header = header, provider = provider{kind_field} }});\n",
+                "    return;\n",
+                "}};\n",
+            ),
+            kind_field = kind_field,
+        );
+        let (package_root, build_path) = temp_build_package(&source);
+        let request = BuildEvaluationRequest {
+            package_root: package_root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: package_root.display().to_string(),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        };
+
+        let error = evaluate_build_source(&request, &build_path, &source)
+            .expect_err("C import provider kind must be an explicit string");
+        assert_eq!(error.kind(), BuildEvaluationErrorKind::InvalidInput);
+        assert_eq!(error.message(), expected);
+    }
 }
 
 #[test]
@@ -1392,6 +1739,7 @@ fn evaluated_build_program_surface_keeps_runtime_metadata_and_graph_result() {
             crate::runtime::BuildExecutionRepresentation::RestrictedRuntimeIr,
         ),
         artifacts: vec![crate::runtime::BuildRuntimeArtifact::new(
+            crate::graph::BuildArtifactId(0),
             "app",
             crate::runtime::BuildRuntimeArtifactKind::Executable,
             "src/app.fol",

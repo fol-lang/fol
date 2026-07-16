@@ -676,8 +676,7 @@ pub fn reserved_intrinsic_for_surface(
     name: &str,
 ) -> Option<&'static IntrinsicEntry> {
     intrinsic_registry().iter().find(|entry| {
-        entry.surface == surface
-            && (entry.name == name || entry.aliases.iter().any(|alias| *alias == name))
+        entry.surface == surface && (entry.name == name || entry.aliases.contains(&name))
     })
 }
 

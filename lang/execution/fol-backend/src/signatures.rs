@@ -205,10 +205,11 @@ pub fn render_routine_signature(
                 ),
             )
         })?;
-        let receiver_mutability = type_table
-            .moves_on_transfer(receiver_type)
-            .then_some("mut ")
-            .unwrap_or("");
+        let receiver_mutability = if type_table.moves_on_transfer(receiver_type) {
+            "mut "
+        } else {
+            ""
+        };
         params.push(format!(
             "{receiver_mutability}{}: {}",
             mangle_local_name(
@@ -362,10 +363,10 @@ pub fn render_routine_definition(
     ))
 }
 
-fn routine_signature<'a>(
-    type_table: &'a LoweredTypeTable,
+fn routine_signature(
+    type_table: &LoweredTypeTable,
     signature_id: Option<LoweredTypeId>,
-) -> BackendResult<&'a LoweredRoutineType> {
+) -> BackendResult<&LoweredRoutineType> {
     let Some(signature_id) = signature_id else {
         return Err(BackendError::new(
             BackendErrorKind::InvalidInput,
@@ -430,10 +431,13 @@ fn render_param_list(
             } else {
                 render_rust_type_in_workspace(Some(workspace), type_table, type_id)?
             };
-            let mutability = (!routine.mutex_params.contains(local_id)
-                && type_table.moves_on_transfer(type_id))
-            .then_some("mut ")
-            .unwrap_or("");
+            let mutability = if !routine.mutex_params.contains(local_id)
+                && type_table.moves_on_transfer(type_id)
+            {
+                "mut "
+            } else {
+                ""
+            };
             Ok(format!(
                 "{mutability}{}: {}",
                 mangle_local_name(

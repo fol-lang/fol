@@ -1,6 +1,6 @@
 use super::*;
 
-fn unwrap_comment_wrappers<'a>(node: &'a AstNode) -> &'a AstNode {
+fn unwrap_comment_wrappers(node: &AstNode) -> &AstNode {
     match node {
         AstNode::Commented { node, .. } => unwrap_comment_wrappers(node.as_ref()),
         node => node,
@@ -118,12 +118,15 @@ fn test_method_calls_in_statement_and_return_positions() {
 
     let (has_update_stmt, has_get_return) = match ast {
         AstNode::Program { declarations } => {
-            let has_update_stmt = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::MethodCall { method, .. } if method == "update"
-                )
-            });
+            let has_update_stmt =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::MethodCall { method, .. } if method == "update"
+                        )
+                    });
 
             let has_get_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
@@ -477,13 +480,16 @@ fn test_multiline_call_arguments_parse_with_expected_shapes() {
                     )
                 });
 
-            let has_update_call = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::MethodCall { method, args, .. }
-                    if method == "update" && args.len() == 2
-                )
-            });
+            let has_update_call =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::MethodCall { method, args, .. }
+                            if method == "update" && args.len() == 2
+                        )
+                    });
 
             let has_emit_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(

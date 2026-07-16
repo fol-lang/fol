@@ -15,20 +15,25 @@ enum RootDeclFamily {
     Standard,
 }
 
-fn source_unit_has_root_decl_family(source_unit: &ParsedSourceUnit, family: RootDeclFamily) -> bool {
-    source_unit.items.iter().any(|item| match (&item.node, family) {
-        (AstNode::UseDecl { .. }, RootDeclFamily::Use)
-        | (AstNode::DefDecl { .. }, RootDeclFamily::Def)
-        | (AstNode::SegDecl { .. }, RootDeclFamily::Seg)
-        | (AstNode::VarDecl { .. }, RootDeclFamily::Var)
-        | (AstNode::LabDecl { .. }, RootDeclFamily::Lab)
-        | (AstNode::FunDecl { .. }, RootDeclFamily::Fun)
-        | (AstNode::ProDecl { .. }, RootDeclFamily::Pro)
-        | (AstNode::LogDecl { .. }, RootDeclFamily::Log)
-        | (AstNode::TypeDecl { .. }, RootDeclFamily::Type)
-        | (AstNode::AliasDecl { .. }, RootDeclFamily::Alias)
-        | (AstNode::StdDecl { .. }, RootDeclFamily::Standard) => true,
-        _ => false,
+fn source_unit_has_root_decl_family(
+    source_unit: &ParsedSourceUnit,
+    family: RootDeclFamily,
+) -> bool {
+    source_unit.items.iter().any(|item| {
+        matches!(
+            (&item.node, family),
+            (AstNode::UseDecl { .. }, RootDeclFamily::Use)
+                | (AstNode::DefDecl { .. }, RootDeclFamily::Def)
+                | (AstNode::SegDecl { .. }, RootDeclFamily::Seg)
+                | (AstNode::VarDecl { .. }, RootDeclFamily::Var)
+                | (AstNode::LabDecl { .. }, RootDeclFamily::Lab)
+                | (AstNode::FunDecl { .. }, RootDeclFamily::Fun)
+                | (AstNode::ProDecl { .. }, RootDeclFamily::Pro)
+                | (AstNode::LogDecl { .. }, RootDeclFamily::Log)
+                | (AstNode::TypeDecl { .. }, RootDeclFamily::Type)
+                | (AstNode::AliasDecl { .. }, RootDeclFamily::Alias)
+                | (AstNode::StdDecl { .. }, RootDeclFamily::Standard)
+        )
     })
 }
 
@@ -45,7 +50,10 @@ fn parse_package_errors(path: &str) -> Vec<fol_diagnostics::Diagnostic> {
 #[test]
 fn test_decl_package_accepts_supported_file_root_declaration_families() {
     for (path, family) in [
-        ("test/parser/simple_use_bare_mod_type.fol", RootDeclFamily::Use),
+        (
+            "test/parser/simple_use_bare_mod_type.fol",
+            RootDeclFamily::Use,
+        ),
         ("test/parser/simple_def_module.fol", RootDeclFamily::Def),
         ("test/parser/simple_seg_module.fol", RootDeclFamily::Seg),
         ("test/parser/simple_var.fol", RootDeclFamily::Var),
@@ -53,9 +61,15 @@ fn test_decl_package_accepts_supported_file_root_declaration_families() {
         ("test/parser/simple_fun.fol", RootDeclFamily::Fun),
         ("test/parser/simple_pro.fol", RootDeclFamily::Pro),
         ("test/parser/simple_log.fol", RootDeclFamily::Log),
-        ("test/parser/simple_typ_object_marker.fol", RootDeclFamily::Type),
+        (
+            "test/parser/simple_typ_object_marker.fol",
+            RootDeclFamily::Type,
+        ),
         ("test/parser/simple_ali.fol", RootDeclFamily::Alias),
-        ("test/parser/simple_std_protocol.fol", RootDeclFamily::Standard),
+        (
+            "test/parser/simple_std_protocol.fol",
+            RootDeclFamily::Standard,
+        ),
     ] {
         let parsed = parse_package_from_file(path);
 
@@ -89,14 +103,17 @@ fn test_decl_package_rejects_top_level_executable_calls_as_one_root_error() {
         "Expected executable-call file-root diagnostic, got: {}",
         errors[0].message
     );
-    let loc = errors[0].primary_location().expect("diagnostic should have primary location");
+    let loc = errors[0]
+        .primary_location()
+        .expect("diagnostic should have primary location");
     assert_eq!(loc.line, 1);
     assert_eq!(loc.column, 1);
 }
 
 #[test]
 fn test_decl_package_rejects_top_level_assignments_as_one_root_error() {
-    let errors = parse_package_errors("test/parser/simple_top_level_keyword_call_and_assignment.fol");
+    let errors =
+        parse_package_errors("test/parser/simple_top_level_keyword_call_and_assignment.fol");
 
     assert_eq!(
         errors.len(),
@@ -110,7 +127,9 @@ fn test_decl_package_rejects_top_level_assignments_as_one_root_error() {
         "Expected executable-call file-root diagnostic first, got: {}",
         errors[0].message
     );
-    let loc0 = errors[0].primary_location().expect("diagnostic should have primary location");
+    let loc0 = errors[0]
+        .primary_location()
+        .expect("diagnostic should have primary location");
     assert_eq!(loc0.line, 1);
     assert_eq!(loc0.column, 1);
     assert!(
@@ -120,7 +139,9 @@ fn test_decl_package_rejects_top_level_assignments_as_one_root_error() {
         "Expected assignment file-root diagnostic second, got: {}",
         errors[1].message
     );
-    let loc1 = errors[1].primary_location().expect("diagnostic should have primary location");
+    let loc1 = errors[1]
+        .primary_location()
+        .expect("diagnostic should have primary location");
     assert_eq!(loc1.line, 2);
     assert_eq!(loc1.column, 1);
 }
@@ -141,7 +162,9 @@ fn test_decl_package_rejects_top_level_when_statement_as_one_root_error() {
         "Expected control-flow file-root diagnostic, got: {}",
         errors[0].message
     );
-    let loc = errors[0].primary_location().expect("diagnostic should have primary location");
+    let loc = errors[0]
+        .primary_location()
+        .expect("diagnostic should have primary location");
     assert_eq!(loc.line, 1);
     assert_eq!(loc.column, 1);
 }
@@ -162,7 +185,9 @@ fn test_decl_package_rejects_top_level_loop_statement_as_one_root_error() {
         "Expected control-flow file-root diagnostic, got: {}",
         errors[0].message
     );
-    let loc = errors[0].primary_location().expect("diagnostic should have primary location");
+    let loc = errors[0]
+        .primary_location()
+        .expect("diagnostic should have primary location");
     assert_eq!(loc.line, 1);
     assert_eq!(loc.column, 1);
 }
@@ -184,7 +209,9 @@ fn test_decl_package_rejects_literal_roots_line_by_line() {
             "Expected literal file-root diagnostic, got: {}",
             error.message
         );
-        let loc = error.primary_location().expect("diagnostic should have primary location");
+        let loc = error
+            .primary_location()
+            .expect("diagnostic should have primary location");
         assert_eq!(loc.line, index + 1);
         assert_eq!(loc.column, 1);
     }

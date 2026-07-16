@@ -1,0 +1,17 @@
+[package]
+name = "fol-interop"
+version = "0.1.4"
+edition = "2021"
+authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
+description = "Checked FOL handoff to the PARC, LINC, and GERC interop pipeline"
+
+[lib]
+name = "fol_interop"
+path = "src/lib.rs"
+
+[dependencies]
+fol-build = { path = "../../execution/fol-build" }
+fol-types = { path = "../../compiler/fol-types" }
+gerc = { package = "follang-gerc", path = "../../../../gerc", default-features = false, features = ["pipeline-native"] }
+linc = { package = "follang-linc", path = "../../../../linc", default-features = false, features = ["native-inspection"] }
+parc = { package = "follang-parc", path = "../../../../parc" }

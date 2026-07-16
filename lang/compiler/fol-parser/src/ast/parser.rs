@@ -174,7 +174,7 @@ impl AstParser {
         tokens: &fol_lexer::lexer::stage3::Elements,
     ) -> Result<ParseDepthGuard<'a>, ParseError> {
         let new_depth = depth.get().checked_add(1).ok_or_else(|| {
-            let error = if let Ok(token) = tokens.curr(false) {
+            if let Ok(token) = tokens.curr(false) {
                 ParseError::from_token(
                     &token,
                     "Depth guard overflow; possible infinite recursion in parser".to_string(),
@@ -189,8 +189,7 @@ impl AstParser {
                     column: 0,
                     length: 0,
                 }
-            };
-            error
+            }
         })?;
         depth.set(new_depth);
         Ok(ParseDepthGuard { depth })
@@ -374,13 +373,16 @@ mod tests {
         let AstNode::FunDecl { body, .. } = &package.source_units[0].items[1].node else {
             panic!("expected main routine declaration");
         };
-        assert!(matches!(
-            body.first(),
-            Some(AstNode::Spawn {
-                task
-            }) if matches!(task.as_ref(), AstNode::FunctionCall { name, args, .. }
-                if name == "worker" && args.len() == 1)
-        ), "parsed body: {body:#?}");
+        assert!(
+            matches!(
+                body.first(),
+                Some(AstNode::Spawn {
+                    task
+                }) if matches!(task.as_ref(), AstNode::FunctionCall { name, args, .. }
+                    if name == "worker" && args.len() == 1)
+            ),
+            "parsed body: {body:#?}"
+        );
     }
 
     #[test]
@@ -390,17 +392,20 @@ mod tests {
         let AstNode::FunDecl { body, .. } = &package.source_units[0].items[0].node else {
             panic!("expected main routine declaration");
         };
-        assert!(body.iter().any(|node| matches!(
-            node,
-            AstNode::BinaryOp {
-                op: BinaryOperator::Pipe,
-                right,
-                ..
-            } if matches!(right.as_ref(), AstNode::ChannelAccess {
-                endpoint: ChannelEndpoint::Tx,
-                ..
-            })
-        )), "parsed body: {body:#?}");
+        assert!(
+            body.iter().any(|node| matches!(
+                node,
+                AstNode::BinaryOp {
+                    op: BinaryOperator::Pipe,
+                    right,
+                    ..
+                } if matches!(right.as_ref(), AstNode::ChannelAccess {
+                    endpoint: ChannelEndpoint::Tx,
+                    ..
+                })
+            )),
+            "parsed body: {body:#?}"
+        );
     }
 
     #[test]

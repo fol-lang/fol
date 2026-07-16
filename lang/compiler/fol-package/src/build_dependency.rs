@@ -128,6 +128,7 @@ pub fn project_dependency_surface(
                 fol_build::BuildArtifactModelKind::StaticLibrary => "static-lib".to_string(),
                 fol_build::BuildArtifactModelKind::SharedLibrary => "shared-lib".to_string(),
                 fol_build::BuildArtifactModelKind::TestBundle => "test".to_string(),
+                fol_build::BuildArtifactModelKind::Object => "object".to_string(),
                 fol_build::BuildArtifactModelKind::GeneratedSourceBundle => {
                     "generated-source".to_string()
                 }

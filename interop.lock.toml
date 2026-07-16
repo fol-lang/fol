@@ -1,0 +1,35 @@
+format_version = "1"
+certified_target = "x86_64-unknown-linux-gnu"
+pipeline_corpus_sha256 = "1feaeb4f9f0aa2275a3973217e866d8fd9942d4266f2b97c28bc6215403757f5"
+
+[parc]
+path = "../parc"
+repository = "github.com/follang/lang-c"
+revision = "ba603cdccc9375473eca0c42e5462cf90b6da249"
+package = "follang-parc"
+crate = "parc"
+version = "0.16.0"
+schema_id = "follang.parc.source-package"
+schema_version = "2"
+
+[linc]
+path = "../linc"
+repository = "github.com/follang/linc"
+revision = "37c8fb16171114b39e2283ff4b9e351fa2d5975b"
+package = "follang-linc"
+crate = "linc"
+version = "0.1.0"
+schema_id = "follang.linc.link-analysis"
+schema_version = "2"
+required_feature = "native-inspection"
+
+[gerc]
+path = "../gerc"
+repository = "github.com/follang/gerc"
+revision = "423b14aec40f509de64152ec1fcc74a9371154f1"
+package = "follang-gerc"
+crate = "gerc"
+version = "0.1.0"
+schema_id = "follang.gerc.generation"
+schema_version = "1"
+required_feature = "pipeline-native"

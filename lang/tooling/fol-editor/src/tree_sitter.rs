@@ -17,9 +17,9 @@ impl TreeSitterCorpusCase {
             .source
             .splitn(3, "==================")
             .nth(2)?
-            .trim_start_matches(|character| character == '\r' || character == '\n');
+            .trim_start_matches(['\r', '\n']);
         let (program, _) = body.split_once("\n---\n")?;
-        Some(program.trim_end_matches(|character| character == '\r' || character == '\n'))
+        Some(program.trim_end_matches(['\r', '\n']))
     }
 
     #[cfg(test)]
@@ -412,11 +412,10 @@ mod tests {
     }
 
     fn assert_quoted_import_targets(label: &str, source: &str) {
-        let result = execute_fol_tree_sitter_query(
-            source,
-            "(use_decl target: (_) @import_target)",
-        )
-        .unwrap_or_else(|error| panic!("failed to inspect import targets in '{label}': {error}"));
+        let result = execute_fol_tree_sitter_query(source, "(use_decl target: (_) @import_target)")
+            .unwrap_or_else(|error| {
+                panic!("failed to inspect import targets in '{label}': {error}")
+            });
         assert!(
             !result.parse.has_error(),
             "'{label}' should parse before its import targets are audited:\nerrors={:?}\nmissing={:?}\n{source}",

@@ -65,7 +65,7 @@ fn build_evaluation_input_determinism_key_is_stable_for_sorted_inputs() {
 
     assert_eq!(
         inputs.determinism_key(),
-        "cwd=/work/app;prefix=;target=x86_64-linux-gnu;optimize=debug;options=[optimize=debug,target=native];declared_env=[AR,CC];env=[AR=llvm-ar,CC=clang]"
+        "cwd=/work/app;prefix=;target=x86_64-unknown-linux-gnu;optimize=debug;options=[optimize=debug,target=native];declared_env=[AR,CC];env=[AR=llvm-ar,CC=clang]"
     );
 }
 
@@ -85,7 +85,7 @@ fn build_evaluation_request_determinism_key_includes_root_and_inputs() {
 
     assert_eq!(
         request.determinism_key(),
-        "root=/pkg;cwd=;prefix=;target=aarch64-macos-gnu;optimize=release-fast;options=[target=native];declared_env=[];env=[];ops=0"
+        "root=/pkg;cwd=;prefix=;target=aarch64-apple-darwin;optimize=release-fast;options=[target=native];declared_env=[];env=[];ops=0"
     );
 }
 
@@ -139,7 +139,7 @@ fn explicit_input_envelope_filters_ambient_environment_before_keying() {
     );
     assert_eq!(
         envelope.determinism_key(),
-        "cwd=/pkg;prefix=;target=x86_64-linux-gnu;optimize=release-safe;options=[strip=true];declared_env=[CC];env=[CC=clang]"
+        "cwd=/pkg;prefix=;target=x86_64-unknown-linux-gnu;optimize=release-safe;options=[strip=true];declared_env=[CC];env=[CC=clang]"
     );
 }
 
@@ -149,10 +149,10 @@ fn forbidden_capability_messages_are_specific_to_the_runtime_surface() {
         forbidden_capability_message(ForbiddenBuildTimeOperation::ArbitraryFilesystemRead)
             .contains("filesystem reads")
     );
-    assert!(forbidden_capability_message(
-        ForbiddenBuildTimeOperation::AmbientEnvironmentAccess
-    )
-    .contains("declared inputs"));
+    assert!(
+        forbidden_capability_message(ForbiddenBuildTimeOperation::AmbientEnvironmentAccess)
+            .contains("declared inputs")
+    );
 }
 
 #[test]

@@ -158,11 +158,12 @@ pub fn execute_workspace_build_route(
     config: &crate::FrontendConfig,
     request: &FrontendWorkspaceBuildRequest,
 ) -> FrontendResult<crate::FrontendCommandResult> {
+    let effective_config = execution_config_for_profile(config, request.profile);
     let route = plan_workspace_build_route(workspace, request.requested_step.clone())?;
     let member_plans = route
         .members
         .iter()
-        .map(|member| plan_member_execution(workspace, member, config))
+        .map(|member| plan_member_execution(workspace, member, &effective_config))
         .collect::<FrontendResult<Vec<_>>>()?;
     let requested_step = request.requested_step.as_str();
     if !member_plans
@@ -181,22 +182,32 @@ pub fn execute_workspace_build_route(
     match resolved.execution {
         FrontendStepExecutionKind::Build => {
             if resolved.selections.is_empty() {
-                crate::build_workspace_for_profile_with_config(workspace, config, request.profile)
+                crate::build_workspace_for_profile_with_config(
+                    workspace,
+                    &effective_config,
+                    request.profile,
+                )
             } else {
                 crate::compile::build_selected_artifacts_for_profile_with_config(
                     workspace,
-                    config,
+                    &effective_config,
                     request.profile,
                     &resolved.selections,
                 )
             }
         }
-        FrontendStepExecutionKind::Check => crate::check_workspace_with_config(workspace, config),
+        FrontendStepExecutionKind::Check => {
+            crate::check_workspace_with_config(workspace, &effective_config)
+        }
         FrontendStepExecutionKind::Run => match resolved.selections.as_slice() {
-            [] => crate::run_workspace_with_args_and_config(workspace, config, &request.run_args),
+            [] => crate::run_workspace_with_args_and_config(
+                workspace,
+                &effective_config,
+                &request.run_args,
+            ),
             [selection] => crate::compile::run_selected_artifact_with_args_and_config(
                 workspace,
-                config,
+                &effective_config,
                 request.profile,
                 selection,
                 &request.run_args,
@@ -212,17 +223,37 @@ pub fn execute_workspace_build_route(
         },
         FrontendStepExecutionKind::Test => {
             if resolved.selections.is_empty() {
-                crate::test_workspace_with_config(workspace, config)
+                crate::test_workspace_with_config(workspace, &effective_config)
             } else {
                 crate::compile::test_selected_artifacts_with_config(
                     workspace,
-                    config,
+                    &effective_config,
                     request.profile,
                     &resolved.selections,
                 )
             }
         }
     }
+}
+
+fn execution_config_for_profile(
+    config: &crate::FrontendConfig,
+    profile: FrontendProfile,
+) -> crate::FrontendConfig {
+    let mut effective = config.clone();
+    // The frontend profile supplies the standard optimization default. An
+    // explicit --optimize/-Doptimize value remains authoritative.
+    if effective.build_optimize_override.is_none() {
+        effective.build_optimize_override = Some(
+            match profile {
+                FrontendProfile::Debug => fol_package::BuildOptimizeMode::Debug,
+                FrontendProfile::Release => fol_package::BuildOptimizeMode::ReleaseSafe,
+            }
+            .as_str()
+            .to_owned(),
+        );
+    }
+    effective
 }
 
 pub(crate) fn plan_member_execution(
@@ -435,7 +466,8 @@ pub(crate) fn plan_member_execution_from_graph(
     let mut steps = fol_package::project_graph_steps(graph)
         .into_iter()
         .map(|step| {
-            let selection = selection_for_step(member, evaluated, &step.name, step.default_kind);
+            let selection =
+                selection_for_step(member, graph, evaluated, &step.name, step.default_kind);
             // A step whose artifact binding already resolved (explicit
             // graph binding or exact artifact name) is never ambiguous;
             // the multi-artifact heuristic only applies to unresolved
@@ -454,7 +486,7 @@ pub(crate) fn plan_member_execution_from_graph(
         })
         .collect::<Vec<_>>();
     if synthesize_defaults {
-        for step in synthesized_default_steps(member, evaluated) {
+        for step in synthesized_default_steps(member, graph, evaluated) {
             if !steps.iter().any(|existing| existing.name == step.name) {
                 steps.push(step);
             }
@@ -491,6 +523,7 @@ pub(crate) fn plan_member_execution_from_graph(
 
 fn selection_for_step(
     member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
     step_name: &str,
     default_kind: Option<fol_package::BuildDefaultStepKind>,
@@ -505,7 +538,7 @@ fn selection_for_step(
                 .artifacts
                 .iter()
                 .find(|artifact| artifact.name == *artifact_name)
-                .map(|artifact| artifact_selection(member, evaluated, artifact));
+                .map(|artifact| artifact_selection(member, graph, evaluated, artifact));
         }
     }
     if let Some(artifact) = evaluated
@@ -513,17 +546,19 @@ fn selection_for_step(
         .iter()
         .find(|artifact| artifact.name == step_name)
     {
-        return Some(artifact_selection(member, evaluated, artifact));
+        return Some(artifact_selection(member, graph, evaluated, artifact));
     }
     match default_kind {
         Some(fol_package::BuildDefaultStepKind::Build)
         | Some(fol_package::BuildDefaultStepKind::Run) => single_selection(
             member,
+            graph,
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
         ),
         Some(fol_package::BuildDefaultStepKind::Test) => single_selection(
             member,
+            graph,
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Test,
         ),
@@ -533,6 +568,7 @@ fn selection_for_step(
 
 fn synthesized_default_steps(
     member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
 ) -> Vec<FrontendMemberPlannedStep> {
     let mut steps = Vec::new();
@@ -543,6 +579,7 @@ fn synthesized_default_steps(
     if executable_count > 0 {
         let selection = single_selection(
             member,
+            graph,
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
         );
@@ -578,6 +615,7 @@ fn synthesized_default_steps(
     if test_count > 0 {
         let selection = single_selection(
             member,
+            graph,
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Test,
         );
@@ -691,6 +729,7 @@ fn models_for_step(
 
 fn single_selection(
     member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
     kind: fol_package::build_runtime::BuildRuntimeArtifactKind,
 ) -> Option<crate::compile::FrontendArtifactExecutionSelection> {
@@ -699,11 +738,12 @@ fn single_selection(
         .iter()
         .filter(|artifact| artifact.kind == kind)
         .collect::<Vec<_>>();
-    (artifacts.len() == 1).then(|| artifact_selection(member, evaluated, artifacts[0]))
+    (artifacts.len() == 1).then(|| artifact_selection(member, graph, evaluated, artifacts[0]))
 }
 
 fn artifact_selection(
     member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
     artifact: &fol_package::build_runtime::BuildRuntimeArtifact,
 ) -> crate::compile::FrontendArtifactExecutionSelection {
@@ -734,6 +774,13 @@ fn artifact_selection(
             has_bundled_std,
         ),
         has_bundled_std,
+        target: artifact.target.clone(),
+        optimize: artifact.optimize,
+        c_imports: artifact.c_imports.clone(),
+        graph_binding: Some(crate::compile::FrontendArtifactGraphBinding {
+            graph: graph.clone(),
+            artifact_id: artifact.artifact_id,
+        }),
     }
 }
 

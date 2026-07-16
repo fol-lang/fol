@@ -193,6 +193,7 @@ pub(crate) fn bind_lowered_call_arguments<'a>(
     Ok(bound_args)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_default_call_argument(
     type_table: &crate::LoweredTypeTable,
     checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
@@ -252,6 +253,7 @@ pub(crate) fn lower_default_call_argument(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_dot_intrinsic_call(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -389,6 +391,7 @@ pub(crate) fn lower_dot_intrinsic_call(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_pipe_or_expression(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -529,6 +532,7 @@ pub(crate) fn lower_pipe_or_expression(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_pipe_or_fallback(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -635,6 +639,7 @@ fn lower_pipe_or_fallback(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_check_call(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -697,6 +702,7 @@ pub(crate) fn lower_check_call(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_keyword_intrinsic_expression(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -734,6 +740,7 @@ pub(crate) fn lower_keyword_intrinsic_expression(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_keyword_intrinsic_statement(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -783,6 +790,7 @@ pub(crate) fn lower_keyword_intrinsic_statement(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_keyword_panic_terminator(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -833,6 +841,7 @@ fn lower_keyword_panic_terminator(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_function_call(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -1077,6 +1086,7 @@ pub(crate) fn lower_function_call(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_spawn_call(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -1144,7 +1154,7 @@ pub(crate) fn lower_spawn_call(
             .iter()
             .find_map(|instruction| {
                 (instruction.result == Some(routine_ref.local_id))
-                    .then(|| match instruction.kind {
+                    .then_some(match instruction.kind {
                         LoweredInstrKind::RoutineRef { routine } => Some(routine),
                         _ => None,
                     })
@@ -1560,6 +1570,7 @@ pub(crate) fn lower_async_call(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_statement_free_call(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,

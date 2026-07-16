@@ -12,7 +12,7 @@ impl AstParser {
         let mut saw_normal = false;
 
         let make_error = |message: String| -> ParseError {
-            let error = if let Ok(token) = tokens.curr(false) {
+            if let Ok(token) = tokens.curr(false) {
                 ParseError::from_token(&token, message)
             } else {
                 ParseError {
@@ -23,8 +23,7 @@ impl AstParser {
                     column: 0,
                     length: 0,
                 }
-            };
-            error
+            }
         };
 
         for option in options {
@@ -51,7 +50,10 @@ impl AstParser {
         }
 
         if (saw_export as u8 + saw_hidden as u8 + saw_normal as u8) > 1 {
-            return Err(make_error(format!("Conflicting {} visibility options", context)));
+            return Err(make_error(format!(
+                "Conflicting {} visibility options",
+                context
+            )));
         }
 
         Ok(())

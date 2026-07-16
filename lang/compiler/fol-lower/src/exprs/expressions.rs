@@ -146,6 +146,7 @@ pub(crate) fn lower_channel_access(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_channel_send(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -187,6 +188,7 @@ pub(crate) fn lower_channel_send(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_expression(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -212,6 +214,7 @@ pub(crate) fn lower_expression(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_expression_expected(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -382,6 +385,7 @@ fn lower_direct_borrow_reference(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_expression_observed(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -412,6 +416,7 @@ pub(crate) fn lower_expression_observed(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_expression_observed_inner(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -658,9 +663,9 @@ fn lower_expression_observed_inner(
             cursor,
             source_unit_id,
             scope_id,
-            expected_type.and_then(|type_id| match type_table.get(type_id) {
-                Some(crate::LoweredType::Owned { inner }) => Some(*inner),
-                _ => Some(type_id),
+            expected_type.map(|type_id| match type_table.get(type_id) {
+                Some(crate::LoweredType::Owned { inner }) => *inner,
+                _ => type_id,
             }),
             fields,
         ),
@@ -677,9 +682,9 @@ fn lower_expression_observed_inner(
             source_unit_id,
             scope_id,
             container_type.clone(),
-            expected_type.and_then(|type_id| match type_table.get(type_id) {
-                Some(crate::LoweredType::Owned { inner }) => Some(*inner),
-                _ => Some(type_id),
+            expected_type.map(|type_id| match type_table.get(type_id) {
+                Some(crate::LoweredType::Owned { inner }) => *inner,
+                _ => type_id,
             }),
             elements,
         ),
