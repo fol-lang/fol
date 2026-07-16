@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-184168a3.js";
+            window.path_to_searchindex_js = "searchindex-580adf60.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-df4b2410.js"></script>
@@ -9321,11 +9321,11 @@ for <code>select</code> and mutexes are maintained in the
 <a href="#shipped-example-inventory-1">canonical shipped processor inventory</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="interop-toolchain-boundary"><a class="header" href="#interop-toolchain-boundary">Interop Toolchain Boundary</a></h1>
-<p>The locked H7 smoke handoff is implemented and its focused Make gate passes
-for the initial certified lane. Final repository-wide hardening sign-off is a
-separate gate. This is a narrow production smoke path through the sibling
-toolchain, not completion of FOL V4’s broader language-level interop
-milestones.</p>
+<p>The repository-wide hardening gate is complete for the initial certified
+<code>x86_64-unknown-linux-gnu</code> lane. The locked H7 Make gate passes in FOL CI
+through clean, exact PARC, LINC, and GERC commits. This unblocks the first
+broader V4 milestone; it does not complete FOL V4’s broader language-level
+interop milestones.</p>
 <p>FOL integrates three independently usable sibling crates and does not copy
 their native semantics:</p>
 <pre><code class="language-text">build.fol executable + one C header/object import
@@ -9430,8 +9430,8 @@ Rust 1.89.0, and invokes the same Make-owned locked smoke gate. Changing a
 sibling revision requires changing <code>interop.lock.toml</code>, compiled lock
 constants, CI checkout refs, compatibility evidence, and this snapshot
 together.</p>
-<p>After final repository-wide hardening sign-off, this boundary unblocks the
-first broader V4 work. It does not itself expose general foreign declaration
+<p>With repository-wide hardening complete, this boundary unblocks the first
+broader V4 work. It does not itself expose general foreign declaration
 syntax, general pointers or ownership, C export, bounded header-import
 tooling, C++ ABI support, Rust facade generation, or a stable Rust binary ABI.</p>
 
