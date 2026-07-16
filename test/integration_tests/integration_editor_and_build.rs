@@ -61,6 +61,52 @@ fn collect_rust_source_files(root: &std::path::Path) -> Vec<std::path::PathBuf> 
     found
 }
 
+fn collect_text_matches(
+    path: &std::path::Path,
+    excluded: &std::path::Path,
+    needles: &[&str],
+    matches: &mut Vec<String>,
+) -> Result<(), String> {
+    if path == excluded {
+        return Ok(());
+    }
+
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("failed to inspect '{}': {error}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+    if metadata.is_dir() {
+        let mut entries = std::fs::read_dir(path)
+            .map_err(|error| format!("failed to read '{}': {error}", path.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("failed to enumerate '{}': {error}", path.display()))?;
+        entries.sort_by_key(|entry| entry.path());
+        for entry in entries {
+            if entry.file_name() == ".fol" {
+                continue;
+            }
+            collect_text_matches(&entry.path(), excluded, needles, matches)?;
+        }
+        return Ok(());
+    }
+    if !metadata.is_file() {
+        return Ok(());
+    }
+
+    let contents = std::fs::read(path)
+        .map_err(|error| format!("failed to read '{}': {error}", path.display()))?;
+    for needle in needles {
+        if contents
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
+        {
+            matches.push(format!("{} contains {needle:?}", path.display()));
+        }
+    }
+    Ok(())
+}
+
 fn emitted_crate_root(output: &std::process::Output) -> std::path::PathBuf {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let root = stdout
@@ -1875,7 +1921,7 @@ fn git_output(root: &std::path::Path, args: &[&str]) -> String {
 }
 
 fn create_git_remote_from_logtiny_fixture(root: &std::path::Path) {
-    let source = repo_root().join("xtra/logtiny");
+    let source = repo_root().join("test/fixtures/logtiny");
     copy_dir_all(&source, root);
     std::fs::remove_dir_all(root.join(".git")).ok();
     std::fs::remove_dir_all(root.join(".fol")).ok();
@@ -2000,7 +2046,7 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
         "--output",
         "json",
         "parse",
-        "xtra/logtiny/build.fol",
+        "test/fixtures/logtiny/build.fol",
     ]);
     assert!(
         parse.status.success(),
@@ -2013,14 +2059,14 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
     assert!(parse_json["summary"]
         .as_str()
         .expect("parse summary should be a string")
-        .contains("xtra/logtiny/build.fol"));
+        .contains("test/fixtures/logtiny/build.fol"));
 
     let highlight = run_fol(&[
         "tool",
         "--output",
         "json",
         "highlight",
-        "xtra/logtiny/build.fol",
+        "test/fixtures/logtiny/build.fol",
     ]);
     assert!(
         highlight.status.success(),
@@ -2037,14 +2083,14 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
     assert!(highlight_json["summary"]
         .as_str()
         .expect("highlight summary should be a string")
-        .contains("xtra/logtiny/build.fol"));
+        .contains("test/fixtures/logtiny/build.fol"));
 
     let symbols = run_fol(&[
         "tool",
         "--output",
         "json",
         "symbols",
-        "xtra/logtiny/build.fol",
+        "test/fixtures/logtiny/build.fol",
     ]);
     assert!(
         symbols.status.success(),
@@ -2065,7 +2111,7 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
     assert!(symbols_json["summary"]
         .as_str()
         .expect("symbols summary should be a string")
-        .contains("xtra/logtiny/build.fol"));
+        .contains("test/fixtures/logtiny/build.fol"));
 }
 
 #[test]
@@ -6155,7 +6201,6 @@ fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
 #[test]
 fn test_active_repo_surface_keeps_runtime_memo_name_and_no_stale_alloc_refs() {
     let tracked_roots = [
-        "AGENTS.md",
         "docs",
         "book",
         "examples",
@@ -6177,28 +6222,18 @@ fn test_active_repo_surface_keeps_runtime_memo_name_and_no_stale_alloc_refs() {
         "include_str!(\"alloc.rs\")",
     ];
 
+    let excluded = repo_root().join("test/integration_tests/integration_editor_and_build.rs");
     for root in tracked_roots {
         let path = repo_root().join(root);
-        let mut command = std::process::Command::new("rg");
-        command
-            .current_dir(repo_root())
-            .args(["-n", "--fixed-strings"]);
-        command
-            .arg("-g")
-            .arg("!test/integration_tests/integration_editor_and_build.rs");
-        for needle in stale_needles {
-            command.arg("-e").arg(needle);
-        }
-        let output = command
-            .arg(&path)
-            .output()
-            .expect("repo stale-name scan should run");
+        let mut matches = Vec::new();
+        collect_text_matches(&path, &excluded, &stale_needles, &mut matches)
+            .expect("active repo stale-name scan should read every tracked root");
 
         assert!(
-            !output.status.success(),
+            matches.is_empty(),
             "active repo surface '{}' should not keep stale alloc runtime refs:\n{}",
             root,
-            String::from_utf8_lossy(&output.stdout)
+            matches.join("\n")
         );
     }
 

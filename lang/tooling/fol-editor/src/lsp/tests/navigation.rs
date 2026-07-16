@@ -279,7 +279,7 @@ fn lsp_navigation_and_rename_use_utf16_after_astral_text() {
 fn lsp_server_handles_real_checked_in_package_fixture() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
-        .join("xtra/logtiny/src/log.fol")
+        .join("test/fixtures/logtiny/src/log.fol")
         .canonicalize()
         .expect("checked-in package fixture should canonicalize");
     let uri = format!("file://{}", path.display());

@@ -42,13 +42,13 @@ against this exact snapshot:
 
 | Stage | Package | Contract | Locked revision |
 |---|---|---|---|
-| PARC | `follang-parc 0.16.0` | source package schema 2 | `ba603cdccc9375473eca0c42e5462cf90b6da249` |
-| LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `37c8fb16171114b39e2283ff4b9e351fa2d5975b` |
-| GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `423b14aec40f509de64152ec1fcc74a9371154f1` |
+| PARC | `follang-parc 0.16.0` | source package schema 2 | `0f52aeeeeec47a082c0d8a515130ee853aa1101d` |
+| LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `c874d5b0332249524422d9d08c35b3d4edd7e3fa` |
+| GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `000c1f6c12fba99f1a157267ee7db39d42bda8e3` |
 
 The lock also freezes the GERC H5 compatibility driver, fixtures, and support
 code under digest
-`1feaeb4f9f0aa2275a3973217e866d8fd9942d4266f2b97c28bc6215403757f5`.
+`13644fd1f6ad3f1de06338e5bd415604dbedc9b6baaaaed8a63f44515db004e7`.
 `Cargo.lock` alone cannot record Git identities for path dependencies.
 The production H7 route therefore observes each compiled sibling path's
 canonical Git root, `HEAD`, worktree status, and normalized origin before any

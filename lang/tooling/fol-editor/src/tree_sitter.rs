@@ -1343,7 +1343,7 @@ mod tests {
         let output = run_tree_sitter_query(
             &root,
             &root.join("queries/fol/highlights.scm"),
-            &repo_root().join("xtra/logtiny/src/log.fol"),
+            &repo_root().join("test/fixtures/logtiny/src/log.fol"),
         );
 
         assert!(
@@ -1848,7 +1848,7 @@ mod tests {
         let output = run_tree_sitter_query(
             &root,
             &query_path,
-            &repo_root().join("xtra/logtiny/src/log.fol"),
+            &repo_root().join("test/fixtures/logtiny/src/log.fol"),
         );
 
         assert!(
@@ -1874,7 +1874,7 @@ mod tests {
         let logtiny_output = run_tree_sitter_query(
             &root,
             &root.join("queries/fol/highlights.scm"),
-            &repo_root().join("xtra/logtiny/src/log.fol"),
+            &repo_root().join("test/fixtures/logtiny/src/log.fol"),
         );
         assert!(logtiny_output.status.success());
         let logtiny = String::from_utf8_lossy(&logtiny_output.stdout);
@@ -2050,7 +2050,7 @@ mod tests {
         let logtiny_output = run_tree_sitter_query(
             &root,
             &root.join("queries/fol/highlights.scm"),
-            &repo_root().join("xtra/logtiny/src/log.fol"),
+            &repo_root().join("test/fixtures/logtiny/src/log.fol"),
         );
         assert!(logtiny_output.status.success());
         let logtiny = String::from_utf8_lossy(&logtiny_output.stdout);
@@ -2504,7 +2504,7 @@ mod tests {
             "examples",
             "lang/library/std",
             "test/apps/showcases",
-            "xtra",
+            "test/fixtures",
         ] {
             collect_fol_sources(&repo.join(relative_root), &mut sources);
         }
@@ -2531,8 +2531,8 @@ mod tests {
             "lang/library/std/build.fol",
             "lang/library/std/io/lib.fol",
             "test/apps/showcases/full_v1_showcase/app/main.fol",
-            "xtra/logtiny/build.fol",
-            "xtra/logtiny/src/log.fol",
+            "test/fixtures/logtiny/build.fol",
+            "test/fixtures/logtiny/src/log.fol",
         ] {
             assert!(
                 sources.contains(&repo.join(required)),

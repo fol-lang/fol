@@ -26,22 +26,22 @@ jobs:
       - name: Checkout PARC
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          repository: follang/lang-c
-          ref: ba603cdccc9375473eca0c42e5462cf90b6da249
+          repository: fol-lang/parc
+          ref: 0f52aeeeeec47a082c0d8a515130ee853aa1101d
           path: parc
 
       - name: Checkout LINC
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          repository: follang/linc
-          ref: 37c8fb16171114b39e2283ff4b9e351fa2d5975b
+          repository: fol-lang/linc
+          ref: c874d5b0332249524422d9d08c35b3d4edd7e3fa
           path: linc
 
       - name: Checkout GERC
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          repository: follang/gerc
-          ref: 423b14aec40f509de64152ec1fcc74a9371154f1
+          repository: fol-lang/gerc
+          ref: 000c1f6c12fba99f1a157267ee7db39d42bda8e3
           path: gerc
 
       - name: Install Rust 1.89
@@ -49,6 +49,9 @@ jobs:
           rustup toolchain install 1.89.0 --profile minimal
           rustup component add --toolchain 1.89.0 rustfmt clippy
           rustup default 1.89.0
+
+      - name: Install tree-sitter CLI
+        run: cargo install tree-sitter-cli --version 0.26.8 --locked
 
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install --yes binutils build-essential

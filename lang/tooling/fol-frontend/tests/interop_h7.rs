@@ -169,9 +169,9 @@ fn build_fol_c_import_runs_the_locked_typed_pipeline() {
         .expect("build result must report exact sibling evidence");
     for required_identity in [
         "target=x86_64-unknown-linux-gnu",
-        "parc=ba603cdccc9375473eca0c42e5462cf90b6da249",
-        "linc=37c8fb16171114b39e2283ff4b9e351fa2d5975b",
-        "gerc=423b14aec40f509de64152ec1fcc74a9371154f1",
+        "parc=0f52aeeeeec47a082c0d8a515130ee853aa1101d",
+        "linc=c874d5b0332249524422d9d08c35b3d4edd7e3fa",
+        "gerc=000c1f6c12fba99f1a157267ee7db39d42bda8e3",
         "source=psource2_",
         "evidence=lanalysis2_",
         "generation=gprojection1_",

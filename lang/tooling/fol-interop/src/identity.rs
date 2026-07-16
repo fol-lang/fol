@@ -330,25 +330,25 @@ mod tests {
     #[test]
     fn repository_spellings_normalize_to_the_locked_identity() {
         for spelling in [
-            "git@github.com:follang/lang-c.git",
-            "ssh://git@github.com/follang/lang-c/",
-            "https://github.com/follang/lang-c.git",
-            "https://github.com/follang/lang-c.git/",
-            "http://github.com/follang/lang-c",
+            "git@github.com:fol-lang/parc.git",
+            "ssh://git@github.com/fol-lang/parc/",
+            "https://github.com/fol-lang/parc.git",
+            "https://github.com/fol-lang/parc.git/",
+            "http://github.com/fol-lang/parc",
         ] {
-            assert_eq!(normalize_repository(spelling), "github.com/follang/lang-c");
+            assert_eq!(normalize_repository(spelling), "github.com/fol-lang/parc");
         }
     }
 
     #[test]
     fn non_github_repository_spellings_are_not_upgraded_to_github() {
         for spelling in [
-            "follang/lang-c",
-            "/tmp/follang/lang-c.git",
-            "file:///tmp/follang/lang-c.git",
-            "ssh://example.com/follang/lang-c.git",
+            "fol-lang/parc",
+            "/tmp/fol-lang/parc.git",
+            "file:///tmp/fol-lang/parc.git",
+            "ssh://example.com/fol-lang/parc.git",
         ] {
-            assert_ne!(normalize_repository(spelling), "github.com/follang/lang-c");
+            assert_ne!(normalize_repository(spelling), "github.com/fol-lang/parc");
         }
     }
 

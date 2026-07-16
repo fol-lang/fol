@@ -2838,7 +2838,7 @@ fn lsp_server_surfaces_package_loading_diagnostics_from_open_documents() {
 fn lsp_server_does_not_report_formal_package_root_errors_for_open_entry_packages() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
-        .join("xtra/logtiny");
+        .join("test/fixtures/logtiny");
     let file = root.join("src/lib.fol");
     let uri = format!("file://{}", file.display());
     let text = fs::read_to_string(&file).unwrap();

@@ -141,7 +141,7 @@ fn lsp_format_text(path: &std::path::Path, text: &str) -> String {
 fn editor_lsp_command_is_publicly_dispatchable() {
     let root = repo_root();
     let (_, result) =
-        run_command_from_args_in_dir(["fol", "tool", "lsp"], root.join("xtra/logtiny"))
+        run_command_from_args_in_dir(["fol", "tool", "lsp"], root.join("test/fixtures/logtiny"))
             .expect("editor lsp should dispatch");
 
     assert_eq!(result.command, "lsp");
@@ -165,8 +165,9 @@ fn editor_lsp_command_is_publicly_dispatchable() {
 #[test]
 fn editor_surface_stays_under_tool_not_a_parallel_editor_group() {
     let root = repo_root();
-    let error = run_command_from_args_in_dir(["fol", "editor", "lsp"], root.join("xtra/logtiny"))
-        .expect_err("`fol editor` should not exist as a parallel public surface");
+    let error =
+        run_command_from_args_in_dir(["fol", "editor", "lsp"], root.join("test/fixtures/logtiny"))
+            .expect_err("`fol editor` should not exist as a parallel public surface");
     let json = fol_frontend::FrontendOutput::new(fol_frontend::FrontendOutputConfig {
         mode: fol_frontend::OutputMode::Json,
     })
@@ -182,7 +183,7 @@ fn editor_tool_surface_rejects_placeholder_future_commands() {
     let root = repo_root();
 
     for command in [["fol", "tool", "semanticTokens"]] {
-        let error = run_command_from_args_in_dir(command, root.join("xtra/logtiny"))
+        let error = run_command_from_args_in_dir(command, root.join("test/fixtures/logtiny"))
             .expect_err("unsupported future tool command should stay off the public surface");
         let json = fol_frontend::FrontendOutput::new(fol_frontend::FrontendOutputConfig {
             mode: fol_frontend::OutputMode::Json,
@@ -767,7 +768,7 @@ fn editor_format_command_does_not_mutate_unrelated_files() {
 #[test]
 fn editor_command_plain_output_stays_snapshot_stable_for_real_fixtures() {
     let root = repo_root();
-    let fixture_path = root.join("xtra/logtiny/src/log.fol");
+    let fixture_path = root.join("test/fixtures/logtiny/src/log.fol");
     let fixture = fixture_path.to_string_lossy();
     let (output, result) = run_command_from_args_in_dir(
         [
