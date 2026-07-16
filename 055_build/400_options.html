@@ -15,8 +15,8 @@
         <link rel="icon" href="../favicon-de23e50b.svg">
         <link rel="shortcut icon" href="../favicon-8114d1fc.png">
         <link rel="stylesheet" href="../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../css/general-e96d0476.css">
-        <link rel="stylesheet" href="../css/chrome-d279d366.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
         <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-72f9860b.js";
+            window.path_to_searchindex_js = "../searchindex-6bb3a992.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-7f3fcfec.js"></script>
+        <script src="../toc-df4b2410.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -200,8 +200,12 @@ They are read via dedicated graph methods.</p>
 <tr><td><code>x86_64-linux-gnu</code></td><td>x86-64 Linux with glibc</td></tr>
 <tr><td><code>x86_64-linux-musl</code></td><td>x86-64 Linux with musl libc</td></tr>
 <tr><td><code>aarch64-linux-gnu</code></td><td>ARM64 Linux with glibc</td></tr>
-<tr><td><code>x86_64-macos</code></td><td>x86-64 macOS</td></tr>
+<tr><td><code>aarch64-linux-musl</code></td><td>ARM64 Linux with musl libc</td></tr>
+<tr><td><code>x86_64-macos-gnu</code></td><td>x86-64 macOS</td></tr>
+<tr><td><code>aarch64-macos-gnu</code></td><td>ARM64 macOS</td></tr>
+<tr><td><code>x86_64-windows-gnu</code></td><td>x86-64 Windows with MinGW</td></tr>
 <tr><td><code>x86_64-windows-msvc</code></td><td>x86-64 Windows with MSVC</td></tr>
+<tr><td><code>aarch64-windows-msvc</code></td><td>ARM64 Windows with MSVC</td></tr>
 </tbody>
 </table>
 </div>
@@ -209,6 +213,10 @@ They are read via dedicated graph methods.</p>
 Supported operating systems: <code>linux</code>, <code>macos</code>, <code>windows</code>.
 Supported environments: <code>gnu</code>, <code>musl</code>, <code>msvc</code>.</p>
 <p>If not set, the host target is used.</p>
+<p><code>standard_target()</code> always exposes the compact FOL spelling shown above, so
+<code>when</code> and <code>case</code> comparisons are stable even when the CLI accepted a canonical
+Rust triple. Artifact identity and the backend separately retain the matching
+canonical Rust triple (for example, <code>x86_64-unknown-linux-gnu</code>).</p>
 <p>To pass the resolved value to an artifact:</p>
 <pre><code class="language-fol">var target = graph.standard_target();
 var app = graph.add_exe({
@@ -235,7 +243,11 @@ var app = graph.add_exe({
 </tbody>
 </table>
 </div>
-<p>Default: <code>debug</code>.</p>
+<p>Default: <code>debug</code>. A <code>fol code ... --release</code> request supplies
+<code>release-safe</code> when no explicit optimize value is present. An explicit
+<code>-Doptimize=...</code> or <code>--optimize ...</code> value takes precedence and also determines
+whether the artifact uses the debug or release output/rustc profile, so the
+directory identity cannot disagree with the compiler profile.</p>
 <p>To pass the resolved value to an artifact:</p>
 <pre><code class="language-fol">var optimize = graph.standard_optimize();
 var app = graph.add_exe({
@@ -340,7 +352,7 @@ options.</p>
 
         <script src="../clipboard-1626706a.min.js"></script>
         <script src="../highlight-abc7f01d.js"></script>
-        <script src="../book-609e4cb8.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
 

@@ -16,8 +16,8 @@
         <link rel="icon" href="favicon-de23e50b.svg">
         <link rel="shortcut icon" href="favicon-8114d1fc.png">
         <link rel="stylesheet" href="css/variables-8adf115d.css">
-        <link rel="stylesheet" href="css/general-e96d0476.css">
-        <link rel="stylesheet" href="css/chrome-d279d366.css">
+        <link rel="stylesheet" href="css/general-0392ca55.css">
+        <link rel="stylesheet" href="css/chrome-fc474251.css">
         <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-72f9860b.js";
+            window.path_to_searchindex_js = "searchindex-6bb3a992.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-7f3fcfec.js"></script>
+        <script src="toc-df4b2410.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -3012,8 +3012,12 @@ They are read via dedicated graph methods.</p>
 <tr><td><code>x86_64-linux-gnu</code></td><td>x86-64 Linux with glibc</td></tr>
 <tr><td><code>x86_64-linux-musl</code></td><td>x86-64 Linux with musl libc</td></tr>
 <tr><td><code>aarch64-linux-gnu</code></td><td>ARM64 Linux with glibc</td></tr>
-<tr><td><code>x86_64-macos</code></td><td>x86-64 macOS</td></tr>
+<tr><td><code>aarch64-linux-musl</code></td><td>ARM64 Linux with musl libc</td></tr>
+<tr><td><code>x86_64-macos-gnu</code></td><td>x86-64 macOS</td></tr>
+<tr><td><code>aarch64-macos-gnu</code></td><td>ARM64 macOS</td></tr>
+<tr><td><code>x86_64-windows-gnu</code></td><td>x86-64 Windows with MinGW</td></tr>
 <tr><td><code>x86_64-windows-msvc</code></td><td>x86-64 Windows with MSVC</td></tr>
+<tr><td><code>aarch64-windows-msvc</code></td><td>ARM64 Windows with MSVC</td></tr>
 </tbody>
 </table>
 </div>
@@ -3021,6 +3025,10 @@ They are read via dedicated graph methods.</p>
 Supported operating systems: <code>linux</code>, <code>macos</code>, <code>windows</code>.
 Supported environments: <code>gnu</code>, <code>musl</code>, <code>msvc</code>.</p>
 <p>If not set, the host target is used.</p>
+<p><code>standard_target()</code> always exposes the compact FOL spelling shown above, so
+<code>when</code> and <code>case</code> comparisons are stable even when the CLI accepted a canonical
+Rust triple. Artifact identity and the backend separately retain the matching
+canonical Rust triple (for example, <code>x86_64-unknown-linux-gnu</code>).</p>
 <p>To pass the resolved value to an artifact:</p>
 <pre><code class="language-fol">var target = graph.standard_target();
 var app = graph.add_exe({
@@ -3047,7 +3055,11 @@ var app = graph.add_exe({
 </tbody>
 </table>
 </div>
-<p>Default: <code>debug</code>.</p>
+<p>Default: <code>debug</code>. A <code>fol code ... --release</code> request supplies
+<code>release-safe</code> when no explicit optimize value is present. An explicit
+<code>-Doptimize=...</code> or <code>--optimize ...</code> value takes precedence and also determines
+whether the artifact uses the debug or release output/rustc profile, so the
+directory identity cannot disagree with the compiler profile.</p>
 <p>To pass the resolved value to an artifact:</p>
 <pre><code class="language-fol">var optimize = graph.standard_optimize();
 var app = graph.add_exe({
@@ -9307,6 +9319,121 @@ lowering in <code>V3</code>.</p>
 <p>The exact positive, removed-syntax, deferred-effect, and tier-failure examples
 for <code>select</code> and mutexes are maintained in the
 <a href="#shipped-example-inventory-1">canonical shipped processor inventory</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="interop-toolchain-boundary"><a class="header" href="#interop-toolchain-boundary">Interop Toolchain Boundary</a></h1>
+<p>The locked H7 smoke handoff is implemented and its focused Make gate passes
+for the initial certified lane. Final repository-wide hardening sign-off is a
+separate gate. This is a narrow production smoke path through the sibling
+toolchain, not completion of FOL V4’s broader language-level interop
+milestones.</p>
+<p>FOL integrates three independently usable sibling crates and does not copy
+their native semantics:</p>
+<pre><code class="language-text">build.fol executable + one C header/object import
+  -&gt; PARC CompleteSourcePackage
+  -&gt; LINC ValidatedLinkAnalysis
+  -&gt; GERC GenerationBundle
+  -&gt; fol-build generated-file action graph
+  -&gt; fol-backend auxiliary Rust crates and exact rustc arguments
+  -&gt; linked and executed FOL binary
+</code></pre>
+<p>The stages have fixed ownership:</p>
+<ul>
+<li>PARC is the only C preprocessor, parser, recovery engine, source extractor,
+provenance store, and source-contract owner.</li>
+<li>LINC is the only native artifact inspector, compiler/ABI probe runner,
+symbol/provider validator, and ordered link-evidence owner.</li>
+<li>GERC is the only closed-world raw Rust FFI projector and emitter.</li>
+<li>FOL owns language policy, target and build-graph routing, generated-file
+materialization, the narrow H7 call anchor, backend process invocation,
+diagnostics, and eventual safe language wrappers.</li>
+</ul>
+<p>The handoff is typed. FOL does not use JSON shape conversion, copied sibling
+models, a second provider resolver, a second raw <code>extern "C"</code> emitter, shell
+splitting, or text link-argument parsing. GERC’s typed link atoms remain
+individual native process arguments when they reach <code>rustc</code>.</p>
+<h2 id="locked-inputs"><a class="header" href="#locked-inputs">Locked inputs</a></h2>
+<p>The checked root <code>interop.lock.toml</code> is the machine authority. H7 is certified
+against this exact snapshot:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stage</th><th>Package</th><th>Contract</th><th>Locked revision</th></tr>
+</thead>
+<tbody>
+<tr><td>PARC</td><td><code>follang-parc 0.16.0</code></td><td>source package schema 2</td><td><code>ba603cdccc9375473eca0c42e5462cf90b6da249</code></td></tr>
+<tr><td>LINC</td><td><code>follang-linc 0.1.0</code> with <code>native-inspection</code></td><td>link-analysis schema 2</td><td><code>37c8fb16171114b39e2283ff4b9e351fa2d5975b</code></td></tr>
+<tr><td>GERC</td><td><code>follang-gerc 0.1.0</code> with <code>pipeline-native</code></td><td>generation domain 1</td><td><code>423b14aec40f509de64152ec1fcc74a9371154f1</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The lock also freezes the GERC H5 compatibility driver, fixtures, and support
+code under digest
+<code>1feaeb4f9f0aa2275a3973217e866d8fd9942d4266f2b97c28bc6215403757f5</code>.
+<code>Cargo.lock</code> alone cannot record Git identities for path dependencies.
+The production H7 route therefore observes each compiled sibling path’s
+canonical Git root, <code>HEAD</code>, worktree status, and normalized origin before any
+sibling API runs. Revision values enter the evidence report only after those
+runtime checks match the compiled lock identities.</p>
+<h2 id="certified-platform"><a class="header" href="#certified-platform">Certified platform</a></h2>
+<p>The only promoted lane is:</p>
+<pre><code class="language-text">x86_64-unknown-linux-gnu
+ELF, LP64
+explicit GCC executable and observed compiler identity
+one executable artifact with one C object provider
+</code></pre>
+<p>The caller supplies normalized absolute paths for GCC and the bounded LINC
+probe workspace. LINC observes and fingerprints the compiler rather than FOL
+guessing its identity. The selected FOL target must equal every sibling target
+fingerprint before generated files or backend compilation are allowed.</p>
+<p>Linux musl, other Linux architectures, Apple targets, Windows targets,
+frameworks, import libraries, multiple imports, and the general C type/API
+surface are not certified by H7. Clang remains sibling differential evidence;
+it is not the compiler for FOL’s promoted H7 lane.</p>
+<h2 id="evidence-and-failure-policy"><a class="header" href="#evidence-and-failure-policy">Evidence and failure policy</a></h2>
+<p>The required smoke test starts from the real <code>build.fol</code> graph route. It
+compiles a C provider object, scans its header through PARC, certifies the
+provider through LINC, projects raw Rust through GERC, materializes the raw and
+FOL-owned anchor crates through <code>fol-build</code>, passes exact ordered link
+arguments to <code>fol-backend</code>, and runs the linked executable. Its reported
+evidence contains:</p>
+<ul>
+<li>the three locked sibling revisions;</li>
+<li>source, target, link-analysis, generation, and provider fingerprints;</li>
+<li>the exact certified target.</li>
+</ul>
+<p>The checked build separately retains the exact generated raw-binding and
+anchor crate roots passed to the backend. The system test inspects the fixed
+anchor source, builds both crates, executes the final binary, and verifies the
+provider’s per-run return value.</p>
+<p>Required negative cases prove that partial PARC source, unresolved LINC
+providers, and GERC generation rejection stop before generated/backend files
+are written. Target mismatch is rejected before compiler or output-directory
+I/O. A skipped system test is not success: the required Make target sets
+<code>FOL_H7_REQUIRED=1</code> and supplies an explicit canonical GCC path.</p>
+<h2 id="verification-commands"><a class="header" href="#verification-commands">Verification commands</a></h2>
+<p>Run these on GNU/Linux from the FOL root with <code>parc</code>, <code>linc</code>, and <code>gerc</code> as
+sibling checkouts:</p>
+<pre><code class="language-sh">make interop-check interop-locked test-interop
+</code></pre>
+<ul>
+<li><code>make interop-check</code> checks lock shape, package/schema/feature compatibility,
+the H5 corpus identity, and compilation of the typed integration. It is the
+development check and does not require sibling <code>HEAD</code>s to equal the lock.</li>
+<li><code>make interop-locked</code> additionally requires each sibling to have the exact
+locked <code>HEAD</code>, canonical GitHub origin, and a clean worktree.</li>
+<li><code>make test-interop</code> depends on the locked check, requires Linux and GCC, and
+runs the positive and fail-closed native H7 tests without an optional-skip
+path.</li>
+</ul>
+<p>CI checks out FOL plus all three repositories in that sibling layout, installs
+Rust 1.89.0, and invokes the same Make-owned locked smoke gate. Changing a
+sibling revision requires changing <code>interop.lock.toml</code>, compiled lock
+constants, CI checkout refs, compatibility evidence, and this snapshot
+together.</p>
+<p>After final repository-wide hardening sign-off, this boundary unblocks the
+first broader V4 work. It does not itself expose general foreign declaration
+syntax, general pointers or ownership, C export, bounded header-import
+tooling, C++ ABI support, Rust facade generation, or a stable Rust binary ABI.</p>
 
                     </main>
 
@@ -9344,7 +9471,7 @@ for <code>select</code> and mutexes are maintained in the
 
         <script src="clipboard-1626706a.min.js"></script>
         <script src="highlight-abc7f01d.js"></script>
-        <script src="book-609e4cb8.js"></script>
+        <script src="book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
 

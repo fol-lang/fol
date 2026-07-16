@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Arithmetic And Operators - FOL Language Specification</title>
+        <title>Interop Toolchain Boundary - FOL Language Specification</title>
 
 
         <!-- Custom HTML head -->
@@ -12,33 +12,33 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
-        <link rel="icon" href="../../favicon-de23e50b.svg">
-        <link rel="shortcut icon" href="../../favicon-8114d1fc.png">
-        <link rel="stylesheet" href="../../css/variables-8adf115d.css">
-        <link rel="stylesheet" href="../../css/general-0392ca55.css">
-        <link rel="stylesheet" href="../../css/chrome-fc474251.css">
-        <link rel="stylesheet" href="../../css/print-9e4910d8.css" media="print">
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
-        <link rel="stylesheet" href="../../fonts/fonts-9644e21d.css">
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" id="mdbook-highlight-css" href="../../highlight-493f70e1.css">
-        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../../tomorrow-night-4c0ae647.css">
-        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../../ayu-highlight-3fdfc3ac.css">
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
 
 
         <!-- Provide site root and default themes to javascript -->
         <script>
-            const path_to_root = "../../";
+            const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-6bb3a992.js";
+            window.path_to_searchindex_js = "../searchindex-6bb3a992.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-df4b2410.js"></script>
+        <script src="../toc-df4b2410.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -105,7 +105,7 @@
             <!-- populated by js -->
             <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
             <noscript>
-                <iframe class="sidebar-iframe-outer" src="../../toc.html"></iframe>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
             </noscript>
             <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -140,7 +140,7 @@
                     <h1 class="menu-title">FOL Language Specification</h1>
 
                     <div class="right-buttons">
-                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
                             <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
                         </a>
 
@@ -174,138 +174,129 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="calculations"><a class="header" href="#calculations">Calculations</a></h1>
-<p>Current boundary:</p>
-<ul>
-<li>the two-argument <code>assert(a, b)</code> form used in this chapter’s examples is
-illustrative; <code>assert</code> is registry-owned but deferred, and the intrinsic is
-not yet dispatchable in the current compiler (see the intrinsics chapter)</li>
-</ul>
-<p>In fol, every calcultaion, needs to be enclosed in rounded brackets <code>( //to evaluate )</code> - except in one line evaluating, the curly brackets are allowed too <code>{ // to evaluate }</code>:</p>
-<pre><code>fun adder(a, b: int): int = {
-    retun a + b                                                 // this will throw an error 
-}
-
-fun adder(a, b: int): int = {
-    retun (a + b)                                               // this is the right way to enclose 
-}
+                        <h1 id="interop-toolchain-boundary"><a class="header" href="#interop-toolchain-boundary">Interop Toolchain Boundary</a></h1>
+<p>The locked H7 smoke handoff is implemented and its focused Make gate passes
+for the initial certified lane. Final repository-wide hardening sign-off is a
+separate gate. This is a narrow production smoke path through the sibling
+toolchain, not completion of FOL V4’s broader language-level interop
+milestones.</p>
+<p>FOL integrates three independently usable sibling crates and does not copy
+their native semantics:</p>
+<pre><code class="language-text">build.fol executable + one C header/object import
+  -&gt; PARC CompleteSourcePackage
+  -&gt; LINC ValidatedLinkAnalysis
+  -&gt; GERC GenerationBundle
+  -&gt; fol-build generated-file action graph
+  -&gt; fol-backend auxiliary Rust crates and exact rustc arguments
+  -&gt; linked and executed FOL binary
 </code></pre>
-<p>Order of evaluation is strictly left-to-right, inside-out as it is typical for most others imperative programming languages:</p>
-<pre><code>.echo((12 / 4 / 8))                                             // 0.375 (12 / 4 = 3.0, then 3 / 8 = 0.375)
-.echo((12 / (4 / 8)))                                           // 24 (4 / 8 = 0.5, then 12 / 0.5 = 24)
-</code></pre>
-<p>Calculation expressions include:</p>
+<p>The stages have fixed ownership:</p>
 <ul>
-<li>arithmetics</li>
-<li>comparison</li>
-<li>logical</li>
-<li>compounds</li>
+<li>PARC is the only C preprocessor, parser, recovery engine, source extractor,
+provenance store, and source-contract owner.</li>
+<li>LINC is the only native artifact inspector, compiler/ABI probe runner,
+symbol/provider validator, and ordered link-evidence owner.</li>
+<li>GERC is the only closed-world raw Rust FFI projector and emitter.</li>
+<li>FOL owns language policy, target and build-graph routing, generated-file
+materialization, the narrow H7 call anchor, backend process invocation,
+diagnostics, and eventual safe language wrappers.</li>
 </ul>
-<h2 id="arithmetics"><a class="header" href="#arithmetics">Arithmetics</a></h2>
-<p>The behavior of arithmetic operators is only on intiger and floating point primitive types. For other types, there need to be operator overloading implemented.</p>
+<p>The handoff is typed. FOL does not use JSON shape conversion, copied sibling
+models, a second provider resolver, a second raw <code>extern "C"</code> emitter, shell
+splitting, or text link-argument parsing. GERC’s typed link atoms remain
+individual native process arguments when they reach <code>rustc</code>.</p>
+<h2 id="locked-inputs"><a class="header" href="#locked-inputs">Locked inputs</a></h2>
+<p>The checked root <code>interop.lock.toml</code> is the machine authority. H7 is certified
+against this exact snapshot:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>symbol</th><th>description</th></tr>
+<tr><th>Stage</th><th>Package</th><th>Contract</th><th>Locked revision</th></tr>
 </thead>
 <tbody>
-<tr><td>-</td><td>substraction</td></tr>
-<tr><td>*</td><td>multiplication</td></tr>
-<tr><td>+</td><td>addition</td></tr>
-<tr><td>/</td><td>division</td></tr>
-<tr><td>%</td><td>reminder</td></tr>
-<tr><td>^</td><td>exponent</td></tr>
+<tr><td>PARC</td><td><code>follang-parc 0.16.0</code></td><td>source package schema 2</td><td><code>ba603cdccc9375473eca0c42e5462cf90b6da249</code></td></tr>
+<tr><td>LINC</td><td><code>follang-linc 0.1.0</code> with <code>native-inspection</code></td><td>link-analysis schema 2</td><td><code>37c8fb16171114b39e2283ff4b9e351fa2d5975b</code></td></tr>
+<tr><td>GERC</td><td><code>follang-gerc 0.1.0</code> with <code>pipeline-native</code></td><td>generation domain 1</td><td><code>423b14aec40f509de64152ec1fcc74a9371154f1</code></td></tr>
 </tbody>
 </table>
 </div>
-<pre><code>assert((3 + 6), 9);
-assert((5.5 - 1.25), 4.25);
-assert((-5 * 14), -70);
-assert((14 / 3), 4);
-assert((100 % 7), 2);
+<p>The lock also freezes the GERC H5 compatibility driver, fixtures, and support
+code under digest
+<code>1feaeb4f9f0aa2275a3973217e866d8fd9942d4266f2b97c28bc6215403757f5</code>.
+<code>Cargo.lock</code> alone cannot record Git identities for path dependencies.
+The production H7 route therefore observes each compiled sibling path’s
+canonical Git root, <code>HEAD</code>, worktree status, and normalized origin before any
+sibling API runs. Revision values enter the evidence report only after those
+runtime checks match the compiled lock identities.</p>
+<h2 id="certified-platform"><a class="header" href="#certified-platform">Certified platform</a></h2>
+<p>The only promoted lane is:</p>
+<pre><code class="language-text">x86_64-unknown-linux-gnu
+ELF, LP64
+explicit GCC executable and observed compiler identity
+one executable artifact with one C object provider
 </code></pre>
-<p>Current integer semantics:</p>
+<p>The caller supplies normalized absolute paths for GCC and the bounded LINC
+probe workspace. LINC observes and fingerprints the compiler rather than FOL
+guessing its identity. The selected FOL target must equal every sibling target
+fingerprint before generated files or backend compilation are allowed.</p>
+<p>Linux musl, other Linux architectures, Apple targets, Windows targets,
+frameworks, import libraries, multiple imports, and the general C type/API
+surface are not certified by H7. Clang remains sibling differential evidence;
+it is not the compiler for FOL’s promoted H7 lane.</p>
+<h2 id="evidence-and-failure-policy"><a class="header" href="#evidence-and-failure-policy">Evidence and failure policy</a></h2>
+<p>The required smoke test starts from the real <code>build.fol</code> graph route. It
+compiles a C provider object, scans its header through PARC, certifies the
+provider through LINC, projects raw Rust through GERC, materializes the raw and
+FOL-owned anchor crates through <code>fol-build</code>, passes exact ordered link
+arguments to <code>fol-backend</code>, and runs the linked executable. Its reported
+evidence contains:</p>
 <ul>
-<li>division truncates toward zero (<code>-7 / 2</code> is <code>-3</code>)</li>
-<li>remainder takes the sign of the dividend (<code>-7 % 2</code> is <code>-1</code>)</li>
-<li>integers are 64-bit two’s-complement; overflow panics at runtime (debug)
-rather than wrapping, and division/modulo by zero panics</li>
-<li>declared widths such as <code>int[8]</code> currently share the 64-bit runtime
-representation and are not range-enforced yet</li>
-<li>floats follow IEEE-754: <code>1.0 / 0.0</code> is infinity, <code>0.0 / 0.0</code> is NaN (no panic)</li>
+<li>the three locked sibling revisions;</li>
+<li>source, target, link-analysis, generation, and provider fingerprints;</li>
+<li>the exact certified target.</li>
 </ul>
-<pre><code></code></pre>
-<h2 id="comparisons"><a class="header" href="#comparisons">Comparisons</a></h2>
-<p>Comparison operators are also defined both for primitive types and many type in the standard library. Parentheses are required when chaining comparison operators. For example, the expression <code>a == b == c</code> is invalid and may be written as <code>((a == b) == c)</code>.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Symbol</th><th>Meaning</th></tr>
-</thead>
-<tbody>
-<tr><td>==</td><td>equal</td></tr>
-<tr><td>!=</td><td>not equal</td></tr>
-<tr><td>&gt;</td><td>greater than</td></tr>
-<tr><td>&lt;</td><td>Less than</td></tr>
-<tr><td>&gt;=</td><td>greater than or equal to</td></tr>
-<tr><td>&lt;=</td><td>Less than or equal to</td></tr>
-</tbody>
-</table>
-</div>
-<pre><code>assert((123 == 123));
-assert((23 != -12));
-assert((12.5 &gt; 12.2));
-assert((1 &lt; 3));
-assert(('A' &lt;= 'B'));
-assert(("World" &gt;= "Hello"));
+<p>The checked build separately retains the exact generated raw-binding and
+anchor crate roots passed to the backend. The system test inspects the fixed
+anchor source, builds both crates, executes the final binary, and verifies the
+provider’s per-run return value.</p>
+<p>Required negative cases prove that partial PARC source, unresolved LINC
+providers, and GERC generation rejection stop before generated/backend files
+are written. Target mismatch is rejected before compiler or output-directory
+I/O. A skipped system test is not success: the required Make target sets
+<code>FOL_H7_REQUIRED=1</code> and supplies an explicit canonical GCC path.</p>
+<h2 id="verification-commands"><a class="header" href="#verification-commands">Verification commands</a></h2>
+<p>Run these on GNU/Linux from the FOL root with <code>parc</code>, <code>linc</code>, and <code>gerc</code> as
+sibling checkouts:</p>
+<pre><code class="language-sh">make interop-check interop-locked test-interop
 </code></pre>
-<h2 id="logical"><a class="header" href="#logical">Logical</a></h2>
-<p>A branch of algebra in which all operations are either true or false, thus operates only on booleans, and all relationships between the operations can be expressed with logical operators such as:</p>
 <ul>
-<li><code>and</code> (conjunction), denoted <code>(x and y)</code>, satisfies <code>(x and y) = 1</code> if <code>x = y = 1</code>, and <code>(x and y) = 0</code> otherwise.</li>
-<li><code>or</code> (disjunction), denoted <code>(x or y)</code>, satisfies <code>(x or y) = 0</code> if <code>x = y = 0</code>, and <code>(x or) = 1</code> otherwise.</li>
-<li><code>not</code> (negation), denoted <code>(not x)</code>, satisfies <code>(not x) = 0</code> if <code>x = 1</code> and (not x) = 1<code>if</code>x = 0`.</li>
+<li><code>make interop-check</code> checks lock shape, package/schema/feature compatibility,
+the H5 corpus identity, and compilation of the typed integration. It is the
+development check and does not require sibling <code>HEAD</code>s to equal the lock.</li>
+<li><code>make interop-locked</code> additionally requires each sibling to have the exact
+locked <code>HEAD</code>, canonical GitHub origin, and a clean worktree.</li>
+<li><code>make test-interop</code> depends on the locked check, requires Linux and GCC, and
+runs the positive and fail-closed native H7 tests without an optional-skip
+path.</li>
 </ul>
-<pre><code>assert((true and false), (false and true));
-assert((true or false), true)
-assert((not true), false)
-</code></pre>
-<p>Current evaluation note:</p>
-<ul>
-<li><code>and</code>/<code>or</code> evaluate both operands eagerly; they do NOT short-circuit, so
-the right operand runs even when the left already decides the result
-(<code>(false) and (1/0 &gt; 0)</code> still evaluates <code>1/0</code>). Guard side-effecting or
-fallible right operands explicitly.</li>
-</ul>
-<h2 id="compounds"><a class="header" href="#compounds">Compounds</a></h2>
-<p>There are further assignment operators that can be used to modify the value of an existing variable. These are the compounds or aka compound assignments. A compound assignment operator is used to simplify the coding of some expressions. For example, using the operators described earlier we can increase a variable’s value by ten using the following code:</p>
-<pre><code>value = value + 10;
-</code></pre>
-<p>This statement has an equivalent using the compound assignment operator for addition (+=).</p>
-<pre><code>value += 10;
-</code></pre>
-<p>There are compound assignment operators for each of the six binary arithmetic operators: <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code> and <code>^</code>. Each is constructed using the arithmetic operator followed by the assignment operator. The following code gives examples for addition <code>+=</code>, subtraction <code>-=</code>, multiplication <code>*=</code>, division <code>/=</code> and modulus <code>%=</code>:</p>
-<pre><code>
-var value: int = 10;
-(value += 10);        // value = 20
-(value -= 5);         // value = 15
-(value *= 10);        // value = 150
-(value /= 3);         // value = 50
-(value %= 8);         // value = 2
-</code></pre>
-<p>Compound assignment operators provide two benefits. Firstly, they produce more compact code; they are often called shorthand operators for this reason. Secondly, the variable being operated upon, or operand, will only be evaluated once in the compiled application. This can make the code more efficient.</p>
+<p>CI checks out FOL plus all three repositories in that sibling layout, installs
+Rust 1.89.0, and invokes the same Make-owned locked smoke gate. Changing a
+sibling revision requires changing <code>interop.lock.toml</code>, compiled lock
+constants, CI checkout refs, compatibility evidence, and this snapshot
+together.</p>
+<p>After final repository-wide hardening sign-off, this boundary unblocks the
+first broader V4 work. It does not itself expose general foreign declaration
+syntax, general pointers or ownership, C export, bounded header-import
+tooling, C++ ABI support, Rust facade generation, or a stable Rust binary ABI.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../../200_expressions/300_exp/_index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../900_processor/200_corutines.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../../200_expressions/300_exp/200_literals.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -313,13 +304,10 @@ var value: int = 10;
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../../200_expressions/300_exp/_index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../900_processor/200_corutines.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../../200_expressions/300_exp/200_literals.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                    </a>
             </nav>
 
         </div>
@@ -337,13 +325,13 @@ var value: int = 10;
         </script>
 
 
-        <script src="../../elasticlunr-ef4e11c1.min.js"></script>
-        <script src="../../mark-09e88c2c.min.js"></script>
-        <script src="../../searcher-09f2665d.js"></script>
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
-        <script src="../../clipboard-1626706a.min.js"></script>
-        <script src="../../highlight-abc7f01d.js"></script>
-        <script src="../../book-c22b7243.js"></script>
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-c22b7243.js"></script>
 
         <!-- Custom JS scripts -->
 
