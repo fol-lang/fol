@@ -1,10 +1,10 @@
 # Interop Toolchain Boundary
 
-The locked H7 smoke handoff is implemented and its focused Make gate passes
-for the initial certified lane. Final repository-wide hardening sign-off is a
-separate gate. This is a narrow production smoke path through the sibling
-toolchain, not completion of FOL V4's broader language-level interop
-milestones.
+The repository-wide hardening gate is complete for the initial certified
+`x86_64-unknown-linux-gnu` lane. The locked H7 Make gate passes in FOL CI
+through clean, exact PARC, LINC, and GERC commits. This unblocks the first
+broader V4 milestone; it does not complete FOL V4's broader language-level
+interop milestones.
 
 FOL integrates three independently usable sibling crates and does not copy
 their native semantics:
@@ -124,7 +124,7 @@ sibling revision requires changing `interop.lock.toml`, compiled lock
 constants, CI checkout refs, compatibility evidence, and this snapshot
 together.
 
-After final repository-wide hardening sign-off, this boundary unblocks the
-first broader V4 work. It does not itself expose general foreign declaration
+With repository-wide hardening complete, this boundary unblocks the first
+broader V4 work. It does not itself expose general foreign declaration
 syntax, general pointers or ownership, C export, bounded header-import
 tooling, C++ ABI support, Rust facade generation, or a stable Rust binary ABI.

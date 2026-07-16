@@ -1,10 +1,10 @@
 # V4 Interop and Toolchain Boundary Plan
 
-> **Status: the locked H7 smoke handoff passes; final hardening sign-off is
-> pending.** The `x86_64-unknown-linux-gnu` FOL smoke integration now passes
-> through PARC, LINC, and GERC via its focused Make-owned gate. The full parent
-> `../HARDENING.md` repository gate must still pass before the prerequisite is
-> declared complete. This does not complete any broader M0-M10 milestone. A
+> **Status: the hardening prerequisite is complete; the first broader V4
+> milestone is unblocked.** The certified `x86_64-unknown-linux-gnu` pipeline
+> passes from clean, exact PARC, LINC, GERC, and FOL commits through the
+> Make-owned local and CI gates in `../HARDENING.md`. This completes the
+> prerequisite only; it does not complete any broader M0-M10 milestone. A
 > checked box in this file means a verified shipped result, not parser
 > acceptance or an implementation sketch.
 
