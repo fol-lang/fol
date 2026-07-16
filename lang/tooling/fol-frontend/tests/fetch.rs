@@ -525,7 +525,7 @@ fn create_git_package_repo(root: &Path, name: &str, version: &str) {
     .expect("package build should be writable");
     fs::write(root.join("src/lib.fol"), "var[exp] level: int = 1;\n")
         .expect("package source should be writable");
-    git(root, &["init"]);
+    git(root, &["init", "--initial-branch=main"]);
     git(root, &["config", "user.name", "FOL"]);
     git(root, &["config", "user.email", "fol@example.com"]);
     git(root, &["add", "."]);
