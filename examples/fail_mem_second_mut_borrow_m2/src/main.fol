@@ -1,6 +1,12 @@
+// Two mutable borrows of the same owner cannot be live at once (O2002). Both
+// `first` and `second` are used after the second borrow is created, so their
+// non-lexical lifetimes overlap and the exclusivity rule is violated.
+
 fun[] main(): int = {
     var[mut] owner: int = 7;
     var[mut, bor] first: int = owner;
     var[mut, bor] second: int = owner;
-    return 0;
+    var a: int = first;
+    var b: int = second;
+    return a + b;
 };

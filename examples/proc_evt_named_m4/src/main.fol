@@ -1,0 +1,13 @@
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+fun[] main(): int = {
+    // The eventual produced by `| async` is namable with an elided lexical
+    // lifetime: `evt[T]` (V3_MEM Slice E, §8.1).
+    var pending: evt[int] = std::fmt::double(work(20)) | async;
+    var value: int = pending | await;
+    return std::io::echo_int(value);
+};

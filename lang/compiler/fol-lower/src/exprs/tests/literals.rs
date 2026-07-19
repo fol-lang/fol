@@ -1,9 +1,9 @@
-use super::{lower_fixture_workspace, lower_folder_fixture_workspace};
 use super::super::cursor::{RoutineCursor, WorkspaceDeclIndex};
+use super::{lower_fixture_workspace, lower_folder_fixture_workspace};
 use crate::{
     types::{LoweredBuiltinType, LoweredTypeTable},
-    LoweredBlock, LoweredGlobal, LoweredInstrKind, LoweredLocal, LoweredOperand,
-    LoweredPackage, LoweredRoutine, LoweredTerminator, LoweredWorkspace, LoweringErrorKind,
+    LoweredBlock, LoweredGlobal, LoweredInstrKind, LoweredLocal, LoweredOperand, LoweredPackage,
+    LoweredRoutine, LoweredTerminator, LoweredWorkspace, LoweringErrorKind,
 };
 use fol_parser::ast::AstParser;
 use fol_parser::ast::Literal;
@@ -204,12 +204,8 @@ fn lowering_repro_lowers_non_empty_set_and_map_literals_in_typed_v1_contexts() {
                 .instructions
                 .iter()
                 .find_map(|instr| match (&instr.kind, aggregate_kind) {
-                    (LoweredInstrKind::ConstructSet { members, .. }, "set") => {
-                        Some(members.len())
-                    }
-                    (LoweredInstrKind::ConstructMap { entries, .. }, "map") => {
-                        Some(entries.len())
-                    }
+                    (LoweredInstrKind::ConstructSet { members, .. }, "set") => Some(members.len()),
+                    (LoweredInstrKind::ConstructMap { entries, .. }, "map") => Some(entries.len()),
                     _ => None,
                 });
 
@@ -465,9 +461,7 @@ fn boolean_intrinsic_lowering_emits_intrinsic_calls_with_canonical_ids() {
         .instructions
         .iter()
         .find_map(|instr| match &instr.kind {
-            LoweredInstrKind::IntrinsicCall { intrinsic, args } => {
-                Some((*intrinsic, args.len()))
-            }
+            LoweredInstrKind::IntrinsicCall { intrinsic, args } => Some((*intrinsic, args.len())),
             _ => None,
         });
 
@@ -538,9 +532,7 @@ fn diagnostic_intrinsic_lowering_emits_runtime_hooks_and_forwards_values() {
         .instructions
         .iter()
         .find_map(|instr| match &instr.kind {
-            LoweredInstrKind::RuntimeHook { intrinsic, args } => {
-                Some((*intrinsic, args.clone()))
-            }
+            LoweredInstrKind::RuntimeHook { intrinsic, args } => Some((*intrinsic, args.clone())),
             _ => None,
         })
         .expect("diagnostic intrinsic lowering should emit a runtime hook");
@@ -554,17 +546,18 @@ fn diagnostic_intrinsic_lowering_emits_runtime_hooks_and_forwards_values() {
         1,
         "the '.echo' runtime hook should forward exactly one argument",
     );
-    let loaded_param = routine
-        .instructions
-        .iter()
-        .find_map(|instr| match (&instr.result, &instr.kind) {
-            (Some(result), LoweredInstrKind::LoadLocal { local })
-                if *result == hook_args[0] =>
-            {
-                Some(*local)
-            }
-            _ => None,
-        });
+    let loaded_param =
+        routine
+            .instructions
+            .iter()
+            .find_map(|instr| match (&instr.result, &instr.kind) {
+                (Some(result), LoweredInstrKind::LoadLocal { local })
+                    if *result == hook_args[0] =>
+                {
+                    Some(*local)
+                }
+                _ => None,
+            });
     assert_eq!(
         loaded_param,
         Some(routine.params[0]),
@@ -592,11 +585,7 @@ fn parser_typecheck_and_lower_keep_same_canonical_intrinsic_identity() {
     ));
     std::fs::write(
         &fixture,
-        concat!(
-        "fun[] main(): bol = {\n",
-        "    return .eq(1, 1);\n",
-        "};\n",
-    ),
+        concat!("fun[] main(): bol = {\n", "    return .eq(1, 1);\n", "};\n",),
     )
     .expect("should write lowering intrinsic identity fixture");
 
@@ -607,7 +596,8 @@ fn parser_typecheck_and_lower_keep_same_canonical_intrinsic_identity() {
     let syntax = parser
         .parse_package(&mut lexer)
         .expect("identity fixture should parse");
-    let resolved = resolve_package_workspace(syntax.clone()).expect("identity fixture should resolve");
+    let resolved =
+        resolve_package_workspace(syntax.clone()).expect("identity fixture should resolve");
     let typed = Typechecker::new()
         .check_resolved_workspace(resolved)
         .expect("identity fixture should typecheck");
@@ -655,14 +645,13 @@ fn parser_typecheck_and_lower_keep_same_canonical_intrinsic_identity() {
         .values()
         .find(|routine| routine.name == "main")
         .expect("lowered main routine should exist");
-    let lowered_intrinsic =
-        main_routine
-            .instructions
-            .iter()
-            .find_map(|instr| match &instr.kind {
-                LoweredInstrKind::IntrinsicCall { intrinsic, .. } => Some(*intrinsic),
-                _ => None,
-            });
+    let lowered_intrinsic = main_routine
+        .instructions
+        .iter()
+        .find_map(|instr| match &instr.kind {
+            LoweredInstrKind::IntrinsicCall { intrinsic, .. } => Some(*intrinsic),
+            _ => None,
+        });
 
     assert_eq!(
         lowered_intrinsic,
@@ -889,11 +878,9 @@ fn declaration_index_keeps_colliding_routine_metadata_package_local() {
     });
     dep_routine.params.push(dep_param);
 
-    let mut app_package =
-        LoweredPackage::new(crate::LoweredPackageId(0), app_identity.clone());
+    let mut app_package = LoweredPackage::new(crate::LoweredPackageId(0), app_identity.clone());
     app_package.routine_decls.insert(routine_id, app_routine);
-    let mut dep_package =
-        LoweredPackage::new(crate::LoweredPackageId(1), dep_identity.clone());
+    let mut dep_package = LoweredPackage::new(crate::LoweredPackageId(1), dep_identity.clone());
     dep_package.routine_decls.insert(routine_id, dep_routine);
 
     let mut packages = BTreeMap::new();

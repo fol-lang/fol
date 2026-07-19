@@ -134,9 +134,8 @@ pub fn explain_command(code: &str, mode: OutputMode) -> FrontendResult<FrontendC
         Ok(FrontendCommandResult::new("explain", rendering.text))
     } else {
         Err(
-            FrontendError::new(FrontendErrorKind::InvalidInput, rendering.text).with_note(
-                "run `fol code explain <CODE>` with a code from a diagnostic footer",
-            ),
+            FrontendError::new(FrontendErrorKind::InvalidInput, rendering.text)
+                .with_note("run `fol code explain <CODE>` with a code from a diagnostic footer"),
         )
     }
 }
@@ -174,7 +173,9 @@ mod tests {
     fn human_unknown_and_unrecognized_prefix_is_honest() {
         let rendering = render_explain("Z9999", OutputMode::Human);
         assert!(!rendering.known);
-        assert!(rendering.text.contains("not a recognized FOL diagnostic code"));
+        assert!(rendering
+            .text
+            .contains("not a recognized FOL diagnostic code"));
     }
 
     #[test]

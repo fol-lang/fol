@@ -10,9 +10,15 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScopeKind {
-    ProgramRoot { package: String },
-    NamespaceRoot { namespace: String },
-    SourceUnitRoot { path: String },
+    ProgramRoot {
+        package: String,
+    },
+    NamespaceRoot {
+        namespace: String,
+    },
+    SourceUnitRoot {
+        path: String,
+    },
     /// Virtual scope injected as the parent of every `build.fol` source-unit scope.
     /// It holds synthetic handle symbols for the build stdlib (ArtifactHandle, …)
     /// and has no parent, providing file-bound isolation for `build.fol`.
@@ -732,10 +738,7 @@ impl ResolvedProgram {
         let Some(scope) = self.scopes.get_mut(scope_id) else {
             return Err(ResolverError::new(
                 ResolverErrorKind::Internal,
-                format!(
-                    "mounted symbol target scope {:?} does not exist",
-                    scope_id
-                ),
+                format!("mounted symbol target scope {:?} does not exist", scope_id),
             ));
         };
         scope.symbols.push(symbol_id);

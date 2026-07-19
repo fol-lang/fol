@@ -246,9 +246,9 @@ fn lsp_shared_pointer_write_keeps_t1001_and_the_target_range() {
         .message
         .contains("cannot write through ptr[shared, T]; shared pointers are read-only"));
     assert_eq!(diagnostic.range.start.line, 3);
-    assert_eq!(diagnostic.range.start.character, 5);
+    assert_eq!(diagnostic.range.start.character, 9);
     assert_eq!(diagnostic.range.end.line, 3);
-    assert_eq!(diagnostic.range.end.character, 12);
+    assert_eq!(diagnostic.range.end.character, 16);
 
     fs::remove_dir_all(root).ok();
 }
@@ -457,7 +457,7 @@ fn lsp_server_does_not_treat_ordinary_or_incomplete_endpoint_words_as_v3_roles()
 #[test]
 fn lsp_server_suppresses_v3_raw_hover_fallbacks_in_comments_and_quotes() {
     let (root, uri) = sample_package_root("protected_v3_hover_words");
-    let protected = "µ [>] async await edf channel[tx] channel[rx] counter[mux] *pointer @Node";
+    let protected = "µ [>] async await edf channel[tx] channel[rx] counter[mux] [drf]pointer @Node";
     let text = format!(
         "fun[] main(): int = {{\n\
          // {protected}\n\
@@ -478,7 +478,14 @@ fn lsp_server_suppresses_v3_raw_hover_fallbacks_in_comments_and_quotes() {
     let mut request_id = 1800_i64;
     for ordinal in 1..=5 {
         for needle in [
-            "[>]", "async", "await", "edf", "tx", "rx", "mux", "*pointer",
+            "[>]",
+            "async",
+            "await",
+            "edf",
+            "tx",
+            "rx",
+            "mux",
+            "[drf]pointer",
         ] {
             request_id += 1;
             let hover = request_hover(
@@ -690,9 +697,9 @@ fn lsp_server_surfaces_v3_processor_m4_eventual_state_and_failures() {
     let async_position = find_nth_position(&text, "async", 1);
     let async_hover = request_hover(&mut server, &uri, async_position, 1663)
         .expect("recoverable async should have hover");
-    assert!(async_hover
-        .contents
-        .contains("must be awaited and handled before lexical fallthrough, break, return, or report"));
+    assert!(async_hover.contents.contains(
+        "must be awaited and handled before lexical fallthrough, break, return, or report"
+    ));
     let position = find_nth_position(&text, "await", 1);
     let hover = server
         .handle_request(JsonRpcRequest {
@@ -824,7 +831,7 @@ fn lsp_server_reports_borrow_parameter_hover_and_definition() {
     assert_eq!(definition.uri, uri);
     assert_eq!(definition.range.start.line, 4);
 
-    let pointer_deref = find_nth_position(&text, "*pointer", 1);
+    let pointer_deref = find_nth_position(&text, "[drf]pointer", 1);
     let pointer_hover = request_hover(&mut server, &uri, pointer_deref, 1676)
         .expect("borrowed pointer dereference should have compiler-backed hover");
     assert!(pointer_hover
@@ -863,11 +870,7 @@ fn lsp_server_reports_recursive_shared_pointer_hover_and_definition() {
 #[test]
 fn lsp_qualified_processor_targets_keep_hover_and_definition() {
     for (example, target, definition_suffix) in [
-        (
-            "examples/proc_spawn_m1",
-            "echo_int",
-            "/std/io/lib.fol",
-        ),
+        ("examples/proc_spawn_m1", "echo_int", "/std/io/lib.fol"),
         (
             "examples/proc_async_await_m4",
             "double",
@@ -1140,7 +1143,7 @@ fn lsp_borrow_hover_tracks_source_position_and_lexical_release() {
         {\n\
             var[bor] first: int = owner;\n\
             var seen: int = first;\n\
-            !first;\n\
+            [end]first;\n\
             var after_giveback: int = owner;\n\
         };\n\
         {\n\
@@ -1190,14 +1193,14 @@ fn lsp_borrow_hover_tracks_source_position_and_lexical_release() {
 #[test]
 fn lsp_move_hover_tracks_transfer_and_reinitialization_positions() {
     let (root, uri) = sample_package_root("move_hover_position");
-    let text = "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+    let text = "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
         fun[] main(): int = {\n\
             var first: int = 1;\n\
             var second: int = 2;\n\
-            var[mut] pointer: ptr[int] = &first;\n\
-            var old: int = consume(pointer);\n\
-            pointer = &second;\n\
-            return old + *pointer;\n\
+            var[mut] pointer: ptr[int] = [ref]first;\n\
+            var old: int = consume([mov]pointer);\n\
+            pointer = [ref]second;\n\
+            return old + [drf]pointer;\n\
         };\n";
     fs::write(root.join("src/main.fol"), text).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
@@ -1307,7 +1310,7 @@ fn lsp_server_surfaces_v3_memory_m3_pointer_state_and_failures() {
     let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     open_document(&mut server, uri.clone(), &text);
-    let pointer = find_nth_position(&text, "*outer", 1);
+    let pointer = find_nth_position(&text, "[drf]outer", 1);
     let hover = server
         .handle_request(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -1503,7 +1506,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
                  @var owned: Item = { value = 7 };\n\
                  var[mut] keep: bol = true;\n\
                  loop(keep) {\n\
-                     @var moved: Item = owned;\n\
+                     @var moved: Item = [mov]owned;\n\
                      keep = false;\n\
                  };\n\
                  return 0;\n\
@@ -1513,7 +1516,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
         (
             "examples/mem_move_stack_vs_heap_m1",
             "fun[] lookup(values: map[ptr[int], int], query: ptr[int]): int = {\n\
-                 return values[query] + *query + .len(values);\n\
+                 return values[query] + [drf]query + .len(values);\n\
              };\n",
             None,
         ),
@@ -1535,7 +1538,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             "examples/mem_move_stack_vs_heap_m1",
             "fun[] main(): int = {\n\
                  var value: int = 1;\n\
-                 var pointer: ptr[int] = &value;\n\
+                 var pointer: ptr[int] = [ref]value;\n\
                  when(pointer) {\n\
                      * { return 1; }\n\
                  }\n\
@@ -1545,10 +1548,10 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
         ),
         (
             "examples/mem_move_stack_vs_heap_m1",
-            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+            "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
              fun[] main(): int = {\n\
                  var value: int = 7;\n\
-                 var pointer: ptr[int] = &value;\n\
+                 var pointer: ptr[int] = [ref]value;\n\
                  pointer;\n\
                  return consume(pointer);\n\
              };\n",
@@ -1558,7 +1561,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
             "examples/mem_move_stack_vs_heap_m1",
             "typ Holder: rec = { link: ptr[int] };\n\
              fun[] inspect(holder: Holder): int = {\n\
-                 return *holder.link;\n\
+                 return [drf]holder.link;\n\
              };\n",
             Some("dereferencing through a move-only field projection"),
         ),

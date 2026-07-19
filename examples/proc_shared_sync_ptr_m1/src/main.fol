@@ -1,0 +1,15 @@
+use std: pkg = {"std"};
+
+// `ptr[shared, sync, T]` is an `Arc`-backed shared pointer: it is thread-safe
+// (`send`/`share`), so — unlike the `Rc`-backed `ptr[shared, T]` — a clone of
+// it may cross a spawn boundary into a scoped task (V3_MEM §8.3).
+fun[] observe(shared: ptr[shared, sync, int]): int = {
+    return [drf]shared;
+};
+
+fun[] main(): int = {
+    var value: int = 42;
+    var handle: ptr[shared, sync, int] = [ref]value;
+    [>]observe([cln]handle);
+    return std::io::echo_int([drf]handle);
+};

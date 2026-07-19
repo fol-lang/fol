@@ -1,0 +1,22 @@
+// A `pro` method may take an exclusive `[mut, bor]` receiver and mutate its
+// fields through the loan (V3_MEM §4.2/§8.3). The `.bump()` call auto-borrows
+// the owned receiver mutably; the mutation persists to the original binding
+// (a shared `[bor]` receiver could only read it).
+
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+pro (Counter[mut, bor])bump(): non = {
+    self.value = self.value + 1;
+    return;
+};
+
+fun[] main(): int = {
+    var[mut] counter: Counter = { value = 40 };
+    counter.bump();
+    counter.bump();
+    return std::io::echo_int(counter.value);
+};

@@ -1,0 +1,10 @@
+// The `share` capability lets shared access cross a task/thread boundary, so
+// every field must be share-safe (V3_MEM §4.1). An `Rc`-based shared pointer is
+// not thread-safe, so a type claiming `share` cannot hold one.
+typ Registry()(share): rec = {
+    cache: ptr[shared, int],
+};
+
+fun[] main(): int = {
+    return 0;
+};

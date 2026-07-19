@@ -194,6 +194,8 @@ fn aggregate_constructors_move_unique_elements_and_values() {
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let array_id = table.intern(LoweredType::Array {
         element_type: pointer_id,
@@ -284,9 +286,12 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
     let unique_pointer = table.intern(fol_lower::LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let move_only_record = table.intern(fol_lower::LoweredType::Record {
         fields: BTreeMap::from([("pointer".to_string(), unique_pointer)]),
+        finalized: false,
     });
     let move_only_array = table.intern(fol_lower::LoweredType::Array {
         element_type: move_only_record,
@@ -431,6 +436,8 @@ fn slice_rendering_rejects_move_only_results_before_clone_emission() {
     let unique_pointer = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let scalar_vec = table.intern(LoweredType::Vector {
         element_type: int_id,
@@ -520,6 +527,7 @@ fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
     let record_type = table.intern(LoweredType::Record {
         fields: BTreeMap::from([("count".to_string(), int_id)]),
+        finalized: false,
     });
     let entry_type = table.intern(LoweredType::Entry {
         variants: BTreeMap::from([("Ok".to_string(), Some(int_id))]),

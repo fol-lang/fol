@@ -571,3 +571,66 @@ mod variadic_parameters;
 #[cfg(test)]
 #[path = "test_parser_parts/while_loops.rs"]
 mod while_loops;
+
+fn parse_inline_program(src: &str) -> AstNode {
+    let source = fol_stream::Source {
+        call: "inline.fol".to_string(),
+        path: "inline.fol".to_string(),
+        data: src.to_string(),
+        namespace: String::new(),
+        package: "inline".to_string(),
+    };
+    let mut file_stream =
+        FileStream::from_preloaded(vec![source]).expect("preloaded inline stream");
+    let mut lexer = Elements::init(&mut file_stream);
+    let mut parser = AstParser::new();
+    parser
+        .parse(&mut lexer)
+        .expect("inline snippet should parse")
+}
+
+/// A prefix ownership op (`[mut, bor]`) and a unary bracket op (`[drf]`) both
+/// rebase onto a method-call receiver: `[op]x.act()` groups as `([op]x).act()`,
+/// binding the op to the receiver rather than the call's return value.
+#[test]
+fn prefix_ops_rebase_onto_method_call_receiver() {
+    let AstNode::Program { declarations } =
+        parse_inline_program("fun[] main(): non = { [mut, bor]x.act(); [drf]p.act(); };")
+    else {
+        panic!("inline snippet should parse to a program");
+    };
+    let body = only_root_routine_body_nodes(&declarations);
+
+    fn strip(node: &AstNode) -> &AstNode {
+        match node {
+            AstNode::Commented { node, .. } => strip(node),
+            other => other,
+        }
+    }
+
+    let receivers: Vec<&AstNode> = body
+        .iter()
+        .filter_map(|node| match strip(node) {
+            AstNode::MethodCall { object, .. } => Some(strip(object)),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(receivers.len(), 2, "expected two method-call statements");
+    assert!(
+        matches!(receivers[0], AstNode::OwnershipOp { .. }),
+        "[mut, bor]x.act() should group as ([mut, bor]x).act(), got {:?}",
+        receivers[0]
+    );
+    assert!(
+        matches!(
+            receivers[1],
+            AstNode::UnaryOp {
+                op: fol_parser::ast::UnaryOperator::Deref,
+                ..
+            }
+        ),
+        "[drf]p.act() should group as ([drf]p).act(), got {:?}",
+        receivers[1]
+    );
+}

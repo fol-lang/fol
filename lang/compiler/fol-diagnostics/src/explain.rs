@@ -160,6 +160,11 @@ static REGISTRY: &[Explanation] = &[
         "returned borrow reused",
         "The borrow was returned with `!binding`; the borrower is no longer accessible after give-back."
     ),
+    explanation!(
+        "O2005",
+        "uninitialized ownership binding",
+        "A borrowed or heap-allocating declaration must identify its source at the declaration. `var[bor] view: T;` needs an owner to loan from and `@var owned: T;` needs a value to move or clone into the allocation. Only a plain `var[mut] slot: T;` may be declared uninitialized, and its first use is then guarded by definite initialization."
+    ),
     // ── Parser (fol-parser :: ParseErrorKind) ──────────────────────────
     explanation!(
         "P1001",
@@ -335,7 +340,7 @@ static REGISTRY: &[Explanation] = &[
          Why it happens:\n\
          - a heap-backed value (`str`, `vec[...]`, `seq[...]`, `set[...]`,\n\
            `map[...]`) is used under `fol_model = core`\n\
-         - `.echo(...)` or any processor surface (spawn, channels, `select`, `[mux]`,\n\
+         - `.echo(...)` or any processor surface (spawn, channels, `select`, `mux[T]`,\n\
            async, or await) is used without the bundled hosted `std` dependency\n\
          - spawn or async is given a stored routine value or routine parameter instead of a\n\
            direct named routine call, or a bare spawn could discard a recoverable error\n\
@@ -346,7 +351,7 @@ static REGISTRY: &[Explanation] = &[
          - a channel is placed in an unsupported composite/projected/top-level shape instead\n\
            of a direct routine-owned binding with one receiver lifecycle\n\
          - a `dfr` or `edf` body accesses a mutex field, calls `.lock()` / `.unlock()`, or\n\
-           forwards the handle to another `[mux]` routine; V3 guard effects are immediate\n\
+           forwards the handle to another `mux[T]` routine; V3 guard effects are immediate\n\
          - a feature is outside the current release boundary (for example raw\n\
            pointers or explicit deallocation at the V4/FFI boundary)\n\n\
          How to fix:\n\
@@ -626,13 +631,17 @@ mod tests {
     fn invalid_input_explanation_covers_empty_blocking_select() {
         let explanation = explanation("T1001").expect("T1001 should be registered");
         assert!(explanation.body.contains("blocking `select {}`"));
-        assert!(explanation.body.contains("at least one `when channel as binding` arm"));
+        assert!(explanation
+            .body
+            .contains("at least one `when channel as binding` arm"));
     }
 
     #[test]
     fn invalid_input_explanation_covers_deferred_report_boundary() {
         let explanation = explanation("T1001").expect("T1001 should be registered");
-        assert!(explanation.body.contains("`report` appears inside `dfr` or `edf`"));
+        assert!(explanation
+            .body
+            .contains("`report` appears inside `dfr` or `edf`"));
         assert!(explanation
             .body
             .contains("keep deferred bodies non-terminating"));
@@ -644,7 +653,9 @@ mod tests {
         assert!(explanation
             .body
             .contains("recoverable eventual is discarded"));
-        assert!(explanation.body.contains("left live at lexical fallthrough"));
+        assert!(explanation
+            .body
+            .contains("left live at lexical fallthrough"));
         assert!(explanation.body.contains("`break`"));
         assert!(explanation.body.contains("`return`"));
         assert!(explanation.body.contains("`report`"));
@@ -664,7 +675,9 @@ mod tests {
         assert!(explanation.body.contains("anonymous spawn form"));
         assert!(explanation.body.contains("one receiver lifecycle"));
         assert!(explanation.body.contains("forwards the handle"));
-        assert!(explanation.body.contains("implicitly captures an outer local"));
+        assert!(explanation
+            .body
+            .contains("implicitly captures an outer local"));
         assert!(explanation
             .body
             .contains("cannot discharge a normal-path obligation"));

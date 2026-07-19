@@ -760,10 +760,28 @@ pub(crate) fn type_method_call(
 ) -> Result<TypedExpr, TypecheckError> {
     let mutex_receiver = (method == "lock" || method == "unlock")
         .then(|| {
+            // The lock receiver may be a bare mutex identifier (`state.lock()`,
+            // the historical handle-lock) or the canonical borrowed form
+            // (`([bor]state).lock()`, V3_MEM §8.3 guard-VALUE surface); unwrap a
+            // single `[bor]` operation to reach the mutex identifier and record
+            // which surface was used.
+            let (identifier, borrowed) = match strip_comments(object) {
+                bare @ AstNode::Identifier { .. } => (bare, false),
+                AstNode::OwnershipOp {
+                    options, operand, ..
+                } if matches!(
+                    options.as_slice(),
+                    [fol_parser::ast::options::OwnershipOption::Borrow]
+                ) =>
+                {
+                    (strip_comments(operand), true)
+                }
+                _ => return None,
+            };
             let AstNode::Identifier {
                 name,
                 syntax_id: Some(syntax_id),
-            } = strip_comments(object)
+            } = identifier
             else {
                 return None;
             };
@@ -778,10 +796,10 @@ pub(crate) fn type_method_call(
             typed
                 .typed_symbol(mutex_symbol)
                 .is_some_and(|symbol| symbol.is_mutex)
-                .then_some((name.as_str(), mutex_symbol))
+                .then_some((name.as_str(), mutex_symbol, borrowed))
         })
         .flatten();
-    if let Some((name, mutex_symbol)) = mutex_receiver {
+    if let Some((name, mutex_symbol, borrowed)) = mutex_receiver {
         if context.inside_deferred_block {
             return Err(unsupported_node_surface(
                 resolved,
@@ -820,6 +838,9 @@ pub(crate) fn type_method_call(
             let guard = crate::ActiveMutexGuard {
                 scope: context.scope_id,
                 origin: origin.clone(),
+                // Handle-lock by default; promoted to a bound guard value when
+                // the `.lock()` result is captured by a `var[mut, bor]` binding.
+                bound: false,
             };
             if let Some(active) = typed.register_mutex_guard(mutex_symbol, guard) {
                 return Err(TypecheckError::with_origin(
@@ -845,6 +866,23 @@ pub(crate) fn type_method_call(
                 message,
                 origin,
             ));
+        }
+        // Guard-VALUE surface (V3_MEM §8.3): `([bor]state).lock()` yields a
+        // lifetime-bound mutable guard over the mutex's inner `T`, bindable as
+        // `var[mut, bor] guard: T = ...`. Returning it as a mutable borrow (not
+        // by value) keeps the guarded value inside the mutex. The historical
+        // handle-lock `state.lock()` stays a scope-marker statement (no value).
+        if method == "lock" && borrowed {
+            if let Some(inner) = typed
+                .typed_symbol(mutex_symbol)
+                .and_then(|symbol| symbol.declared_type)
+            {
+                let guard = typed.type_table_mut().intern(CheckedType::Borrowed {
+                    inner,
+                    mutable: true,
+                });
+                return Ok(TypedExpr::value(guard));
+            }
         }
         return Ok(TypedExpr::none());
     }
@@ -1033,6 +1071,26 @@ fn routine_signature_for_method(
                 routine_signature_for_symbol(typed, typed.resolved(), symbol_id, origin.clone())?,
             ));
             continue;
+        }
+        // An ownership-annotated receiver (`fun (Type[bor])m()` /
+        // `pro (Type[mut, bor])m()`) auto-borrows the object: a call `obj.m()`
+        // on an owned `obj: Type` matches when the receiver's borrowed inner
+        // type equals the object type (V3_MEM §4.2/§8.3).
+        if let Some(crate::CheckedType::Borrowed { inner, .. }) =
+            typed.type_table().get(receiver_type)
+        {
+            if *inner == object_type {
+                matches.push((
+                    symbol_id,
+                    routine_signature_for_symbol(
+                        typed,
+                        typed.resolved(),
+                        symbol_id,
+                        origin.clone(),
+                    )?,
+                ));
+                continue;
+            }
         }
         // Try to unify the routine's generic receiver template against the
         // concrete object type. If it unifies, bind the routine generics and
@@ -1382,6 +1440,15 @@ pub(crate) fn check_call_arguments(
                     )
                 );
                 if !extracts_sender && !forwards_mutex_handle && !preserves_borrow {
+                    // §2.2: passing an existing owned value as an argument is a
+                    // transfer boundary and must state its operation explicitly.
+                    super::bindings::reject_untagged_owned_transfer(
+                        typed,
+                        resolved,
+                        arg,
+                        actual,
+                        &format!("passed to '{callee}'"),
+                    )?;
                     super::bindings::track_value_transfer(
                         typed,
                         resolved,
@@ -1568,12 +1635,16 @@ fn validate_call_site_borrows(
         if argument_is_borrow_binding(typed, resolved, arg) {
             continue;
         }
+        // A borrow of a temporary is valid for the duration of this call.
+        if is_borrow_of_temporary(arg) {
+            continue;
+        }
         return Err(node_origin(resolved, arg).or(call_origin.clone()).map_or_else(
             || {
                 TypecheckError::new(
                     TypecheckErrorKind::BorrowConflict,
                     format!(
-                        "call to '{callee}' must pass '#owner' or an existing borrow binding to a [bor] parameter"
+                        "call to '{callee}' must pass '[bor]owner' or an existing borrow binding to a [bor] parameter"
                     ),
                 )
             },
@@ -1581,7 +1652,7 @@ fn validate_call_site_borrows(
                 TypecheckError::with_origin(
                     TypecheckErrorKind::BorrowConflict,
                     format!(
-                        "call to '{callee}' must pass '#owner' or an existing borrow binding to a [bor] parameter"
+                        "call to '{callee}' must pass '[bor]owner' or an existing borrow binding to a [bor] parameter"
                     ),
                     origin,
                 )
@@ -1640,7 +1711,7 @@ fn validate_deferred_mutex_argument_forwarding(
                 resolved,
                 arg,
                 format!(
-                    "mutex handles cannot be forwarded to [mux] parameter {param_index} of '{callee}' inside dfr/edf in V3; delayed mutex guard effects are not modeled"
+                    "mutex handles cannot be forwarded to mux[T] parameter {param_index} of '{callee}' inside dfr/edf in V3; delayed mutex guard effects are not modeled"
                 ),
             ));
         }
@@ -1686,7 +1757,7 @@ fn validate_mutex_argument_forwarding(
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::InvalidInput,
                 format!(
-                    "call to '{callee}' cannot forward mutex handle '{name}' to both [mux] parameter {first_param} and [mux] parameter {param_index}; aliased mutex parameters can self-deadlock"
+                    "call to '{callee}' cannot forward mutex handle '{name}' to both mux[T] parameter {first_param} and mux[T] parameter {param_index}; aliased mutex parameters can self-deadlock"
                 ),
                 argument_origin,
             )
@@ -1717,15 +1788,42 @@ fn explicit_bound_arg<'a>(arg: &'a BoundCallArg<'a>) -> Option<&'a AstNode> {
     }
 }
 
+/// Whether `arg` is an explicit borrow (`#x` / `[bor]x`) of a temporary value —
+/// an operand that is not an addressable place (a call result, literal, etc.).
+/// A temporary may be borrowed for the full enclosing expression (Slice C), so
+/// passing it to a `[bor]` parameter is legal; it just cannot be stored in a
+/// longer-lived borrow binding (rejected separately at the binding site).
+pub(crate) fn is_borrow_of_temporary(arg: &AstNode) -> bool {
+    let operand = match strip_comments(arg) {
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::BorrowFrom,
+            operand,
+        } => operand.as_ref(),
+        AstNode::OwnershipOp {
+            options, operand, ..
+        } if options.contains(&fol_parser::ast::OwnershipOption::Borrow) => operand.as_ref(),
+        _ => return false,
+    };
+    !matches!(
+        strip_comments(operand),
+        AstNode::Identifier { .. } | AstNode::FieldAccess { .. } | AstNode::IndexAccess { .. }
+    )
+}
+
 fn borrow_from_owner(resolved: &ResolvedProgram, arg: &AstNode) -> Option<SymbolId> {
-    matches!(
-        strip_comments(arg),
+    let stripped = strip_comments(arg);
+    let is_borrow = matches!(
+        stripped,
         AstNode::UnaryOp {
             op: fol_parser::ast::UnaryOperator::BorrowFrom,
             ..
         }
-    )
-    .then(|| super::bindings::borrow_source_symbol(resolved, strip_comments(arg)))?
+    ) || matches!(
+        stripped,
+        AstNode::OwnershipOp { options, .. }
+            if options.contains(&fol_parser::ast::OwnershipOption::Borrow)
+    );
+    is_borrow.then(|| super::bindings::borrow_source_symbol(resolved, stripped))?
 }
 
 fn argument_is_borrow_binding(
@@ -2625,7 +2723,7 @@ pub(crate) fn type_for_reference(
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::Unsupported,
                 format!(
-                    "routine '{symbol_name}' with [mux] parameters cannot be used as a plain routine value in V3; call it directly instead"
+                    "routine '{symbol_name}' with mux[T] parameters cannot be used as a plain routine value in V3; call it directly instead"
                 ),
                 origin.clone().unwrap_or(SyntaxOrigin {
                     file: None,

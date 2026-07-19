@@ -1,0 +1,8 @@
+// The uniform inner access `[]` only applies to a pointer, an `opt[T]`, or an
+// `err[T]` receiver (V3_MEM Slice D §3.3). Applying it to a plain value has no
+// inner place and is rejected.
+
+fun[] main(): int = {
+    var value: int = 4;
+    return value[];
+};

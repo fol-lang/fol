@@ -167,7 +167,8 @@ impl AstParser {
 
         if (AstParser::token_can_be_logical_name(&key)
             || key.is_textual_literal()
-            || matches!(key, KEYWORD::Symbol(SYMBOL::Star)))
+            || matches!(key, KEYWORD::Symbol(SYMBOL::Star))
+            || self.peek_is_deref_bracket(tokens))
             && self.lookahead_is_assignment(tokens)
         {
             let node = self.parse_assignment_stmt(tokens)?;

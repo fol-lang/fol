@@ -1,0 +1,15 @@
+use std: pkg = {"std"};
+
+// A first-class `chn[tx, T]` sender value can be passed across routines and
+// sent through directly; the send returns a must-handle `err[T]` (V3_MEM §8.2).
+fun[] emit(line: chn[tx, int], value: int): non = {
+    var sent: err[int] = value | line;
+    return;
+};
+
+fun[] main(): int = {
+    var channel: chn[int];
+    emit(channel[tx], 37);
+    var received: opt[int] = channel[rx];
+    return std::io::echo_int(received[]);
+};

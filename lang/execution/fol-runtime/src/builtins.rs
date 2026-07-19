@@ -1,8 +1,8 @@
 //! Runtime-owned builtin and intrinsic hook support.
 
 use crate::{
-    memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
     containers::FolArray,
+    memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
     value::FolInt,
 };
 
@@ -66,8 +66,8 @@ pub fn module_name() -> &'static str {
 mod tests {
     use super::{len, FolLength};
     use crate::{
-        memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
         containers::FolArray,
+        memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
     };
     use std::collections::{BTreeMap, BTreeSet};
 

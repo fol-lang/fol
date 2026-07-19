@@ -245,8 +245,8 @@ fn simultaneously_ready_select_arms_prefer_source_order() {
              fun[] main(): int = {\n\
              \x20   var first: chn[int];\n\
              \x20   var second: chn[int];\n\
-             \x20   19 | first[tx];\n\
-             \x20   23 | second[tx];\n\
+             \x20   var sent_first: err[int] = 19 | first[tx];\n\
+             \x20   var sent_second: err[int] = 23 | second[tx];\n\
              \x20   var[mut] selected: int = 0;\n\
              \x20   select {\n\
              \x20       when first as value { selected = value; }\n\
@@ -266,11 +266,11 @@ fn move_only_pointer_payload_crosses_a_channel() {
         "use std: pkg = {\"std\"};\n\
              fun[] main(): int = {\n\
              \x20   var seed: int = 42;\n\
-             \x20   var pointer: ptr[int] = &seed;\n\
+             \x20   var pointer: ptr[int] = [ref]seed;\n\
              \x20   var channel: chn[ptr[int]];\n\
-             \x20   pointer | channel[tx];\n\
-             \x20   var received: ptr[int] = channel[rx];\n\
-             \x20   return std::io::echo_int(*received);\n\
+             \x20   var sent: err[ptr[int]] = [mov]pointer | channel[tx];\n\
+             \x20   var received: opt[ptr[int]] = channel[rx];\n\
+             \x20   return std::io::echo_int([drf]received[]);\n\
              };\n",
     );
     assert_successful_stdout(&root, "42\n");
@@ -284,15 +284,91 @@ fn move_only_pointer_result_crosses_an_eventual() {
         "use std: pkg = {\"std\"};\n\
              fun[] make_pointer(value: int): ptr[int] = {\n\
              \x20   var copy: int = value;\n\
-             \x20   var pointer: ptr[int] = &copy;\n\
-             \x20   return pointer;\n\
+             \x20   var pointer: ptr[int] = [ref]copy;\n\
+             \x20   return [mov]pointer;\n\
              };\n\
              fun[] main(): int = {\n\
              \x20   var pending = make_pointer(42) | async;\n\
              \x20   var received: ptr[int] = pending | await;\n\
-             \x20   return std::io::echo_int(*received);\n\
+             \x20   return std::io::echo_int([drf]received);\n\
              };\n",
     );
     assert_successful_stdout(&root, "42\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn move_capture_carries_an_owned_pointer_into_a_spawned_task() {
+    // A spawned task captures an owned `ptr[int]` by `[mov]` (V3_MEM §2.3 value
+    // capture / V3_PROC owned spawn capture): the pointer moves whole into the
+    // task environment, is dereferenced there, and its value is sent back over a
+    // captured sender endpoint.
+    let root = write_hosted_app(
+        "v3_spawn_move_capture",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var seed: int = 7;\n\
+             \x20   var pointer: ptr[int] = [ref]seed;\n\
+             \x20   var channel: chn[int];\n\
+             \x20   [>]fun()[pointer[mov], channel[tx]] = {\n\
+             \x20       var sent: err[int] = [drf]pointer | channel[tx];\n\
+             \x20   };\n\
+             \x20   var received: opt[int] = channel[rx];\n\
+             \x20   return std::io::echo_int(received[]);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "7\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn copy_capture_duplicates_a_value_into_a_task_and_keeps_the_source_live() {
+    // A spawned task captures a `copy` value by `[cpy]`: an independent copy
+    // crosses the spawn boundary (sent back as 9) while the outer binding stays
+    // usable (9), so the program echoes 18. Contrasts with `[mov]`, which would
+    // consume the source.
+    let root = write_hosted_app(
+        "v3_spawn_copy_capture",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var amount: int = 9;\n\
+             \x20   var channel: chn[int];\n\
+             \x20   [>]fun()[amount[cpy], channel[tx]] = {\n\
+             \x20       var sent: err[int] = amount | channel[tx];\n\
+             \x20   };\n\
+             \x20   var received: opt[int] = channel[rx];\n\
+             \x20   var still_here: int = amount;\n\
+             \x20   return std::io::echo_int(still_here + received[]);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "18\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn clone_capture_duplicates_a_clonable_record_and_keeps_the_source_live() {
+    // A spawned task captures a clonable (non-copy) record by `[cln]`: an
+    // independent clone crosses the spawn boundary (its `value` sent back as 9)
+    // while the outer binding stays usable (9), so the program echoes 18. The
+    // `str` field makes the record genuinely clone-not-copy.
+    let root = write_hosted_app(
+        "v3_spawn_clone_capture",
+        "use std: pkg = {\"std\"};\n\
+             typ Item: rec = {\n\
+             \x20   value: int,\n\
+             \x20   tag: str\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var item: Item = { value = 9, tag = \"hi\" };\n\
+             \x20   var channel: chn[int];\n\
+             \x20   [>]fun()[item[cln], channel[tx]] = {\n\
+             \x20       var sent: err[int] = item.value | channel[tx];\n\
+             \x20   };\n\
+             \x20   var received: opt[int] = channel[rx];\n\
+             \x20   var still: int = item.value;\n\
+             \x20   return std::io::echo_int(still + received[]);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "18\n");
     std::fs::remove_dir_all(root).ok();
 }

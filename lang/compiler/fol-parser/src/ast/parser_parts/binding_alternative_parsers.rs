@@ -37,10 +37,7 @@ impl AstParser {
     ) -> Result<Vec<AstNode>, ParseError> {
         let (keyword, options) = self.lookahead_binding_alternative(tokens).ok_or_else(|| {
             let error: ParseError = if let Ok(token) = tokens.curr(false) {
-                ParseError::from_token(
-                    &token,
-                    "Expected binding alternative".to_string(),
-                )
+                ParseError::from_token(&token, "Expected binding alternative".to_string())
             } else {
                 ParseError {
                     kind: ParseErrorKind::Syntax,

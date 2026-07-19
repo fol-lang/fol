@@ -3,9 +3,7 @@ use crate::{
     TypedProgram,
 };
 use fol_parser::ast::{AstNode, SyntaxNodeId, SyntaxOrigin};
-use fol_resolver::{
-    ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind,
-};
+use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::BTreeSet;
 
 use super::{ErrorCallMode, TypeContext, TypedExpr};
@@ -31,8 +29,7 @@ pub(crate) fn require_direct_channel_binding(
         .references
         .iter()
         .find(|reference| {
-            reference.syntax_id == Some(*syntax_id)
-                && reference.kind == ReferenceKind::Identifier
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
         })
         .and_then(|reference| reference.resolved)
         .and_then(|symbol| resolved.symbol(symbol))
@@ -77,10 +74,7 @@ pub(crate) fn require_direct_channel_binding(
     ))
 }
 
-pub(crate) fn type_embeds_full_channel(
-    typed: &TypedProgram,
-    type_id: CheckedTypeId,
-) -> bool {
+pub(crate) fn type_embeds_full_channel(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
     fn embeds(
         typed: &TypedProgram,
         type_id: CheckedTypeId,
@@ -97,12 +91,12 @@ pub(crate) fn type_embeds_full_channel(
                 Some(CheckedType::Channel { element_type }) => {
                     !root || embeds(typed, *element_type, false, visiting)
                 }
-                Some(CheckedType::ChannelSender { element_type }) => {
+                Some(CheckedType::ChannelSender { element_type })
+                | Some(CheckedType::ChannelReceiver { element_type }) => {
                     embeds(typed, *element_type, false, visiting)
                 }
                 Some(CheckedType::Declared { symbol, args, .. }) => {
-                    args.iter()
-                        .any(|arg| embeds(typed, *arg, false, visiting))
+                    args.iter().any(|arg| embeds(typed, *arg, false, visiting))
                         || typed
                             .typed_symbol(*symbol)
                             .and_then(|symbol| symbol.declared_type)
@@ -136,19 +130,22 @@ pub(crate) fn type_embeds_full_channel(
                 | Some(CheckedType::Pointer { target: inner, .. }) => {
                     embeds(typed, *inner, false, visiting)
                 }
-                Some(CheckedType::Error { inner }) => inner
-                    .is_some_and(|inner| embeds(typed, inner, false, visiting)),
+                Some(CheckedType::Error { inner }) => {
+                    inner.is_some_and(|inner| embeds(typed, inner, false, visiting))
+                }
+                // An `evt[T]` is a scope-bound one-shot handle: like a full
+                // channel, it cannot be embedded in an aggregate that could
+                // outlive its parent scope `L` (V3_MEM §8.1). Conservative
+                // until region-scoped storage proofs land.
                 Some(CheckedType::Eventual {
                     value_type,
                     error_type,
                 }) => {
-                    embeds(typed, *value_type, false, visiting)
-                        || error_type
-                            .is_some_and(|error| embeds(typed, error, false, visiting))
+                    !root
+                        || embeds(typed, *value_type, false, visiting)
+                        || error_type.is_some_and(|error| embeds(typed, error, false, visiting))
                 }
-                Some(CheckedType::Builtin(_))
-                | Some(CheckedType::Routine(_))
-                | None => false,
+                Some(CheckedType::Builtin(_)) | Some(CheckedType::Routine(_)) | None => false,
             }
         };
         visiting.remove(&type_id);
@@ -166,17 +163,14 @@ pub(crate) fn reject_embedded_full_channel(
     if !type_embeds_full_channel(typed, type_id) {
         return Ok(());
     }
-    let message = "full chn[T] values cannot be embedded in aggregate or wrapper types in V3; keep channels as direct routine-local bindings or named-routine parameters";
+    let message = "full chn[T] and evt[T] values cannot be embedded in aggregate or wrapper types in V3; keep them as direct routine-local bindings or named-routine parameters";
     Err(origin.map_or_else(
         || TypecheckError::new(TypecheckErrorKind::Unsupported, message),
         |origin| TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
     ))
 }
 
-pub(crate) fn type_contains_shared_pointer(
-    typed: &TypedProgram,
-    type_id: CheckedTypeId,
-) -> bool {
+pub(crate) fn type_contains_shared_pointer(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
     fn contains(
         typed: &TypedProgram,
         type_id: CheckedTypeId,
@@ -189,7 +183,14 @@ pub(crate) fn type_contains_shared_pointer(
             contains(typed, apparent, visiting)
         } else {
             match typed.type_table().get(type_id) {
-                Some(CheckedType::Pointer { shared: true, .. }) => true,
+                // Only `Rc`-backed (non-sync) shared pointers block a boundary
+                // crossing; an `Arc`-backed `ptr[shared, sync, T]` is thread-safe
+                // and may cross (its target is still checked recursively).
+                Some(CheckedType::Pointer {
+                    shared: true,
+                    sync: false,
+                    ..
+                }) => true,
                 Some(CheckedType::Pointer { target, .. }) => contains(typed, *target, visiting),
                 Some(CheckedType::Declared { symbol, args, .. }) => {
                     args.iter().any(|arg| contains(typed, *arg, visiting))
@@ -209,7 +210,8 @@ pub(crate) fn type_contains_shared_pointer(
                 | Some(CheckedType::Vector { element_type })
                 | Some(CheckedType::Sequence { element_type })
                 | Some(CheckedType::Channel { element_type })
-                | Some(CheckedType::ChannelSender { element_type }) => {
+                | Some(CheckedType::ChannelSender { element_type })
+                | Some(CheckedType::ChannelReceiver { element_type }) => {
                     contains(typed, *element_type, visiting)
                 }
                 Some(CheckedType::Set { member_types }) => member_types
@@ -219,8 +221,7 @@ pub(crate) fn type_contains_shared_pointer(
                     key_type,
                     value_type,
                 }) => {
-                    contains(typed, *key_type, visiting)
-                        || contains(typed, *value_type, visiting)
+                    contains(typed, *key_type, visiting) || contains(typed, *value_type, visiting)
                 }
                 Some(CheckedType::Optional { inner })
                 | Some(CheckedType::Owned { inner })
@@ -235,9 +236,7 @@ pub(crate) fn type_contains_shared_pointer(
                     contains(typed, *value_type, visiting)
                         || error_type.is_some_and(|error| contains(typed, error, visiting))
                 }
-                Some(CheckedType::Builtin(_))
-                | Some(CheckedType::Routine(_))
-                | None => false,
+                Some(CheckedType::Builtin(_)) | Some(CheckedType::Routine(_)) | None => false,
             }
         };
         visiting.remove(&type_id);
@@ -279,7 +278,8 @@ pub(crate) fn type_contains_borrowed(typed: &TypedProgram, type_id: CheckedTypeI
                 | Some(CheckedType::Vector { element_type })
                 | Some(CheckedType::Sequence { element_type })
                 | Some(CheckedType::Channel { element_type })
-                | Some(CheckedType::ChannelSender { element_type }) => {
+                | Some(CheckedType::ChannelSender { element_type })
+                | Some(CheckedType::ChannelReceiver { element_type }) => {
                     contains(typed, *element_type, visiting)
                 }
                 Some(CheckedType::Set { member_types }) => member_types
@@ -289,8 +289,7 @@ pub(crate) fn type_contains_borrowed(typed: &TypedProgram, type_id: CheckedTypeI
                     key_type,
                     value_type,
                 }) => {
-                    contains(typed, *key_type, visiting)
-                        || contains(typed, *value_type, visiting)
+                    contains(typed, *key_type, visiting) || contains(typed, *value_type, visiting)
                 }
                 Some(CheckedType::Optional { inner })
                 | Some(CheckedType::Owned { inner })
@@ -307,9 +306,76 @@ pub(crate) fn type_contains_borrowed(typed: &TypedProgram, type_id: CheckedTypeI
                     contains(typed, *value_type, visiting)
                         || error_type.is_some_and(|error| contains(typed, error, visiting))
                 }
-                Some(CheckedType::Builtin(_))
-                | Some(CheckedType::Routine(_))
-                | None => false,
+                Some(CheckedType::Builtin(_)) | Some(CheckedType::Routine(_)) | None => false,
+            }
+        };
+        visiting.remove(&type_id);
+        result
+    }
+
+    contains(typed, type_id, &mut BTreeSet::new())
+}
+
+/// Whether `type_id` is (after peeling apparent-type overrides) an eventual
+/// handle. Used to forbid eventuals from entering detached tasks (V3_MEM §8.1).
+pub(crate) fn type_is_eventual(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    let resolved = typed.apparent_type_override(type_id).unwrap_or(type_id);
+    matches!(
+        typed.type_table().get(resolved),
+        Some(CheckedType::Eventual { .. })
+    )
+}
+
+/// Whether `type_id` is, or transitively contains a field/element of, a type
+/// that claims custom finalization (`fin`). Used to forbid `fin` values in
+/// positions that never run finalization, such as top-level/global storage.
+pub(crate) fn type_contains_fin(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    fn contains(
+        typed: &TypedProgram,
+        type_id: CheckedTypeId,
+        visiting: &mut BTreeSet<CheckedTypeId>,
+    ) -> bool {
+        if !visiting.insert(type_id) {
+            return false;
+        }
+        let result = if typed.type_claims_fin(type_id) {
+            true
+        } else if let Some(apparent) = typed.apparent_type_override(type_id) {
+            contains(typed, apparent, visiting)
+        } else {
+            match typed.type_table().get(type_id) {
+                Some(CheckedType::Declared { symbol, args, .. }) => {
+                    args.iter().any(|arg| contains(typed, *arg, visiting))
+                        || typed
+                            .typed_symbol(*symbol)
+                            .and_then(|symbol| symbol.declared_type)
+                            .is_some_and(|declared| contains(typed, declared, visiting))
+                }
+                Some(CheckedType::Record { fields }) => fields
+                    .values()
+                    .any(|field| contains(typed, *field, visiting)),
+                Some(CheckedType::Entry { variants }) => variants
+                    .values()
+                    .flatten()
+                    .any(|variant| contains(typed, *variant, visiting)),
+                Some(CheckedType::Array { element_type, .. })
+                | Some(CheckedType::Vector { element_type })
+                | Some(CheckedType::Sequence { element_type }) => {
+                    contains(typed, *element_type, visiting)
+                }
+                Some(CheckedType::Set { member_types }) => member_types
+                    .iter()
+                    .any(|member| contains(typed, *member, visiting)),
+                Some(CheckedType::Map {
+                    key_type,
+                    value_type,
+                }) => {
+                    contains(typed, *key_type, visiting) || contains(typed, *value_type, visiting)
+                }
+                Some(CheckedType::Optional { inner }) | Some(CheckedType::Owned { inner }) => {
+                    contains(typed, *inner, visiting)
+                }
+                _ => false,
             }
         };
         visiting.remove(&type_id);
@@ -403,6 +469,29 @@ fn recoverable_eventual_exit_error(
     Err(error)
 }
 
+/// Reject crossing a processor boundary while a lifetime-scoped mutex guard
+/// value is live (V3_MEM §8.3: "the guard cannot ... cross spawn, await,
+/// blocking receive, or blocking select"). Only the guard-VALUE form
+/// (`var[mut, bor] guard = ([bor]mux).lock()`) is bound; the handle-lock form
+/// may cross for concurrent access.
+pub(crate) fn reject_bound_guard_boundary(
+    typed: &TypedProgram,
+    boundary: &str,
+    origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let Some(guard) = typed.active_bound_guard() else {
+        return Ok(());
+    };
+    let message = format!(
+        "a mutex guard cannot cross {boundary}; end it ('[end]guard' or scope exit) before {boundary}"
+    );
+    let error = match origin {
+        Some(origin) => TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin),
+        None => TypecheckError::new(TypecheckErrorKind::Ownership, message),
+    };
+    Err(error.with_related_origin(guard.origin.clone(), "mutex guard acquired here"))
+}
+
 pub(crate) fn reject_recoverable_eventuals_in_scope(
     typed: &TypedProgram,
     resolved: &ResolvedProgram,
@@ -441,9 +530,7 @@ pub(crate) fn reject_all_recoverable_eventuals(
     recoverable_eventual_exit_error(
         typed,
         resolved,
-        |obligation| {
-            nearest_routine_scope(resolved, obligation.owner_scope) == current_routine
-        },
+        |obligation| nearest_routine_scope(resolved, obligation.owner_scope) == current_routine,
         exit_origin,
         boundary,
     )
@@ -609,7 +696,10 @@ pub(crate) fn channel_receiver_element_type(
 ) -> Result<CheckedTypeId, TypecheckError> {
     let apparent = apparent_type_id(typed, channel_type)?;
     match typed.type_table().get(apparent) {
-        Some(CheckedType::Channel { element_type }) => Ok(*element_type),
+        // A full channel receives on its own embedded receiver; a first-class
+        // `chn[rx, T]` receiver value receives through the moved unique handle.
+        Some(CheckedType::Channel { element_type })
+        | Some(CheckedType::ChannelReceiver { element_type }) => Ok(*element_type),
         Some(CheckedType::ChannelSender { .. }) => Err(TypecheckError::new(
             TypecheckErrorKind::Ownership,
             "sender-only channel endpoints cannot receive; keep the single receiver in the owning routine",
@@ -782,7 +872,10 @@ pub(crate) fn loop_body_scope(
         internal_error("loop syntax anchor disappeared before typechecking", None)
     })?;
     let scope_id = resolved.scope_for_syntax(syntax_id).ok_or_else(|| {
-        internal_error("resolved loop body scope disappeared before typechecking", None)
+        internal_error(
+            "resolved loop body scope disappeared before typechecking",
+            None,
+        )
     })?;
     let valid = resolved.scope(scope_id).is_some_and(|scope| {
         matches!(
@@ -1172,7 +1265,20 @@ fn binding_is_mutable_by_name(
     .into_iter()
     .find_map(|kind| find_symbol_in_scope_chain(resolved, source_unit_id, scope_id, name, kind))
     .and_then(|symbol_id| typed.typed_symbol(symbol_id))
-    .map(|symbol| symbol.is_mutable || symbol.is_mutex)
+    .map(|symbol| {
+        // `var[mut]`/`lab[mut]`, a `mux[T]` owner, OR a mutable borrow — the
+        // last covers a `[mut, bor]` method receiver (`self`) and any
+        // `var[mut, bor]` binding, whose fields are assignable through the loan
+        // (V3_MEM §4.2/§8.3).
+        symbol.is_mutable
+            || symbol.is_mutex
+            || matches!(
+                symbol
+                    .declared_type
+                    .and_then(|type_id| typed.type_table().get(type_id)),
+                Some(CheckedType::Borrowed { mutable: true, .. })
+            )
+    })
     .unwrap_or(false)
 }
 

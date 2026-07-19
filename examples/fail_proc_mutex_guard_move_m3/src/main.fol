@@ -1,0 +1,21 @@
+// A lifetime-scoped mutex guard value cannot be moved, copied, or cloned as a
+// whole (V3_PROC / V3_MEM §8.3): duplicating or transferring the guard would
+// alias or leak the held lock. Read its fields (`guard.value`) to snapshot the
+// protected data instead of `[cpy]guard`.
+
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+fun[] bump(state: mux[Counter]): int = {
+    var[mut, bor] guard: Counter = ([bor]state).lock();
+    var snapshot: Counter = [cpy]guard;
+    return snapshot.value;
+};
+
+fun[] main(): int = {
+    var counter: Counter = { value = 41 };
+    return bump(counter);
+};

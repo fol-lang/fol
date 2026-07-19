@@ -1,0 +1,15 @@
+// `copy` is verified recursively (V3_MEM §4.1): unlike `clone`, `copy` has no
+// structural default, so a `copy` type's nominal aggregate fields must each
+// claim `copy` too. `Inner` claims only `clone`, so `Outer` cannot claim `copy`.
+
+typ Inner()(clone): rec = {
+    x: int,
+};
+
+typ Outer()(copy): rec = {
+    inner: Inner,
+};
+
+fun[] main(): int = {
+    return 0;
+};

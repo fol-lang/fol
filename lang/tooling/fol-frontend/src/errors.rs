@@ -93,8 +93,7 @@ impl std::error::Error for FrontendError {}
 
 impl ToDiagnostic for FrontendError {
     fn to_diagnostic(&self) -> Diagnostic {
-        let mut diagnostic =
-            Diagnostic::error(self.kind.diagnostic_code(), self.message.clone());
+        let mut diagnostic = Diagnostic::error(self.kind.diagnostic_code(), self.message.clone());
         for note in &self.notes {
             diagnostic = diagnostic.with_note(note.clone());
         }
@@ -200,13 +199,19 @@ mod tests {
 
         assert_eq!(diagnostic.code.as_str(), "F1002");
         assert_eq!(diagnostic.message, "missing root");
-        assert_eq!(diagnostic.notes, vec!["check your working directory".to_string()]);
+        assert_eq!(
+            diagnostic.notes,
+            vec!["check your working directory".to_string()]
+        );
     }
 
     #[test]
     fn frontend_error_kind_diagnostic_codes_are_stable() {
         assert_eq!(FrontendErrorKind::InvalidInput.diagnostic_code(), "F1001");
-        assert_eq!(FrontendErrorKind::WorkspaceNotFound.diagnostic_code(), "F1002");
+        assert_eq!(
+            FrontendErrorKind::WorkspaceNotFound.diagnostic_code(),
+            "F1002"
+        );
         assert_eq!(FrontendErrorKind::PackageFailed.diagnostic_code(), "F1003");
         assert_eq!(FrontendErrorKind::CommandFailed.diagnostic_code(), "F1004");
         assert_eq!(FrontendErrorKind::Internal.diagnostic_code(), "F1099");

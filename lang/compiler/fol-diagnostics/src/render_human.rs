@@ -15,14 +15,12 @@ pub fn render_report(report: &DiagnosticReport) -> String {
             if report.diagnostics.len() >= 50 {
                 output.push_str(&format!(
                     "error: found {}+ error{} (output truncated)",
-                    report.error_count,
-                    label,
+                    report.error_count, label,
                 ));
             } else {
                 output.push_str(&format!(
                     "error: found {} error{}",
-                    report.error_count,
-                    label
+                    report.error_count, label
                 ));
             }
         }
@@ -33,8 +31,7 @@ pub fn render_report(report: &DiagnosticReport) -> String {
             let label = if report.warning_count == 1 { "" } else { "s" };
             output.push_str(&format!(
                 "warning: {} warning{}",
-                report.warning_count,
-                label
+                report.warning_count, label
             ));
         }
         output.push('\n');
@@ -53,7 +50,12 @@ pub fn render_diagnostic(diagnostic: &Diagnostic) -> String {
     };
 
     if diagnostic.code.as_str() != "EUNKNOWN" {
-        output.push_str(&format!("{}[{}]: {}", prefix, diagnostic.code.as_str(), diagnostic.message));
+        output.push_str(&format!(
+            "{}[{}]: {}",
+            prefix,
+            diagnostic.code.as_str(),
+            diagnostic.message
+        ));
     } else {
         output.push_str(&format!("{}: {}", prefix, diagnostic.message));
     }
@@ -61,20 +63,9 @@ pub fn render_diagnostic(diagnostic: &Diagnostic) -> String {
     if let Some(loc) = diagnostic.primary_location() {
         output.push('\n');
         if let Some(file) = &loc.file {
-            output.push_str(&format!(
-                "  {} {}:{}:{}",
-                "-->",
-                file,
-                loc.line,
-                loc.column
-            ));
+            output.push_str(&format!("  {} {}:{}:{}", "-->", file, loc.line, loc.column));
         } else {
-            output.push_str(&format!(
-                "  {} line {}:{}",
-                "-->",
-                loc.line,
-                loc.column
-            ));
+            output.push_str(&format!("  {} line {}:{}", "-->", loc.line, loc.column));
         }
 
         match source::load_source_line(loc) {
@@ -112,8 +103,7 @@ pub fn render_diagnostic(diagnostic: &Diagnostic) -> String {
                 output.push('\n');
                 output.push_str(&format!(
                     "  {} source unavailable: line {} is outside the file",
-                    "note:",
-                    loc.line
+                    "note:", loc.line
                 ));
             }
         }
@@ -125,11 +115,7 @@ pub fn render_diagnostic(diagnostic: &Diagnostic) -> String {
         .filter(|label| label.kind == DiagnosticLabelKind::Secondary)
     {
         output.push('\n');
-        output.push_str(&format!(
-            "  {} {}",
-            "note:",
-            related_label_summary(label)
-        ));
+        output.push_str(&format!("  {} {}", "note:", related_label_summary(label)));
     }
 
     for note in &diagnostic.notes {

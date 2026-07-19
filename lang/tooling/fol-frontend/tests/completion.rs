@@ -16,7 +16,8 @@ fn completion_scripts_are_generated_through_public_api() {
 
 #[test]
 fn internal_completion_matches_follow_command_context_through_public_api() {
-    let emit = internal_complete_matches(&["code".to_string(), "emit".to_string(), "r".to_string()]);
+    let emit =
+        internal_complete_matches(&["code".to_string(), "emit".to_string(), "r".to_string()]);
     let work = internal_complete_matches(&["work".to_string(), "l".to_string()]);
 
     assert!(emit.contains(&"rust".to_string()));

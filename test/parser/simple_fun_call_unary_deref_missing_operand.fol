@@ -1,4 +1,0 @@
-fun broken_call_unary_deref(a: int): int = {
-    value = run(*a, *);
-    return value;
-};

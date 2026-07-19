@@ -304,10 +304,9 @@ fn test_resolver_plain_import_exposure_still_yields_to_local_bindings() {
     let answer_reference = resolved
         .references_in_scope(routine_scope_id)
         .into_iter()
-        .filter(|reference| {
+        .rfind(|reference| {
             reference.kind == ReferenceKind::Identifier && reference.name == "answer"
         })
-        .next_back()
         .expect("Routine scope should record the shadowed plain identifier reference");
 
     assert_eq!(

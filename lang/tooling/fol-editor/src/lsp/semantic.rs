@@ -1922,7 +1922,9 @@ impl SemanticSnapshot {
         let guarded =
             render_checked_type(typed_package.program.type_table(), symbol.declared_type?);
         Some(LspHover {
-            contents: format!("[mux]: mutex-guarded shared `{guarded}` (auto-unlock at scope end)"),
+            contents: format!(
+                "mux[T]: mutex-guarded shared `{guarded}` (auto-unlock at scope end)"
+            ),
             range: None,
         })
     }
@@ -1947,24 +1949,26 @@ impl SemanticSnapshot {
         );
         let contents = if borrowed {
             if target_moves {
-                format!("*: read-only borrowed pointer cannot transfer move-only `{target_name}`")
+                format!(
+                    "[drf]: read-only borrowed pointer cannot transfer move-only `{target_name}`"
+                )
             } else {
                 format!(
-                    "*: read-only borrowed pointer clones `{target_name}` without consuming the pointer"
+                    "[drf]: read-only borrowed pointer clones `{target_name}` without consuming the pointer"
                 )
             }
         } else if shared {
             if target_moves {
-                format!("*: shared pointer cannot transfer move-only `{target_name}`")
+                format!("[drf]: shared pointer cannot transfer move-only `{target_name}`")
             } else {
                 format!(
-                    "*: read-only shared pointer clones `{target_name}` without consuming the pointer"
+                    "[drf]: read-only shared pointer clones `{target_name}` without consuming the pointer"
                 )
             }
         } else if target_moves {
-            format!("*: transfers move-only `{target_name}` and consumes the unique pointer")
+            format!("[drf]: transfers move-only `{target_name}` and consumes the unique pointer")
         } else {
-            format!("*: reads clone-safe `{target_name}` without consuming the unique pointer")
+            format!("[drf]: reads clone-safe `{target_name}` without consuming the unique pointer")
         };
         Some(LspHover {
             contents,
@@ -2984,14 +2988,15 @@ fn fallback_visible_binding_kind(
             }
             let before = &line[..start];
             let after = tail.trim_start();
-            if after
-                .strip_prefix("[mux]")
-                .map(str::trim_start)
-                .is_some_and(|tail| tail.starts_with(':'))
-            {
-                return Some(FallbackBindingKind::Mutex);
-            }
             if let Some(type_text) = after.strip_prefix(':').map(str::trim_start) {
+                // `name: mux[T]` marks a mutex-guarded parameter (V3_MEM §8.3),
+                // replacing the removed `name[mux]:` option.
+                if type_text
+                    .strip_prefix("mux")
+                    .is_some_and(|tail| tail.trim_start().starts_with('['))
+                {
+                    return Some(FallbackBindingKind::Mutex);
+                }
                 if type_text
                     .strip_prefix("chn")
                     .is_some_and(|tail| tail.trim_start().starts_with('['))
@@ -3582,7 +3587,7 @@ fn pointer_type_info(
                 borrowed = true;
                 type_id = *inner;
             }
-            fol_typecheck::CheckedType::Pointer { target, shared } => {
+            fol_typecheck::CheckedType::Pointer { target, shared, .. } => {
                 return Some((*target, *shared, borrowed));
             }
             _ => return None,

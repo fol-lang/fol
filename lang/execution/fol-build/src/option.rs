@@ -28,18 +28,13 @@ pub struct UserOptionDeclaration {
 /// Compatibility name for the now-central concrete target type.
 pub type BuildTargetTriple = fol_types::ResolvedTarget;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BuildOptimizeMode {
+    #[default]
     Debug,
     ReleaseSafe,
     ReleaseFast,
     ReleaseSmall,
-}
-
-impl Default for BuildOptimizeMode {
-    fn default() -> Self {
-        Self::Debug
-    }
 }
 
 impl BuildOptimizeMode {

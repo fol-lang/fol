@@ -277,9 +277,9 @@ mod tests {
 
     #[test]
     fn formatter_preserves_v3_memory_and_processor_surfaces() {
-        let source = "fun[] coordinate(counter[mux]: Counter): int / int = {\n\
+        let source = "fun[] coordinate(counter: mux[Counter]): int / int = {\n\
         @var owner: Node = { value = 1 };\n\
-        var[bor] view: Node = #owner;\n\
+        var[bor] view: Node = [bor]owner;\n\
         var pointer: ptr[shared, Node] = &view;\n\
         var inner: ptr[int] = &seed;\n\
         var outer: ptr[ptr[int]] = &inner;\n\
@@ -289,7 +289,7 @@ mod tests {
         inspect(pointer_view);\n\
         !pointer_view;\n\
         dfr {\n\
-        !view;\n\
+        [end]view;\n\
         };\n\
         edf {\n\
         var ignored: int = 0;\n\
@@ -301,9 +301,9 @@ mod tests {
         return pending | await;\n\
         };\n";
         let expected = concat!(
-            "fun[] coordinate(counter[mux]: Counter): int / int = {\n",
+            "fun[] coordinate(counter: mux[Counter]): int / int = {\n",
             "    @var owner: Node = { value = 1 };\n",
-            "    var[bor] view: Node = #owner;\n",
+            "    var[bor] view: Node = [bor]owner;\n",
             "    var pointer: ptr[shared, Node] = &view;\n",
             "    var inner: ptr[int] = &seed;\n",
             "    var outer: ptr[ptr[int]] = &inner;\n",
@@ -313,7 +313,7 @@ mod tests {
             "    inspect(pointer_view);\n",
             "    !pointer_view;\n",
             "    dfr {\n",
-            "        !view;\n",
+            "        [end]view;\n",
             "    };\n",
             "    edf {\n",
             "        var ignored: int = 0;\n",

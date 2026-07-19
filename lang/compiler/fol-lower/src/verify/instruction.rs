@@ -128,7 +128,7 @@ pub(super) fn verify_instruction(
                 );
             }
         }
-        crate::LoweredInstrKind::SpawnCall { callee, args } => {
+        crate::LoweredInstrKind::SpawnCall { callee, args, .. } => {
             if !valid_routine_ids.contains(callee) {
                 errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
@@ -189,7 +189,7 @@ pub(super) fn verify_instruction(
             }
         }
         crate::LoweredInstrKind::ChannelSender { channel }
-        | crate::LoweredInstrKind::ChannelReceive { channel }
+        | crate::LoweredInstrKind::ChannelReceiver { channel }
         | crate::LoweredInstrKind::ChannelReceiveOptional { channel }
         | crate::LoweredInstrKind::ChannelTryReceive { channel }
         | crate::LoweredInstrKind::ChannelIsClosed { channel } => {
@@ -441,6 +441,18 @@ pub(super) fn verify_instruction(
                 )),
             }
         }
+        crate::LoweredInstrKind::WeakDowngrade { type_id, .. }
+        | crate::LoweredInstrKind::WeakUpgrade { type_id, .. } => {
+            verify_type_reference(
+                workspace,
+                package,
+                routine,
+                instr.id.0,
+                "managed pointer operation type",
+                *type_id,
+                errors,
+            );
+        }
         crate::LoweredInstrKind::ConstructPointer { type_id, value, .. } => {
             verify_type_reference(
                 workspace,
@@ -455,10 +467,7 @@ pub(super) fn verify_instruction(
         }
         crate::LoweredInstrKind::DerefPointer { pointer, consuming } => {
             verify_local_reference(routine, instr.id.0, "pointer operand", *pointer, errors);
-            let mut pointer_type_id = routine
-                .locals
-                .get(*pointer)
-                .and_then(|local| local.type_id);
+            let mut pointer_type_id = routine.locals.get(*pointer).and_then(|local| local.type_id);
             let mut borrowed_pointer = false;
             while let Some(type_id) = pointer_type_id {
                 match workspace.type_table().get(type_id) {
@@ -473,7 +482,7 @@ pub(super) fn verify_instruction(
             let pointer_type =
                 pointer_type_id.and_then(|type_id| workspace.type_table().get(type_id));
             match pointer_type {
-                Some(crate::LoweredType::Pointer { target, shared }) => {
+                Some(crate::LoweredType::Pointer { target, shared, .. }) => {
                     let result_type = instr
                         .result
                         .and_then(|result| routine.locals.get(result))

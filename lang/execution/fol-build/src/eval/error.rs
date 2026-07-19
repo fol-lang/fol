@@ -1,5 +1,7 @@
 use super::capabilities::ForbiddenBuildTimeOperation;
-use fol_diagnostics::{Diagnostic, DiagnosticCode, DiagnosticLocation, ToDiagnostic, ToDiagnosticLocation};
+use fol_diagnostics::{
+    Diagnostic, DiagnosticCode, DiagnosticLocation, ToDiagnostic, ToDiagnosticLocation,
+};
 use fol_parser::ast::SyntaxOrigin;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

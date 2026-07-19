@@ -1,15 +1,15 @@
 fun[] consume(pointer: ptr[int]): int = {
-    return *pointer;
+    return [drf]pointer;
 };
 
 fun[] main(): int = {
     var first: int = 1;
     var second: int = 2;
-    var[mut] pointer: ptr[int] = &first;
-    var old: int = consume(pointer);
-    pointer = &second;
+    var[mut] pointer: ptr[int] = [ref]first;
+    var old: int = consume([mov]pointer);
+    pointer = [ref]second;
     pointer = pointer;
-    when(old + *pointer) {
+    when(old + [drf]pointer) {
         case(3) { return 0; }
         * { panic "owner reinitialization failed"; }
     }

@@ -1,0 +1,14 @@
+// A place-borrow of an inner place locks the whole aggregate: while `part`
+// borrows `o.inner`, the owner `o` is inaccessible (O2001). Here `o.tag` is read
+// while `part` is still live (it is used afterward), so the access is rejected.
+
+typ Inner: rec = { n: int };
+typ Outer: rec = { inner: Inner, tag: int };
+
+fun[] main(): int = {
+    var[mut] o: Outer = { inner = { n = 5 }, tag = 9 };
+    var[bor] part: Inner = [bor]o.inner;
+    var early: int = o.tag;
+    var seen: int = part.n;
+    return early + seen;
+};

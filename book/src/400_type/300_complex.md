@@ -21,13 +21,13 @@ outside the active stream, lexer, parser, and lowering contract.
 V3 ships typed unique and shared pointers:
 
 ```fol
-var[mut] unique: ptr[int] = &value;
-var shared: ptr[shared, int] = &value;
+var[mut] unique: ptr[int] = [ref]value;
+var shared: ptr[shared, int] = [ref]value;
 ```
 
 `ptr[T]` is uniquely owned and writable through a mutable pointer binding.
 `ptr[shared, T]` is reference-counted and read-only. Pointer types can be
-analyzed in `core`, but `&value` constructs an allocation and therefore
+analyzed in `core`, but `[ref]value` constructs an allocation and therefore
 requires `memo`. A `memo` artifact may additionally declare bundled `std`, but
 the pointer operation itself does not require hosted APIs. Raw `ptr[raw, T]`
 remains a V4 interop boundary.

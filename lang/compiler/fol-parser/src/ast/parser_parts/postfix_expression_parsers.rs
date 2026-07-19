@@ -149,21 +149,11 @@ impl AstParser {
                     }
                 }
                 KEYWORD::Symbol(SYMBOL::Bang) => {
-                    if matches!(
-                        self.next_significant_key_from_window(tokens),
-                        Some(KEYWORD::Symbol(SYMBOL::Equal))
-                    ) {
-                        break;
-                    }
-
-                    let _ = tokens.bump();
-                    node = self.attach_leading_comments(
-                        AstNode::UnaryOp {
-                            op: UnaryOperator::Unwrap,
-                            operand: Box::new(node),
-                        },
-                        leading_comments,
-                    );
+                    // Postfix `value!` shell unwrap is removed (V3: no raw symbols
+                    // on values — use `[uwp]value`). A `!` here is not a postfix
+                    // operator: stop postfix parsing so the binary `!=` (or a
+                    // clean parse error for a stray `!`) is handled by the caller.
+                    break;
                 }
                 KEYWORD::Symbol(SYMBOL::Dollar) => {
                     let _ = tokens.bump();

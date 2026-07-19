@@ -129,7 +129,7 @@ parameter. `...items` may appear after named arguments when it is feeding that
 final variadic input.
 
 ```
-fun[] calc(el1, el2, el3: int, el4, el5: flt): int = { result[0] = ((el1 + el2) * el4 ) - (el3 ** el5);  }
+fun[] calc(el1, el2, el3: int, el4, el5: flt): int = { result[0] = ((el1 + el2) * el4 ) - (el3 ^ el5);  }
 
 pro main: int = {
     calc(3, 4, el5 = 2, el4 = 5, el3 = 6);                  // element $el3 needs to be keyeorded at the end because 

@@ -1,0 +1,21 @@
+// Reading a partially moved aggregate as a whole value is rejected (V3_MEM
+// Slice C §3.1). After `bundle.held` is moved out, the moved field no longer
+// exists, so `bundle` cannot be passed as a complete value.
+
+typ Item: rec = { value: int };
+typ Bundle: rec = { held: @Item, tag: int };
+
+fun[] use_item(item: @Item): int = {
+    return item.value;
+};
+
+fun[] consume_whole(b: Bundle): int = {
+    return b.tag;
+};
+
+fun[] main(): int = {
+    @var boxed: Item = { value = 7 };
+    var bundle: Bundle = { held = [mov]boxed, tag = 5 };
+    var taken: int = use_item([mov]bundle.held);
+    return consume_whole([mov]bundle) + taken;
+};

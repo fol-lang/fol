@@ -6,6 +6,6 @@ fun[] main(): int = {
     var[mut] owner: Item = { value = 7 };
     var[mut, bor] view: Item = owner;
     view.value = 9;
-    !view;
+    [end]view;
     return owner.value;
 };

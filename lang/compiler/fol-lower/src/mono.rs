@@ -238,7 +238,7 @@ fn collect_template_call_sites(
     for (instr_id, instr) in routine.instructions.iter_with_ids() {
         match &instr.kind {
             LoweredInstrKind::Call { callee, args, .. }
-            | LoweredInstrKind::SpawnCall { callee, args }
+            | LoweredInstrKind::SpawnCall { callee, args, .. }
             | LoweredInstrKind::AsyncCall { callee, args, .. }
                 if templates.contains_key(callee) =>
             {
@@ -458,9 +458,11 @@ fn unify_template_type(
         (
             LoweredType::Record {
                 fields: template_fields,
+                ..
             },
             LoweredType::Record {
                 fields: concrete_fields,
+                ..
             },
         ) if template_fields.len() == concrete_fields.len() => {
             for ((template_name, template_field), (concrete_name, concrete_field)) in
@@ -657,9 +659,19 @@ fn substitute_type(
             let inner = substitute_type(type_table, bindings, memo, inner)?;
             type_table.intern(LoweredType::Borrowed { inner, mutable })
         }
-        LoweredType::Pointer { target, shared } => {
+        LoweredType::Pointer {
+            target,
+            shared,
+            weak,
+            sync,
+        } => {
             let target = substitute_type(type_table, bindings, memo, target)?;
-            type_table.intern(LoweredType::Pointer { target, shared })
+            type_table.intern(LoweredType::Pointer {
+                target,
+                shared,
+                weak,
+                sync,
+            })
         }
         LoweredType::Array { element_type, size } => {
             let element_type = substitute_type(type_table, bindings, memo, element_type)?;
@@ -680,6 +692,10 @@ fn substitute_type(
         LoweredType::ChannelSender { element_type } => {
             let element_type = substitute_type(type_table, bindings, memo, element_type)?;
             type_table.intern(LoweredType::ChannelSender { element_type })
+        }
+        LoweredType::ChannelReceiver { element_type } => {
+            let element_type = substitute_type(type_table, bindings, memo, element_type)?;
+            type_table.intern(LoweredType::ChannelReceiver { element_type })
         }
         LoweredType::Eventual {
             value_type,
@@ -722,7 +738,7 @@ fn substitute_type(
                 .transpose()?;
             type_table.intern(LoweredType::Error { inner })
         }
-        LoweredType::Record { fields } => {
+        LoweredType::Record { fields, finalized } => {
             let fields = fields
                 .into_iter()
                 .map(|(field_name, field_type)| {
@@ -730,7 +746,7 @@ fn substitute_type(
                         .map(|field_type| (field_name, field_type))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
-            type_table.intern(LoweredType::Record { fields })
+            type_table.intern(LoweredType::Record { fields, finalized })
         }
         LoweredType::Entry { variants } => {
             let variants = variants
@@ -914,7 +930,7 @@ fn synthesize_missing_structural_decls(
             continue;
         };
         let (name, kind) = match lowered_type {
-            LoweredType::Record { fields } => (
+            LoweredType::Record { fields, .. } => (
                 format!("record_t{}", type_id.0),
                 LoweredTypeDeclKind::Record {
                     fields: fields
@@ -965,7 +981,7 @@ fn collect_named_structural_types(
         return;
     };
     match lowered_type {
-        LoweredType::Record { fields } => {
+        LoweredType::Record { fields, .. } => {
             if out.insert(type_id) {
                 for field_type in fields.values() {
                     collect_named_structural_types(type_table, *field_type, out);
@@ -984,6 +1000,7 @@ fn collect_named_structural_types(
         | LoweredType::Sequence { element_type }
         | LoweredType::Channel { element_type }
         | LoweredType::ChannelSender { element_type }
+        | LoweredType::ChannelReceiver { element_type }
         | LoweredType::Owned {
             inner: element_type,
         }
@@ -1075,6 +1092,7 @@ fn type_contains_generic_parameter(type_table: &LoweredTypeTable, type_id: Lower
         | LoweredType::Sequence { element_type }
         | LoweredType::Channel { element_type }
         | LoweredType::ChannelSender { element_type }
+        | LoweredType::ChannelReceiver { element_type }
         | LoweredType::Owned {
             inner: element_type,
         }
@@ -1111,7 +1129,7 @@ fn type_contains_generic_parameter(type_table: &LoweredTypeTable, type_id: Lower
             type_contains_generic_parameter(type_table, *key_type)
                 || type_contains_generic_parameter(type_table, *value_type)
         }
-        LoweredType::Record { fields } => fields
+        LoweredType::Record { fields, .. } => fields
             .values()
             .any(|field_type| type_contains_generic_parameter(type_table, *field_type)),
         LoweredType::Entry { variants } => variants

@@ -9,7 +9,7 @@ fun[] pick(flag: bol): MaybeScore = {
 
 fun[] main(flag: bol): int = {
     when(flag) {
-        case(true) { return pick(true)!; }
+        case(true) { return [uwp]pick(true); }
         * { return 0; }
     }
 };

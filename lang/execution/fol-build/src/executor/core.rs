@@ -633,7 +633,7 @@ fn validate_node_public_surface(
         }
         AstNode::NamedArgument { value, .. }
         | AstNode::Unpack { value }
-        | AstNode::Spawn { task: value }
+        | AstNode::Spawn { task: value, .. }
         | AstNode::Yield { value }
         | AstNode::Return { value: Some(value) } => validate_node_public_surface(package, value)?,
         AstNode::Assignment { target, value } => {
@@ -796,6 +796,9 @@ fn validate_node_public_surface(
         AstNode::Commented { node, .. } => {
             validate_node_public_surface(package, node)?;
         }
+        AstNode::OwnershipOp { operand, .. } => {
+            validate_node_public_surface(package, operand)?;
+        }
     }
     Ok(())
 }
@@ -835,11 +838,20 @@ fn validate_type_public_surface(
         | FolType::Sequence { element_type }
         | FolType::Matrix { element_type, .. }
         | FolType::Channel { element_type }
+        | FolType::ChannelSender { element_type }
+        | FolType::ChannelReceiver { element_type }
+        | FolType::Mutex {
+            inner: element_type,
+        }
         | FolType::Optional {
             inner: element_type,
         }
         | FolType::Owned {
             inner: element_type,
+        }
+        | FolType::Borrowed {
+            inner: element_type,
+            ..
         }
         | FolType::Pointer {
             target: element_type,
@@ -870,6 +882,16 @@ fn validate_type_public_surface(
         FolType::Error { inner } => {
             if let Some(inner) = inner {
                 validate_type_public_surface(package, inner)?;
+            }
+        }
+        FolType::Eventual {
+            value_type,
+            error_type,
+            ..
+        } => {
+            validate_type_public_surface(package, value_type)?;
+            if let Some(error_type) = error_type {
+                validate_type_public_surface(package, error_type)?;
             }
         }
         FolType::Limited { base, limits } => {

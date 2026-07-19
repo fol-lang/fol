@@ -1,0 +1,16 @@
+typ Parcel: rec = { value: int };
+
+fun[] weigh(item: Parcel): int = {
+    return [cpy]item.value;
+};
+
+fun[] main(): int = {
+    var base: int = 10;
+    var copied: int = [cpy]base;
+    var owner: Parcel = { value = 7 };
+    var[bor] look: Parcel = [bor]owner;
+    var observed: int = [cpy]look.value;
+    [end]look;
+    var consumed: int = weigh([mov]owner);
+    return base + copied + observed + consumed;
+};

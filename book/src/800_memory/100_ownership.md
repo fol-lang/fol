@@ -62,10 +62,10 @@ usable because their values clone.
 A whole mutable binding can be reinitialized after its old value moves:
 
 ```fol
-var[mut] pointer: ptr[int] = &first;
+var[mut] pointer: ptr[int] = [ref]first;
 consume(pointer);
-pointer = &second;
-return *pointer;
+pointer = [ref]second;
+return [drf]pointer;
 ```
 
 The assignment target is a storage place, not a read of the missing old value.
@@ -91,14 +91,14 @@ source. The same boundary rejects nested field access through a move-only
 intermediate.
 
 Dereferencing is a by-value operation whose ownership effect depends on the
-pointee. `*pointer` clones a clone-safe pointee and leaves the pointer usable.
+pointee. `[drf]pointer` clones a clone-safe pointee and leaves the pointer usable.
 If the pointee is move-only, dereferencing a direct unique `ptr[T]` transfers
 the pointee and consumes that pointer. A shared or borrowed pointer cannot
 surrender a move-only pointee, so those dereferences are rejected; their
 read-only dereference is available only when the pointee is clone-safe.
 
 Dereferencing a unique-pointer field is also a place observation, not a whole
-field transfer. Until V3 has place-aware projection IR, `*record.pointer` is
+field transfer. Until V3 has place-aware projection IR, `[drf]record.pointer` is
 rejected even when its pointee is clone-safe; otherwise backend lowering would
 partially move the pointer just to observe its target. Direct pointer bindings
 remain available. A field containing `ptr[shared, T]` can be dereferenced when
@@ -177,7 +177,7 @@ typ Bad: rec = {
 Such a type has no finite value layout. The compiler recommends an owned edge
 such as `opt @Bad` instead.
 
-## Lexical borrowing
+## Borrowing
 
 A borrow is an alias that does not take ownership:
 
@@ -187,15 +187,16 @@ var[bor] view: Node = owner;
 var value: int = view.value;
 ```
 
-`#owner` is expression sugar for borrowing from an owner:
+`[bor]owner` borrows from an owner as an expression:
 
 ```fol
-var[bor] view: Node = #owner;
+var[bor] view: Node = [bor]owner;
 ```
 
-Borrowing is scope-granular. A borrow remains active until the end of the
-lexical scope where its binding was created. FOL deliberately does not use
-flow-sensitive or non-lexical lifetime analysis in V3.
+Borrowing is non-lexical. A borrow stays active only until its last use, not
+until the end of the lexical scope where its binding was created. Once a loan's
+final read has passed, the owner becomes usable again in the same scope with no
+explicit give-back.
 
 While a borrow is active:
 
@@ -216,21 +217,22 @@ var owner: Node = { value = 7, next = nil };
 return owner.value;
 ```
 
-`!view` gives a borrow back before scope exit. A returned borrow cannot be used
+`[end]view` gives a borrow back before scope exit. A returned borrow cannot be used
 again; attempting to read `view` afterward reports `O2004` with the give-back
 site as related information:
 
 ```fol
 var[bor] view: Node = owner;
 var value: int = view.value;
-!view;
+[end]view;
 return view.value;
 ```
 
 The `!` prefix is give-back only. It is not deletion or manual memory free.
 
-V3 does not support reborrowing a borrow binding. Borrow from the original owner
-or pass an existing borrow binding directly to a `[bor]` parameter instead.
+A borrow binding may be reborrowed: `[bor]view` creates a nested loan from an
+existing borrow, released like any other loan by its last use or an explicit
+`[end]`. A reborrow cannot outlive the loan it derives from.
 
 ## Mutable borrowing
 
@@ -241,7 +243,7 @@ mutable borrow binding:
 var[mut] owner: Node = { value = 7, next = nil };
 var[mut, bor] view: Node = owner;
 view.value = 9;
-!view;
+[end]view;
 return owner.value;
 ```
 
@@ -262,7 +264,7 @@ fun[] inspect(item[bor]: Node): int = {
 ```
 
 The backend emits a Rust reference parameter. Passing an owner requires an
-explicit `#owner`; an existing compatible borrow binding can be passed directly
+explicit `[bor]owner`; an existing compatible borrow binding can be passed directly
 and reused by later `[bor]` calls. The call borrow ends when the call returns,
 while an existing borrow binding keeps its surrounding lexical lifetime.
 Parameter spelling or casing never changes ownership semantics;
@@ -272,3 +274,50 @@ an owned argument.
 
 Borrowing is compile-time-only and legal in `core`. It does not allocate or add
 runtime reference bookkeeping.
+
+## Named lifetimes
+
+When a routine returns a borrow, the compiler must know which input the result
+may alias. A lifetime parameter `L: lif` names a single region and ties the
+borrowed inputs and the borrowed result together:
+
+```fol
+fun pick(L: lif)(left: Item[bor=L], right: Item[bor=L]): Item[bor=L] = {
+    return left;
+};
+```
+
+`Item[bor=L]` is a borrow bound to region `L`. The returned borrow is valid for
+as long as every input it may alias, so the caller's owners must outlive the
+result. A routine that borrows a single input and returns a borrow may leave the
+region implicit; naming it is required only when several borrows share one
+result region.
+
+## Receiver ownership
+
+A method states how it takes its receiver with the same option position; the
+receiver binds to `self`:
+
+```fol
+fun (Node[bor])inspect(): int = { return self.value; };
+pro (Node[mut, bor])update(): non = { self.value = 9; return; };
+fun (Node)consume(): int = { return self.value; };
+```
+
+A `fun` may take a shared `[bor]` receiver or move its receiver by value; only a
+`pro` may take a mutable `[mut, bor]` receiver. At the call site the ownership
+operation binds the receiver directly, with no surrounding parentheses:
+
+```fol
+[bor]node.inspect();
+[mut, bor]node.update();
+[mov]node.consume();
+```
+
+`[op]receiver.method()` groups as `([op]receiver).method()`: the operation
+describes how the receiver crosses the call boundary, not the call's result, and
+a `[mut, bor]` receiver's field updates persist to the original binding. The
+rule is scoped to a trailing method call — a plain place chain keeps the
+operation over the place, so `[mov]bundle.held` still moves the `held` subfield
+rather than `bundle`. The same grouping applies to the bracket unary operations,
+so `[drf]pointer.method()` dereferences `pointer` and then calls the method.

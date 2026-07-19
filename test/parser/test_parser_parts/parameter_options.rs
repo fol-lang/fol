@@ -36,7 +36,7 @@ fn unknown_parameter_options_fail_at_parse_time() {
     let errors = parser
         .parse(&mut lexer)
         .expect_err("Unknown parameter options must fail parsing");
-    assert!(errors.iter().any(|error| error.message.contains(
-        "Unknown parameter option 'legacy'; expected 'bor' or 'mux'"
-    )));
+    assert!(errors.iter().any(|error| error
+        .message
+        .contains("Unknown parameter option 'legacy'; expected 'bor'")));
 }

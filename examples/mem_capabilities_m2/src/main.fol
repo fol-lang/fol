@@ -1,0 +1,14 @@
+typ Point()(copy): rec = {
+    x: int,
+    y: int,
+};
+
+typ Job()(clone, send): rec = {
+    input: int,
+};
+
+fun[] main(): int = {
+    var origin: Point = { x = 3, y = 4 };
+    var job: Job = { input = 7 };
+    return origin.x + origin.y + job.input;
+};

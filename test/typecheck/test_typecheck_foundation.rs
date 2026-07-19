@@ -123,9 +123,9 @@ fn shared_pointer_write_error_keeps_the_target_origin() {
         concat!(
             "fun[] main(): int = {\n",
             "    var value: int = 7;\n",
-            "    var pointer: ptr[shared, int] = &value;\n",
-            "    *pointer = 9;\n",
-            "    return *pointer;\n",
+            "    var pointer: ptr[shared, int] = [ref]value;\n",
+            "    [drf]pointer = 9;\n",
+            "    return [drf]pointer;\n",
             "};\n",
         ),
     )]);
@@ -146,7 +146,7 @@ fn shared_pointer_write_error_keeps_the_target_origin() {
         .file
         .as_deref()
         .is_some_and(|file| file.ends_with("/main.fol")));
-    assert_eq!((origin.line, origin.column, origin.length), (4, 6, 7));
+    assert_eq!((origin.line, origin.column, origin.length), (4, 10, 7));
     assert_eq!(error.to_diagnostic().code.as_str(), "T1001");
 }
 
@@ -249,7 +249,7 @@ fn dfr_and_edf_reserve_referenced_move_only_outer_bindings() {
              fun[] main(): int / int = {{\n\
                  @var owned: Item = {{ value = 7 }};\n\
                  {deferred} {{ var observed: int = owned.value; }};\n\
-                 @var moved: Item = owned;\n\
+                 @var moved: Item = [mov]owned;\n\
                  return moved.value;\n\
              }};\n"
         );
@@ -282,7 +282,7 @@ fn moving_an_owner_before_dfr_or_edf_keeps_the_existing_moved_use_diagnostic() {
             "typ Item: rec = {{ value: int }};\n\
              fun[] main(): int / int = {{\n\
                  @var owned: Item = {{ value = 7 }};\n\
-                 @var moved: Item = owned;\n\
+                 @var moved: Item = [mov]owned;\n\
                  {deferred} {{ var observed: int = owned.value; }};\n\
                  return moved.value;\n\
              }};\n"
@@ -310,7 +310,7 @@ fn deferred_owner_reservations_end_after_the_registration_scope_exits() {
              {\n\
                  dfr { var observed: int = owned.value; };\n\
              };\n\
-             @var moved: Item = owned;\n\
+             @var moved: Item = [mov]owned;\n\
              return moved.value;\n\
          };\n",
     )]);
@@ -1444,7 +1444,7 @@ fn core_pointer_guidance_names_only_the_public_memo_model() {
             concat!(
                 "fun[] main(): int = {\n",
                 "    var value: int = 7;\n",
-                "    var pointer: ptr[int] = &value;\n",
+                "    var pointer: ptr[int] = [ref]value;\n",
                 "    return 0;\n",
                 "};\n",
             ),
@@ -1473,9 +1473,9 @@ fn optional_and_error_owned_shell_transfers_move_the_source() {
             "typ Item: rec = {{ value: int }};\n\
              fun[] main(): int = {{\n\
                  @var seed: Item = {{ value = 7 }};\n\
-                 var first: {shell}[@Item] = seed;\n\
-                 var moved: {shell}[@Item] = first;\n\
-                 var invalid: {shell}[@Item] = first;\n\
+                 var first: {shell}[@Item] = [mov]seed;\n\
+                 var moved: {shell}[@Item] = [mov]first;\n\
+                 var invalid: {shell}[@Item] = [mov]first;\n\
                  return 0;\n\
              }};\n"
         );
@@ -1500,10 +1500,10 @@ fn move_only_shell_unwrap_consumes_the_shell_binding() {
         let source = format!(
             "fun[] main(): int = {{\n\
                  var seed: int = 7;\n\
-                 var wrapped: {shell}[ptr[int]] = &seed;\n\
-                 var first: ptr[int] = wrapped!;\n\
-                 var invalid: ptr[int] = wrapped!;\n\
-                 return *first;\n\
+                 var wrapped: {shell}[ptr[int]] = [ref]seed;\n\
+                 var first: ptr[int] = [uwp]wrapped;\n\
+                 var invalid: ptr[int] = [uwp]wrapped;\n\
+                 return [drf]first;\n\
              }};\n"
         );
         let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
@@ -1527,9 +1527,9 @@ fn returning_from_a_loop_can_consume_inside_the_return_expression() {
         "fun[] take(wrapped: opt[ptr[int]]): ptr[int] = {\n\
              var seed: int = 0;\n\
              loop(true) {\n\
-                 return wrapped!;\n\
+                 return wrapped[];\n\
              };\n\
-             return &seed;\n\
+             return [ref]seed;\n\
          };\n",
     )]);
 
@@ -1554,12 +1554,12 @@ fn by_value_methods_consume_move_only_receivers() {
         (
             "receiver containing a unique pointer",
             "typ Holder: rec = { pointer: ptr[int] };\n\
-             fun (Holder)take(): int = { return *self.pointer; };\n\
+             fun (Holder)take(): int = { return [drf]self.pointer; };\n\
              fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var holder: Holder = { pointer = &seed };\n\
+                 var holder: Holder = { pointer = [ref]seed };\n\
                  var consumed: int = holder.take();\n\
-                 return *holder.pointer;\n\
+                 return [drf]holder.pointer;\n\
              };\n",
         ),
     ] {
@@ -1581,9 +1581,9 @@ fn pointer_construction_consumes_move_only_operands() {
             "unique pointer",
             "fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var pointer: ptr[int] = &seed;\n\
-                 var nested: ptr[ptr[int]] = &pointer;\n\
-                 return *pointer;\n\
+                 var pointer: ptr[int] = [ref]seed;\n\
+                 var nested: ptr[ptr[int]] = [ref]pointer;\n\
+                 return [drf]pointer;\n\
              };\n",
         ),
         (
@@ -1591,9 +1591,9 @@ fn pointer_construction_consumes_move_only_operands() {
             "typ Holder: rec = { pointer: ptr[int] };\n\
              fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var holder: Holder = { pointer = &seed };\n\
-                 var nested = &holder;\n\
-                 return *holder.pointer;\n\
+                 var holder: Holder = { pointer = [ref]seed };\n\
+                 var nested = [ref]holder;\n\
+                 return [drf]holder.pointer;\n\
              };\n",
         ),
     ] {
@@ -1615,9 +1615,9 @@ fn echo_transfers_move_only_arguments_into_its_result() {
             "main.fol",
             "fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var pointer: ptr[int] = &seed;\n\
+                 var pointer: ptr[int] = [ref]seed;\n\
                  var echoed: ptr[int] = .echo(pointer);\n\
-                 return *echoed;\n\
+                 return [drf]echoed;\n\
              };\n",
         )],
         TypecheckConfig {
@@ -1633,9 +1633,9 @@ fn echo_transfers_move_only_arguments_into_its_result() {
             "main.fol",
             "fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var pointer: ptr[int] = &seed;\n\
+                 var pointer: ptr[int] = [ref]seed;\n\
                  var echoed: ptr[int] = .echo(pointer);\n\
-                 return *pointer;\n\
+                 return [drf]pointer;\n\
              };\n",
         )],
         TypecheckConfig {
@@ -1651,16 +1651,18 @@ fn echo_transfers_move_only_arguments_into_its_result() {
 }
 
 #[test]
-fn move_only_field_transfers_consume_the_whole_base() {
+fn move_only_field_transfers_are_static_partial_moves() {
+    // Slice C §3.1: moving one static field invalidates only that field. The
+    // surviving fields of the aggregate stay readable.
     for (surface, source) in [
         (
             "direct unique field",
             "typ Holder: rec = { pointer: ptr[int] };\n\
              fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var holder: Holder = { pointer = &seed };\n\
+                 var holder: Holder = { pointer = [ref]seed };\n\
                  var extracted: ptr[int] = holder.pointer;\n\
-                 return *extracted;\n\
+                 return [drf]extracted;\n\
              };\n",
         ),
         (
@@ -1669,10 +1671,20 @@ fn move_only_field_transfers_consume_the_whole_base() {
              typ Envelope: rec = { holder: Holder };\n\
              fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var envelope: Envelope = { holder = { pointer = &seed } };\n\
+                 var envelope: Envelope = { holder = { pointer = [ref]seed } };\n\
                  var extracted: Holder = envelope.holder;\n\
                  var extracted_pointer: ptr[int] = extracted.pointer;\n\
-                 return *extracted_pointer;\n\
+                 return [drf]extracted_pointer;\n\
+             };\n",
+        ),
+        (
+            "sibling field survives a partial move",
+            "typ Holder: rec = { pointer: ptr[int], value: int };\n\
+             fun[] main(): int = {\n\
+                 var seed: int = 7;\n\
+                 var holder: Holder = { pointer = [ref]seed, value = 3 };\n\
+                 var extracted: ptr[int] = holder.pointer;\n\
+                 return holder.value + [drf]extracted;\n\
              };\n",
         ),
     ] {
@@ -1684,21 +1696,42 @@ fn move_only_field_transfers_consume_the_whole_base() {
         );
     }
 
+    // Re-reading the moved field itself is rejected as a moved place.
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "typ Holder: rec = { pointer: ptr[int], value: int };\n\
          fun[] main(): int = {\n\
              var seed: int = 7;\n\
-             var holder: Holder = { pointer = &seed, value = 3 };\n\
+             var holder: Holder = { pointer = [ref]seed, value = 3 };\n\
              var extracted: ptr[int] = holder.pointer;\n\
-             return holder.value + *extracted;\n\
+             var reused: ptr[int] = holder.pointer;\n\
+             return [drf]extracted + [drf]reused;\n\
          };\n",
     )]);
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::Ownership
             && error
                 .message()
-                .contains("use of moved heap-owned binding 'holder'")
+                .contains("use of moved field 'holder.pointer'")
+    }));
+
+    // Reading the aggregate as a whole value after a partial move is rejected.
+    let whole = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Holder: rec = { pointer: ptr[int], value: int };\n\
+         fun[] take(h: Holder): int = { return h.value; };\n\
+         fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var holder: Holder = { pointer = [ref]seed, value = 3 };\n\
+             var extracted: ptr[int] = holder.pointer;\n\
+             return take(holder) + [drf]extracted;\n\
+         };\n",
+    )]);
+    assert!(whole.iter().any(|error| {
+        error.kind() == TypecheckErrorKind::Ownership
+            && error
+                .message()
+                .contains("use of partially moved binding 'holder'")
     }));
 }
 
@@ -1709,9 +1742,9 @@ fn move_only_index_projections_require_a_partial_move_model() {
             "direct unique element",
             "fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var pointers: arr[ptr[int], 1] = { &seed };\n\
+                 var pointers: arr[ptr[int], 1] = { [ref]seed };\n\
                  var extracted: ptr[int] = pointers[0];\n\
-                 return *extracted;\n\
+                 return [drf]extracted;\n\
              };\n",
         ),
         (
@@ -1719,9 +1752,9 @@ fn move_only_index_projections_require_a_partial_move_model() {
             "typ Holder: rec = { pointer: ptr[int] };\n\
              fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var holders: arr[Holder, 1] = { { pointer = &seed } };\n\
+                 var holders: arr[Holder, 1] = { { pointer = [ref]seed } };\n\
                  var extracted: Holder = holders[0];\n\
-                 return *extracted.pointer;\n\
+                 return [drf]extracted.pointer;\n\
              };\n",
         ),
         (
@@ -1729,9 +1762,9 @@ fn move_only_index_projections_require_a_partial_move_model() {
             "typ Holder: rec = { pointer: ptr[int] };\n\
              fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var holders: arr[Holder, 1] = { { pointer = &seed } };\n\
+                 var holders: arr[Holder, 1] = { { pointer = [ref]seed } };\n\
                  var extracted: ptr[int] = holders[0].pointer;\n\
-                 return *extracted;\n\
+                 return [drf]extracted;\n\
              };\n",
         ),
         (
@@ -1739,7 +1772,7 @@ fn move_only_index_projections_require_a_partial_move_model() {
             "typ Holder: rec = { pointer: ptr[int], value: int };\n\
              fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var holders: arr[Holder, 1] = { { pointer = &seed, value = 3 } };\n\
+                 var holders: arr[Holder, 1] = { { pointer = [ref]seed, value = 3 } };\n\
                  return holders[0].value;\n\
              };\n",
         ),
@@ -1761,7 +1794,7 @@ fn move_only_index_operands_allow_locals_but_reject_field_projections() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun[] lookup(values: map[ptr[int], int], query: ptr[int]): int = {\n\
-             return values[query] + *query + .len(values);\n\
+             return values[query] + [drf]query + .len(values);\n\
          };\n",
     )]);
     let lookup = find_named_routine_syntax_id(&typed, "lookup");
@@ -1870,7 +1903,7 @@ fn move_only_collection_iteration_requires_a_consuming_iterator_model() {
         let source = format!(
             "fun[] first(values: {parameter_type}): int = {{\n\
                  for (value in values) {{\n\
-                     return *value;\n\
+                     return [drf]value;\n\
                  }};\n\
                  return 0;\n\
              }};\n"
@@ -1915,7 +1948,7 @@ fn move_only_collection_iteration_requires_a_consuming_iterator_model() {
             "main.fol",
             "fun[] first(channel: chn[ptr[int]]): int = {\n\
                  for (value in channel[rx]) {\n\
-                     return *value;\n\
+                     return [drf]value;\n\
                  };\n\
                  return 0;\n\
              };\n",
@@ -1971,12 +2004,12 @@ fn nested_field_access_rejects_move_only_intermediates() {
 fn discarded_move_only_expressions_are_transfers() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+        "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
          fun[] main(): int = {\n\
              var value: int = 7;\n\
-             var pointer: ptr[int] = &value;\n\
+             var pointer: ptr[int] = [ref]value;\n\
              pointer;\n\
-             return consume(pointer);\n\
+             return consume([mov]pointer);\n\
          };\n",
     )]);
     assert!(
@@ -2028,7 +2061,7 @@ fn dereference_rejects_move_only_field_projections() {
         let source = format!(
             "typ Holder: rec = {{ link: ptr[int] }};\n\
              fun[] inspect({parameter}): int = {{\n\
-                 return *holder.link;\n\
+                 return [drf]holder.link;\n\
              }};\n"
         );
         let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
@@ -2050,7 +2083,7 @@ fn dereference_rejects_move_only_field_projections() {
         "main.fol",
         "typ Holder: rec = { link: ptr[shared, int] };\n\
          fun[] inspect(holder[bor]: Holder): int = {\n\
-             return *holder.link;\n\
+             return [drf]holder.link;\n\
          };\n",
     )]);
     assert!(typed
@@ -2064,10 +2097,10 @@ fn unique_pointer_deref_transfers_move_only_pointees() {
         "main.fol",
         "fun[] main(): int = {\n\
              var seed: int = 7;\n\
-             var inner: ptr[int] = &seed;\n\
-             var outer: ptr[ptr[int]] = &inner;\n\
-             var extracted: ptr[int] = *outer;\n\
-             return *extracted;\n\
+             var inner: ptr[int] = [ref]seed;\n\
+             var outer: ptr[ptr[int]] = [ref]inner;\n\
+             var extracted: ptr[int] = [drf]outer;\n\
+             return [drf]extracted;\n\
          };\n",
     )]);
     assert!(typed
@@ -2078,10 +2111,10 @@ fn unique_pointer_deref_transfers_move_only_pointees() {
         "main.fol",
         "fun[] main(): int = {\n\
              var seed: int = 7;\n\
-             var inner: ptr[int] = &seed;\n\
-             var outer: ptr[ptr[int]] = &inner;\n\
-             var extracted: ptr[int] = *outer;\n\
-             return **outer;\n\
+             var inner: ptr[int] = [ref]seed;\n\
+             var outer: ptr[ptr[int]] = [ref]inner;\n\
+             var extracted: ptr[int] = [drf]outer;\n\
+             return [drf][drf]outer;\n\
          };\n",
     )]);
     assert!(
@@ -2101,9 +2134,9 @@ fn shared_pointer_deref_rejects_move_only_pointees() {
         "main.fol",
         "fun[] main(): int = {\n\
              var seed: int = 7;\n\
-             var inner: ptr[int] = &seed;\n\
-             var shared: ptr[shared, ptr[int]] = &inner;\n\
-             var invalid: ptr[int] = *shared;\n\
+             var inner: ptr[int] = [ref]seed;\n\
+             var shared: ptr[shared, ptr[int]] = [ref]inner;\n\
+             var invalid: ptr[int] = [drf]shared;\n\
              return 0;\n\
          };\n",
     )]);
@@ -2124,12 +2157,12 @@ fn borrowed_pointer_deref_is_read_only() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
         "fun[] read(pointer[bor]: ptr[int]): int = {\n\
-             return *pointer;\n\
+             return [drf]pointer;\n\
          };\n\
          fun[] main(): int = {\n\
              var seed: int = 7;\n\
-             var pointer: ptr[int] = &seed;\n\
-             return read(#pointer);\n\
+             var pointer: ptr[int] = [ref]seed;\n\
+             return read([bor]pointer);\n\
          };\n",
     )]);
     assert!(typed
@@ -2139,7 +2172,7 @@ fn borrowed_pointer_deref_is_read_only() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] take(pointer[bor]: ptr[ptr[int]]): ptr[int] = {\n\
-             return *pointer;\n\
+             return [drf]pointer;\n\
          };\n",
     )]);
     assert!(
@@ -2162,8 +2195,8 @@ fn when_cases_require_matching_equality_safe_types() {
             "fun[] main(): int = {\n\
                  var left_value: int = 1;\n\
                  var right_value: int = 2;\n\
-                 var left: ptr[int] = &left_value;\n\
-                 var right: ptr[int] = &right_value;\n\
+                 var left: ptr[int] = [ref]left_value;\n\
+                 var right: ptr[int] = [ref]right_value;\n\
                  when(left) {\n\
                      case(right) { return 1; }\n\
                      * { return 0; }\n\
@@ -2224,7 +2257,7 @@ fn case_less_when_requires_a_boolean_gate() {
         "main.fol",
         "fun[] main(): int = {\n\
              var value: int = 1;\n\
-             var pointer: ptr[int] = &value;\n\
+             var pointer: ptr[int] = [ref]value;\n\
              when(pointer) {\n\
                  * { return 1; }\n\
              }\n\
@@ -2323,7 +2356,7 @@ fn pointer_deref_accepts_move_only_unique_pointees() {
         (
             "unique pointer pointee",
             "fun[] take(value: ptr[ptr[int]]): ptr[int] = {\n\
-                 return *value;\n\
+                 return [drf]value;\n\
              };\n",
         ),
         (
@@ -2331,9 +2364,9 @@ fn pointer_deref_accepts_move_only_unique_pointees() {
             "typ Holder: rec = { pointer: ptr[int] };\n\
              fun[] take(): Holder = {\n\
                  var seed: int = 7;\n\
-                 var holder: Holder = { pointer = &seed };\n\
-                 var holder_pointer = &holder;\n\
-                 return *holder_pointer;\n\
+                 var holder: Holder = { pointer = [ref]seed };\n\
+                 var holder_pointer = [ref]holder;\n\
+                 return [drf]holder_pointer;\n\
              };\n",
         ),
     ] {
@@ -2355,8 +2388,8 @@ fn clone_safe_field_and_index_projections_remain_transferable() {
          fun[] main(): int = {\n\
              var holder: Holder = { value = 7 };\n\
              var values: arr[int, 1] = { 3 };\n\
-             var holder_pointer = &holder;\n\
-             var holder_copy = *holder_pointer;\n\
+             var holder_pointer = [ref]holder;\n\
+             var holder_copy = [drf]holder_pointer;\n\
              var field_copy: int = holder.value;\n\
              var index_copy: int = values[0];\n\
              return field_copy + index_copy + holder_copy.value;\n\
@@ -2374,13 +2407,13 @@ fn when_results_transfer_move_only_branch_values() {
         "fun[] main(): int = {\n\
              var left_value: int = 7;\n\
              var right_value: int = 9;\n\
-             var left: ptr[int] = &left_value;\n\
-             var right: ptr[int] = &right_value;\n\
+             var left: ptr[int] = [ref]left_value;\n\
+             var right: ptr[int] = [ref]right_value;\n\
              var chosen: ptr[int] = when(true) {\n\
                  is (true) -> left;\n\
                  * -> right;\n\
              };\n\
-             return *left + *chosen;\n\
+             return [drf]left + [drf]chosen;\n\
          };\n",
     )]);
     assert!(errors.iter().any(|error| {
@@ -2394,12 +2427,12 @@ fn when_results_transfer_move_only_branch_values() {
         "main.fol",
         "fun[] main(): int = {\n\
              var value: int = 7;\n\
-             var pointer: ptr[int] = &value;\n\
+             var pointer: ptr[int] = [ref]value;\n\
              var chosen: ptr[int] = when(true) {\n\
                  is (true) -> pointer;\n\
                  * -> pointer;\n\
              };\n\
-             return *chosen;\n\
+             return [drf]chosen;\n\
          };\n",
     )]);
     let main = find_named_routine_syntax_id(&typed, "main");
@@ -2407,15 +2440,15 @@ fn when_results_transfer_move_only_branch_values() {
 
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+        "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
          fun[] choose(flag: bol): int = {\n\
              var value: int = 7;\n\
-             var pointer: ptr[int] = &value;\n\
+             var pointer: ptr[int] = [ref]value;\n\
              when(flag) {\n\
-                 case(true) { return consume(pointer); }\n\
+                 case(true) { return consume([mov]pointer); }\n\
                  * { 0; }\n\
              };\n\
-             return *pointer;\n\
+             return [drf]pointer;\n\
          };\n",
     )]);
     let choose = find_named_routine_syntax_id(&typed, "choose");
@@ -2431,7 +2464,7 @@ fn outer_move_only_bindings_cannot_be_transferred_from_repeating_loops() {
              @var owned: Item = { value = 7 };\n\
              var[mut] keep: bol = true;\n\
              loop(keep) {\n\
-                 @var moved: Item = owned;\n\
+                 @var moved: Item = [mov]owned;\n\
                  keep = false;\n\
              };\n\
              return 0;\n\
@@ -2457,7 +2490,7 @@ fn outer_move_only_bindings_cannot_move_from_repeated_loop_conditions() {
          fun[] stop(value: @Item): bol = { return false; };\n\
          fun[] main(): int = {\n\
              @var owned: Item = { value = 7 };\n\
-             loop(stop(owned)) { var ignored: int = 0; };\n\
+             loop(stop([mov]owned)) { var ignored: int = 0; };\n\
              return 0;\n\
          };\n",
     )]);
@@ -2476,7 +2509,7 @@ fn move_only_bindings_created_inside_a_loop_can_move_each_iteration() {
              var[mut] keep: bol = true;\n\
              loop(keep) {\n\
                  @var owned: Item = { value = 7 };\n\
-                 @var moved: Item = owned;\n\
+                 @var moved: Item = [mov]owned;\n\
                  keep = false;\n\
              };\n\
              return 0;\n\
@@ -2489,6 +2522,9 @@ fn move_only_bindings_created_inside_a_loop_can_move_each_iteration() {
 
 #[test]
 fn outer_borrows_are_not_released_when_a_nested_loop_scope_ends() {
+    // `view` is used after the loop, so its non-lexical lifetime spans the
+    // `owner.value` access. Leaving the nested loop scope must not release the
+    // outer borrow, so that access is still rejected.
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "typ Item: rec = { value: int };\n\
@@ -2496,7 +2532,9 @@ fn outer_borrows_are_not_released_when_a_nested_loop_scope_ends() {
              var owner: Item = { value = 7 };\n\
              var[bor] view: Item = owner;\n\
              loop(false) { var ignored: int = 0; };\n\
-             return owner.value;\n\
+             var early: int = owner.value;\n\
+             var seen: int = view.value;\n\
+             return early + seen;\n\
          };\n",
     )]);
 
@@ -2532,12 +2570,16 @@ fn borrows_created_inside_a_loop_end_with_the_loop_body_scope() {
 
 #[test]
 fn inferred_borrow_from_binding_keeps_owner_inaccessible() {
+    // `view` is read after the `owner` access, so the inferred borrow is live
+    // across it and the access is rejected.
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] main(): int = {\n\
              var owner: int = 7;\n\
-             var view = #owner;\n\
-             return owner;\n\
+             var view = [bor]owner;\n\
+             var early: int = [mov]owner;\n\
+             var seen: int = view;\n\
+             return early + seen;\n\
          };\n",
     )]);
 
@@ -2549,8 +2591,28 @@ fn inferred_borrow_from_binding_keeps_owner_inaccessible() {
                     .message()
                     .contains("owner 'owner' is inaccessible while borrowed")
         }),
-        "an inferred #owner binding must remain active for its lexical scope: {errors:#?}"
+        "an inferred [bor]owner binding must stay active until its last use: {errors:#?}"
     );
+}
+
+#[test]
+fn a_borrow_is_released_at_its_last_use_so_the_owner_becomes_accessible() {
+    // Non-lexical borrow lifetimes (Slice C): after `view`'s last use the loan
+    // ends, so `owner` is accessible again within the same lexical scope without
+    // an explicit give-back.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Item: rec = { value: int };\n\
+         fun[] main(): int = {\n\
+             var owner: Item = { value = 7 };\n\
+             var[bor] view: Item = owner;\n\
+             var seen: int = view.value;\n\
+             var direct: int = owner.value;\n\
+             return seen + direct;\n\
+         };\n",
+    )]);
+    let main = find_named_routine_syntax_id(&typed, "main");
+    assert!(typed.typed_node(main).is_some());
 }
 
 #[test]
@@ -2559,8 +2621,8 @@ fn inferred_borrow_from_binding_can_be_given_back() {
         "main.fol",
         "fun[] main(): int = {\n\
              var owner: int = 7;\n\
-             var view = #owner;\n\
-             !view;\n\
+             var view = [bor]owner;\n\
+             [end]view;\n\
              return owner;\n\
          };\n",
     )]);
@@ -2569,38 +2631,42 @@ fn inferred_borrow_from_binding_can_be_given_back() {
 }
 
 #[test]
-fn borrow_bindings_cannot_be_reborrowed() {
-    for initializer in ["view", "#view"] {
+fn reborrowing_a_local_borrow_is_supported_but_cannot_escape() {
+    // Reborrowing is supported (Slice C §5.2): a borrowed place may be borrowed
+    // again. The reborrow itself is legal; the routine below is only rejected
+    // because it returns the reborrow, which ultimately roots in an owned local
+    // and would dangle.
+    for initializer in ["view", "[bor]view"] {
         let source = format!(
             "fun[] main(): int = {{\n\
                  var owner: int = 7;\n\
                  var[bor] view: int = owner;\n\
                  var[bor] nested: int = {initializer};\n\
-                 return view;\n\
+                 return nested;\n\
              }};\n"
         );
         let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
 
         assert!(
             errors.iter().any(|error| {
-                error.kind() == TypecheckErrorKind::BorrowConflict
+                error.kind() == TypecheckErrorKind::Ownership
                     && error
                         .message()
-                        .contains("reborrowing a borrow binding is not supported in V3")
+                        .contains("would dangle after the routine returns")
             }),
-            "reborrow initializer '{initializer}' must be rejected: {errors:#?}"
+            "returning reborrow '{initializer}' must be rejected as a dangling borrow: {errors:#?}"
         );
     }
 }
 
 #[test]
 fn borrow_bindings_cannot_borrow_an_owner_after_it_moves() {
-    for initializer in ["owner", "#owner"] {
+    for initializer in ["owner", "[bor]owner"] {
         let source = format!(
             "typ Item: rec = {{ value: int }};\n\
              fun[] main(): int = {{\n\
                  @var owner: Item = {{ value = 7 }};\n\
-                 @var moved: Item = owner;\n\
+                 @var moved: Item = [mov]owner;\n\
                  var[bor] view: Item = {initializer};\n\
                  return moved.value;\n\
              }};\n"
@@ -2657,7 +2723,7 @@ fn move_only_values_cannot_be_transferred_out_of_borrows() {
             "fun[] consume(value: ptr[int]): int = { return 0; };\n\
              fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var owner: ptr[int] = &seed;\n\
+                 var owner: ptr[int] = [ref]seed;\n\
                  var[bor] view: ptr[int] = owner;\n\
                  return consume(view);\n\
              };\n",
@@ -2692,7 +2758,7 @@ fn borrow_parameters_require_explicit_call_site_borrowing() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::BorrowConflict
-                && error.message().contains("must pass '#owner'")
+                && error.message().contains("must pass '[bor]owner'")
         }),
         "plain owner arguments must not silently become borrow arguments: {errors:#?}"
     );
@@ -2708,7 +2774,7 @@ fn call_site_borrow_excludes_owner_access_in_sibling_arguments() {
          };\n\
          fun[] main(): int = {\n\
              var owner: Item = { value = 7 };\n\
-             return compare(#owner, owner);\n\
+             return compare([bor]owner, owner);\n\
          };\n",
     )]);
 
@@ -2734,7 +2800,7 @@ fn compatible_shared_call_borrows_end_when_the_call_returns() {
              {\n\
                  var[bor] first: Item = owner;\n\
                  var one: int = inspect(first);\n\
-                 var two: int = inspect(#owner);\n\
+                 var two: int = inspect([bor]owner);\n\
              };\n\
              return owner.value;\n\
          };\n",
@@ -2750,12 +2816,12 @@ fn existing_borrow_of_move_only_value_can_flow_to_borrow_parameter() {
         "fun[] inspect(value[bor]: ptr[int]): int = { return 0; };\n\
          fun[] main(): int = {\n\
              var seed: int = 7;\n\
-             var owner: ptr[int] = &seed;\n\
+             var owner: ptr[int] = [ref]seed;\n\
              var[bor] view: ptr[int] = owner;\n\
              var first: int = inspect(view);\n\
              var second: int = inspect(view);\n\
-             !view;\n\
-             return *owner + first + second;\n\
+             [end]view;\n\
+             return [drf]owner + first + second;\n\
          };\n",
     )]);
     let main = find_named_routine_syntax_id(&typed, "main");
@@ -2907,7 +2973,7 @@ fn mutex_fields_require_an_active_lexical_guard() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] read(counter[mux]: Counter): int = {\n\
+             fun[] read(counter: mux[Counter]): int = {\n\
                  return counter.value;\n\
              };\n",
         )],
@@ -2926,7 +2992,7 @@ fn deferred_blocks_reject_mutex_field_access() {
     for deferred in ["dfr", "edf"] {
         let source = format!(
             "typ Counter: rec = {{ value: int }};\n\
-             fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+             fun[] inspect(counter: mux[Counter], fail: bol): int / int = {{\n\
                  counter.lock();\n\
                  {deferred} {{ var seen: int = counter.value; }};\n\
                  when(fail) {{\n\
@@ -2963,7 +3029,7 @@ fn deferred_blocks_reject_mutex_guard_operations() {
         for method in ["lock", "unlock"] {
             let source = format!(
                 "typ Counter: rec = {{ value: int }};\n\
-                 fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+                 fun[] inspect(counter: mux[Counter], fail: bol): int / int = {{\n\
                      {deferred} {{ counter.{method}(); }};\n\
                      when(fail) {{\n\
                          case(true) {{ report 1; }}\n\
@@ -2999,13 +3065,13 @@ fn deferred_blocks_reject_forwarded_mutex_handles() {
     for deferred in ["dfr", "edf"] {
         let source = format!(
             "typ Counter: rec = {{ value: int }};\n\
-             fun[] leaf(counter[mux]: Counter): int = {{\n\
+             fun[] leaf(counter: mux[Counter]): int = {{\n\
                  counter.lock();\n\
                  var value: int = counter.value;\n\
                  counter.unlock();\n\
                  return value;\n\
              }};\n\
-             fun[] inspect(counter[mux]: Counter, fail: bol): int / int = {{\n\
+             fun[] inspect(counter: mux[Counter], fail: bol): int / int = {{\n\
                  counter.lock();\n\
                  {deferred} {{ var delayed: int = leaf(counter); }};\n\
                  when(fail) {{\n\
@@ -3026,7 +3092,7 @@ fn deferred_blocks_reject_forwarded_mutex_handles() {
                 error.kind() == TypecheckErrorKind::Unsupported
                     && error
                         .message()
-                        .contains("mutex handles cannot be forwarded to [mux] parameter")
+                        .contains("mutex handles cannot be forwarded to mux[T] parameter")
                     && error.message().contains("inside dfr/edf")
             }),
             "{deferred} must reject delayed mutex forwarding before lowering: {errors:#?}"
@@ -3044,16 +3110,16 @@ fn deferred_blocks_reject_forwarded_mutex_handles() {
 fn deferred_blocks_reject_delayed_owner_reinitialization() {
     for deferred in ["dfr", "edf"] {
         let source = format!(
-            "fun[] consume(pointer: ptr[int]): int = {{ return *pointer; }};\n\
+            "fun[] consume(pointer: ptr[int]): int = {{ return [drf]pointer; }};\n\
              fun[] inspect(fail: bol): int / int = {{\n\
                  var first: int = 1;\n\
                  var second: int = 2;\n\
-                 var[mut] pointer: ptr[int] = &first;\n\
-                 consume(pointer);\n\
-                 {deferred} {{ pointer = &second; }};\n\
+                 var[mut] pointer: ptr[int] = [ref]first;\n\
+                 consume([mov]pointer);\n\
+                 {deferred} {{ pointer = [ref]second; }};\n\
                  when(fail) {{\n\
                      case(true) {{ report 1; }}\n\
-                     * {{ return *pointer; }}\n\
+                     * {{ return [drf]pointer; }}\n\
                  }}\n\
              }};\n"
         );
@@ -3085,7 +3151,7 @@ fn mutex_lock_rejects_double_acquisition() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] update(counter[mux]: Counter): non = {\n\
+             fun[] update(counter: mux[Counter]): non = {\n\
                  counter.lock();\n\
                  counter.lock();\n\
                  return;\n\
@@ -3107,7 +3173,7 @@ fn mutex_unlock_requires_a_current_scope_guard() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] update(counter[mux]: Counter): non = {\n\
+             fun[] update(counter: mux[Counter]): non = {\n\
                  counter.unlock();\n\
                  return;\n\
              };\n",
@@ -3128,7 +3194,7 @@ fn mutex_guard_auto_releases_at_lexical_scope_end() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] update(counter[mux]: Counter): int = {\n\
+             fun[] update(counter: mux[Counter]): int = {\n\
                  {\n\
                      counter.lock();\n\
                      counter.value = 1;\n\
@@ -3154,7 +3220,7 @@ fn mutex_whole_values_are_rejected_but_mux_forwarding_is_allowed() {
             "main.fol",
             "typ Counter: rec = { value: int };\n\
              fun[] plain(value: Counter): int = { return value.value; };\n\
-             fun[] bad(counter[mux]: Counter): int = {\n\
+             fun[] bad(counter: mux[Counter]): int = {\n\
                  return plain(counter);\n\
              };\n",
         )],
@@ -3170,8 +3236,8 @@ fn mutex_whole_values_are_rejected_but_mux_forwarding_is_allowed() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] leaf(T)(counter[mux]: T): int = { return 1; };\n\
-             fun[] forward(T)(counter[mux]: T): int = { return leaf(counter); };\n",
+             fun[] leaf(T)(counter: mux[T]): int = { return 1; };\n\
+             fun[] forward(T)(counter: mux[T]): int = { return leaf(counter); };\n",
         )],
         TypecheckConfig {
             capability_model: TypecheckCapabilityModel::Std,
@@ -3188,8 +3254,8 @@ fn mux_forwarding_does_not_move_the_protected_value() {
         &[(
             "main.fol",
             "typ Counter: rec = { marker: ptr[int], value: int };\n\
-             fun[] leaf(counter[mux]: Counter): int = { return 1; };\n\
-             fun[] forward(counter[mux]: Counter): int = {\n\
+             fun[] leaf(counter: mux[Counter]): int = { return 1; };\n\
+             fun[] forward(counter: mux[Counter]): int = {\n\
                  leaf(counter);\n\
                  counter.lock();\n\
                  var value: int = counter.value;\n\
@@ -3213,8 +3279,8 @@ fn synchronous_mux_forwarding_rejects_active_and_aliased_handles() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] leaf(counter[mux]: Counter): int = { return 1; };\n\
-             fun[] bad(counter[mux]: Counter): int = {\n\
+             fun[] leaf(counter: mux[Counter]): int = { return 1; };\n\
+             fun[] bad(counter: mux[Counter]): int = {\n\
                  counter.lock();\n\
                  var result: int = leaf(counter);\n\
                  counter.unlock();\n\
@@ -3240,8 +3306,8 @@ fn synchronous_mux_forwarding_rejects_active_and_aliased_handles() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] pair(left[mux]: Counter, right[mux]: Counter): int = { return 1; };\n\
-             fun[] bad(counter[mux]: Counter): int = {\n\
+             fun[] pair(left: mux[Counter], right: mux[Counter]): int = { return 1; };\n\
+             fun[] bad(counter: mux[Counter]): int = {\n\
                  return pair(counter, counter);\n\
              };\n",
         )],
@@ -3254,7 +3320,7 @@ fn synchronous_mux_forwarding_rejects_active_and_aliased_handles() {
             error.kind() == TypecheckErrorKind::InvalidInput
                 && error
                     .message()
-                    .contains("cannot forward mutex handle 'counter' to both [mux] parameter")
+                    .contains("cannot forward mutex handle 'counter' to both mux[T] parameter")
                 && error.message().contains("can self-deadlock")
         }),
         "two mux parameters must not alias the same mutex handle: {alias_errors:#?}"
@@ -3267,13 +3333,13 @@ fn guarded_mutex_handles_can_cross_spawn_and_async_task_boundaries() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] worker(counter[mux]: Counter): int = {\n\
+             fun[] worker(counter: mux[Counter]): int = {\n\
                  counter.lock();\n\
                  var value: int = counter.value;\n\
                  counter.unlock();\n\
                  return value;\n\
              };\n\
-             fun[] launch(counter[mux]: Counter): int = {\n\
+             fun[] launch(counter: mux[Counter]): int = {\n\
                  counter.lock();\n\
                  [>]worker(counter);\n\
                  var pending = worker(counter) | async;\n\
@@ -3294,7 +3360,7 @@ fn guarded_mutex_handles_can_cross_spawn_and_async_task_boundaries() {
             (
                 "workers/tasks.fol",
                 "typ[exp] Counter: rec = { value: int };\n\
-                 fun[exp] worker(counter[mux]: Counter): int = {\n\
+                 fun[exp] worker(counter: mux[Counter]): int = {\n\
                      counter.lock();\n\
                      var value: int = counter.value;\n\
                      counter.unlock();\n\
@@ -3303,7 +3369,7 @@ fn guarded_mutex_handles_can_cross_spawn_and_async_task_boundaries() {
             ),
             (
                 "main.fol",
-                "fun[] launch(counter[mux]: workers::Counter): int = {\n\
+                "fun[] launch(counter: mux[workers::Counter]): int = {\n\
                      counter.lock();\n\
                      [>]workers::worker(counter);\n\
                      var pending = workers::worker(counter) | async;\n\
@@ -3322,14 +3388,66 @@ fn guarded_mutex_handles_can_cross_spawn_and_async_task_boundaries() {
 }
 
 #[test]
+fn value_binding_does_not_shadow_type_name_in_type_position() {
+    // Types and values occupy distinct namespaces: a value binding named the
+    // same as a type (case/underscore-folded, so `node` == `Node`) must not
+    // shadow that type in a later type position. Regression for the lexical
+    // resolver halting the scope walk on the first same-name-but-wrong-kind hit.
+    // Resolves + typechecks cleanly (the helper asserts success); before the fix
+    // the second `: Node` failed with "could not resolve type 'Node'".
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Node: rec = { tag: int };\n\
+         fun[] f(): int = {\n\
+             var node: Node = { tag = 1 };\n\
+             var other: Node = { tag = 2 };\n\
+             return node.tag + other.tag;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "f"))
+        .is_some());
+}
+
+#[test]
+fn set_and_map_reject_non_orderable_members_and_keys() {
+    // A float (and a record transitively containing one) cannot be a set member
+    // or map key: sets/maps are BTreeSet/BTreeMap-backed and need `Ord`.
+    // Regression for a gate-2 gap where these typechecked but failed rustc.
+    for source in [
+        "fun[] main(): int = { var s: set[flt] = {}; return 0; };\n",
+        "typ P: rec = { x: flt };\nfun[] main(): int = { var s: set[P] = {}; return 0; };\n",
+        "typ P: rec = { x: flt };\nfun[] main(): int = { var m: map[P, int] = {}; return 0; };\n",
+        // A generic type instantiated with a non-orderable arg is caught when the
+        // generic `set[T]` field is substituted to a concrete `set[flt]`.
+        "typ Keyed(T): rec = { keys: set[T] };\n\
+         fun[] main(): int = { var k: Keyed[flt] = { keys = {} }; return 0; };\n",
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains("must be orderable")),
+            "expected an orderability rejection for source: {source}\n{errors:#?}"
+        );
+    }
+    // Orderable members/keys stay accepted, and a non-orderable map VALUE is fine
+    // (only the key must be `Ord`); the helper asserts a clean typecheck.
+    let _ = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = { var s: set[int] = {}; var m: map[str, flt] = {}; return 0; };\n",
+    )]);
+}
+
+#[test]
 fn mutex_handle_cannot_escape_inside_mux_argument() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
              typ Wrapper: rec = { inner: Counter };\n\
-             fun[] sink(value[mux]: Wrapper): int = { return 1; };\n\
-             fun[] bad(counter[mux]: Counter): int = {\n\
+             fun[] sink(value: mux[Wrapper]): int = { return 1; };\n\
+             fun[] bad(counter: mux[Counter]): int = {\n\
                  return sink({ inner = counter });\n\
              };\n",
         )],
@@ -3364,7 +3482,7 @@ fn every_processor_surface_rejects_core_and_memo_models() {
         ),
         (
             "mutex",
-            "fun[] work(value[mux]: int): int = { return value; };\n",
+            "fun[] work(value: mux[int]): int = { return value; };\n",
             "mutex parameters require hosted std support",
         ),
         (
@@ -4084,7 +4202,7 @@ fn sender_only_capture_cannot_receive_from_its_channel() {
             "fun[] main(): int = {\n\
                  var channel: chn[int];\n\
                  [>]fun()[channel[tx]] = {\n\
-                     var stolen: int = channel[rx];\n\
+                     var stolen: int = channel[rx][];\n\
                      return;\n\
                  };\n\
                  return 0;\n\
@@ -4107,7 +4225,7 @@ fn channel_send_consumes_move_only_payloads() {
             "fun[] main(): int = {\n\
                  var channel: chn[int];\n\
                  @var owned: int = 42;\n\
-                 owned | channel[tx];\n\
+                 var sent: err[int] = [mov]owned | channel[tx];\n\
                  return owned;\n\
              };\n",
         )],
@@ -4152,8 +4270,8 @@ fn select_merges_ownership_from_mutually_exclusive_arms() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
-            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
-             fun[] produce(channel: chn[int]): int = { 1 | channel[tx]; return 1; };\n\
+            "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
+             fun[] produce(channel: chn[int]): int = { var sent: err[int] = 1 | channel[tx]; return 1; };\n\
              fun[] main(): int = {\n\
                  var first: chn[int];\n\
                  var second: chn[int];\n\
@@ -4161,13 +4279,13 @@ fn select_merges_ownership_from_mutually_exclusive_arms() {
                  [>]produce(second);\n\
                  var first_value: int = 1;\n\
                  var second_value: int = 2;\n\
-                 var[mut] pointer: ptr[int] = &first_value;\n\
+                 var[mut] pointer: ptr[int] = [ref]first_value;\n\
                  select {\n\
-                     when first as received { consume(pointer); }\n\
-                     when second as received { pointer = &second_value; }\n\
-                     * { pointer = &second_value; }\n\
+                     when first as received { consume([mov]pointer); }\n\
+                     when second as received { pointer = [ref]second_value; }\n\
+                     * { pointer = [ref]second_value; }\n\
                  };\n\
-                 return *pointer;\n\
+                 return [drf]pointer;\n\
              };\n",
         )],
         TypecheckConfig {
@@ -4188,19 +4306,19 @@ fn select_merges_ownership_from_mutually_exclusive_arms() {
     let typed = typecheck_fixture_folder_with_config(
         &[(
             "main.fol",
-            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
-             fun[] produce(channel: chn[int]): int = { 1 | channel[tx]; return 1; };\n\
+            "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
+             fun[] produce(channel: chn[int]): int = { var sent: err[int] = 1 | channel[tx]; return 1; };\n\
              fun[] main(): int = {\n\
                  var first: chn[int];\n\
                  var second: chn[int];\n\
                  [>]produce(first);\n\
                  [>]produce(second);\n\
                  var value: int = 1;\n\
-                 var pointer: ptr[int] = &value;\n\
+                 var pointer: ptr[int] = [ref]value;\n\
                  select {\n\
-                     when first as first_received { consume(pointer); }\n\
-                     when second as second_received { consume(pointer); }\n\
-                     * { consume(pointer); }\n\
+                     when first as first_received { consume([mov]pointer); }\n\
+                     when second as second_received { consume([mov]pointer); }\n\
+                     * { consume([mov]pointer); }\n\
                  };\n\
                  return 0;\n\
              };\n",
@@ -4222,17 +4340,17 @@ fn select_without_default_preserves_the_all_closed_ownership_path() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
-            "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+            "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
              fun[] main(): int = {\n\
                  var channel: chn[int];\n\
                  var first: int = 1;\n\
                  var second: int = 2;\n\
-                 var[mut] pointer: ptr[int] = &first;\n\
-                 consume(pointer);\n\
+                 var[mut] pointer: ptr[int] = [ref]first;\n\
+                 consume([mov]pointer);\n\
                  select {\n\
-                     when channel as received { pointer = &second; }\n\
+                     when channel as received { pointer = [ref]second; }\n\
                  };\n\
-                 return *pointer;\n\
+                 return [drf]pointer;\n\
              };\n",
         )],
         TypecheckConfig {
@@ -4298,8 +4416,8 @@ fn sender_only_locals_cannot_receive_through_select_or_iteration() {
 #[test]
 fn borrowed_values_cannot_cross_spawn_or_async_boundaries() {
     for (surface, statement) in [
-        ("spawn", "[>]inspect(#owner);"),
-        ("async", "var pending = inspect(#owner) | async;"),
+        ("spawn", "[>]inspect([bor]owner);"),
+        ("async", "var pending = inspect([bor]owner) | async;"),
     ] {
         let source = format!(
             "fun[] inspect(value[bor]: int): int = {{ return 0; }};\n\
@@ -4514,7 +4632,7 @@ fn omitted_shared_pointer_defaults_cannot_cross_processor_boundaries() {
         ("async", "var pending = inspect() | async;"),
     ] {
         let source = format!(
-            "fun[] inspect(value: ptr[shared, int] = &7): int = {{ return 0; }};\n\
+            "fun[] inspect(value: ptr[shared, int] = [ref]7): int = {{ return 0; }};\n\
              fun[] main(): int = {{\n\
                  {statement}\n\
                  return 0;\n\
@@ -4557,13 +4675,13 @@ fn qualified_omitted_defaults_preserve_processor_boundaries() {
         (
             "spawn shared-pointer default",
             "[>]workers::inspect();",
-            "value: ptr[shared, int] = &7",
+            "value: ptr[shared, int] = [ref]7",
             "values containing shared Rc pointers cannot cross",
         ),
         (
             "async shared-pointer default",
             "var pending = workers::inspect() | async;",
-            "value: ptr[shared, int] = &7",
+            "value: ptr[shared, int] = [ref]7",
             "values containing shared Rc pointers cannot cross",
         ),
     ] {
@@ -4659,18 +4777,18 @@ fn anonymous_recoverable_spawn_cannot_discard_its_error() {
 
     assert!(errors.iter().any(|error| error
         .message()
-        .contains("bare '[>]call()' cannot spawn a recoverable routine")));
+        .contains("cannot spawn a recoverable routine")));
 }
 
 #[test]
 fn direct_spawn_rejects_a_channel_consumer_routine() {
     for (surface, statement) in [
-        ("spawn", "[>]consume(channel);"),
-        ("async", "var pending = consume(channel) | async;"),
+        ("spawn", "[>]consume([mov]channel);"),
+        ("async", "var pending = consume([mov]channel) | async;"),
     ] {
         let source = format!(
             "fun[] consume(channel: chn[int]): int = {{\n\
-                 return channel[rx];\n\
+                 return channel[rx][];\n\
              }};\n\
              fun[] main(): int = {{\n\
                  var channel: chn[int];\n\
@@ -4698,13 +4816,13 @@ fn channel_receiver_effect_follows_local_aliases_and_wrappers() {
     for (surface, receiver_body) in [
         (
             "alias",
-            "var alias = channel;\n                 return alias[rx];",
+            "var alias = channel;\n                 return alias[rx][];",
         ),
-        ("wrapper", "return consume(channel);"),
+        ("wrapper", "return consume([mov]channel);"),
     ] {
         let source = format!(
             "fun[] consume(channel: chn[int]): int = {{\n\
-                 return channel[rx];\n\
+                 return channel[rx][];\n\
              }};\n\
              fun[] wrapper(channel: chn[int]): int = {{\n\
                  {receiver_body}\n\
@@ -4735,12 +4853,12 @@ fn sender_capture_alias_cannot_receive_or_call_a_consumer() {
     for (surface, body) in [
         (
             "alias receive",
-            "var alias = channel;\n                     var value: int = alias[rx];",
+            "var alias = channel;\n                     var value: int = alias[rx][];",
         ),
-        ("consumer call", "var value: int = consume(channel);"),
+        ("consumer call", "var value: int = consume([mov]channel);"),
     ] {
         let source = format!(
-            "fun[] consume(channel: chn[int]): int = {{ return channel[rx]; }};\n\
+            "fun[] consume(channel: chn[int]): int = {{ return channel[rx][]; }};\n\
              fun[] main(): int = {{\n\
                  var channel: chn[int];\n\
                  [>]fun()[channel[tx]] = {{\n\
@@ -4762,7 +4880,7 @@ fn sender_capture_alias_cannot_receive_or_call_a_consumer() {
                     .message()
                     .contains("sender-only channel endpoints cannot receive")
                     || (error.message().contains("expects 'chn[int]'")
-                        && error.message().contains("chn[int][tx]"))
+                        && error.message().contains("chn[tx, int]"))
             }),
             "{surface} should not recover the receiver capability, got {errors:?}"
         );
@@ -4775,7 +4893,7 @@ fn non_receiving_channel_parameters_are_sender_only_capabilities() {
         &[(
             "main.fol",
             "fun[] produce(channel: chn[int]): int = {\n\
-                 1 | channel[tx];\n\
+                 var sent: err[int] = 1 | channel[tx];\n\
                  return 1;\n\
              };\n",
         )],
@@ -4806,12 +4924,12 @@ fn transferring_a_channel_receiver_moves_the_source_binding() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
-            "fun[] consume(channel: chn[int]): int = { return channel[rx]; };\n\
+            "fun[] consume(channel: chn[int]): int = { return channel[rx][]; };\n\
              fun[] main(): int = {\n\
                  var channel: chn[int];\n\
-                 42 | channel[tx];\n\
-                 var value: int = consume(channel);\n\
-                 return channel[rx];\n\
+                 var sent: err[int] = 42 | channel[tx];\n\
+                 var value: int = consume([mov]channel);\n\
+                 return channel[rx][];\n\
              };\n",
         )],
         TypecheckConfig {
@@ -4831,13 +4949,13 @@ fn outer_channel_receivers_cannot_move_into_consumers_from_repeating_loops() {
     let errors = typecheck_fixture_folder_errors_with_config(
         &[(
             "main.fol",
-            "fun[] consume(channel: chn[int]): int = { return channel[rx]; };\n\
+            "fun[] consume(channel: chn[int]): int = { return channel[rx][]; };\n\
              fun[] main(): int = {\n\
                  var channel: chn[int];\n\
-                 42 | channel[tx];\n\
+                 var sent: err[int] = 42 | channel[tx];\n\
                  var[mut] keep: bol = true;\n\
                  loop(keep) {\n\
-                     var value: int = consume(channel);\n\
+                     var value: int = consume([mov]channel);\n\
                      keep = false;\n\
                  };\n\
                  return 0;\n\
@@ -4857,30 +4975,30 @@ fn receiver_acquisition_rejects_late_transmitter_acquisition() {
     for (surface, body) in [
         (
             "direct endpoint",
-            "var value: int = channel[rx];\n                 2 | channel[tx];",
+            "var value: int = channel[rx][];\n                 var sent: err[int] = 2 | channel[tx];",
         ),
         (
             "sender wrapper",
-            "var value: int = channel[rx];\n                 var sent: int = produce(channel);",
+            "var value: int = channel[rx][];\n                 var sent: int = produce(channel);",
         ),
         (
             "nested capture",
-            "{\n                     var value: int = channel[rx];\n                     [>]fun()[channel[tx]] = { 2 | channel[tx]; return; };\n                 };",
+            "{\n                     var value: int = channel[rx][];\n                     [>]fun()[channel[tx]] = { var sent: err[int] = 2 | channel[tx]; return; };\n                 };",
         ),
         (
             "select receiver",
-            "var[mut] seen: int = 0;\n                 select {\n                     when channel as value { seen = value; }\n                     * { seen = seen; }\n                 }\n                 2 | channel[tx];",
+            "var[mut] seen: int = 0;\n                 select {\n                     when channel as value { seen = value; }\n                     * { seen = seen; }\n                 }\n                 var sent: err[int] = 2 | channel[tx];",
         ),
         (
             "loop receiver",
-            "loop(true) {\n                     2 | channel[tx];\n                     var value: int = channel[rx];\n                     break;\n                 };",
+            "loop(true) {\n                     var sent: err[int] = 2 | channel[tx];\n                     var value: int = channel[rx][];\n                     break;\n                 };",
         ),
     ] {
         let source = format!(
-            "fun[] produce(channel: chn[int]): int = {{ 1 | channel[tx]; return 1; }};\n\
+            "fun[] produce(channel: chn[int]): int = {{ var sent: err[int] = 1 | channel[tx]; return 1; }};\n\
              fun[] main(): int = {{\n\
                  var channel: chn[int];\n\
-                 1 | channel[tx];\n\
+                 var opened: err[int] = 1 | channel[tx];\n\
                  {body}\n\
                  return 0;\n\
              }};\n"
@@ -4900,10 +5018,13 @@ fn receiver_acquisition_rejects_late_transmitter_acquisition() {
     }
 
     for (surface, deferred_body) in [
-        ("direct deferred endpoint", "1 | channel[tx];"),
+        (
+            "direct deferred endpoint",
+            "var sent: err[int] = 1 | channel[tx];",
+        ),
         (
             "deferred endpoint capture",
-            "[>]fun()[channel[tx]] = { 1 | channel[tx]; return; };",
+            "[>]fun()[channel[tx]] = { var sent: err[int] = 1 | channel[tx]; return; };",
         ),
     ] {
         let source = format!(
@@ -4938,14 +5059,14 @@ fn receiver_acquisition_rejects_late_method_sender_call() {
             "main.fol",
             "typ Relay: rec = { value: int };\n\
              fun[] (Relay)produce(channel: chn[int]): int = {\n\
-                 1 | channel[tx];\n\
+                 var sent: err[int] = 1 | channel[tx];\n\
                  return 1;\n\
              };\n\
              fun[] main(): int = {\n\
                  var relay: Relay = { value = 0 };\n\
                  var channel: chn[int];\n\
-                 1 | channel[tx];\n\
-                 var value: int = channel[rx];\n\
+                 var sent: err[int] = 1 | channel[tx];\n\
+                 var value: int = channel[rx][];\n\
                  return relay.produce(channel);\n\
              };\n",
         )],
@@ -5027,9 +5148,7 @@ fn aggregate_types_cannot_embed_full_channels() {
         assert!(
             errors.iter().any(|error| {
                 error.kind() == TypecheckErrorKind::Unsupported
-                    && error
-                        .message()
-                        .contains("full chn[T] values cannot be embedded")
+                    && error.message().contains("cannot be embedded in aggregate")
             }),
             "{surface} should report the aggregate-channel boundary, got {errors:?}"
         );
@@ -5044,7 +5163,7 @@ fn channel_endpoint_bases_reject_implicit_outer_routine_captures() {
             "fun[] main(): int = {\n\
                  var channel: chn[int];\n\
                  fun[] nested(): int = {\n\
-                     1 | channel[tx];\n\
+                     var sent: err[int] = 1 | channel[tx];\n\
                      return 1;\n\
                  };\n\
                  return nested();\n\
@@ -5072,7 +5191,7 @@ fn anonymous_channel_parameters_report_the_v3_boundary() {
         let source = format!(
             "{declaration}fun[] main(): int = {{\n\
                  var sender = fun[](channel: {param_type}): int = {{\n\
-                     1 | channel[tx];\n\
+                     var sent: err[int] = 1 | channel[tx];\n\
                      return 1;\n\
                  }};\n\
                  var channel: chn[int];\n\
@@ -5104,18 +5223,18 @@ fn mutex_parameter_abi_stays_on_named_direct_calls() {
         (
             "named routine value",
             "typ Counter: rec = { value: int };\n\
-             fun[] worker(counter[mux]: Counter): int = { return 0; };\n\
+             fun[] worker(counter: mux[Counter]): int = { return 0; };\n\
              fun[] main(): int = { var action = worker; return 0; };\n",
-            "routine 'worker' with [mux] parameters cannot be used as a plain routine value in V3",
+            "routine 'worker' with mux[T] parameters cannot be used as a plain routine value in V3",
         ),
         (
             "anonymous routine value",
             "typ Counter: rec = { value: int };\n\
              fun[] main(): int = {\n\
-                 var action = fun[](counter[mux]: Counter): int = { return 0; };\n\
+                 var action = fun[](counter: mux[Counter]): int = { return 0; };\n\
                  return 0;\n\
              };\n",
-            "anonymous routines with [mux] parameters are not supported in V3",
+            "anonymous routines with mux[T] parameters are not supported in V3",
         ),
     ] {
         let errors = typecheck_fixture_folder_errors_with_config(
@@ -5137,7 +5256,7 @@ fn mutex_parameter_abi_stays_on_named_direct_calls() {
         &[(
             "main.fol",
             "typ Counter: rec = { value: int };\n\
-             fun[] worker(counter[mux]: Counter): int = { return 1; };\n\
+             fun[] worker(counter: mux[Counter]): int = { return 1; };\n\
              fun[] main(): int = {\n\
                  var counter: Counter = { value = 0 };\n\
                  return worker(counter);\n\
@@ -5207,7 +5326,7 @@ fn top_level_bindings_reject_non_global_safe_v3_types() {
         ),
         (
             "inferred unique pointer",
-            "fun[] make(): ptr[int] = { var seed: int = 7; return &seed; };\nvar global = make();\nfun[] main(): int = { return 0; };\n",
+            "fun[] make(): ptr[int] = { var seed: int = 7; return [ref]seed; };\nvar global = make();\nfun[] main(): int = { return 0; };\n",
             "top-level move-only bindings are not supported in V3",
         ),
         (
@@ -5217,7 +5336,7 @@ fn top_level_bindings_reject_non_global_safe_v3_types() {
         ),
         (
             "borrowed global",
-            "var owner: int = 7;\nvar[bor] global: int = #owner;\nfun[] main(): int = { return 0; };\n",
+            "var owner: int = 7;\nvar[bor] global: int = [bor]owner;\nfun[] main(): int = { return 0; };\n",
             "top-level bindings containing borrowed values are not supported in V3",
         ),
     ] {
@@ -5267,7 +5386,7 @@ fn spawn_boundaries_reject_recursively_nested_shared_pointers() {
              fun[] consume(value: Shared): int = { return 0; };\n\
              fun[] main(): int = {\n\
                  var value: int = 1;\n\
-                 var shared: Shared = { value = &value };\n\
+                 var shared: Shared = { value = [ref]value };\n\
                  [>]consume(shared);\n\
                  return 0;\n\
              };\n",
@@ -5308,7 +5427,7 @@ fn spawn_boundaries_reject_recursively_nested_shared_pointers() {
              fun (Shared)consume(): int = { return 0; };\n\
              fun[] main(): int = {\n\
                  var value: int = 1;\n\
-                 var shared: Shared = { value = &value };\n\
+                 var shared: Shared = { value = [ref]value };\n\
                  [>]shared.consume();\n\
                  return 0;\n\
              };\n",
@@ -5328,11 +5447,11 @@ fn spawn_boundaries_reject_recursively_nested_shared_pointers() {
         &[(
             "main.fol",
             "typ Worker: rec = { value: int };\n\
-             fun (Worker)consume(channel: chn[int]): int = { return channel[rx]; };\n\
+             fun (Worker)consume(channel: chn[int]): int = { return channel[rx][]; };\n\
              fun[] main(): int = {\n\
                  var worker: Worker = { value = 0 };\n\
                  var channel: chn[int];\n\
-                 [>]worker.consume(channel);\n\
+                 [>]worker.consume([mov]channel);\n\
                  return 0;\n\
              };\n",
         )],
@@ -6375,15 +6494,15 @@ fn immutable_bindings_reject_whole_binding_reassignment() {
 fn moved_mutable_bindings_can_be_reinitialized() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+        "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
          fun[] main(): int = {\n\
              var first: int = 1;\n\
              var second: int = 2;\n\
-             var[mut] pointer: ptr[int] = &first;\n\
-             var old: int = consume(pointer);\n\
-             pointer = &second;\n\
+             var[mut] pointer: ptr[int] = [ref]first;\n\
+             var old: int = consume([mov]pointer);\n\
+             pointer = [ref]second;\n\
              pointer = pointer;\n\
-             return old + *pointer;\n\
+             return old + [drf]pointer;\n\
          };\n",
     )]);
     assert!(typed
@@ -6392,13 +6511,13 @@ fn moved_mutable_bindings_can_be_reinitialized() {
 
     let immutable_errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+        "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
          fun[] main(): int = {\n\
              var first: int = 1;\n\
              var second: int = 2;\n\
-             con pointer: ptr[int] = &first;\n\
-             consume(pointer);\n\
-             pointer = &second;\n\
+             con pointer: ptr[int] = [ref]first;\n\
+             consume([mov]pointer);\n\
+             pointer = [ref]second;\n\
              return 0;\n\
          };\n",
     )]);
@@ -6411,17 +6530,17 @@ fn moved_mutable_bindings_can_be_reinitialized() {
 
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+        "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
          fun[] choose(flag: bol): int = {\n\
              var first: int = 1;\n\
              var second: int = 2;\n\
-             var[mut] pointer: ptr[int] = &first;\n\
-             consume(pointer);\n\
+             var[mut] pointer: ptr[int] = [ref]first;\n\
+             consume([mov]pointer);\n\
              when(flag) {\n\
-                 case(true) { pointer = &first; }\n\
-                 * { pointer = &second; }\n\
+                 case(true) { pointer = [ref]first; }\n\
+                 * { pointer = [ref]second; }\n\
              }\n\
-             return *pointer;\n\
+             return [drf]pointer;\n\
          };\n",
     )]);
     assert!(
@@ -6433,15 +6552,15 @@ fn moved_mutable_bindings_can_be_reinitialized() {
 
     let partial_errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+        "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
          fun[] choose(flag: bol): int = {\n\
              var value: int = 1;\n\
-             var[mut] pointer: ptr[int] = &value;\n\
-             consume(pointer);\n\
+             var[mut] pointer: ptr[int] = [ref]value;\n\
+             consume([mov]pointer);\n\
              when(flag) {\n\
-                 * { pointer = &value; }\n\
+                 * { pointer = [ref]value; }\n\
              }\n\
-             return *pointer;\n\
+             return [drf]pointer;\n\
          };\n",
     )]);
     assert!(
@@ -6458,28 +6577,32 @@ fn moved_mutable_bindings_can_be_reinitialized() {
 #[test]
 fn loop_reinitialization_does_not_erase_the_zero_iteration_move() {
     for (surface, setup, loop_body) in [
-        ("condition loop", "", "loop(false) { pointer = &second; };"),
+        (
+            "condition loop",
+            "",
+            "loop(false) { pointer = [ref]second; };",
+        ),
         (
             "iterable loop",
             "var values: arr[int, 1] = { 1 };",
-            "loop(value in values when false) { pointer = &second; };",
+            "loop(value in values when false) { pointer = [ref]second; };",
         ),
         (
             "channel loop",
             "var channel: chn[int];",
-            "for (value in channel[rx]) { pointer = &second; };",
+            "for (value in channel[rx]) { pointer = [ref]second; };",
         ),
     ] {
         let source = format!(
-            "fun[] consume(pointer: ptr[int]): int = {{ return *pointer; }};\n\
+            "fun[] consume(pointer: ptr[int]): int = {{ return [drf]pointer; }};\n\
              fun[] main(): int = {{\n\
                  var first: int = 1;\n\
                  var second: int = 2;\n\
-                 var[mut] pointer: ptr[int] = &first;\n\
-                 consume(pointer);\n\
+                 var[mut] pointer: ptr[int] = [ref]first;\n\
+                 consume([mov]pointer);\n\
                  {setup}\n\
                  {loop_body}\n\
-                 return *pointer;\n\
+                 return [drf]pointer;\n\
              }};\n"
         );
         let errors = typecheck_fixture_folder_errors_with_config(

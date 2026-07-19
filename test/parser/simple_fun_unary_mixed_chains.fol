@@ -1,4 +1,0 @@
-fun unary_mixed_chains(a: int): int = {
-    value = -*&a;
-    return not +a;
-};

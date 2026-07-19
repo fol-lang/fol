@@ -36,8 +36,8 @@ pub(crate) fn find_routine_symbol_for_item(
     name: &str,
     syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
 ) -> Option<SymbolId> {
-    if let Some(target_origin) = syntax_id
-        .and_then(|syntax_id| typed_program.resolved().syntax_index().origin(syntax_id))
+    if let Some(target_origin) =
+        syntax_id.and_then(|syntax_id| typed_program.resolved().syntax_index().origin(syntax_id))
     {
         let by_origin = typed_program
             .resolved()

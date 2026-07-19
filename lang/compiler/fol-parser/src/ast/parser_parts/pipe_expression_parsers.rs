@@ -1,7 +1,11 @@
 use super::*;
 
 impl AstParser {
-    fn pipe_stage_from_nodes(&self, nodes: Vec<AstNode>, anchor: &fol_lexer::lexer::stage3::element::Element) -> Result<AstNode, ParseError> {
+    fn pipe_stage_from_nodes(
+        &self,
+        nodes: Vec<AstNode>,
+        anchor: &fol_lexer::lexer::stage3::element::Element,
+    ) -> Result<AstNode, ParseError> {
         let mut iter = nodes.into_iter();
         let Some(first) = iter.next() else {
             return Err(ParseError::from_token(
@@ -131,7 +135,8 @@ impl AstParser {
         }
 
         if self.lookahead_binding_alternative(tokens).is_some() {
-            return self.pipe_stage_from_nodes(self.parse_binding_alternative_decl(tokens)?, &token);
+            return self
+                .pipe_stage_from_nodes(self.parse_binding_alternative_decl(tokens)?, &token);
         }
 
         if matches!(token.key(), KEYWORD::Keyword(BUILDIN::Var)) {

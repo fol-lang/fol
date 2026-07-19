@@ -819,10 +819,7 @@ impl AstParser {
         key: &str,
     ) -> ParseError {
         let token = anchor.unwrap_or_else(|| fallback.clone());
-        ParseError::from_token(
-            &token,
-            format!("Duplicate standard member '{}'", key),
-        )
+        ParseError::from_token(&token, format!("Duplicate standard member '{}'", key))
     }
 
     fn peek_standard_member_anchor_token(

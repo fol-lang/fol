@@ -1,0 +1,18 @@
+// Static-place partial move (V3_MEM Slice C §3.1): moving one owned field of an
+// aggregate invalidates only that field. The surviving sibling field stays
+// readable after the owned field is moved out.
+
+typ Item: rec = { value: int };
+typ Bundle: rec = { held: @Item, tag: int };
+
+fun[] use_item(item: @Item): int = {
+    return item.value;
+};
+
+fun[] main(): int = {
+    @var boxed: Item = { value = 7 };
+    var bundle: Bundle = { held = [mov]boxed, tag = 5 };
+    var taken: int = use_item([mov]bundle.held);
+    var kept: int = bundle.tag;
+    return taken + kept;
+};

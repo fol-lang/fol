@@ -1,6 +1,4 @@
-use super::{
-    EditorLspServer, JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
-};
+use super::{EditorLspServer, JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
 use crate::{EditorConfig, EditorError, EditorErrorKind, EditorResult};
 use serde::Serialize;
 use std::io::{BufRead, Write};

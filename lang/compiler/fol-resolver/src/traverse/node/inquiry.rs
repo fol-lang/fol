@@ -1,6 +1,4 @@
-use crate::{
-    model::ResolvedProgram, ResolverError, ResolverErrorKind, ScopeId, SourceUnitId,
-};
+use crate::{model::ResolvedProgram, ResolverError, ResolverErrorKind, ScopeId, SourceUnitId};
 use fol_parser::ast::InquiryTarget;
 
 use super::super::references::record_inquiry_target_reference;

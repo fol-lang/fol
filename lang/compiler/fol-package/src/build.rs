@@ -46,10 +46,7 @@ impl PackageBuildDefinition {
     }
 }
 
-pub fn classify_semantic_build_mode(
-    parsed: &ParsedPackage,
-    _unused: bool,
-) -> PackageBuildMode {
+pub fn classify_semantic_build_mode(parsed: &ParsedPackage, _unused: bool) -> PackageBuildMode {
     if validate_parsed_build_entry(parsed, &BuildEntrySignatureExpectation::canonical()).is_ok() {
         PackageBuildMode::ModernOnly
     } else {
@@ -118,11 +115,7 @@ fn build_parse_error(path: &Path, diagnostics: Vec<fol_diagnostics::Diagnostic>)
         first.message
     );
     let mut error = match origin {
-        Some(origin) => PackageError::with_origin(
-            PackageErrorKind::InvalidInput,
-            message,
-            origin,
-        ),
+        Some(origin) => PackageError::with_origin(PackageErrorKind::InvalidInput, message, origin),
         None => PackageError::new(PackageErrorKind::InvalidInput, message),
     };
     for extra in iter {
@@ -242,8 +235,7 @@ mod tests {
     fn package_build_parser_rejects_old_root_defs() {
         let build_path = write_build_fixture("legacy_root_def", "def root: loc = \"src\";\n");
 
-        let error =
-            parse_package_build(&build_path).expect_err("Old root defs should be rejected");
+        let error = parse_package_build(&build_path).expect_err("Old root defs should be rejected");
 
         assert_eq!(error.kind(), PackageErrorKind::InvalidInput);
         assert!(error
@@ -255,10 +247,7 @@ mod tests {
 
     #[test]
     fn package_build_parser_rejects_old_def_build_headers() {
-        let build_path = write_build_fixture(
-            "legacy_def_build",
-            "def build(): non = graph;\n",
-        );
+        let build_path = write_build_fixture("legacy_def_build", "def build(): non = graph;\n");
 
         let error =
             parse_package_build(&build_path).expect_err("Old def build headers should fail");
@@ -273,10 +262,8 @@ mod tests {
 
     #[test]
     fn package_build_parser_rejects_plain_pro_build_headers() {
-        let build_path = write_build_fixture(
-            "plain_pro_build",
-            "pro build(): non = {\n    return;\n};\n",
-        );
+        let build_path =
+            write_build_fixture("plain_pro_build", "pro build(): non = {\n    return;\n};\n");
 
         let error =
             parse_package_build(&build_path).expect_err("Plain pro build headers should fail");
@@ -291,8 +278,10 @@ mod tests {
 
     #[test]
     fn package_build_parser_rejects_wrong_build_signatures_with_exact_origins() {
-        let build_path =
-            write_build_fixture("wrong_signature", "pro[] build(graph: int): non = {\n    return;\n};\n");
+        let build_path = write_build_fixture(
+            "wrong_signature",
+            "pro[] build(graph: int): non = {\n    return;\n};\n",
+        );
 
         let error =
             parse_package_build(&build_path).expect_err("Wrong semantic build signatures fail");
@@ -324,8 +313,10 @@ mod tests {
 
     #[test]
     fn package_build_parser_rejects_build_files_without_canonical_entry() {
-        let build_path =
-            write_build_fixture("helper_only", "fun[] helper(): int = {\n    return 1;\n};\n");
+        let build_path = write_build_fixture(
+            "helper_only",
+            "fun[] helper(): int = {\n    return 1;\n};\n",
+        );
 
         let error = parse_package_build(&build_path)
             .expect_err("Build files without canonical build entry should fail");

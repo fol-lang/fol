@@ -83,7 +83,9 @@ pub(crate) fn channel_binding_local(
         })?;
     if !matches!(
         type_table.get(type_id),
-        Some(LoweredType::Channel { .. }) | Some(LoweredType::ChannelSender { .. })
+        Some(LoweredType::Channel { .. })
+            | Some(LoweredType::ChannelSender { .. })
+            | Some(LoweredType::ChannelReceiver { .. })
     ) {
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
@@ -99,12 +101,16 @@ pub(crate) fn lower_channel_access(
     cursor: &mut RoutineCursor<'_>,
     channel: &AstNode,
     endpoint: ChannelEndpoint,
+    expected_type: Option<LoweredTypeId>,
 ) -> Result<LoweredValue, LoweringError> {
     let (channel_local, channel_type) =
         channel_binding_local(typed_package, type_table, cursor, channel)?;
-    let (element_type, sender_only) = match type_table.get(channel_type) {
-        Some(LoweredType::Channel { element_type }) => (*element_type, false),
-        Some(LoweredType::ChannelSender { element_type }) => (*element_type, true),
+    // `source_is_receiver_value` distinguishes `receiver[rx]` (receiving through
+    // a moved `chn[rx, T]` value) from `channel[rx]` on a full channel.
+    let (element_type, sender_only, source_is_receiver_value) = match type_table.get(channel_type) {
+        Some(LoweredType::Channel { element_type }) => (*element_type, false, false),
+        Some(LoweredType::ChannelSender { element_type }) => (*element_type, true, false),
+        Some(LoweredType::ChannelReceiver { element_type }) => (*element_type, false, true),
         _ => unreachable!("channel_binding_local verifies the lowered type"),
     };
     if endpoint == ChannelEndpoint::Rx && sender_only {
@@ -113,6 +119,17 @@ pub(crate) fn lower_channel_access(
             "sender-only channel endpoints cannot lower a receive operation",
         ));
     }
+    // `channel[rx]` under a `chn[rx, T]` expectation over a full channel
+    // transfers the channel's unique receiver as a first-class value; every
+    // other `[rx]` is a blocking receive (V3_MEM §8.2).
+    let extract_receiver = endpoint == ChannelEndpoint::Rx
+        && !source_is_receiver_value
+        && expected_type.is_some_and(|expected| {
+            matches!(
+                type_table.get(expected),
+                Some(LoweredType::ChannelReceiver { .. })
+            )
+        });
     let result_type = match endpoint {
         ChannelEndpoint::Tx => type_table
             .find(&LoweredType::ChannelSender { element_type })
@@ -122,7 +139,25 @@ pub(crate) fn lower_channel_access(
                     "channel sender type was not translated into lowered IR",
                 )
             })?,
-        ChannelEndpoint::Rx => element_type,
+        ChannelEndpoint::Rx if extract_receiver => type_table
+            .find(&LoweredType::ChannelReceiver { element_type })
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "channel receiver type was not translated into lowered IR",
+                )
+            })?,
+        // A blocking receive yields `opt[T]`; `nil` means all senders closed.
+        ChannelEndpoint::Rx => type_table
+            .find(&LoweredType::Optional {
+                inner: element_type,
+            })
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "channel receive optional type was not translated into lowered IR",
+                )
+            })?,
     };
     let result_local = cursor.allocate_local(result_type, None);
     cursor.push_instr(
@@ -134,7 +169,12 @@ pub(crate) fn lower_channel_access(
             ChannelEndpoint::Tx => LoweredInstrKind::ChannelSender {
                 channel: channel_local,
             },
-            ChannelEndpoint::Rx => LoweredInstrKind::ChannelReceive {
+            ChannelEndpoint::Rx if extract_receiver => LoweredInstrKind::ChannelReceiver {
+                channel: channel_local,
+            },
+            // `receive_optional` is defined on both `FolChannel` and the moved
+            // `FolReceiver`, so a receiver-value receive lowers identically.
+            ChannelEndpoint::Rx => LoweredInstrKind::ChannelReceiveOptional {
                 channel: channel_local,
             },
         },
@@ -158,7 +198,7 @@ pub(crate) fn lower_channel_send(
     scope_id: ScopeId,
     value: &AstNode,
     channel: &AstNode,
-) -> Result<(), LoweringError> {
+) -> Result<LoweredValue, LoweringError> {
     let (channel_local, channel_type) =
         channel_binding_local(typed_package, type_table, cursor, channel)?;
     let element_type = match type_table.get(channel_type) {
@@ -178,14 +218,104 @@ pub(crate) fn lower_channel_send(
         Some(element_type),
         value,
     )?;
+    // A send yields a must-handle `err[T]`: `nil` on delivery, or the unsent
+    // payload when the receiver has closed (V3_MEM §8.2).
+    let result_type = type_table
+        .find(&LoweredType::Error {
+            inner: Some(element_type),
+        })
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "channel send result 'err[T]' was not translated into lowered IR",
+            )
+        })?;
+    let result_local = cursor.allocate_local(result_type, None);
     cursor.push_instr(
-        None,
+        Some(result_local),
         LoweredInstrKind::ChannelSend {
             channel: channel_local,
             value: lowered_value.local_id,
         },
     )?;
-    Ok(())
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: result_type,
+        recoverable_error_type: None,
+    })
+}
+
+/// Lower `value | sender`, sending through a first-class `chn[tx, T]` sender
+/// value rather than a `channel[tx]` access place. Produces the same must-handle
+/// `err[T]` result; the runtime `FolSender::send` returns the unsent payload.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lower_sender_send(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    value: &AstNode,
+    sender: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
+    let sender_value = lower_expression(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        sender,
+    )?;
+    let element_type = match type_table.get(sender_value.type_id) {
+        Some(LoweredType::ChannelSender { element_type }) => *element_type,
+        _ => {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "sender-value send lowered a non-sender pipe target",
+            ))
+        }
+    };
+    let lowered_value = lower_expression_expected(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        Some(element_type),
+        value,
+    )?;
+    let result_type = type_table
+        .find(&LoweredType::Error {
+            inner: Some(element_type),
+        })
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "channel send result 'err[T]' was not translated into lowered IR",
+            )
+        })?;
+    let result_local = cursor.allocate_local(result_type, None);
+    cursor.push_instr(
+        Some(result_local),
+        LoweredInstrKind::ChannelSend {
+            channel: sender_value.local_id,
+            value: lowered_value.local_id,
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: result_type,
+        recoverable_error_type: None,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -347,6 +477,11 @@ fn lower_direct_borrow_reference(
             op: fol_parser::ast::UnaryOperator::BorrowFrom,
             operand,
         } => operand.as_ref(),
+        // The canonical `[bor]owner` / `[mut, bor]owner` operation constructs a
+        // borrow from its owner operand, exactly like the legacy `#owner`.
+        AstNode::OwnershipOp {
+            options, operand, ..
+        } if options.contains(&fol_parser::ast::OwnershipOption::Borrow) => operand.as_ref(),
         other => other,
     };
     let AstNode::Identifier {
@@ -460,6 +595,82 @@ fn lower_expression_observed_inner(
                 }
             }
         }
+        // The canonical ownership operation is currently additive: typecheck has
+        // already assigned the result type (Borrowed for `[bor]`, Owned for
+        // `[new]`, the operand type for `[mov]`/`[cpy]`/`[cln]`), and the
+        // expected-type coercion emits the matching ConstructBorrow/
+        // ConstructOwned/clone/move. So the operation lowers by unwrapping to its
+        // operand under the same expected type.
+        AstNode::OwnershipOp { options, operand, .. }
+            if options.contains(&fol_parser::ast::OwnershipOption::Weak)
+                || options.contains(&fol_parser::ast::OwnershipOption::Upgrade) =>
+        {
+            lower_weak_op(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                expected_type,
+                operand,
+                options.contains(&fol_parser::ast::OwnershipOption::Upgrade),
+            )
+        }
+        // `[fin]value` runs the custom finalizer immediately and invalidates the
+        // source (V3_MEM §6.1). Typecheck has already recorded the operand as
+        // moved, so the scope-exit finalizer skips it — this is the sole
+        // finalization for that value.
+        AstNode::OwnershipOp { options, operand, .. }
+            if options.contains(&fol_parser::ast::OwnershipOption::Finalize) =>
+        {
+            lower_finalize_op(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                operand,
+            )
+        }
+        // `[cln]value` dispatches to a user-defined custom clone override
+        // (`fun (T[bor])clone(): T`, V3_MEM §4.1) when the operand's type
+        // declares one; otherwise it falls through to the structural clone the
+        // expected-type coercion emits. `[new, cln]` keeps its allocation path.
+        AstNode::OwnershipOp { options, operand, .. }
+            if options.contains(&fol_parser::ast::OwnershipOption::Clone)
+                && !options.contains(&fol_parser::ast::OwnershipOption::New) =>
+        {
+            lower_clone_op(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                expected_type,
+                operand,
+            )
+        }
+        AstNode::OwnershipOp { operand, .. } => lower_expression_observed_inner(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            expected_type,
+            operand,
+        ),
         AstNode::UnaryOp {
             op: fol_parser::ast::UnaryOperator::Unwrap,
             operand,
@@ -540,6 +751,60 @@ fn lower_expression_observed_inner(
                 describe_unary_operator(op)
             ),
         )),
+        AstNode::BinaryOp {
+            op: fol_parser::ast::BinaryOperator::Pipe,
+            left,
+            right,
+        } if matches!(
+            right.as_ref(),
+            AstNode::ChannelAccess {
+                endpoint: ChannelEndpoint::Tx,
+                ..
+            }
+        ) =>
+        {
+            let AstNode::ChannelAccess { channel, .. } = right.as_ref() else {
+                unreachable!("channel-send guard preserves the endpoint shape")
+            };
+            lower_channel_send(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                left,
+                channel,
+            )
+        }
+        AstNode::BinaryOp {
+            op: fol_parser::ast::BinaryOperator::Pipe,
+            left,
+            right,
+        } if right
+            .syntax_id()
+            .and_then(|id| typed_package.program.typed_node(id))
+            .and_then(|node| node.inferred_type)
+            .and_then(|checked| typed_package.program.type_table().get(checked))
+            .is_some_and(|checked| {
+                matches!(checked, fol_typecheck::CheckedType::ChannelSender { .. })
+            }) =>
+        {
+            lower_sender_send(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                left,
+                right,
+            )
+        }
         AstNode::BinaryOp {
             op: fol_parser::ast::BinaryOperator::Pipe,
             left,
@@ -905,11 +1170,6 @@ fn lower_expression_observed_inner(
                 .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
             let callee_has_receiver =
                 decl_index.routine_has_receiver(&callee_identity, callee);
-            let mut lowered_args = if callee_has_receiver {
-                vec![receiver.local_id]
-            } else {
-                Vec::new()
-            };
             let receiver_skip: usize = if callee_has_receiver { 1 } else { 0 };
             let param_types = decl_index
                 .routine_param_types(&callee_identity, callee)
@@ -920,6 +1180,43 @@ fn lower_expression_observed_inner(
                     )
                 })?
                 .to_vec();
+            // An ownership-annotated receiver (`fun (Type[bor])m()` /
+            // `pro (Type[mut, bor])m()`) auto-borrows the object (V3_MEM §4.2/
+            // §8.3). The borrow must reference the object's PLACE (its binding
+            // local), not a lowered value copy, so a `[mut, bor]` receiver's
+            // mutations reach the original binding.
+            let mut lowered_args = if callee_has_receiver {
+                let receiver_arg = match param_types
+                    .first()
+                    .and_then(|type_id| type_table.get(*type_id))
+                {
+                    Some(crate::LoweredType::Borrowed { mutable, .. }) => {
+                        let borrow_type = param_types[0];
+                        let mutable = *mutable;
+                        let owner = direct_local_identifier_value(
+                            typed_package,
+                            cursor,
+                            method_receiver_place(object),
+                        )
+                        .map(|value| value.local_id)
+                        .unwrap_or(receiver.local_id);
+                        let borrow_local = cursor.allocate_local(borrow_type, None);
+                        cursor.push_instr(
+                            Some(borrow_local),
+                            LoweredInstrKind::ConstructBorrow {
+                                type_id: borrow_type,
+                                owner,
+                                mutable,
+                            },
+                        )?;
+                        borrow_local
+                    }
+                    _ => receiver.local_id,
+                };
+                vec![receiver_arg]
+            } else {
+                Vec::new()
+            };
             let param_names = decl_index
                 .routine_param_names(&callee_identity, callee)
                 .ok_or_else(|| {
@@ -1501,7 +1798,14 @@ fn lower_expression_observed_inner(
             "block expression lowering is not yet implemented",
         )),
         AstNode::ChannelAccess { channel, endpoint } => {
-            lower_channel_access(typed_package, type_table, cursor, channel, endpoint.clone())
+            lower_channel_access(
+                typed_package,
+                type_table,
+                cursor,
+                channel,
+                endpoint.clone(),
+                expected_type,
+            )
         }
         AstNode::AsyncStage | AstNode::AwaitStage | AstNode::Spawn { .. } | AstNode::Select { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::Unsupported,
@@ -1519,10 +1823,43 @@ fn lower_expression_observed_inner(
             LoweringErrorKind::Unsupported,
             "yield expressions are not yet supported",
         )),
-        AstNode::PatternAccess { .. } => Err(LoweringError::with_kind(
-            LoweringErrorKind::Unsupported,
-            "pattern access is not yet supported",
-        )),
+        AstNode::PatternAccess { container, .. } => {
+            // `container[]` reads an inner place: a pointer pointee (deref) or an
+            // `opt[T]`/`err[T]` payload (unwrap, panicking if absent).
+            let container_is_pointer = container
+                .syntax_id()
+                .and_then(|id| typed_package.program.typed_node(id))
+                .and_then(|node| node.inferred_type)
+                .and_then(|checked| typed_package.program.type_table().get(checked))
+                .is_some_and(|checked| {
+                    matches!(checked, fol_typecheck::CheckedType::Pointer { .. })
+                });
+            if container_is_pointer {
+                lower_pointer_deref(
+                    typed_package,
+                    type_table,
+                    checked_type_map,
+                    current_identity,
+                    decl_index,
+                    cursor,
+                    source_unit_id,
+                    scope_id,
+                    container,
+                )
+            } else {
+                lower_unwrap_expression(
+                    typed_package,
+                    type_table,
+                    checked_type_map,
+                    current_identity,
+                    decl_index,
+                    cursor,
+                    source_unit_id,
+                    scope_id,
+                    container,
+                )
+            }
+        }
         // Structural nodes consumed by parent lowering
         AstNode::NamedArgument { .. } | AstNode::Unpack { .. } => Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
@@ -1569,6 +1906,23 @@ fn lower_expression_observed_inner(
         )),
     }?;
     apply_expected_shell_wrap(type_table, cursor, expected_type, lowered)
+}
+
+/// Peel an explicit ownership-borrow receiver (`[bor]x` / `[mut, bor]x`, which
+/// the parser rebases from `[op]x.method()`) to the inner place expression, so a
+/// method call's receiver auto-borrow binds the original binding's PLACE and not
+/// a copy of the borrow value — otherwise `[mut, bor]x.method()` mutations would
+/// be lost. `Commented` wrappers are peeled too; a plain receiver is unchanged.
+pub(crate) fn method_receiver_place(node: &AstNode) -> &AstNode {
+    match node {
+        AstNode::Commented { node, .. } => method_receiver_place(node),
+        AstNode::OwnershipOp {
+            options, operand, ..
+        } if options.contains(&fol_parser::ast::OwnershipOption::Borrow) => {
+            method_receiver_place(operand)
+        }
+        other => other,
+    }
 }
 
 pub(crate) fn direct_local_identifier_value(
@@ -2193,6 +2547,194 @@ fn lower_unary_op(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn lower_weak_op(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    expected_type: Option<LoweredTypeId>,
+    operand: &AstNode,
+    is_upgrade: bool,
+) -> Result<LoweredValue, LoweringError> {
+    let pointer = lower_expression(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        operand,
+    )?;
+    let result_type = expected_type.ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            "a managed pointer operation ('[weak]'/'[upg]') needs an expected type; annotate the binding, e.g. 'var w: ptr[weak, T] = [weak]s'",
+        )
+    })?;
+    let result_local = cursor.allocate_local(result_type, None);
+    let instruction = if is_upgrade {
+        LoweredInstrKind::WeakUpgrade {
+            type_id: result_type,
+            pointer: pointer.local_id,
+        }
+    } else {
+        LoweredInstrKind::WeakDowngrade {
+            type_id: result_type,
+            pointer: pointer.local_id,
+        }
+    };
+    cursor.push_instr(Some(result_local), instruction)?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: result_type,
+        recoverable_error_type: None,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_clone_op(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    expected_type: Option<LoweredTypeId>,
+    operand: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
+    // Resolve the operand's binding PLACE and its lowered type without emitting
+    // instructions. A custom clone override only applies to a named place; for
+    // temporaries (no place) the structural clone is used.
+    let place = direct_local_identifier_value(typed_package, cursor, operand);
+    let custom_clone = place.as_ref().and_then(|value| {
+        super::calls::try_resolve_receiver_method(
+            typed_package,
+            checked_type_map,
+            type_table,
+            current_identity,
+            decl_index,
+            "clone",
+            value.type_id,
+        )
+    });
+
+    let Some((callee_identity, callee)) = custom_clone else {
+        // No custom clone override — emit the structural clone the expected-type
+        // coercion produces, identical to the generic ownership-op path. The
+        // operand has not been lowered yet, so this lowers it exactly once.
+        return lower_expression_observed_inner(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            expected_type,
+            operand,
+        );
+    };
+    let place = place.expect("custom clone requires a resolvable operand place");
+
+    // Dispatch to `fun (T[bor])clone(): T`: shared-borrow the operand's place
+    // (the source stays usable, matching `[cln]` semantics) and call the
+    // override. Mirrors the auto-borrow receiver method-call path.
+    let param_types = decl_index
+        .routine_param_types(&callee_identity, callee)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "custom clone 'clone' does not retain lowered parameter types".to_string(),
+            )
+        })?
+        .to_vec();
+    let borrow_type = *param_types.first().ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            "custom clone 'clone' does not declare a receiver parameter".to_string(),
+        )
+    })?;
+    let borrow_local = cursor.allocate_local(borrow_type, None);
+    cursor.push_instr(
+        Some(borrow_local),
+        LoweredInstrKind::ConstructBorrow {
+            type_id: borrow_type,
+            owner: place.local_id,
+            mutable: false,
+        },
+    )?;
+    let result_type = expected_type.unwrap_or(place.type_id);
+    let result_local = cursor.allocate_local(result_type, None);
+    cursor.push_instr(
+        Some(result_local),
+        LoweredInstrKind::Call {
+            callee,
+            args: vec![borrow_local],
+            error_type: None,
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: result_type,
+        recoverable_error_type: None,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_finalize_op(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    operand: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
+    let value = lower_expression(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        operand,
+    )?;
+    let (_callee_identity, callee) = super::calls::resolve_method_target(
+        typed_package,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        "finalize",
+        value.type_id,
+        None,
+    )?;
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::Call {
+            callee,
+            args: vec![value.local_id],
+            error_type: None,
+        },
+    )?;
+    // `[fin]value` yields nothing usable; the value is returned only so the
+    // statement position has a well-formed (and immediately discarded) result.
+    Ok(value)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn lower_pointer_address(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -2222,6 +2764,8 @@ fn lower_pointer_address(
             type_table.find(&LoweredType::Pointer {
                 target: value.type_id,
                 shared: false,
+                weak: false,
+                sync: false,
             })
         })
         .ok_or_else(|| {
@@ -2305,6 +2849,8 @@ fn lower_pointer_deref(
                 Some(fol_typecheck::CheckedType::Pointer {
                     target,
                     shared: false,
+                    weak: false,
+                    ..
                 }) => Some(fol_typecheck::exprs::bindings::ownership_moves_on_transfer(
                     &typed_package.program,
                     *target,

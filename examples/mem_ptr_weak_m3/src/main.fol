@@ -1,0 +1,11 @@
+// Managed weak pointers (V3_MEM Slice D): `[weak]` downgrades a shared pointer
+// (`ptr[shared, T]`) to a weak handle (`ptr[weak, T]`) that does not keep the
+// allocation alive, and `[upg]` upgrades it back to an `opt[ptr[shared, T]]`.
+
+fun[] main(): int = {
+    var value: int = 7;
+    var strong: ptr[shared, int] = [ref]value;
+    var handle: ptr[weak, int] = [weak]strong;
+    var revived: opt[ptr[shared, int]] = [upg]handle;
+    return [drf]strong;
+};

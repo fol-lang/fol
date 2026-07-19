@@ -1640,7 +1640,7 @@ fn lsp_server_completes_only_mutex_methods_after_mutex_receivers() {
         &uri,
         concat!(
             "typ Counter: rec = { value: int };\n",
-            "fun[] update(counter[mux]: Counter): int = {\n",
+            "fun[] update(counter: mux[Counter]): int = {\n",
             "    counter.<|>lock();\n",
             "    counter.unlock();\n",
             "    return 0;\n",
@@ -1664,7 +1664,7 @@ fn lsp_server_respects_nearest_shadow_for_v3_receivers() {
         concat!(
             "typ Counter: rec = { value: int };\n",
             "fun (Counter)read(): int = { return self.value; };\n",
-            "fun[] update(counter[mux]: Counter): int = {\n",
+            "fun[] update(counter: mux[Counter]): int = {\n",
             "    {\n",
             "        var counter: Counter = { value = 4 };\n",
             "        return counter.<|>read();\n",
@@ -1710,7 +1710,7 @@ fn lsp_server_suppresses_v3_receiver_completion_in_deferred_blocks() {
         let source = format!(
             concat!(
                 "typ Counter: rec = {{ value: int }};\n",
-                "fun[] update(counter[mux]: Counter): int = {{\n",
+                "fun[] update(counter: mux[Counter]): int = {{\n",
                 "    {keyword} {{ counter.<|>lock(); }};\n",
                 "    return 0;\n",
                 "}};\n",
@@ -1841,9 +1841,9 @@ fn lsp_server_tracks_channel_receiver_completion_lifecycle() {
         concat!(
             "fun[] main(): int = {\n",
             "    var channel: chn[int];\n",
-            "    4 | channel[tx];\n",
-            "    var first: int = channel[rx];\n",
-            "    return channel[<|>rx];\n",
+            "    var sent: err[int] = 4 | channel[tx];\n",
+            "    var first: opt[int] = channel[rx];\n",
+            "    return channel[<|>rx][];\n",
             "};\n",
         ),
     );
@@ -1860,10 +1860,10 @@ fn lsp_server_tracks_channel_lifecycle_by_resolved_binding() {
         concat!(
             "fun[] main(): int = {\n",
             "    var channel: chn[int];\n",
-            "    var outer_value: int = channel[rx];\n",
+            "    var outer_value: opt[int] = channel[rx];\n",
             "    {\n",
             "        var channel: chn[int];\n",
-            "        return channel[<|>rx];\n",
+            "        return channel[<|>rx][];\n",
             "    };\n",
             "};\n",
         ),

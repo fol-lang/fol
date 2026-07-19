@@ -186,10 +186,16 @@ fn inferred_package_root_uses_common_parent_of_parsed_source_units() {
     let temp_root = unique_temp_root("infer_common_parent");
     let package_dir = temp_root.join("source_units");
     fs::create_dir_all(&package_dir).expect("Should create fixture package directory");
-    fs::write(package_dir.join("main.fol"), "var[exp] main_value: int = 1;\n")
-        .expect("Should write the primary source unit");
-    fs::write(package_dir.join("lib.fol"), "var[exp] lib_value: int = 2;\n")
-        .expect("Should write the secondary source unit");
+    fs::write(
+        package_dir.join("main.fol"),
+        "var[exp] main_value: int = 1;\n",
+    )
+    .expect("Should write the primary source unit");
+    fs::write(
+        package_dir.join("lib.fol"),
+        "var[exp] lib_value: int = 2;\n",
+    )
+    .expect("Should write the secondary source unit");
 
     let parsed = {
         let mut stream = FileStream::from_folder(

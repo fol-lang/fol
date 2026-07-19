@@ -1,0 +1,21 @@
+// Capability conformance (V3_MEM §4.1): `[cpy]value` requires the `copy`
+// capability, `[cln]value` requires `clone`, and `copy` implies `clone` — so a
+// `copy` value can also be cloned. Both operations leave the source usable.
+
+typ Point()(copy): rec = {
+    x: int,
+    y: int,
+};
+
+typ Job()(clone): rec = {
+    input: int,
+};
+
+fun[] main(): int = {
+    var origin: Point = { x = 3, y = 4 };
+    var copied: Point = [cpy]origin;
+    var cloned: Point = [cln]origin;
+    var task: Job = { input = 7 };
+    var duplicate: Job = [cln]task;
+    return copied.x + cloned.y + task.input + duplicate.input;
+};

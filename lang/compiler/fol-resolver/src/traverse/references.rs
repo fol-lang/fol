@@ -71,7 +71,11 @@ pub fn record_function_call_reference(
         program,
         scope_id,
         name,
-        &[SymbolKind::Routine, SymbolKind::ValueBinding, SymbolKind::Parameter],
+        &[
+            SymbolKind::Routine,
+            SymbolKind::ValueBinding,
+            SymbolKind::Parameter,
+        ],
         Some("callable routine"),
         origin,
     )?;

@@ -16,8 +16,8 @@ fun[] branch_status(flag: bol): int = {
 };
 
 fun[] shell_paths(): int = {
-    var label: str = pick_label(true)!;
-    var text: str = shell_error()!;
+    var label: str = [uwp]pick_label(true);
+    var text: str = [uwp]shell_error();
     when(.eq(.len(label), .len(text))) {
         case(true) { return 1; }
         * { return 2; }

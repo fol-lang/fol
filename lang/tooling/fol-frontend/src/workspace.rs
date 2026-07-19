@@ -616,7 +616,9 @@ mod tests {
         assert!(lines.contains(&"git_cache_root=/tmp/demo/.fol/cache/git".to_string()));
         assert!(lines.contains(&"install_prefix=/tmp/demo/.fol/install".to_string()));
         assert!(
-            lines.iter().any(|line| line.starts_with("std_root=bundled:")),
+            lines
+                .iter()
+                .any(|line| line.starts_with("std_root=bundled:")),
             "workspace info should surface bundled std by default: {lines:?}"
         );
     }

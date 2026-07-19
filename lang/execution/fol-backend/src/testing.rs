@@ -33,6 +33,7 @@ pub(crate) fn sample_lowered_workspace_named(entry_name: &str) -> LoweredWorkspa
             ("name".to_string(), str_type),
             ("active".to_string(), bool_type),
         ]),
+        finalized: false,
     });
     let main_signature = type_table.intern(LoweredType::Routine(LoweredRoutineType {
         params: vec![bool_type],

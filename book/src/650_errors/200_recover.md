@@ -125,7 +125,9 @@ fun must_succeed(path: str): int = {
 
 ## `err[...]` is the storable error form
 
-`err[...]` is a normal value type.
+`err[...]` is a normal value type. It is a nil-able shell: `nil` is the
+no-error (success) state and a present value carries a stored error payload.
+`return nil` produces the no-error state; `return payload` stores an error.
 
 You may store it, pass it, return it, and unwrap it later:
 
@@ -137,9 +139,14 @@ fun keep(value: Failure): Failure = {
 }
 
 fun unwrap(value: Failure): str = {
-    return value!
+    return [uwp]value
 }
 ```
+
+Because it is nil-able, an `err[T]` scrutinee also drives `when ... on ... *`:
+`on(payload)` binds the stored error and `*` takes the `nil` (no-error) branch.
+Postfix `[uwp]value` and inner-place `value[]` unwrap the stored error and panic on
+`nil`.
 
 This is different from:
 

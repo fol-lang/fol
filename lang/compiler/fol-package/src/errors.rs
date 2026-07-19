@@ -147,10 +147,7 @@ mod tests {
             "package fetching is not implemented yet",
         );
 
-        assert_eq!(
-            error.to_string(),
-            "package fetching is not implemented yet"
-        );
+        assert_eq!(error.to_string(), "package fetching is not implemented yet");
     }
 
     #[test]

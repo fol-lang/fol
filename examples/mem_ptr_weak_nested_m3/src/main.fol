@@ -1,0 +1,27 @@
+// A weak edge is still recognized when it is reached transitively, through a
+// shared pointer to another record (V3_MEM Slice D, section 7.1). Registry only
+// holds a shared pointer to Node and has no weak field of its own, yet it must
+// still compile: equality derivation follows the shared edge into Node and sees
+// the weak handle there. The shared owner is then downgraded to a weak observer
+// and upgraded back through the nested field.
+
+typ Node: rec = {
+    tag: int,
+    back: opt ptr[weak, Node],
+};
+
+typ Registry: rec = {
+    root: ptr[shared, Node],
+};
+
+fun[] main(): int = {
+    var item: Node = { tag = 7, back = nil };
+    var item_ptr: ptr[shared, Node] = [ref]item;
+    var registry: Registry = { root = item_ptr };
+    var observer: ptr[weak, Node] = [weak](registry.root);
+    var revived: opt[ptr[shared, Node]] = [upg]observer;
+    when(revived) {
+        on(alive) { return ([drf]alive).tag; }
+        * { return 0; }
+    }
+};

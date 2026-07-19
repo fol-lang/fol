@@ -1,11 +1,11 @@
+use crate::cli::parser::ParseErrorKind;
+use crate::cli::{CodeSubcommand, EmitCommand, FrontendCli, FrontendCommand};
 use crate::{
     build_route, cli, compile, CompletionShell, DirectCompileConfig, DirectCompileMode,
     DiscoveredRoot, EmitSubcommand, FrontendCommandResult, FrontendConfig, FrontendError,
     FrontendErrorKind, FrontendOutput, FrontendOutputConfig, FrontendProfile, FrontendResult,
     FrontendWorkspace, FrontendWorkspaceBuildRequest, PackSubcommand, ToolSubcommand,
 };
-use crate::cli::{CodeSubcommand, EmitCommand, FrontendCli, FrontendCommand};
-use crate::cli::parser::ParseErrorKind;
 
 pub fn dispatch_cli(
     cli: &FrontendCli,
@@ -46,8 +46,7 @@ pub fn dispatch_cli(
                 crate::package_target_kind(command.bin, command.lib),
             ),
             _ => {
-                let discovered =
-                    discovered_root_for_command(cmd, &config.working_directory)?;
+                let discovered = discovered_root_for_command(cmd, &config.working_directory)?;
                 let workspace = crate::load_frontend_workspace(&discovered, config)?;
                 dispatch_workspace_command(cmd, &workspace, config)
             }
@@ -69,8 +68,7 @@ pub fn dispatch_cli(
             if needs_direct {
                 dispatch_direct_grouped_command(cmd, config)
             } else {
-                let discovered =
-                    discovered_root_for_command(cmd, &config.working_directory)?;
+                let discovered = discovered_root_for_command(cmd, &config.working_directory)?;
                 let workspace = crate::load_frontend_workspace(&discovered, config)?;
                 dispatch_workspace_command(cmd, &workspace, config)
             }
@@ -79,12 +77,8 @@ pub fn dispatch_cli(
             ToolSubcommand::Lsp(_) => crate::editor_lsp_command(config),
             ToolSubcommand::Format(command) => crate::editor_format_command(&command.path),
             ToolSubcommand::Parse(command) => crate::editor_parse_command(&command.path),
-            ToolSubcommand::Highlight(command) => {
-                crate::editor_highlight_command(&command.path)
-            }
-            ToolSubcommand::Symbols(command) => {
-                crate::editor_symbols_command(&command.path)
-            }
+            ToolSubcommand::Highlight(command) => crate::editor_highlight_command(&command.path),
+            ToolSubcommand::Symbols(command) => crate::editor_symbols_command(&command.path),
             ToolSubcommand::References(command) => crate::editor_references_command(
                 &command.path,
                 command.line,
@@ -97,11 +91,9 @@ pub fn dispatch_cli(
                 command.character,
                 &command.new_name,
             ),
-            ToolSubcommand::Complete(command) => crate::editor_completion_command(
-                &command.path,
-                command.line,
-                command.character,
-            ),
+            ToolSubcommand::Complete(command) => {
+                crate::editor_completion_command(&command.path, command.line, command.character)
+            }
             ToolSubcommand::SemanticTokens(command) => {
                 crate::editor_semantic_tokens_command(&command.path)
             }
@@ -114,8 +106,7 @@ pub fn dispatch_cli(
                 crate::completion_command(parse_completion_shell(command.shell))
             }
             ToolSubcommand::Clean(_) => {
-                let discovered =
-                    discovered_root_for_command(cmd, &config.working_directory)?;
+                let discovered = discovered_root_for_command(cmd, &config.working_directory)?;
                 let workspace = crate::load_frontend_workspace(&discovered, config)?;
                 dispatch_workspace_command(cmd, &workspace, config)
             }
@@ -423,7 +414,12 @@ where
     crate::ansi::set_enabled(std::io::IsTerminal::is_terminal(&std::io::stdout()));
 
     match FrontendCli::try_parse_from(args.clone()) {
-        Err(error) if matches!(error.kind, ParseErrorKind::Help(_) | ParseErrorKind::Version) => {
+        Err(error)
+            if matches!(
+                error.kind,
+                ParseErrorKind::Help(_) | ParseErrorKind::Version
+            ) =>
+        {
             match writeln!(stdout, "{error}") {
                 Ok(()) => 0,
                 Err(render_error) => {
@@ -473,8 +469,7 @@ where
                 }
             }
         }
-        Ok(cli)
-            if matches!(cli.command.as_ref(), Some(FrontendCommand::Tool(command)) if matches!(command.command, ToolSubcommand::Lsp(_))) =>
+        Ok(cli) if matches!(cli.command.as_ref(), Some(FrontendCommand::Tool(command)) if matches!(command.command, ToolSubcommand::Lsp(_))) =>
         {
             let config = crate::frontend_config_from_cli(&cli, None);
             match crate::editor_lsp_stdio(&config) {

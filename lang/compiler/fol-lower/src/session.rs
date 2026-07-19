@@ -332,6 +332,16 @@ fn translate_checked_type(
             )?;
             lowered_types.intern(LoweredType::ChannelSender { element_type })
         }
+        CheckedType::ChannelReceiver { element_type } => {
+            let element_type = translate_checked_type(
+                lowered_types,
+                cache,
+                package_identity,
+                program,
+                element_type,
+            )?;
+            lowered_types.intern(LoweredType::ChannelReceiver { element_type })
+        }
         CheckedType::Eventual {
             value_type,
             error_type,
@@ -379,7 +389,12 @@ fn translate_checked_type(
                 translate_checked_type(lowered_types, cache, package_identity, program, inner)?;
             lowered_types.intern(LoweredType::Borrowed { inner, mutable })
         }
-        CheckedType::Pointer { target, shared } => {
+        CheckedType::Pointer {
+            target,
+            shared,
+            weak,
+            sync,
+        } => {
             let target = match program.type_table().get(target).cloned() {
                 Some(CheckedType::Declared { symbol, name, .. }) => {
                     lowered_types.intern(LoweredType::Named {
@@ -392,7 +407,12 @@ fn translate_checked_type(
                     translate_checked_type(lowered_types, cache, package_identity, program, target)?
                 }
             };
-            lowered_types.intern(LoweredType::Pointer { target, shared })
+            lowered_types.intern(LoweredType::Pointer {
+                target,
+                shared,
+                weak,
+                sync,
+            })
         }
         CheckedType::Set { member_types } => {
             let member_types = member_types
@@ -454,7 +474,8 @@ fn translate_checked_type(
                     .map(|lowered_field_type| (field_name, lowered_field_type))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
-            lowered_types.intern(LoweredType::Record { fields })
+            let finalized = program.type_resolves_to_fin(checked_type_id);
+            lowered_types.intern(LoweredType::Record { fields, finalized })
         }
         CheckedType::Entry { variants } => {
             let variants = variants

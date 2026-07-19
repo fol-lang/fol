@@ -59,12 +59,15 @@ fn statement_position_recoverable_calls_cannot_discard_errors() {
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::InvalidInput
-            && error
-                .message()
-                .contains("statement-position expression cannot use '/ ErrorType'")
-    }), "statement-position recoverable calls must be rejected by typecheck: {errors:#?}");
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("statement-position expression cannot use '/ ErrorType'")
+        }),
+        "statement-position recoverable calls must be rejected by typecheck: {errors:#?}"
+    );
 }
 
 #[test]
@@ -172,7 +175,7 @@ fn pipe_or_typing_rejects_incompatible_fallback_values() {
 fn pipe_or_fallback_reinitialization_does_not_erase_the_success_path_move() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+        "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
          fun[] load(fail: bol): int / int = {\n\
              when(fail) {\n\
                  case(true) { report 1; }\n\
@@ -182,13 +185,13 @@ fn pipe_or_fallback_reinitialization_does_not_erase_the_success_path_move() {
          fun[] main(): int = {\n\
              var first: int = 1;\n\
              var second: int = 2;\n\
-             var[mut] pointer: ptr[int] = &first;\n\
-             consume(pointer);\n\
+             var[mut] pointer: ptr[int] = [ref]first;\n\
+             consume([mov]pointer);\n\
              var value: int = load(false) || when(true) {\n\
-                 case(true) { pointer = &second; 7; }\n\
-                 * { pointer = &second; 8; }\n\
+                 case(true) { pointer = [ref]second; 7; }\n\
+                 * { pointer = [ref]second; 8; }\n\
              };\n\
-             return *pointer + value;\n\
+             return [drf]pointer + value;\n\
          };\n",
     )]);
 
@@ -224,7 +227,7 @@ fn err_shell_values_keep_postfix_unwrap_behavior() {
         "main.fol",
         "ali Failure: err[str];\n\
          fun[] main(value: Failure): str = {\n\
-             return value!;\n\
+             return value[];\n\
          };\n",
     )]);
 
@@ -496,7 +499,9 @@ fn recoverable_calls_do_not_implicitly_convert_into_err_shell_bindings() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
-                && error.message().contains("cannot turn a '/ ErrorType' routine result into err[...] in V1")
+                && error
+                    .message()
+                    .contains("cannot turn a '/ ErrorType' routine result into err[...] in V1")
                 && error.message().contains("initializer for 'captured'")
         }),
         "Expected the err-shell binding boundary diagnostic, got: {errors:?}"
@@ -519,7 +524,9 @@ fn recoverable_calls_do_not_implicitly_convert_into_err_shell_returns() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
-                && error.message().contains("cannot turn a '/ ErrorType' routine result into err[...] in V1")
+                && error
+                    .message()
+                    .contains("cannot turn a '/ ErrorType' routine result into err[...] in V1")
                 && error.message().contains("return cannot turn")
         }),
         "Expected the err-shell return boundary diagnostic, got: {errors:?}"
@@ -545,7 +552,9 @@ fn recoverable_calls_do_not_implicitly_convert_into_err_shell_arguments() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
-                && error.message().contains("cannot turn a '/ ErrorType' routine result into err[...] in V1")
+                && error
+                    .message()
+                    .contains("cannot turn a '/ ErrorType' routine result into err[...] in V1")
                 && error.message().contains("call to 'consume'")
         }),
         "Expected the err-shell call-argument boundary diagnostic, got: {errors:?}"
@@ -614,9 +623,10 @@ fn loop_typing_infers_iteration_binder_types_and_checks_bool_guards() {
     let (_item_id, item) = find_typed_symbol(&typed, "item", SymbolKind::LoopBinder);
 
     assert_eq!(
-        typed
-            .type_table()
-            .get(item.declared_type.expect("loop binder should infer an element type")),
+        typed.type_table().get(
+            item.declared_type
+                .expect("loop binder should infer an element type")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }

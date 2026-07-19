@@ -93,9 +93,7 @@ fn v1_boundary_rejects_anonymous_routines_with_captures_before_lowering() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("V3 anonymous captures must name a channel endpoint")
+                && error.message().contains("must state a channel endpoint")
         }),
         "Expected anonymous capture rejection before lowering, got: {errors:?}"
     );
@@ -239,7 +237,7 @@ fn v1_boundary_rejects_pipe_block_stages_before_lowering() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("pipe operator '|>' is not yet supported")
+                    .contains("the pipe target must be a channel transmitter")
         }),
         "Expected pipe-block rejection before lowering, got: {errors:?}"
     );
@@ -512,7 +510,9 @@ fn v1_boundary_rejects_yield_expression() {
 }
 
 #[test]
-fn v1_boundary_rejects_pattern_access() {
+fn v1_boundary_rejects_pattern_list_access() {
+    // Multi-pattern access `container[a, b, c]` is rejected; only the uniform
+    // inner-place access `container[]` (V3_MEM §3.3) is supported.
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] main(items: vec[int]): int = {\n\
@@ -524,11 +524,9 @@ fn v1_boundary_rejects_pattern_access() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("pattern access is not yet supported")
+                && error.message().contains("pattern-list access")
         }),
-        "Pattern access should be rejected at typecheck, got: {errors:?}"
+        "Pattern-list access should be rejected at typecheck, got: {errors:?}"
     );
 }
 

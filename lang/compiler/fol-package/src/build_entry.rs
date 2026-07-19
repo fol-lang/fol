@@ -398,8 +398,11 @@ mod tests {
             syntax_index: fol_parser::ast::SyntaxIndex::default(),
         };
 
-        let errors = validate_parsed_build_entry(&syntax, &BuildEntrySignatureExpectation::canonical())
-            .expect_err("old def build declarations should not satisfy the semantic build entry contract");
+        let errors =
+            validate_parsed_build_entry(&syntax, &BuildEntrySignatureExpectation::canonical())
+                .expect_err(
+                "old def build declarations should not satisfy the semantic build entry contract",
+            );
 
         assert_eq!(errors[0].kind, BuildEntryValidationErrorKind::MissingEntry);
     }

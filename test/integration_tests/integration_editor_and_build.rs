@@ -1194,7 +1194,7 @@ fn test_fail_generic_recursive_m1m2_example_rejects_cleanly() {
 
 #[test]
 fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
-    for &(example, _) in V3_MEM_M1_POSITIVES {
+    for &(example, expected_output) in V3_MEM_M1_POSITIVES {
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(
@@ -1212,6 +1212,13 @@ fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
             String::from_utf8_lossy(&run.stdout),
             String::from_utf8_lossy(&run.stderr)
         );
+        if let Some(expected_output) = expected_output {
+            assert_eq!(
+                strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+                expected_output,
+                "{example} should print the inventory-declared stdout"
+            );
+        }
 
         let emitted = collect_rust_source_files(&emitted_crate_root(&build))
             .into_iter()
@@ -1373,6 +1380,11 @@ fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
                 }),
                 "unique pointer example should emit a dereference store"
             );
+        } else if example.contains("weak") {
+            // Weak managed pointers downgrade a shared pointer and upgrade back.
+            assert!(emitted.contains("std::rc::Weak<"));
+            assert!(emitted.contains("std::rc::Rc::downgrade"));
+            assert!(emitted.contains(".upgrade()"));
         } else {
             assert!(emitted.contains("std::rc::Rc<"));
             assert!(emitted.contains("std::rc::Rc::new"));
@@ -1386,16 +1398,16 @@ fn test_unique_pointer_deref_moves_move_only_pointee_end_to_end() {
     let root = write_temp_app(
         "move_only_pointer_deref",
         "fun[] read(pointer[bor]: ptr[int]): int = {\n\
-             return *pointer;\n\
+             return [drf]pointer;\n\
          };\n\
          fun[] main(): int = {\n\
              var seed: int = 41;\n\
-             var inner: ptr[int] = &seed;\n\
-             var outer: ptr[ptr[int]] = &inner;\n\
-             var extracted: ptr[int] = *outer;\n\
+             var inner: ptr[int] = [ref]seed;\n\
+             var outer: ptr[ptr[int]] = [ref]inner;\n\
+             var extracted: ptr[int] = [drf]outer;\n\
              var[bor] view: ptr[int] = extracted;\n\
              var observed: int = read(view);\n\
-             !view;\n\
+             [end]view;\n\
              return observed - 41;\n\
          };\n",
     );
@@ -1425,6 +1437,136 @@ fn test_unique_pointer_deref_moves_move_only_pointee_end_to_end() {
     assert!(
         run.status.success(),
         "move-only pointer dereference should execute: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_when_on_shell_choice_binds_payload_and_runs_end_to_end() {
+    // Safe shell choice (V3_MEM §3.3): `when` over an `opt[T]` binds the present
+    // payload in `on(value)` and takes `*` on nil. The `on` branch lowers to a
+    // presence test plus a payload unwrap, so `main` returns `value - 7 == 0`.
+    let root = write_temp_app(
+        "when_on_shell_choice",
+        "fun[] first(): opt[int] = { return 7; };\n\
+         fun[] main(): int = {\n\
+             var slot: opt[int] = first();\n\
+             when(slot) {\n\
+                 on(value) { return value - 7; }\n\
+                 * { return 99; }\n\
+             }\n\
+         };\n",
+    );
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "when/on shell choice should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        emitted.contains(".is_some()"),
+        "the 'on' branch should lower to a shell presence test: {emitted}"
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("when/on shell choice binary should run");
+    assert!(
+        run.status.success(),
+        "when/on shell choice should execute: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_when_on_nil_takes_default_branch_without_panicking() {
+    // A nil `opt[int]` must take the `*` branch. The `on` branch is guarded by a
+    // presence test, so it never unwraps the empty shell; a clean run proves the
+    // dispatch is correct (a wrong on-branch would panic unwrapping nil).
+    let root = write_temp_app(
+        "when_on_nil_default",
+        "fun[] empty(): opt[int] = { return nil; };\n\
+         fun[] main(): int = {\n\
+             var slot: opt[int] = empty();\n\
+             when(slot) {\n\
+                 on(value) { return value; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    );
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "nil when/on should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("nil when/on binary should run");
+    assert!(
+        run.status.success(),
+        "a nil optional must take the default branch without panicking: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_when_on_over_a_nil_able_err_shell_uses_the_error_presence_test() {
+    // `err[T]` is a nil-able shell: `return nil` is the no-error state and
+    // `return payload` stores an error. `on(code)` binds the stored payload; `*`
+    // takes nil. The `on` presence test must lower to the error-shell probe
+    // `.is_err()` (not the optional `.is_some()`); `classify(3)` stores an error
+    // so the on-branch returns `code - 3 == 0` and the binary runs cleanly.
+    let root = write_temp_app(
+        "when_on_err_shell",
+        "fun[] classify(seed: int): err[int] = {\n\
+             when(seed) {\n\
+                 is(0) => return nil;\n\
+                 * => return seed;\n\
+             }\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var slot: err[int] = classify(3);\n\
+             when(slot) {\n\
+                 on(code) { return code - 3; }\n\
+                 * { return 99; }\n\
+             }\n\
+         };\n",
+    );
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "err[T] when/on should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        emitted.contains(".is_err()"),
+        "an 'on' branch over 'err[T]' should lower to the error-shell presence test: {emitted}"
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("err[T] when/on binary should run");
+    assert!(
+        run.status.success(),
+        "err[T] when/on should execute cleanly: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
@@ -1465,13 +1607,24 @@ fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
             .filter_map(|path| std::fs::read_to_string(path).ok())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(emitted.contains("rt::spawn_task(move ||"));
+        if example.contains("detached") {
+            // A detached task is spawned without a join handle (V3_PROC).
+            assert!(emitted.contains("rt::spawn_detached(move ||"));
+        } else {
+            assert!(emitted.contains("rt::spawn_task(move ||"));
+        }
         assert!(emitted.contains("rt::join_all_tasks()"));
         assert!(emitted.contains("rt::task_join_guard()"));
         if example.contains("move_heap") {
             assert!(emitted.contains(" = *l__"));
         } else {
             assert!(emitted.contains(".clone()"));
+        }
+        if example.contains("shared_sync_ptr") {
+            assert!(
+                emitted.contains("std::sync::Arc<"),
+                "{example} should back a 'ptr[shared, sync, T]' with a thread-safe Arc"
+            );
         }
     }
 }
@@ -1640,6 +1793,16 @@ fn test_v3_processor_m2_channel_examples_build_and_run() {
                 "{example} should extract a sender without cloning the channel receiver"
             );
         }
+        if example == "examples/proc_receiver_endpoint_m2" {
+            assert!(
+                emitted.contains("rt::FolReceiver<"),
+                "{example} should type the transferred receiver as a first-class chn[rx, T] value"
+            );
+            assert!(
+                emitted.contains(".acquire_receiver()"),
+                "{example} should transfer the channel's unique receiver out of the channel"
+            );
+        }
     }
 }
 
@@ -1649,11 +1812,11 @@ fn test_v3_channel_receiver_moves_into_a_synchronous_consumer() {
     std::fs::write(
         root.join("src/main.fol"),
         "use std: pkg = {\"std\"};\n\
-         fun[] consume(channel: chn[int]): int = { return channel[rx]; };\n\
+         fun[] consume(channel: chn[int]): int = { return channel[rx][]; };\n\
          fun[] main(): int = {\n\
              var channel: chn[int];\n\
-             42 | channel[tx];\n\
-             return std::io::echo_int(consume(channel));\n\
+             var sent: err[int] = 42 | channel[tx];\n\
+             return std::io::echo_int(consume([mov]channel));\n\
          };\n",
     )
     .expect("channel receiver transfer fixture should write");

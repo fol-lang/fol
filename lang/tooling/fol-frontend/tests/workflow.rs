@@ -21,12 +21,12 @@ fn package_workflow_walkthrough_feels_like_one_canonical_tool_flow() {
 
     let (_, init) = run_command_from_args_in_dir(["fol", "work", "init", "--bin"], &root)
         .expect("init should succeed");
-    let (_, fetch) =
-        run_command_from_args_in_dir(["fol", "pack", "fetch"], &root).expect("fetch should succeed");
-    let (_, check) =
-        run_command_from_args_in_dir(["fol", "code", "check"], &root).expect("check should succeed");
-    let (_, build) =
-        run_command_from_args_in_dir(["fol", "code", "build"], &root).expect("build should succeed");
+    let (_, fetch) = run_command_from_args_in_dir(["fol", "pack", "fetch"], &root)
+        .expect("fetch should succeed");
+    let (_, check) = run_command_from_args_in_dir(["fol", "code", "check"], &root)
+        .expect("check should succeed");
+    let (_, build) = run_command_from_args_in_dir(["fol", "code", "build"], &root)
+        .expect("build should succeed");
     let (_, run) =
         run_command_from_args_in_dir(["fol", "code", "run"], &root).expect("run should succeed");
 
@@ -83,8 +83,8 @@ fn workspace_workflow_walkthrough_reports_member_and_artifact_roots() {
         .expect("work deps should succeed");
     let (_, status) = run_command_from_args_in_dir(["fol", "work", "status"], &root)
         .expect("work status should succeed");
-    let (_, build) =
-        run_command_from_args_in_dir(["fol", "code", "build"], &root).expect("build should succeed");
+    let (_, build) = run_command_from_args_in_dir(["fol", "code", "build"], &root)
+        .expect("build should succeed");
 
     assert!(info.summary.contains(&format!("root={}", root.display())));
     assert!(info.summary.contains("members=2"));

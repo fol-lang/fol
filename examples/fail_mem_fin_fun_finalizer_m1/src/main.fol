@@ -1,0 +1,14 @@
+// A custom finalizer must be a `pro`, not a `fun` (V3_MEM §4.2, §6.1).
+// Finalization performs foreign-resource cleanup effects, which a pure `fun`
+// is not permitted to run, so declaring `finalize` as a `fun` is rejected.
+
+typ File()(fin): rec = { descriptor: int };
+
+fun (File)finalize(): non = {
+    return;
+};
+
+fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    return handle.descriptor;
+};

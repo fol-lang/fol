@@ -29,7 +29,7 @@ pub(crate) fn lower_record_initializer(
         ));
     };
     let (construction_type, expected_fields) = match type_table.get(type_id) {
-        Some(crate::LoweredType::Record { fields }) => (type_id, fields.clone()),
+        Some(crate::LoweredType::Record { fields, .. }) => (type_id, fields.clone()),
         Some(crate::LoweredType::Named {
             package, symbol, ..
         }) => {
@@ -154,6 +154,7 @@ fn lower_positional_record_literal(
 ) -> Result<LoweredValue, LoweringError> {
     let Some(crate::LoweredType::Record {
         fields: expected_fields,
+        ..
     }) = type_table.get(type_id)
     else {
         return Err(LoweringError::with_kind(
@@ -740,7 +741,7 @@ pub(crate) fn field_access_type(
     field: &str,
 ) -> Option<LoweredTypeId> {
     match type_table.get(object_type) {
-        Some(crate::LoweredType::Record { fields }) => fields.get(field).copied(),
+        Some(crate::LoweredType::Record { fields, .. }) => fields.get(field).copied(),
         Some(crate::LoweredType::Entry { variants }) => variants.get(field).copied().flatten(),
         Some(crate::LoweredType::Owned { inner })
         | Some(crate::LoweredType::Borrowed { inner, .. }) => {

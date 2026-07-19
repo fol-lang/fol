@@ -1,7 +1,7 @@
 use std: pkg = {"std"};
 
 fun[] produce(channel: chn[int]): int = {
-    42 | channel[tx];
+    var sent: err[int] = 42 | channel[tx];
     return 42;
 };
 

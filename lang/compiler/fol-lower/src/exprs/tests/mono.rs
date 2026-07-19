@@ -18,10 +18,13 @@ fun[] main(): int = {
 };
 ";
 
-fn type_contains_generic(workspace: &crate::LoweredWorkspace, type_id: crate::LoweredTypeId) -> bool {
+fn type_contains_generic(
+    workspace: &crate::LoweredWorkspace,
+    type_id: crate::LoweredTypeId,
+) -> bool {
     match workspace.type_table().get(type_id) {
         Some(LoweredType::GenericParameter { .. }) => true,
-        Some(LoweredType::Record { fields }) => fields
+        Some(LoweredType::Record { fields, .. }) => fields
             .values()
             .any(|field| type_contains_generic(workspace, *field)),
         Some(LoweredType::Routine(signature)) => {

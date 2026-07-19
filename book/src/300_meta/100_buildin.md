@@ -230,8 +230,8 @@ accidental user-space name collisions, but they are not part of the current
 - `.de_alloc(...)`
 
 Explicit deallocation is not part of the V3 memory model. Unique heap values
-drop implicitly, borrowing uses `#owner` and `!borrow`, and typed pointers use
-`&value` and `*pointer`. The old dot-root memory spellings are not reserved or
+drop implicitly, borrowing uses `[bor]owner` and `[end]borrow`, and typed pointers use
+`[ref]value` and `[drf]pointer`. The old dot-root memory spellings are not reserved or
 supported aliases.
 
 ## Library-preferred surfaces
@@ -261,7 +261,7 @@ instead of becoming permanent compiler intrinsics.
 
 ## Intrinsics are not shell operations
 
-Do not confuse intrinsics with shell syntax such as `nil` and postfix unwrap
+Do not confuse intrinsics with shell syntax such as `nil` and unwrap
 `!`.
 
 For example:
@@ -271,11 +271,11 @@ ali MaybeText: opt[str]
 ali Failure: err[str]
 
 fun[] unwrap_optional(value: MaybeText): str = {
-    return value!
+    return [uwp]value
 }
 
 fun[] unwrap_failure(value: Failure): str = {
-    return value!
+    return [uwp]value
 }
 ```
 

@@ -1,0 +1,12 @@
+typ Item: rec = { value: int };
+
+fun[] main(): int = {
+    var[mut] owner: Item = { value = 7 };
+    var flag: bol = true;
+    var[bor] view: Item = [bor]owner;
+    when (flag) {
+        case(true) { [end]view; }
+        * {}
+    };
+    return owner.value;
+};

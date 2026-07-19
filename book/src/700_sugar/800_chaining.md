@@ -16,9 +16,9 @@ Current `V1` compiler note:
   `opt[...]` or `err[...]` shell.
 - A standalone `nil` with no expected shell type is rejected during
   typechecking.
-- Postfix unwrap `value!` is currently type-checked for `opt[T]` and `err[T]`
+- Unwrap `[uwp]value` is currently type-checked for `opt[T]` and `err[T]`
   and yields `T`.
-- Bare `err[]` does not currently support postfix unwrap because there is no
+- Bare `err[]` does not currently support unwrap because there is no
   payload value to recover.
 - This `!` surface is shell-only. It does not unwrap routine call results
   declared with `ResultType / ErrorType`.

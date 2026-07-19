@@ -1,4 +1,0 @@
-fun unary_ref_deref_chain(a: int): int = {
-    value = *&a;
-    return &*a;
-};

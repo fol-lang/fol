@@ -408,7 +408,11 @@ impl AstParser {
         let syntax_id = self.record_syntax_origin(&routine_token);
 
         let _ = tokens.bump();
-        self.parse_anonymous_routine_after_keyword(tokens, AnonymousRoutineKind::Function, syntax_id)
+        self.parse_anonymous_routine_after_keyword(
+            tokens,
+            AnonymousRoutineKind::Function,
+            syntax_id,
+        )
     }
 
     pub(super) fn parse_anonymous_pro_expr(
@@ -425,7 +429,11 @@ impl AstParser {
         let syntax_id = self.record_syntax_origin(&routine_token);
 
         let _ = tokens.bump();
-        self.parse_anonymous_routine_after_keyword(tokens, AnonymousRoutineKind::Procedure, syntax_id)
+        self.parse_anonymous_routine_after_keyword(
+            tokens,
+            AnonymousRoutineKind::Procedure,
+            syntax_id,
+        )
     }
 
     pub(super) fn parse_anonymous_log_expr(

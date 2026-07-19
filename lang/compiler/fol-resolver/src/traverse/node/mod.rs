@@ -248,6 +248,17 @@ fn traverse_node_inner(
                 routine_context,
             )?;
         }
+        AstNode::OwnershipOp { operand, .. } => {
+            traverse_node(
+                session,
+                program,
+                source_unit_id,
+                scope_id,
+                operand,
+                false,
+                routine_context,
+            )?;
+        }
         AstNode::FunctionCall {
             surface: CallSurface::DotIntrinsic,
             args,
@@ -333,7 +344,7 @@ fn traverse_node_inner(
         }
         AstNode::NamedArgument { value, .. }
         | AstNode::Unpack { value }
-        | AstNode::Spawn { task: value }
+        | AstNode::Spawn { task: value, .. }
         | AstNode::Return { value: Some(value) } => {
             traverse_node(
                 session,

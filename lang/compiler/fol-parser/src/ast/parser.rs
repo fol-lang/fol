@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn give_back_prefix_is_preserved_in_routine_bodies() {
-        let source = "fun[] main(): int = { var value: int = 1; var[bor] view: int = value; !view; return value; };";
+        let source = "fun[] main(): int = { var value: int = 1; var[bor] view: int = value; [end]view; return value; };";
         let package = parse_string(source).expect("give-back fixture should parse");
         let node = &package.source_units[0].items[0].node;
         let AstNode::FunDecl { body, .. } = node else {
@@ -377,7 +377,7 @@ mod tests {
             matches!(
                 body.first(),
                 Some(AstNode::Spawn {
-                    task
+                    task, ..
                 }) if matches!(task.as_ref(), AstNode::FunctionCall { name, args, .. }
                     if name == "worker" && args.len() == 1)
             ),

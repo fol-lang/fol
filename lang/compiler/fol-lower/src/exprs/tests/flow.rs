@@ -25,8 +25,7 @@ fn collect_echoed_ints(routine: &crate::LoweredRoutine) -> Vec<i64> {
                 }
             }
             LoweredInstrKind::LoadLocal { local } => {
-                if let (Some(result), Some(known)) =
-                    (instr.result, local_ints.get(local).copied())
+                if let (Some(result), Some(known)) = (instr.result, local_ints.get(local).copied())
                 {
                     local_ints.insert(result, known);
                 }
@@ -78,7 +77,8 @@ fn expression_lowering_keeps_local_and_imported_value_call_parity() {
     let syntax = parser
         .parse_package(&mut lexer)
         .expect("Lowering folder fixture should parse");
-    let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+    let resolved =
+        resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
     let typed = Typechecker::new()
         .check_resolved_workspace(resolved)
         .expect("Lowering folder fixture should typecheck");
@@ -191,7 +191,11 @@ fn dfr_lowering_runs_registered_bodies_before_return_in_reverse_order() {
         .expect("main routine should exist");
     let echoed = collect_echoed_ints(routine);
 
-    assert_eq!(echoed, vec![2, 1], "dfr should lower in reverse order before return");
+    assert_eq!(
+        echoed,
+        vec![2, 1],
+        "dfr should lower in reverse order before return"
+    );
     assert!(
         matches!(
             routine
@@ -312,7 +316,10 @@ fn dfr_lowering_runs_cleanup_before_report_terminators() {
         "report paths should drain deferred bodies before terminating"
     );
     assert!(
-        matches!(entry_block.terminator, Some(LoweredTerminator::Report { .. })),
+        matches!(
+            entry_block.terminator,
+            Some(LoweredTerminator::Report { .. })
+        ),
         "dfr-bearing report routine should still terminate with an explicit Report"
     );
 }
@@ -343,7 +350,10 @@ fn dfr_lowering_runs_cleanup_before_panic_terminators() {
         "panic paths should drain deferred bodies before terminating"
     );
     assert!(
-        matches!(entry_block.terminator, Some(LoweredTerminator::Panic { .. })),
+        matches!(
+            entry_block.terminator,
+            Some(LoweredTerminator::Panic { .. })
+        ),
         "dfr-bearing panic routine should still terminate with an explicit Panic"
     );
 }

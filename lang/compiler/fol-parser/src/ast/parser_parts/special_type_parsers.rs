@@ -190,12 +190,22 @@ impl AstParser {
                     [FolType::Named { name, .. }, target] if name == "raw" => {
                         (crate::ast::PointerQualifier::Raw, target.clone())
                     }
+                    [FolType::Named { name, .. }, target] if name == "weak" => {
+                        (crate::ast::PointerQualifier::Weak, target.clone())
+                    }
+                    // `ptr[shared, sync, T]` — the Arc-backed thread-safe shared
+                    // pointer that may cross task boundaries (V3_MEM §8.3).
+                    [FolType::Named { name: shared, .. }, FolType::Named { name: sync, .. }, target]
+                        if shared == "shared" && sync == "sync" =>
+                    {
+                        (crate::ast::PointerQualifier::SharedSync, target.clone())
+                    }
                     [FolType::Named { name, .. }, _] => {
                         let token = tokens.curr(false)?;
                         return Err(ParseError::from_token(
                             &token,
                             format!(
-                                "Unknown pointer qualifier '{name}'; expected 'shared' or 'raw'"
+                                "Unknown pointer qualifier '{name}'; expected 'shared', 'shared, sync', 'weak', or 'raw'"
                             ),
                         ));
                     }
@@ -203,7 +213,8 @@ impl AstParser {
                         let token = tokens.curr(false)?;
                         return Err(ParseError::from_token(
                             &token,
-                            "Expected ptr[T], ptr[shared, T], or ptr[raw, T]".to_string(),
+                            "Expected ptr[T], ptr[shared, T], ptr[shared, sync, T], or ptr[raw, T]"
+                                .to_string(),
                         ));
                     }
                 };
@@ -223,6 +234,18 @@ impl AstParser {
                 }
                 Ok(Some(FolType::Error {
                     inner: args.into_iter().next().map(Box::new),
+                }))
+            }
+            "evt" => {
+                // `evt[T]` / `evt[T / E]` elide the lexical lifetime in local
+                // declarations; `evt[L, T]` / `evt[L, T / E]` name the public
+                // parent-scope lifetime `L` (V3_MEM §8.1).
+                let (lifetime, value_type, error_type) =
+                    self.parse_eventual_type_arguments(tokens)?;
+                Ok(Some(FolType::Eventual {
+                    value_type: Box::new(value_type),
+                    error_type: error_type.map(Box::new),
+                    lifetime,
                 }))
             }
             "vec" => {
@@ -292,16 +315,46 @@ impl AstParser {
                 }))
             }
             "chn" => {
+                // `chn[T]` is a full channel. `chn[tx, T]` / `chn[rx, T]` name
+                // the endpoint value types (V3_MEM §8.2); the first argument is
+                // the `tx`/`rx` endpoint marker.
+                let args = self.parse_type_argument_list(tokens)?;
+                match args.as_slice() {
+                    [element_type] => Ok(Some(FolType::Channel {
+                        element_type: Box::new(element_type.clone()),
+                    })),
+                    [FolType::Named { name, .. }, element_type] if name == "tx" => {
+                        Ok(Some(FolType::ChannelSender {
+                            element_type: Box::new(element_type.clone()),
+                        }))
+                    }
+                    [FolType::Named { name, .. }, element_type] if name == "rx" => {
+                        Ok(Some(FolType::ChannelReceiver {
+                            element_type: Box::new(element_type.clone()),
+                        }))
+                    }
+                    _ => {
+                        let token = tokens.curr(false)?;
+                        Err(ParseError::from_token(
+                            &token,
+                            "Expected chn[T], chn[tx, T], or chn[rx, T]".to_string(),
+                        ))
+                    }
+                }
+            }
+            "mux" => {
+                // `mux[T]` — a first-class managed mutex over its guarded value
+                // (V3_MEM §8.3). Replaces the `name[mux]: T` parameter option.
                 let args = self.parse_type_argument_list(tokens)?;
                 if args.len() != 1 {
                     let token = tokens.curr(false)?;
                     return Err(ParseError::from_token(
                         &token,
-                        "Expected exactly one type argument for chn[...]".to_string(),
+                        "Expected exactly one type argument for mux[T]".to_string(),
                     ));
                 }
-                Ok(Some(FolType::Channel {
-                    element_type: Box::new(args.into_iter().next().expect("chn arg exists")),
+                Ok(Some(FolType::Mutex {
+                    inner: Box::new(args.into_iter().next().expect("mux inner exists")),
                 }))
             }
             "mod" => {
@@ -521,6 +574,71 @@ impl AstParser {
             }
         };
         Err(error)
+    }
+
+    /// Parse `[T]` or `[T / E]` for an eventual type, consuming both brackets.
+    /// The value type is required; the recoverable error channel after `/` is
+    /// optional.
+    pub(super) fn parse_eventual_type_arguments(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<(Option<String>, FolType, Option<FolType>), ParseError> {
+        let open = tokens.curr(false)?;
+        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::SquarO)) {
+            return Err(ParseError::from_token(
+                &open,
+                "Expected '[' to start eventual type arguments".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+
+        self.skip_ignorable(tokens)?;
+        let first_type = self.parse_type_reference_tokens(tokens)?;
+        self.skip_ignorable(tokens)?;
+
+        // `evt[L, T]` / `evt[L, T / E]` names the public parent-scope lifetime
+        // `L` before the value type (V3_MEM §8.1). A leading `L,` marks the
+        // named form; otherwise `first_type` is the value type (elided `L`).
+        let (lifetime, value_type) =
+            if matches!(tokens.curr(false)?.key(), KEYWORD::Symbol(SYMBOL::Comma)) {
+                let FolType::Named { name, .. } = &first_type else {
+                    return Err(ParseError::from_token(
+                        &tokens.curr(false)?,
+                        "an eventual lifetime must be a simple name, e.g. 'evt[L, T]'".to_string(),
+                    ));
+                };
+                let lifetime = name.clone();
+                let _ = tokens.bump();
+                self.skip_ignorable(tokens)?;
+                let value_type = self.parse_type_reference_tokens(tokens)?;
+                self.skip_ignorable(tokens)?;
+                (Some(lifetime), value_type)
+            } else {
+                (None, first_type)
+            };
+
+        let separator = tokens.curr(false)?;
+        let error_type = match separator.key() {
+            KEYWORD::Symbol(SYMBOL::Root) | KEYWORD::Operator(OPERATOR::Divide) => {
+                let _ = tokens.bump();
+                self.skip_ignorable(tokens)?;
+                let error = self.parse_type_reference_tokens(tokens)?;
+                self.skip_ignorable(tokens)?;
+                Some(error)
+            }
+            _ => None,
+        };
+
+        let close = tokens.curr(false)?;
+        if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+            return Err(ParseError::from_token(
+                &close,
+                "Expected closing ']' after eventual type arguments".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+
+        Ok((lifetime, value_type, error_type))
     }
 
     pub(super) fn parse_type_argument_list(

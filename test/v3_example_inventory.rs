@@ -51,6 +51,10 @@ pub(crate) const V3_MEM_M1_POSITIVES: &[V3PositiveExample] = &[
     ("examples/mem_linked_list_m1", None),
     ("examples/mem_tree_m1", None),
     ("examples/mem_move_stack_vs_heap_m1", None),
+    ("examples/mem_partial_move_m1", None),
+    ("examples/mem_fin_finalizer_m1", Some("3\n7\n")),
+    ("examples/mem_fin_move_m1", Some("88\n5\n")),
+    ("examples/mem_fin_early_m1", Some("3\n7\n9\n")),
 ];
 
 pub(crate) const V3_MEM_M2_POSITIVES: &[V3PositiveExample] = &[
@@ -58,6 +62,18 @@ pub(crate) const V3_MEM_M2_POSITIVES: &[V3PositiveExample] = &[
     ("examples/mem_borrow_giveback_m2", None),
     ("examples/mem_borrow_param_m2", None),
     ("examples/mem_mut_borrow_m2", None),
+    ("examples/mem_ownership_ops_m2", None),
+    ("examples/mem_capabilities_m2", None),
+    ("examples/mem_copy_clone_m2", None),
+    ("examples/mem_custom_clone_m2", Some("11\n")),
+    ("examples/mem_borrow_receiver_m2", Some("10\n")),
+    ("examples/mem_mut_receiver_m2", Some("42\n")),
+    ("examples/mem_receiver_ops_m2", Some("42\n")),
+    ("examples/mem_reborrow_m2", None),
+    ("examples/mem_nll_last_use_m2", None),
+    ("examples/mem_named_lifetime_m2", None),
+    ("examples/mem_temp_borrow_m2", None),
+    ("examples/mem_place_borrow_m2", None),
     ("examples/mem_edf_m2", Some("1\n1\n2\n")),
 ];
 
@@ -65,17 +81,29 @@ pub(crate) const V3_MEM_M3_POSITIVES: &[V3PositiveExample] = &[
     ("examples/mem_ptr_unique_m3", None),
     ("examples/mem_ptr_shared_m3", None),
     ("examples/mem_ptr_shared_recursive_m3", None),
+    ("examples/mem_ptr_weak_m3", None),
+    ("examples/mem_ptr_weak_clone_m3", None),
+    ("examples/mem_ptr_weak_upgrade_m3", None),
+    ("examples/mem_ptr_weak_cycle_m3", None),
+    ("examples/mem_ptr_weak_nested_m3", None),
+    ("examples/mem_shell_access_m3", None),
+    ("examples/mem_shell_prefix_m3", None),
 ];
 
 pub(crate) const V3_PROC_M1_POSITIVES: &[V3PositiveExample] = &[
     ("examples/proc_spawn_m1", Some("17\n")),
     ("examples/proc_spawn_move_heap_m1", Some("29\n")),
+    ("examples/proc_spawn_canonical_m1", Some("17\n")),
+    ("examples/proc_spawn_detached_m1", Some("41\n")),
+    ("examples/proc_shared_sync_ptr_m1", Some("42\n")),
 ];
 
 pub(crate) const V3_PROC_M2_POSITIVES: &[V3PositiveExample] = &[
     ("examples/proc_channel_m2", Some("42\n")),
     ("examples/proc_channel_pull_m2", Some("41\n")),
     ("examples/proc_channel_capture_m2", Some("42\n")),
+    ("examples/proc_sender_endpoint_m2", Some("37\n")),
+    ("examples/proc_receiver_endpoint_m2", Some("37\n")),
     ("examples/proc_channel_loop_m2", Some("42\n")),
 ];
 
@@ -83,11 +111,16 @@ pub(crate) const V3_PROC_M3_POSITIVES: &[V3PositiveExample] = &[
     ("examples/proc_select_m3", Some("42\n")),
     ("examples/proc_mutex_m3", Some("1\n2\n")),
     ("examples/proc_mutex_explicit_unlock_m3", Some("42\n")),
+    ("examples/proc_mutex_local_m3", Some("42\n")),
+    ("examples/proc_mutex_guard_m3", Some("42\n")),
+    ("examples/proc_mutex_guard_end_m3", Some("43\n")),
 ];
 
 pub(crate) const V3_PROC_M4_POSITIVES: &[V3PositiveExample] = &[
     ("examples/proc_async_await_m4", Some("42\n")),
     ("examples/proc_await_error_m4", Some("42\n")),
+    ("examples/proc_evt_named_m4", Some("42\n")),
+    ("examples/proc_evt_lifetime_m4", Some("42\n")),
 ];
 
 pub(crate) const V3_MEM_M1_FAILURES: &[V3FailureExample] = &[
@@ -95,6 +128,20 @@ pub(crate) const V3_MEM_M1_FAILURES: &[V3FailureExample] = &[
         "examples/fail_mem_use_after_move_m1",
         "O1001",
         "use of moved heap-owned binding 'owner'",
+        false,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_mem_loop_move_m1",
+        "O1001",
+        "move-only binding 'slot' declared outside a repeating loop cannot be transferred from the loop body",
+        false,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_mem_explicit_move_reuse_m1",
+        "O1001",
+        "use of moved binding 'slot'",
         false,
         true
     ),
@@ -126,6 +173,76 @@ pub(crate) const V3_MEM_M1_FAILURES: &[V3FailureExample] = &[
         false,
         false
     ),
+    v3_failure!(
+        "examples/fail_mem_uninit_borrow_m1",
+        "O2005",
+        "borrow binding 'view' requires an initializer",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_partial_move_m1",
+        "O1001",
+        "use of partially moved binding 'bundle'",
+        false,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_mem_global_fin_m1",
+        "T1002",
+        "top-level bindings of a 'fin' type are forbidden",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_fin_partial_move_m1",
+        "O1001",
+        "cannot partially move field '.held' out of the 'fin' value 'res'",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_fin_fun_finalizer_m1",
+        "T1001",
+        "a custom finalizer 'finalize' must be declared 'pro', not 'fun'",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_fin_reuse_m1",
+        "O1001",
+        "use of moved heap-owned binding 'handle'",
+        false,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_mem_clone_fin_m1",
+        "O1001",
+        "'[cln]' requires the 'clone' capability",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_clone_fin_claim_m1",
+        "T1001",
+        "a type that claims 'clone' cannot itself be a non-clonable value",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_generic_copy_bound_m1",
+        "T1003",
+        "to satisfy the 'copy' capability for generic parameter 'T'",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_generic_send_bound_transitive_m1",
+        "T1003",
+        "to satisfy the 'send' capability for generic parameter 'T'",
+        false,
+        false
+    ),
 ];
 
 pub(crate) const V3_MEM_M2_FAILURES: &[V3FailureExample] = &[
@@ -133,6 +250,48 @@ pub(crate) const V3_MEM_M2_FAILURES: &[V3FailureExample] = &[
         "examples/fail_mem_deferred_report_m2",
         "T1001",
         "report is not allowed inside dfr/edf blocks",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_copy_moveonly_m2",
+        "O1001",
+        "'[cpy]' requires the 'copy' capability",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_copy_record_field_m2",
+        "O1001",
+        "is not copy-safe",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_send_field_m2",
+        "T1001",
+        "'send' requires every field to be send-safe",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_send_nested_field_m2",
+        "T1001",
+        "'send' is verified recursively",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_clone_nested_field_m2",
+        "T1001",
+        "'clone' is verified recursively",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_share_field_m2",
+        "T1001",
+        "'share' requires every field to be share-safe",
         false,
         false
     ),
@@ -164,6 +323,83 @@ pub(crate) const V3_MEM_M2_FAILURES: &[V3FailureExample] = &[
         false,
         true
     ),
+    v3_failure!(
+        "examples/fail_mem_conditional_giveback_m2",
+        "O2001",
+        "owner 'owner' is inaccessible while borrowed",
+        false,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_mem_deferred_giveback_m2",
+        "O2004",
+        "captured by a deferred (dfr/edf) block and cannot be given back early",
+        false,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_mem_ownership_op_combo_m2",
+        "T1001",
+        "an ownership operation needs exactly one source",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_copy_fin_conflict_m2",
+        "T1001",
+        "a type cannot claim both 'copy' and 'fin'",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_copy_field_m2",
+        "T1001",
+        "'copy' requires every field to be copy-safe",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_copy_nested_field_m2",
+        "T1001",
+        "'copy' is verified recursively",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_copy_operand_unclaimed_m2",
+        "O1001",
+        "does not claim 'copy'",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_fun_mut_receiver_m2",
+        "T1001",
+        "a 'fun' cannot take a mutable '[mut, bor]' receiver",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_temp_borrow_escape_m2",
+        "O1001",
+        "cannot return a borrow of a temporary value",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_place_borrow_owner_m2",
+        "O2001",
+        "owner 'o' is inaccessible while borrowed",
+        false,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_mem_escaping_borrow_m2",
+        "O1001",
+        "cannot return a borrow of the owned local 'job'",
+        false,
+        false
+    ),
 ];
 
 pub(crate) const V3_MEM_M3_FAILURES: &[V3FailureExample] = &[
@@ -171,6 +407,20 @@ pub(crate) const V3_MEM_M3_FAILURES: &[V3FailureExample] = &[
         "examples/fail_mem_ptr_raw_m3",
         "T1002",
         "V4 interop surface",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_ptr_weak_m3",
+        "O1001",
+        "a weak pointer 'ptr[weak, T]' cannot be dereferenced directly",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_shell_access_m3",
+        "T1001",
+        "inner-place access '[]' requires a pointer, 'opt[T]', or 'err[T]' receiver",
         false,
         false
     ),
@@ -220,6 +470,13 @@ pub(crate) const V3_PROC_M1_FAILURES: &[V3FailureExample] = &[
         false
     ),
     v3_failure!(
+        "examples/fail_proc_spawn_fin_m1",
+        "O1001",
+        "a 'fin' value cannot cross a spawn or async task boundary",
+        true,
+        false
+    ),
+    v3_failure!(
         "examples/fail_proc_spawn_in_memo_m1",
         "T1002",
         "spawn requires hosted std support",
@@ -236,7 +493,7 @@ pub(crate) const V3_PROC_M1_FAILURES: &[V3FailureExample] = &[
     v3_failure!(
         "examples/fail_proc_spawn_recoverable_m1",
         "T1002",
-        "bare '[>]call()' cannot spawn a recoverable routine",
+        "cannot spawn a recoverable routine",
         true,
         false
     ),
@@ -254,6 +511,13 @@ pub(crate) const V3_PROC_M1_FAILURES: &[V3FailureExample] = &[
         true,
         false
     ),
+    v3_failure!(
+        "examples/fail_proc_spawn_detached_borrow_m1",
+        "O1001",
+        "borrowed values cannot cross a spawn or async thread boundary",
+        true,
+        false
+    ),
 ];
 
 pub(crate) const V3_PROC_M2_FAILURES: &[V3FailureExample] = &[
@@ -261,6 +525,13 @@ pub(crate) const V3_PROC_M2_FAILURES: &[V3FailureExample] = &[
         "examples/fail_proc_channel_index_m2",
         "T1002",
         "channel receivers are blocking pull expressions and cannot be indexed",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_clone_receiver_m2",
+        "O1001",
+        "'[cln]' requires the 'clone' capability",
         true,
         false
     ),
@@ -289,6 +560,20 @@ pub(crate) const V3_PROC_M2_FAILURES: &[V3FailureExample] = &[
         "examples/fail_proc_channel_spawn_consumer_m2",
         "T1002",
         "routine 'consume' receives from a channel and cannot be spawned directly",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_channel_receive_bare_m2",
+        "T1003",
+        "expects 'int' but got 'opt[int]'",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_channel_bare_send_m2",
+        "T1002",
+        "a channel send returns a must-handle 'err[T]'",
         true,
         false
     ),
@@ -370,7 +655,21 @@ pub(crate) const V3_PROC_M3_FAILURES: &[V3FailureExample] = &[
     v3_failure!(
         "examples/fail_proc_mutex_deferred_forward_m3",
         "T1002",
-        "mutex handles cannot be forwarded to [mux] parameter",
+        "mutex handles cannot be forwarded to mux[T] parameter",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_mutex_guard_await_m3",
+        "O1001",
+        "a mutex guard cannot cross await",
+        true,
+        true
+    ),
+    v3_failure!(
+        "examples/fail_proc_mutex_guard_move_m3",
+        "O1001",
+        "a mutex guard cannot be moved, copied, or cloned",
         true,
         false
     ),
@@ -378,9 +677,16 @@ pub(crate) const V3_PROC_M3_FAILURES: &[V3FailureExample] = &[
 
 pub(crate) const V3_PROC_M4_FAILURES: &[V3FailureExample] = &[
     v3_failure!(
-        "examples/fail_proc_evt_named_m4",
+        "examples/fail_proc_evt_detached_m4",
+        "O1001",
+        "an eventual handle cannot enter a detached task",
+        true,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_proc_evt_embedded_m4",
         "T1002",
-        "eventual types are internal in V3 and cannot be named",
+        "evt[T] values cannot be embedded in aggregate",
         true,
         false
     ),
@@ -501,9 +807,32 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/mem_borrow_giveback_m2", "view", 2, Some(6)),
     ("examples/mem_borrow_param_m2", "inspect", 2, Some(4)),
     ("examples/mem_mut_borrow_m2", "view", 2, Some(6)),
+    ("examples/mem_ownership_ops_m2", "look", 2, Some(10)),
+    ("examples/mem_capabilities_m2", "origin", 2, Some(10)),
+    ("examples/mem_borrow_receiver_m2", "origin", 2, Some(17)),
+    ("examples/mem_mut_receiver_m2", "counter", 2, Some(17)),
+    ("examples/mem_receiver_ops_m2", "tally", 2, Some(12)),
+    ("examples/mem_copy_clone_m2", "origin", 2, Some(14)),
+    ("examples/mem_custom_clone_m2", "original", 2, Some(16)),
+    ("examples/mem_reborrow_m2", "nested", 2, Some(5)),
+    ("examples/mem_partial_move_m1", "bundle", 2, Some(13)),
+    ("examples/mem_fin_finalizer_m1", "handle", 2, Some(16)),
+    ("examples/mem_fin_move_m1", "handle", 2, Some(19)),
+    ("examples/mem_fin_early_m1", "handle", 2, Some(18)),
+    ("examples/mem_nll_last_use_m2", "view", 2, Some(9)),
+    ("examples/mem_named_lifetime_m2", "left", 2, Some(6)),
+    ("examples/mem_temp_borrow_m2", "seen", 2, Some(11)),
+    ("examples/mem_place_borrow_m2", "part", 2, Some(9)),
     ("examples/mem_edf_m2", "probe", 2, Some(2)),
     ("examples/mem_ptr_unique_m3", "outer", 2, Some(3)),
     ("examples/mem_ptr_shared_m3", "first", 2, Some(2)),
+    ("examples/mem_ptr_weak_m3", "strong", 2, Some(6)),
+    ("examples/mem_ptr_weak_clone_m3", "mirror", 2, Some(9)),
+    ("examples/mem_ptr_weak_upgrade_m3", "observer", 2, Some(8)),
+    ("examples/mem_ptr_weak_cycle_m3", "revived", 2, Some(16)),
+    ("examples/mem_ptr_weak_nested_m3", "registry", 2, Some(19)),
+    ("examples/mem_shell_access_m3", "slot", 2, Some(10)),
+    ("examples/mem_shell_prefix_m3", "handle", 2, Some(11)),
     (
         "examples/mem_ptr_shared_recursive_m3",
         "tail_ptr",
@@ -511,16 +840,26 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
         Some(7),
     ),
     ("examples/proc_spawn_m1", "worker", 2, None),
+    ("examples/proc_spawn_canonical_m1", "worker", 2, None),
+    ("examples/proc_spawn_detached_m1", "worker", 2, None),
+    ("examples/proc_shared_sync_ptr_m1", "observe", 2, None),
     ("examples/proc_spawn_move_heap_m1", "consume", 2, None),
     ("examples/proc_channel_m2", "produce", 2, None),
     ("examples/proc_channel_pull_m2", "channel", 2, None),
     ("examples/proc_channel_capture_m2", "channel", 3, None),
+    ("examples/proc_sender_endpoint_m2", "emit", 2, None),
+    ("examples/proc_receiver_endpoint_m2", "drain", 2, None),
     ("examples/proc_channel_loop_m2", "channel", 2, None),
     ("examples/proc_select_m3", "first", 2, None),
     ("examples/proc_mutex_m3", "worker", 2, None),
     ("examples/proc_mutex_explicit_unlock_m3", "update", 2, None),
+    ("examples/proc_mutex_local_m3", "state", 2, None),
+    ("examples/proc_mutex_guard_m3", "bump", 2, None),
+    ("examples/proc_mutex_guard_end_m3", "bump", 2, None),
     ("examples/proc_async_await_m4", "work", 2, None),
     ("examples/proc_await_error_m4", "probe", 2, None),
+    ("examples/proc_evt_named_m4", "work", 2, None),
+    ("examples/proc_evt_lifetime_m4", "schedule", 2, None),
 ];
 
 pub(crate) fn positive_example_paths() -> Vec<&'static str> {

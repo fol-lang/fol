@@ -1,2 +1,2 @@
 var printString: ?str = "Hello, World!";
-.echo(printString!);
+.echo(printString[]);

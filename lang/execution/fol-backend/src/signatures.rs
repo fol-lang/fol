@@ -29,6 +29,7 @@ fn collect_generic_params_from_type(
         | LoweredType::Sequence { element_type }
         | LoweredType::Channel { element_type }
         | LoweredType::ChannelSender { element_type }
+        | LoweredType::ChannelReceiver { element_type }
         | LoweredType::Optional {
             inner: element_type,
         }
@@ -71,7 +72,7 @@ fn collect_generic_params_from_type(
                 collect_generic_params_from_type(type_table, *member, params);
             }
         }
-        LoweredType::Record { fields } => {
+        LoweredType::Record { fields, .. } => {
             for field in fields.values() {
                 collect_generic_params_from_type(type_table, *field, params);
             }
@@ -96,7 +97,44 @@ fn collect_generic_params_from_type(
     }
 }
 
-fn render_generic_clause(signature: &LoweredRoutineType, type_table: &LoweredTypeTable) -> String {
+/// The single named region emitted for every borrow in a routine signature.
+/// FOL's borrow checker ties all `[bor=L]` params and the borrowed return to one
+/// region (the shortest live input); emitting one unified Rust lifetime is the
+/// sound rendering of that model and lets borrow-returning routines compile.
+const SIGNATURE_LIFETIME: &str = "'a";
+
+/// Attach the signature's unified lifetime to every reference sigil in a
+/// rendered type. In a parameter or return type the only `&` come from borrow
+/// types (`str`/pointers render to owned runtime types), so this is precise.
+fn annotate_signature_lifetime(rendered: &str) -> String {
+    rendered.replace('&', &format!("&{SIGNATURE_LIFETIME} "))
+}
+
+fn signature_contains_borrow(
+    routine: &LoweredRoutine,
+    signature: &LoweredRoutineType,
+    type_table: &LoweredTypeTable,
+) -> bool {
+    routine
+        .receiver_type
+        .is_some_and(|id| type_table.contains_borrowed(id))
+        || signature
+            .params
+            .iter()
+            .any(|id| type_table.contains_borrowed(*id))
+        || signature
+            .return_type
+            .is_some_and(|id| type_table.contains_borrowed(id))
+        || signature
+            .error_type
+            .is_some_and(|id| type_table.contains_borrowed(id))
+}
+
+fn render_generic_clause(
+    signature: &LoweredRoutineType,
+    type_table: &LoweredTypeTable,
+    has_borrow: bool,
+) -> String {
     let mut params = Vec::new();
     for param in &signature.params {
         collect_generic_params_from_type(type_table, *param, &mut params);
@@ -107,17 +145,19 @@ fn render_generic_clause(signature: &LoweredRoutineType, type_table: &LoweredTyp
     if let Some(err) = signature.error_type {
         collect_generic_params_from_type(type_table, err, &mut params);
     }
-    if params.is_empty() {
+    let mut entries = Vec::new();
+    if has_borrow {
+        entries.push(SIGNATURE_LIFETIME.to_string());
+    }
+    entries.extend(
+        params
+            .iter()
+            .map(|name| format!("{}: Clone + Default", crate::sanitize_backend_ident(name))),
+    );
+    if entries.is_empty() {
         String::new()
     } else {
-        format!(
-            "<{}>",
-            params
-                .iter()
-                .map(|name| format!("{}: Clone + Default", crate::sanitize_backend_ident(name)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+        format!("<{}>", entries.join(", "))
     }
 }
 
@@ -229,8 +269,15 @@ pub fn render_routine_signature(
         type_table,
     )?);
 
-    let return_type = render_routine_return_type(workspace, signature, type_table)?;
-    let generic_clause = render_generic_clause(signature, type_table);
+    let mut return_type = render_routine_return_type(workspace, signature, type_table)?;
+    let has_borrow = signature_contains_borrow(routine, signature, type_table);
+    if has_borrow {
+        for param in &mut params {
+            *param = annotate_signature_lifetime(param);
+        }
+        return_type = annotate_signature_lifetime(&return_type);
+    }
+    let generic_clause = render_generic_clause(signature, type_table, has_borrow);
 
     Ok(format!(
         "pub fn {}{}({}){}",
@@ -659,6 +706,8 @@ mod tests {
         let unique = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: false,
+            weak: false,
+            sync: false,
         });
         let borrowed = table.intern(LoweredType::Borrowed {
             inner: int_id,
@@ -667,6 +716,8 @@ mod tests {
         let shared = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: true,
+            weak: false,
+            sync: false,
         });
         for (type_id, expected) in [
             (unique, "move-only values"),
@@ -742,6 +793,8 @@ mod tests {
         let pointer_id = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: false,
+            weak: false,
+            sync: false,
         });
         let signature_id = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![pointer_id],

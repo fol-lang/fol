@@ -13,7 +13,8 @@ use crate::{
 };
 use fol_intrinsics::{select_intrinsic, IntrinsicSurface};
 use fol_parser::ast::{
-    AstNode, CallSurface, ChannelEndpoint, FolType, ParsedSourceUnitKind, UnaryOperator,
+    AstNode, CallSurface, ChannelEndpoint, FolType, OwnershipOption, ParsedSourceUnitKind,
+    UnaryOperator,
 };
 use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::borrow::Cow;
@@ -42,7 +43,7 @@ pub(crate) struct TypeContext {
     /// task boundary. Keeping the exact id prevents nested calls inside task
     /// arguments from being mistaken for asynchronous calls themselves.
     pub(crate) processor_task_call: Option<fol_parser::ast::SyntaxNodeId>,
-    /// True only while an argument is being passed from one `[mux]`
+    /// True only while an argument is being passed from one `mux[T]`
     /// parameter to another. Every other whole-value use stays forbidden.
     pub(crate) allow_mutex_handle: bool,
     /// Exact body scope of the innermost repeating loop. Transfers from
@@ -55,6 +56,11 @@ pub(crate) struct TypeContext {
     /// True specifically inside error-only `edf` cleanup. Eventual ownership
     /// cannot be mutated there because the body does not run on normal exits.
     pub(crate) inside_error_deferred_block: bool,
+    /// True only while typing the receiver of a field access, i.e. the `job`
+    /// in `job.field`. A partially moved aggregate may still be projected for a
+    /// surviving field, so the whole-value "partially moved" rejection is
+    /// suppressed here and enforced only for genuine whole-value reads.
+    pub(crate) field_projection_root: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -136,6 +142,7 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
             repeating_loop_scope: None,
             inside_deferred_block: false,
             inside_error_deferred_block: false,
+            field_projection_root: false,
         };
         for item in &source_unit.items {
             if let Err(error) = type_node(typed, &resolved, context, &item.node) {
@@ -164,6 +171,106 @@ pub(crate) fn type_node(
     node: &AstNode,
 ) -> Result<TypedExpr, TypecheckError> {
     type_node_with_expectation(typed, resolved, context, node, None)
+}
+
+/// Type a `channel[tx]` / `channel[rx]` endpoint access.
+///
+/// `channel[tx]` yields a first-class, clone-capable `chn[tx, T]` sender value.
+/// `channel[rx]` is normally a blocking receive yielding `opt[T]`; but when the
+/// expected type is a `chn[rx, T]` receiver value and the source is a full
+/// channel, it instead transfers the channel's unique receiver as that
+/// first-class move-only value (V3_MEM §8.2). Receiving from a moved receiver
+/// value (`receiver[rx]`) is again an `opt[T]` blocking receive.
+#[allow(clippy::too_many_arguments)]
+fn type_channel_access(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    node: &AstNode,
+    channel: &AstNode,
+    endpoint: &ChannelEndpoint,
+    expected_type: Option<CheckedTypeId>,
+) -> Result<TypedExpr, TypecheckError> {
+    if !typed.capability_model().supports_processor() {
+        return Err(unsupported_node_surface(
+            resolved,
+            node,
+            "channel endpoint access requires hosted std support; declare the bundled internal standard dependency",
+        ));
+    }
+    helpers::require_direct_channel_binding(resolved, context.scope_id, channel)?;
+    if matches!(endpoint, ChannelEndpoint::Rx) {
+        reject_sender_capture_receive(typed, resolved, channel)?;
+    }
+    let channel_raw = type_node(typed, resolved, context, channel)?;
+    let channel_type = plain_value_expr(
+        typed,
+        context,
+        channel_raw,
+        node_origin(resolved, channel),
+        "channel endpoint receiver",
+    )?
+    .required_value("channel endpoint receiver does not have a type")?;
+    let element_type = match endpoint {
+        ChannelEndpoint::Tx => helpers::channel_element_type(typed, channel_type)?,
+        ChannelEndpoint::Rx => helpers::channel_receiver_element_type(typed, channel_type)?,
+    };
+    match endpoint {
+        ChannelEndpoint::Tx => Ok(TypedExpr::value(
+            typed
+                .type_table_mut()
+                .intern(CheckedType::ChannelSender { element_type }),
+        )),
+        ChannelEndpoint::Rx => {
+            // A `chn[rx, T]`-typed context over a full channel transfers the
+            // unique receiver as a first-class value; otherwise this is a
+            // blocking receive shell.
+            let source_is_full_channel = matches!(
+                helpers::apparent_type_id(typed, channel_type)
+                    .ok()
+                    .and_then(|apparent| typed.type_table().get(apparent)),
+                Some(CheckedType::Channel { .. })
+            );
+            if source_is_full_channel && expected_is_channel_receiver(typed, expected_type) {
+                Ok(TypedExpr::value(
+                    typed
+                        .type_table_mut()
+                        .intern(CheckedType::ChannelReceiver { element_type }),
+                ))
+            } else {
+                // A blocking receive is a shell: `opt[T]` whose present branch
+                // owns a fresh payload and whose `nil` means every sender has
+                // closed (V3_MEM §8.2). It blocks, so a live guard value cannot
+                // cross it (V3_MEM §8.3).
+                helpers::reject_bound_guard_boundary(
+                    typed,
+                    "blocking receive",
+                    node_origin(resolved, node),
+                )?;
+                Ok(TypedExpr::value(typed.type_table_mut().intern(
+                    CheckedType::Optional {
+                        inner: element_type,
+                    },
+                )))
+            }
+        }
+    }
+}
+
+fn expected_is_channel_receiver(
+    typed: &TypedProgram,
+    expected_type: Option<CheckedTypeId>,
+) -> bool {
+    let Some(expected_type) = expected_type else {
+        return false;
+    };
+    let Ok(apparent) = helpers::apparent_type_id(typed, expected_type) else {
+        return false;
+    };
+    matches!(
+        typed.type_table().get(apparent),
+        Some(CheckedType::ChannelReceiver { .. })
+    )
 }
 
 pub(crate) fn reject_sender_capture_receive(
@@ -309,6 +416,7 @@ pub(crate) fn apply_spawn_argument_boundary(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
     task: &AstNode,
+    detached: bool,
 ) -> Result<(), TypecheckError> {
     let task = helpers::strip_comments(task);
 
@@ -351,7 +459,13 @@ pub(crate) fn apply_spawn_argument_boundary(
                     }
                 }
                 .unwrap_or(task);
-                validate_processor_boundary_type(typed, resolved, *parameter_type, boundary_value)?;
+                validate_processor_boundary_type(
+                    typed,
+                    resolved,
+                    *parameter_type,
+                    boundary_value,
+                    detached,
+                )?;
             }
         }
     }
@@ -421,13 +535,13 @@ pub(crate) fn apply_spawn_argument_boundary(
                 || {
                     TypecheckError::new(
                         TypecheckErrorKind::Ownership,
-                        "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use [mux] data that contains only thread-safe values",
+                        "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use mux[T] data that contains only thread-safe values",
                     )
                 },
                 |origin| {
                     TypecheckError::with_origin(
                         TypecheckErrorKind::Ownership,
-                        "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use [mux] data that contains only thread-safe values",
+                        "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use mux[T] data that contains only thread-safe values",
                         origin,
                     )
                 },
@@ -453,8 +567,17 @@ fn validate_processor_boundary_type(
     resolved: &ResolvedProgram,
     type_id: CheckedTypeId,
     value: &AstNode,
+    detached: bool,
 ) -> Result<(), TypecheckError> {
-    let message = if decls::checked_type_contains_generic_param(typed, type_id) {
+    let message = if detached && helpers::type_is_eventual(typed, type_id) {
+        Some(
+            "an eventual handle cannot enter a detached task ('[spn, det]') because it is bound to its parent scope; await it first, or spawn a scoped '[spn]' task instead",
+        )
+    } else if helpers::type_contains_fin(typed, type_id) {
+        Some(
+            "a 'fin' value cannot cross a spawn or async task boundary because it is not 'send'; the foreign resource it finalizes is not proven thread-safe",
+        )
+    } else if decls::checked_type_contains_generic_param(typed, type_id) {
         Some(
             "unconstrained generic values cannot cross a spawn or async thread boundary because FOL does not yet define a thread-safety and lifetime contract; use a concrete thread-safe value",
         )
@@ -464,7 +587,7 @@ fn validate_processor_boundary_type(
         )
     } else if helpers::type_contains_shared_pointer(typed, type_id) {
         Some(
-            "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use [mux] data that contains only thread-safe values",
+            "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use mux[T] data that contains only thread-safe values",
         )
     } else {
         None
@@ -547,6 +670,26 @@ fn type_node_with_expectation_inner(
         AstNode::UnaryOp { op, operand } => {
             operators::type_unary_op(typed, resolved, context, node, op, operand, expected_type)
         }
+        AstNode::OwnershipOp {
+            options, operand, ..
+        } => operators::type_ownership_op(
+            typed,
+            resolved,
+            context,
+            node,
+            options,
+            operand,
+            expected_type,
+        ),
+        AstNode::ChannelAccess { channel, endpoint } => type_channel_access(
+            typed,
+            resolved,
+            context,
+            node,
+            channel,
+            endpoint,
+            expected_type,
+        ),
         AstNode::VarDecl {
             name,
             type_hint: _,
@@ -624,7 +767,7 @@ fn type_node_with_expectation_inner(
                 "await pipe stages require hosted std support; declare the bundled internal standard dependency"
             },
         )),
-        AstNode::Spawn { task } => {
+        AstNode::Spawn { task, detached } => {
             if !typed.capability_model().supports_processor() {
                 return Err(unsupported_node_surface(
                     resolved,
@@ -634,6 +777,7 @@ fn type_node_with_expectation_inner(
             }
             require_named_processor_call_target(resolved, task, "spawn")?;
             reject_direct_spawn_channel_receiver(typed, resolved, task)?;
+            helpers::reject_bound_guard_boundary(typed, "spawn", node_origin(resolved, node))?;
             let observed = type_node_with_expectation(
                 typed,
                 resolved,
@@ -663,16 +807,16 @@ fn type_node_with_expectation_inner(
                 return Err(node_origin(resolved, node).map_or_else(
                     || TypecheckError::new(
                         TypecheckErrorKind::Unsupported,
-                        "bare '[>]call()' cannot spawn a recoverable routine because it discards the error; make the callee infallible or remove '[>]', use 'call() | async', then await and handle it",
+                        "a spawn ('[spn]'/'[spn, det]'/'[>]') cannot spawn a recoverable routine because it discards the error; make the callee infallible, or drop the spawn marker and use 'call() | async', then await and handle it",
                     ),
                     |origin| TypecheckError::with_origin(
                         TypecheckErrorKind::Unsupported,
-                        "bare '[>]call()' cannot spawn a recoverable routine because it discards the error; make the callee infallible or remove '[>]', use 'call() | async', then await and handle it",
+                        "a spawn ('[spn]'/'[spn, det]'/'[>]') cannot spawn a recoverable routine because it discards the error; make the callee infallible, or drop the spawn marker and use 'call() | async', then await and handle it",
                         origin,
                     ),
                 ));
             }
-            apply_spawn_argument_boundary(typed, resolved, task)?;
+            apply_spawn_argument_boundary(typed, resolved, task, *detached)?;
             reject_unsupported_spawn_task_surface(resolved, task)?;
             Ok(TypedExpr::none())
         }
@@ -738,6 +882,7 @@ fn type_node_with_expectation_inner(
                 repeating_loop_scope: None,
                 inside_deferred_block: false,
                 inside_error_deferred_block: false,
+                field_projection_root: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -824,7 +969,7 @@ fn type_node_with_expectation_inner(
                 return Err(unsupported_node_surface(
                     resolved,
                     node,
-                    "anonymous routines with [mux] parameters are not supported in V3; use a named routine and call it directly so the mutex ABI remains explicit",
+                    "anonymous routines with mux[T] parameters are not supported in V3; use a named routine and call it directly so the mutex ABI remains explicit",
                 ));
             }
             if params
@@ -860,22 +1005,25 @@ fn type_node_with_expectation_inner(
                 .unwrap_or(context.scope_id);
             let mut lowered_params = Vec::with_capacity(captures.len() + params.len());
             for capture in captures {
-                match capture.endpoint {
-                    Some(ChannelEndpoint::Tx) => {}
-                    Some(ChannelEndpoint::Rx) => {
-                        return Err(unsupported_node_surface(
-                            resolved,
-                            node,
-                            "a channel receiver cannot be cloned into a spawned capture; capture c[tx] and keep c[rx] in the receiving routine",
-                        ));
-                    }
-                    None => {
-                        return Err(unsupported_node_surface(
-                            resolved,
-                            node,
-                            "V3 anonymous captures must name a channel endpoint such as c[tx]",
-                        ));
-                    }
+                if matches!(capture.endpoint, Some(ChannelEndpoint::Rx)) {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        "a channel receiver cannot be cloned into a spawned capture; capture c[tx] and keep c[rx] in the receiving routine",
+                    ));
+                }
+                // Validate the capture *form* before resolving the outer binding
+                // so an untagged capture reports the surface error rather than a
+                // "lost its outer binding" internal error.
+                if capture.endpoint.is_none() && capture.operation.is_none() {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        format!(
+                            "anonymous capture '{}' must state a channel endpoint ('{}[tx]') or a value operation ('{}[mov]')",
+                            capture.name, capture.name, capture.name
+                        ),
+                    ));
                 }
                 let outer_symbol = [
                     fol_resolver::SymbolKind::ValueBinding,
@@ -907,43 +1055,6 @@ fn type_node_with_expectation_inner(
                             format!("capture '{}' does not retain a type", capture.name),
                         )
                     })?;
-                let element_type = match typed.type_table().get(capture_type) {
-                    Some(CheckedType::Channel { element_type })
-                    | Some(CheckedType::ChannelSender { element_type }) => *element_type,
-                    _ => {
-                        return Err(unsupported_node_surface(
-                            resolved,
-                            node,
-                            format!("capture '{}[tx]' requires a chn[T] binding", capture.name),
-                        ));
-                    }
-                };
-                if helpers::type_contains_shared_pointer(typed, element_type) {
-                    return Err(node_origin(resolved, node).map_or_else(
-                        || {
-                            TypecheckError::new(
-                                TypecheckErrorKind::Ownership,
-                                format!(
-                                    "captured endpoint '{}[tx]' carries values containing shared Rc pointers and cannot cross a spawn boundary",
-                                    capture.name
-                                ),
-                            )
-                        },
-                        |origin| {
-                            TypecheckError::with_origin(
-                                TypecheckErrorKind::Ownership,
-                                format!(
-                                    "captured endpoint '{}[tx]' carries values containing shared Rc pointers and cannot cross a spawn boundary",
-                                    capture.name
-                                ),
-                                origin,
-                            )
-                        },
-                    ));
-                }
-                let sender_type = typed
-                    .type_table_mut()
-                    .intern(CheckedType::ChannelSender { element_type });
                 let capture_symbol = decls::find_symbol_id_in_scope(
                     resolved,
                     context.source_unit_id,
@@ -951,11 +1062,140 @@ fn type_node_with_expectation_inner(
                     &[fol_resolver::SymbolKind::Capture],
                     &capture.name,
                 )?;
-                decls::record_symbol_type(typed, capture_symbol, sender_type)?;
-                if let Some(symbol) = typed.typed_symbol_mut(capture_symbol) {
-                    symbol.is_channel_sender_capture = true;
-                }
-                lowered_params.push(sender_type);
+                // A capture states either a channel endpoint (`c[tx]`, cloned as
+                // a sender) or a value operation (`data[mov]`, moved whole into
+                // the task environment). The two are mutually exclusive by
+                // construction (the parser accepts one bracket form). An
+                // untagged value capture is rejected: §2.2 requires the capture
+                // boundary to state its transfer.
+                let lowered_capture_type = match (capture.endpoint.as_ref(), capture.operation) {
+                    (Some(ChannelEndpoint::Tx), None) => {
+                        let element_type = match typed.type_table().get(capture_type) {
+                            Some(CheckedType::Channel { element_type })
+                            | Some(CheckedType::ChannelSender { element_type }) => *element_type,
+                            _ => {
+                                return Err(unsupported_node_surface(
+                                    resolved,
+                                    node,
+                                    format!(
+                                        "capture '{}[tx]' requires a chn[T] binding",
+                                        capture.name
+                                    ),
+                                ));
+                            }
+                        };
+                        if helpers::type_contains_shared_pointer(typed, element_type) {
+                            return Err(capture_spawn_send_error(
+                                resolved,
+                                node,
+                                &format!("captured endpoint '{}[tx]'", capture.name),
+                            ));
+                        }
+                        let sender_type = typed
+                            .type_table_mut()
+                            .intern(CheckedType::ChannelSender { element_type });
+                        if let Some(symbol) = typed.typed_symbol_mut(capture_symbol) {
+                            symbol.is_channel_sender_capture = true;
+                        }
+                        sender_type
+                    }
+                    (None, Some(OwnershipOption::Move)) => {
+                        // Owned move capture: the whole value crosses the spawn
+                        // boundary, so it must be thread-safe (V3_PROC "owned
+                        // captures require send").
+                        if helpers::type_contains_shared_pointer(typed, capture_type) {
+                            return Err(capture_spawn_send_error(
+                                resolved,
+                                node,
+                                &format!("moved capture '{}[mov]'", capture.name),
+                            ));
+                        }
+                        // §2.2 capture transfer boundary: `[mov]` consumes the
+                        // outer binding, so later use is a use-after-move.
+                        if let Some(origin) = node_origin(resolved, node) {
+                            typed.mark_binding_moved(outer_symbol, origin);
+                        }
+                        capture_type
+                    }
+                    (None, Some(OwnershipOption::Copy)) => {
+                        // Copy capture: an independent copy crosses the spawn
+                        // boundary and the outer binding stays usable. The value
+                        // must be a `copy` type (§4.1) and thread-safe (V3_PROC).
+                        if decls::type_lacks_copy(typed, capture_type)? {
+                            return Err(with_node_origin(
+                                resolved,
+                                node,
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "copied capture '{}[cpy]' requires a copy type; use '{}[mov]' or '{}[cln]' instead",
+                                    capture.name, capture.name, capture.name
+                                ),
+                            ));
+                        }
+                        if helpers::type_contains_shared_pointer(typed, capture_type) {
+                            return Err(capture_spawn_send_error(
+                                resolved,
+                                node,
+                                &format!("copied capture '{}[cpy]'", capture.name),
+                            ));
+                        }
+                        // A copy leaves the source live: no `mark_binding_moved`.
+                        capture_type
+                    }
+                    (None, Some(OwnershipOption::Clone)) => {
+                        // Clone capture: an independent clone crosses the spawn
+                        // boundary and the outer binding stays usable. The value
+                        // must be clonable (§4.1) and thread-safe (V3_PROC). The
+                        // spawn arg lowers through the same LoadLocal materialization,
+                        // which renders `.clone()` only for a non-move-only value —
+                        // so a move-only value (which LoadLocal would consume via
+                        // `std::mem::take`) is rejected here: it needs `[mov]`.
+                        if bindings::ownership_moves_on_transfer(typed, capture_type) {
+                            return Err(with_node_origin(
+                                resolved,
+                                node,
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "cloned capture '{}[cln]' cannot clone a move-only value; use '{}[mov]' to transfer it",
+                                    capture.name, capture.name
+                                ),
+                            ));
+                        }
+                        if decls::type_lacks_clone(typed, capture_type)? {
+                            return Err(with_node_origin(
+                                resolved,
+                                node,
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "cloned capture '{}[cln]' requires a clonable value",
+                                    capture.name
+                                ),
+                            ));
+                        }
+                        if helpers::type_contains_shared_pointer(typed, capture_type) {
+                            return Err(capture_spawn_send_error(
+                                resolved,
+                                node,
+                                &format!("cloned capture '{}[cln]'", capture.name),
+                            ));
+                        }
+                        // A clone leaves the source live: no `mark_binding_moved`.
+                        capture_type
+                    }
+                    _ => {
+                        // (None, None) is rejected above; any endpoint+operation
+                        // mix is impossible (the parser accepts one bracket form).
+                        return Err(internal_error(
+                            format!(
+                                "capture '{}' carried an unexpected endpoint/operation combination",
+                                capture.name
+                            ),
+                            node_origin(resolved, node),
+                        ));
+                    }
+                };
+                decls::record_symbol_type(typed, capture_symbol, lowered_capture_type)?;
+                lowered_params.push(lowered_capture_type);
             }
             for param in params {
                 let param_type =
@@ -1002,6 +1242,7 @@ fn type_node_with_expectation_inner(
                 repeating_loop_scope: None,
                 inside_deferred_block: false,
                 inside_error_deferred_block: false,
+                field_projection_root: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -1253,40 +1494,6 @@ fn type_node_with_expectation_inner(
         AstNode::FieldAccess { object, field } => {
             access::type_field_access(typed, resolved, context, object, field, expected_type)
         }
-        AstNode::ChannelAccess { channel, endpoint } => {
-            if !typed.capability_model().supports_processor() {
-                return Err(unsupported_node_surface(
-                    resolved,
-                    node,
-                    "channel endpoint access requires hosted std support; declare the bundled internal standard dependency",
-                ));
-            }
-            helpers::require_direct_channel_binding(resolved, context.scope_id, channel)?;
-            if matches!(endpoint, ChannelEndpoint::Rx) {
-                reject_sender_capture_receive(typed, resolved, channel)?;
-            }
-            let channel_raw = type_node(typed, resolved, context, channel)?;
-            let channel_type = plain_value_expr(
-                typed,
-                context,
-                channel_raw,
-                node_origin(resolved, channel),
-                "channel endpoint receiver",
-            )?
-            .required_value("channel endpoint receiver does not have a type")?;
-            let element_type = match endpoint {
-                ChannelEndpoint::Tx => helpers::channel_element_type(typed, channel_type)?,
-                ChannelEndpoint::Rx => helpers::channel_receiver_element_type(typed, channel_type)?,
-            };
-            Ok(match endpoint {
-                ChannelEndpoint::Tx => TypedExpr::value(
-                    typed
-                        .type_table_mut()
-                        .intern(CheckedType::ChannelSender { element_type }),
-                ),
-                ChannelEndpoint::Rx => TypedExpr::value(element_type),
-            })
-        }
         AstNode::IndexAccess { container, index } => {
             if matches!(
                 helpers::strip_comments(container),
@@ -1317,10 +1524,10 @@ fn type_node_with_expectation_inner(
             start.as_deref(),
             end.as_deref(),
         ),
-        AstNode::PatternAccess { .. } => Err(TypecheckError::new(
-            TypecheckErrorKind::Unsupported,
-            "pattern access is not yet supported",
-        )),
+        AstNode::PatternAccess {
+            container,
+            patterns,
+        } => access::type_inner_place_access(typed, resolved, context, container, patterns),
         AstNode::Rolling { .. } => Err(unsupported_node_surface(
             resolved,
             node,
@@ -1661,10 +1868,18 @@ fn type_body_inner(
     nodes: &[AstNode],
     transfer_final_value: bool,
 ) -> Result<TypedExpr, TypecheckError> {
+    // Non-lexical borrow lifetimes (Slice C): a borrow ends at its last use, not
+    // at the end of its lexical scope. Precompute, per borrow-eligible binding,
+    // the index of the last top-level statement in this body that references it;
+    // after that statement completes the loan is released so the owner is usable
+    // again. Uses nested in branches/loops attribute to their enclosing
+    // top-level statement, which keeps the release conservative (a statement is
+    // never split), so this is sound without a full CFG.
+    let last_use = compute_last_statement_use(resolved, nodes);
     let result = (|| {
         let mut final_expr = TypedExpr::none();
         let mut pending_value = None;
-        for node in nodes {
+        for (stmt_index, node) in nodes.iter().enumerate() {
             let node_result = type_node(typed, resolved, context, node);
             if let Some(error) = take_deferred_transfer_error(typed, resolved) {
                 return Err(error);
@@ -1691,6 +1906,7 @@ fn type_body_inner(
                     "statement-position expression",
                 )?;
             }
+            typed.release_scope_borrows_dead_after(context.scope_id, stmt_index, &last_use);
         }
         if !transfer_final_value {
             if let Some((node, expr)) = pending_value {
@@ -1713,6 +1929,52 @@ fn type_body_inner(
     result
 }
 
+/// For each symbol referenced anywhere in `nodes`, record the highest index of
+/// a top-level statement that references it. This is the last-use frontier used
+/// to release non-lexical borrows (Slice C); a use nested inside a branch or
+/// loop is attributed to the enclosing top-level statement.
+fn compute_last_statement_use(
+    resolved: &ResolvedProgram,
+    nodes: &[AstNode],
+) -> BTreeMap<SymbolId, usize> {
+    fn collect(
+        node: &AstNode,
+        resolved: &ResolvedProgram,
+        out: &mut std::collections::BTreeSet<SymbolId>,
+    ) {
+        if let AstNode::Identifier {
+            syntax_id: Some(syntax_id),
+            ..
+        } = node
+        {
+            if let Some(symbol) = resolved
+                .references
+                .iter()
+                .find(|reference| {
+                    reference.syntax_id == Some(*syntax_id)
+                        && reference.kind == ReferenceKind::Identifier
+                })
+                .and_then(|reference| reference.resolved)
+            {
+                out.insert(symbol);
+            }
+        }
+        for child in node.children() {
+            collect(child, resolved, out);
+        }
+    }
+
+    let mut last_use = BTreeMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let mut symbols = std::collections::BTreeSet::new();
+        collect(node, resolved, &mut symbols);
+        for symbol in symbols {
+            last_use.insert(symbol, index);
+        }
+    }
+    last_use
+}
+
 fn reject_discarded_body_expr(
     typed: &TypedProgram,
     resolved: &ResolvedProgram,
@@ -1725,10 +1987,68 @@ fn reject_discarded_body_expr(
             "statement-position expression",
         )?;
     }
+    // A channel send yields a must-handle `err[T]` (V3_MEM §8.2). A bare send in
+    // statement position silently drops that result — and with it the unsent
+    // payload on a closed receiver — so it is rejected. Bind it (`var sent:
+    // err[T] = ...`), inspect it with `when ... on ... *`, or propagate it.
+    if is_channel_send_node(node) {
+        return Err(node_origin(resolved, node).map_or_else(
+            || {
+                TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    "a channel send returns a must-handle 'err[T]'; bind it, inspect it with 'when ... on ... *', or propagate it instead of discarding the unsent payload",
+                )
+            },
+            |origin| {
+                TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    "a channel send returns a must-handle 'err[T]'; bind it, inspect it with 'when ... on ... *', or propagate it instead of discarding the unsent payload",
+                    origin,
+                )
+            },
+        ));
+    }
     if let Some(actual) = expr.value_type {
         helpers::reject_discarded_recoverable_eventual(typed, actual, node_origin(resolved, node))?;
     }
     Ok(())
+}
+
+/// A `value | channel[tx]` channel-send expression (ignoring comment wrappers).
+/// A capture crossing a spawn boundary must be thread-safe; a value that
+/// contains shared `Rc` pointers cannot. `subject` names the offending capture
+/// (e.g. `moved capture 'data[mov]'`).
+fn capture_spawn_send_error(
+    resolved: &ResolvedProgram,
+    node: &AstNode,
+    subject: &str,
+) -> TypecheckError {
+    let message = format!(
+        "{subject} carries values containing shared Rc pointers and cannot cross a spawn boundary"
+    );
+    node_origin(resolved, node).map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+        |origin| {
+            TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+        },
+    )
+}
+
+fn is_channel_send_node(node: &AstNode) -> bool {
+    matches!(
+        helpers::strip_comments(node),
+        AstNode::BinaryOp {
+            op: fol_parser::ast::BinaryOperator::Pipe,
+            right,
+            ..
+        } if matches!(
+            helpers::strip_comments(right),
+            AstNode::ChannelAccess {
+                endpoint: fol_parser::ast::ChannelEndpoint::Tx,
+                ..
+            }
+        )
+    )
 }
 
 fn take_deferred_transfer_error(

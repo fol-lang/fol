@@ -1,0 +1,27 @@
+// A lifetime-scoped mutex guard value cannot cross an await boundary
+// (V3_PROC / V3_MEM §8.3). Holding the guard live while awaiting an eventual
+// is rejected rather than attempting incomplete static deadlock analysis; end
+// the guard (scope exit or `[end]guard`) before the await.
+
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+fun[] worker(): int = {
+    return 5;
+};
+
+fun[] bump(state: mux[Counter]): int = {
+    var[mut, bor] guard: Counter = ([bor]state).lock();
+    var pending: evt[worker, int] = worker() | async;
+    var got: int = pending | await;
+    guard.value = guard.value + got;
+    return guard.value;
+};
+
+fun[] main(): int = {
+    var counter: Counter = { value = 41 };
+    return bump(counter);
+};

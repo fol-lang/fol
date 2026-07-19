@@ -1,6 +1,6 @@
 fun[] main(): int = {
     var value: int = 7;
-    var first: ptr[shared, int] = &value;
+    var first: ptr[shared, int] = [ref]value;
     var second: ptr[shared, int] = first;
-    return *first + *second;
+    return [drf]first + [drf]second;
 };

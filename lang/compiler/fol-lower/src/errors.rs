@@ -143,10 +143,7 @@ mod tests {
                 .line,
             4
         );
-        assert_eq!(
-            error.to_string(),
-            "typed lowering input was incomplete"
-        );
+        assert_eq!(error.to_string(), "typed lowering input was incomplete");
     }
 
     #[test]

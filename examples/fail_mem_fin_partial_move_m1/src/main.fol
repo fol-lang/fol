@@ -1,0 +1,21 @@
+// A 'fin' value must be moved whole-value; partially moving one field out of it
+// is rejected (V3_MEM Slice D). The finalizer needs the complete value, so the
+// aggregate cannot be dismantled field by field.
+
+typ Inner: rec = { n: int };
+typ Resource()(fin): rec = { held: @Inner, tag: int };
+
+fun (Resource) fin(): non = {
+    return;
+};
+
+fun[] consume(v: @Inner): int = {
+    return 1;
+};
+
+fun[] main(): int = {
+    @var boxed: Inner = { n = 5 };
+    var[mut] res: Resource = { held = [mov]boxed, tag = 9 };
+    var taken: int = consume([mov]res.held);
+    return taken + res.tag;
+};

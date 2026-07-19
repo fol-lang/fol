@@ -4,7 +4,11 @@ impl AstParser {
     pub(super) fn fol_type_label(typ: &FolType) -> String {
         match typ {
             FolType::Limited { base, .. } => Self::fol_type_label(base),
-            FolType::Channel { .. } => "chn".to_string(),
+            FolType::Channel { .. }
+            | FolType::ChannelSender { .. }
+            | FolType::ChannelReceiver { .. } => "chn".to_string(),
+            FolType::Eventual { .. } => "evt".to_string(),
+            FolType::Mutex { .. } => "mux".to_string(),
             FolType::Named { name, .. } => name.clone(),
             FolType::QualifiedNamed { path } => path.joined(),
             FolType::Package { name } => {
@@ -238,14 +242,8 @@ impl AstParser {
                 });
             }
         }
-        if !path.is_qualified() && base_name == "url" {
-            return Err(ParseError::from_token(
-                &token,
-                "Legacy source kind 'url' was removed; use 'pkg' instead".to_string(),
-            ));
-        }
-
         let mut has_suffix = false;
+        let mut borrow: Option<(bool, Option<String>)> = None;
         for _ in 0..32 {
             self.skip_ignorable(tokens)?;
             let open = match tokens.curr(false) {
@@ -264,7 +262,16 @@ impl AstParser {
                 break;
             }
 
+            // A `[bor]` / `[mut, bor]` / `[bor=L]` suffix is a borrow annotation
+            // that wraps the whole base type, not a type-specific option.
+            if let Some(parsed) = self.try_parse_borrow_type_suffix(tokens)? {
+                borrow = Some(parsed);
+                has_suffix = true;
+                continue;
+            }
+
             if let Some(parsed) = self.try_parse_special_type_suffix(tokens, &base_name)? {
+                let parsed = self.wrap_borrowed_type(parsed, borrow.take());
                 return self.parse_trailing_type_limits(tokens, parsed);
             }
 
@@ -304,6 +311,86 @@ impl AstParser {
             }
         };
 
+        let base_type = self.wrap_borrowed_type(base_type, borrow);
         self.parse_trailing_type_limits(tokens, base_type)
+    }
+
+    /// Wrap a type in a borrow annotation when a `[bor]` suffix was parsed.
+    fn wrap_borrowed_type(
+        &self,
+        inner: FolType,
+        borrow: Option<(bool, Option<String>)>,
+    ) -> FolType {
+        match borrow {
+            Some((mutable, lifetime)) => FolType::Borrowed {
+                inner: Box::new(inner),
+                lifetime,
+                mutable,
+            },
+            None => inner,
+        }
+    }
+
+    /// Parse a `[bor]` / `[mut, bor]` / `[bor=L]` borrow annotation suffix.
+    /// Returns `(mutable, lifetime)` when the bracket holds a borrow option, and
+    /// consumes it; returns `None` (consuming nothing) otherwise.
+    fn try_parse_borrow_type_suffix(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<Option<(bool, Option<String>)>, ParseError> {
+        let first = tokens.peek(0, true)?;
+        let first_text = first.con().trim();
+        if first_text != "bor" && first_text != "mut" {
+            return Ok(None);
+        }
+        let _ = tokens.bump(); // consume '['
+        self.skip_ignorable(tokens)?;
+        let mut mutable = false;
+        let mut token = tokens.curr(false)?;
+        if token.con().trim() == "mut" {
+            mutable = true;
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let separator = tokens.curr(false)?;
+            if !matches!(
+                separator.key(),
+                KEYWORD::Symbol(SYMBOL::Comma) | KEYWORD::Symbol(SYMBOL::Semi)
+            ) {
+                return Err(ParseError::from_token(
+                    &separator,
+                    "Expected ',' after 'mut' in a '[mut, bor]' borrow type option".to_string(),
+                ));
+            }
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            token = tokens.curr(false)?;
+        }
+        if token.con().trim() != "bor" {
+            return Err(ParseError::from_token(
+                &token,
+                "Expected 'bor' in a borrow type option".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+        let mut lifetime = None;
+        let after = tokens.curr(false)?;
+        if matches!(after.key(), KEYWORD::Symbol(SYMBOL::Equal)) || after.con().trim() == "=" {
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let name = tokens.curr(false)?;
+            lifetime = Some(name.con().trim().to_string());
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+        }
+        let close = tokens.curr(false)?;
+        if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+            return Err(ParseError::from_token(
+                &close,
+                "Expected ']' to close a borrow type option".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        Ok(Some((mutable, lifetime)))
     }
 }

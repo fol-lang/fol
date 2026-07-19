@@ -20,7 +20,7 @@ fn test_spawn_routine_call_expression_parsing() {
                         if body.iter().any(|stmt| matches!(
                             stmt,
                             AstNode::Return { value: Some(value) }
-                                if matches!(value.as_ref(), AstNode::Spawn { task }
+                                if matches!(value.as_ref(), AstNode::Spawn { task, .. }
                                     if matches!(task.as_ref(), AstNode::FunctionCall { name, .. } if name == "doItFast"))
                         ))
                 )
@@ -32,9 +32,8 @@ fn test_spawn_routine_call_expression_parsing() {
 
 #[test]
 fn test_spawn_anonymous_function_expression_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_spawn_anonymous_fun.fol")
-            .expect("Should read spawn anonymous function fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_spawn_anonymous_fun.fol")
+        .expect("Should read spawn anonymous function fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -51,7 +50,7 @@ fn test_spawn_anonymous_function_expression_parsing() {
                         if body.iter().any(|stmt| matches!(
                             stmt,
                             AstNode::Return { value: Some(value) }
-                                if matches!(value.as_ref(), AstNode::Spawn { task }
+                                if matches!(value.as_ref(), AstNode::Spawn { task, .. }
                                     if matches!(task.as_ref(), AstNode::AnonymousFun { .. }))
                         ))
                 )

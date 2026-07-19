@@ -1,9 +1,9 @@
-use super::helpers::{
-    hosted_sample_package_root, open_document, sample_loc_workspace_root, sample_package_root,
-};
 use super::super::{
     EditorLspServer, JsonRpcId, JsonRpcRequest, LspCompletionList, LspCompletionParams,
     LspPosition, LspTextDocumentIdentifier,
+};
+use super::helpers::{
+    hosted_sample_package_root, open_document, sample_loc_workspace_root, sample_package_root,
 };
 use crate::EditorConfig;
 use std::fs;
@@ -40,8 +40,7 @@ fn lsp_server_returns_current_package_top_level_completions() {
         .unwrap()
         .unwrap();
 
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     assert!(completion.items.iter().any(|item| item.label == "helper"));
     assert!(
         completion
@@ -82,8 +81,7 @@ fn lsp_server_returns_import_alias_completions() {
         .unwrap()
         .unwrap();
 
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     assert!(completion.items.iter().any(|item| item.label == "shared"));
     assert!(
         completion
@@ -129,8 +127,7 @@ fn lsp_server_prefers_nearer_symbols_when_completion_names_conflict() {
         .unwrap()
         .unwrap();
 
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     let helpers = completion
         .items
         .iter()
@@ -174,8 +171,7 @@ fn lsp_server_locks_plain_completion_to_local_package_and_import_alias_symbols()
         .unwrap()
         .unwrap();
 
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     let labels = completion
         .items
         .iter()
@@ -277,8 +273,7 @@ fn lsp_server_locks_completion_item_labels_kinds_and_order() {
         .unwrap()
         .unwrap();
 
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     // Language keywords (kind 14) are appended after the resolver-backed
     // symbols and are asserted separately; lock the symbol shape/order here.
     let summary = completion
@@ -409,7 +404,10 @@ fn lsp_server_offers_language_keywords_in_plain_completion() {
         .items;
     for keyword in ["fun", "var", "typ", "return", "if", "dfr", "true", "check"] {
         let item = items.iter().find(|item| item.label == keyword);
-        assert!(item.is_some(), "keyword '{keyword}' should be offered: {items:?}");
+        assert!(
+            item.is_some(),
+            "keyword '{keyword}' should be offered: {items:?}"
+        );
         assert_eq!(
             item.unwrap().kind,
             14,

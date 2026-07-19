@@ -124,8 +124,17 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::StoreLocal { local, value } => {
             let target = render_local_name(package_identity, routine, *local)?;
+            // Target-directed construction of a `mux[T]` local wraps the inner
+            // value in a fresh managed mutex (V3_MEM §8.3). Storing an existing
+            // mutex handle (already a `FolMutex`) is passed through unchanged.
+            let wrap_mutex =
+                routine.mutex_params.contains(local) && !routine.mutex_params.contains(value);
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
-            Ok(format!("{target} = {value};"))
+            if wrap_mutex {
+                Ok(format!("{target} = rt::FolMutex::from_value({value});"))
+            } else {
+                Ok(format!("{target} = {value};"))
+            }
         }
         LoweredInstrKind::DropLocal { local } => {
             let local = render_local_name(package_identity, routine, *local)?;
@@ -215,13 +224,24 @@ pub fn render_core_instruction_in_workspace(
                 None => Ok(format!("{callee_name}({rendered_args});")),
             }
         }
-        LoweredInstrKind::SpawnCall { callee, args } => {
+        LoweredInstrKind::SpawnCall {
+            callee,
+            args,
+            detached,
+        } => {
             let (callee_identity, callee_decl) = resolve_routine_decl(workspace, *callee)?;
             let rendered_args =
                 render_call_arguments(type_table, package_identity, routine, callee_decl, args)?;
             let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;
+            // A detached task is spawned without a join handle, so it is not
+            // joined at scope or process exit (V3_PROC).
+            let spawn_fn = if *detached {
+                "spawn_detached"
+            } else {
+                "spawn_task"
+            };
             Ok(format!(
-                "rt::spawn_task(move || {{ let _ = {callee_name}({rendered_args}); }});"
+                "rt::{spawn_fn}(move || {{ let _ = {callee_name}({rendered_args}); }});"
             ))
         }
         LoweredInstrKind::AsyncCall { callee, args, .. } => {
@@ -246,17 +266,22 @@ pub fn render_core_instruction_in_workspace(
                 "{result} = {channel}.acquire_sender().expect(\"channel transmitter must be acquired before receiver use\");"
             ))
         }
+        LoweredInstrKind::ChannelReceiver { channel } => {
+            let result = rendered_result_local(package_identity, routine, instruction)?;
+            let channel = render_local_name(package_identity, routine, *channel)?;
+            Ok(format!(
+                "{result} = {channel}.acquire_receiver().expect(\"channel receiver must be transferred before it is received on again\");"
+            ))
+        }
         LoweredInstrKind::ChannelSend { channel, value } => {
+            // A send yields a must-handle `err[T]`: `nil` on delivery, or the
+            // unsent payload wrapped as an error when the receiver has closed.
+            let result = rendered_result_local(package_identity, routine, instruction)?;
             let channel = render_local_name(package_identity, routine, *channel)?;
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
             Ok(format!(
-                "{channel}.send({value}).unwrap_or_else(|_| panic!(\"channel send requires an open receiver\"));"
+                "{result} = match {channel}.send({value}) {{ Ok(()) => rt::FolError::nil(), Err(__fol_unsent) => rt::FolError::new(__fol_unsent) }};"
             ))
-        }
-        LoweredInstrKind::ChannelReceive { channel } => {
-            let result = rendered_result_local(package_identity, routine, instruction)?;
-            let channel = render_local_name(package_identity, routine, *channel)?;
-            Ok(format!("{result} = {channel}.receive();"))
         }
         LoweredInstrKind::ChannelReceiveOptional { channel } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -286,8 +311,18 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::OptionalHasValue { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
+            // This is the shell-present test behind `when ... on ... *`. An
+            // `opt[T]` is present when it is `some`; an `err[T]` shell is present
+            // when it holds a stored error (`nil` means no error).
+            let is_error_shell = routine
+                .locals
+                .get(*operand)
+                .and_then(|local| local.type_id)
+                .and_then(|type_id| type_table.get(type_id))
+                .is_some_and(|ty| matches!(ty, LoweredType::Error { .. }));
             let operand = render_local_name(package_identity, routine, *operand)?;
-            Ok(format!("{result} = {operand}.is_some();"))
+            let probe = if is_error_shell { "is_err" } else { "is_some" };
+            Ok(format!("{result} = {operand}.{probe}();"))
         }
         LoweredInstrKind::FieldAccess { base, field } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
@@ -440,11 +475,25 @@ pub fn render_core_instruction_in_workspace(
             let value = render_local_name(package_identity, routine, *value)?;
             Ok(format!("{result} = *{value};"))
         }
-        LoweredInstrKind::ConstructBorrow { owner, mutable, .. } => {
+        LoweredInstrKind::ConstructBorrow {
+            owner: owner_id,
+            mutable,
+            ..
+        } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            let owner = render_local_name(package_identity, routine, *owner)?;
+            let owner = render_local_name(package_identity, routine, *owner_id)?;
+            // A reborrow (owner is itself a borrow / Rust reference) must
+            // reborrow through it (`&*owner`), not take a reference to the
+            // reference (`&owner`).
+            let owner_is_borrow = routine
+                .locals
+                .get(*owner_id)
+                .and_then(|local| local.type_id)
+                .and_then(|type_id| type_table.get(type_id))
+                .is_some_and(|ty| matches!(ty, LoweredType::Borrowed { .. }));
+            let deref = if owner_is_borrow { "*" } else { "" };
             Ok(format!(
-                "{result} = &{}{owner};",
+                "{result} = &{}{deref}{owner};",
                 if *mutable { "mut " } else { "" }
             ))
         }
@@ -453,12 +502,47 @@ pub fn render_core_instruction_in_workspace(
             let borrow = render_local_name(package_identity, routine, *borrow)?;
             Ok(format!("{result} = (*{borrow}).clone();"))
         }
-        LoweredInstrKind::ConstructPointer { value, shared, .. } => {
+        LoweredInstrKind::ConstructPointer {
+            value,
+            shared,
+            type_id,
+        } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
+            let sync = matches!(
+                type_table.get(*type_id),
+                Some(LoweredType::Pointer { sync: true, .. })
+            );
+            let constructor = if *shared && sync {
+                "std::sync::Arc"
+            } else if *shared {
+                "std::rc::Rc"
+            } else {
+                "Box"
+            };
+            Ok(format!("{result} = {constructor}::new({value});"))
+        }
+        LoweredInstrKind::WeakDowngrade { pointer, type_id } => {
+            let result = rendered_result_local(package_identity, routine, instruction)?;
+            let pointer = render_local_name(package_identity, routine, *pointer)?;
+            // The weak handle's own type is `ptr[weak, ...]`; whether it is an
+            // `Arc`/`Rc` downgrade follows its `sync` flag.
+            let sync = matches!(
+                type_table.get(*type_id),
+                Some(LoweredType::Pointer { sync: true, .. })
+            );
+            let origin = if sync {
+                "std::sync::Arc"
+            } else {
+                "std::rc::Rc"
+            };
+            Ok(format!("{result} = {origin}::downgrade(&{pointer});"))
+        }
+        LoweredInstrKind::WeakUpgrade { pointer, .. } => {
+            let result = rendered_result_local(package_identity, routine, instruction)?;
+            let pointer = render_local_name(package_identity, routine, *pointer)?;
             Ok(format!(
-                "{result} = {}::new({value});",
-                if *shared { "std::rc::Rc" } else { "Box" }
+                "{result} = match {pointer}.upgrade() {{ std::option::Option::Some(v) => rt::FolOption::Some(v), std::option::Option::None => rt::FolOption::Nil }};"
             ))
         }
         LoweredInstrKind::DerefPointer { pointer, consuming } => {
@@ -521,9 +605,8 @@ pub fn render_core_instruction_in_workspace(
                         render_transfer_expr(type_table, package_identity, routine, *value)?;
                     format!("rt::FolError::new({value})")
                 }
-                // Leave the payload type to inference from the assignment
-                // target, exactly like FolOption::nil().
-                None => "rt::FolError::default()".to_string(),
+                // `nil` error shell: no stored error (the success state).
+                None => "rt::FolError::nil()".to_string(),
             };
             Ok(format!("{result} = {expression};"))
         }
@@ -829,7 +912,7 @@ pub fn render_core_instruction_in_workspace(
             if !callee_decl.mutex_params.is_empty() {
                 return Err(BackendError::new(
                     BackendErrorKind::Unsupported,
-                    "routines with [mux] parameters cannot be emitted as first-class routine references",
+                    "routines with mux[T] parameters cannot be emitted as first-class routine references",
                 ));
             }
             let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;

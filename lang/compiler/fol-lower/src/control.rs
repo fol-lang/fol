@@ -109,6 +109,9 @@ pub enum LoweredInstrKind {
     SpawnCall {
         callee: LoweredRoutineId,
         args: Vec<LoweredLocalId>,
+        /// True for a `[spn, det]` detached task: the backend spawns it without
+        /// registering a join handle, so it is not joined at scope/process exit.
+        detached: bool,
     },
     AsyncCall {
         callee: LoweredRoutineId,
@@ -122,12 +125,13 @@ pub enum LoweredInstrKind {
     ChannelSender {
         channel: LoweredLocalId,
     },
+    /// Transfer a channel's unique receiver as a first-class `chn[rx, T]` value.
+    ChannelReceiver {
+        channel: LoweredLocalId,
+    },
     ChannelSend {
         channel: LoweredLocalId,
         value: LoweredLocalId,
-    },
-    ChannelReceive {
-        channel: LoweredLocalId,
     },
     ChannelReceiveOptional {
         channel: LoweredLocalId,
@@ -204,6 +208,18 @@ pub enum LoweredInstrKind {
         type_id: LoweredTypeId,
         value: LoweredLocalId,
         shared: bool,
+    },
+    /// `[weak]shared`: downgrade a shared pointer to a weak handle
+    /// (`std::rc::Rc::downgrade`).
+    WeakDowngrade {
+        type_id: LoweredTypeId,
+        pointer: LoweredLocalId,
+    },
+    /// `[upg]weak`: upgrade a weak handle to an optional shared pointer
+    /// (`std::rc::Weak::upgrade`).
+    WeakUpgrade {
+        type_id: LoweredTypeId,
+        pointer: LoweredLocalId,
     },
     DerefPointer {
         pointer: LoweredLocalId,

@@ -46,7 +46,6 @@ fn test_mutable_binding_alternative_parses_top_level() {
                     AstNode::VarDecl { name, options, .. }
                     if name == "counter"
                         && options.contains(&fol_parser::ast::VarOption::Mutable)
-                        && !options.contains(&fol_parser::ast::VarOption::Immutable)
                 )
             }));
         }
@@ -390,7 +389,7 @@ fn test_binding_alternative_composes_with_mutability_options() {
 }
 
 #[test]
-fn test_binding_alternative_composes_with_visibility_options() {
+fn test_mutable_binding_alternative_composes_with_export() {
     let mut file_stream = FileStream::from_file("test/parser/simple_tilde_var_exp.fol")
         .expect("Should read ~var[exp] fixture");
 

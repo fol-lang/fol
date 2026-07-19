@@ -802,11 +802,21 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<AstNode, ParseError> {
-        let dereference = tokens
+        let star = tokens
             .curr(false)
             .ok()
             .is_some_and(|token| matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)));
-        if dereference {
+        let bracket = self.peek_is_deref_bracket(tokens);
+        let dereference = star || bracket;
+        if star {
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+        } else if bracket {
+            // Consume the `[drf]` deref bracket op (`[`, `drf`, `]`).
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
             let _ = tokens.bump();
             self.skip_ignorable(tokens)?;
         }

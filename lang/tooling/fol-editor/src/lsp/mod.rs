@@ -74,6 +74,46 @@ fn identifier_positions_before(line: &str, before: usize) -> Vec<u32> {
     positions
 }
 
+/// For a `mux` keyword in a `name: mux[T]` parameter type (V3_MEM §8.3), find
+/// the binding name that precedes the `:` and return its column + text so a
+/// hover over `mux` can resolve the mutex-guarded binding.
+fn mux_type_operand(line: &str, role_span: &(usize, usize, String)) -> Option<(u32, String)> {
+    let chars = line.chars().collect::<Vec<_>>();
+    let (role_start, role_end, role) = role_span;
+    if role != "mux" {
+        return None;
+    }
+    // `mux` must be immediately followed by `[`.
+    let mut cursor = *role_end;
+    while cursor < chars.len() && chars[cursor].is_whitespace() {
+        cursor += 1;
+    }
+    if cursor >= chars.len() || chars[cursor] != '[' {
+        return None;
+    }
+    // Walk back over `:` and whitespace to the binding name.
+    cursor = *role_start;
+    while cursor > 0 && chars[cursor - 1].is_whitespace() {
+        cursor -= 1;
+    }
+    if cursor == 0 || chars[cursor - 1] != ':' {
+        return None;
+    }
+    cursor -= 1;
+    while cursor > 0 && chars[cursor - 1].is_whitespace() {
+        cursor -= 1;
+    }
+    let operand_end = cursor;
+    while cursor > 0 && (chars[cursor - 1].is_alphanumeric() || chars[cursor - 1] == '_') {
+        cursor -= 1;
+    }
+    if cursor == operand_end {
+        return None;
+    }
+    let operand = chars[cursor..operand_end].iter().collect::<String>();
+    Some((cursor as u32, operand))
+}
+
 fn bracket_role_operand(
     line: &str,
     role_span: &(usize, usize, String),
@@ -818,7 +858,8 @@ impl EditorLspServer {
             hit = current_line
                 .zip(word_span.as_ref())
                 .and_then(|(line, role_span)| {
-                    let (character, operand) = bracket_role_operand(line, role_span, true)?;
+                    // `name: mux[T]` (the current spelling).
+                    let (character, operand) = mux_type_operand(line, role_span)?;
                     snapshot.hover_for_mutex_binding(
                         LspPosition {
                             line: position.line,
@@ -911,20 +952,27 @@ impl EditorLspServer {
                     )
                 });
         }
-        let deref_at_position = current_line.is_some_and(|line| {
-            line.chars()
-                .nth(position.character as usize)
-                .is_some_and(|character| character == '*')
+        // The deref op is the bracket form `[drf]operand`; a hover anywhere on
+        // the `[drf]` marker resolves the dereference of the operand after `]`.
+        let deref_operand_char = current_line.and_then(|line| {
+            line.match_indices("[drf]")
+                .find_map(|(byte_offset, marker)| {
+                    let start = line[..byte_offset].chars().count() as u32;
+                    let end = start + marker.chars().count() as u32;
+                    (position.character >= start && position.character <= end).then_some(end)
+                })
         });
-        if hit.is_none() && raw_fallback_allowed && deref_at_position {
-            hit = current_line
-                .and_then(|line| identifier_position_after(line, position.character as usize + 1))
-                .and_then(|character| {
-                    snapshot.hover_for_dereference(LspPosition {
-                        line: position.line,
-                        character,
-                    })
-                });
+        if hit.is_none() && raw_fallback_allowed {
+            if let Some(operand_char) = deref_operand_char {
+                hit = current_line
+                    .and_then(|line| identifier_position_after(line, operand_char as usize))
+                    .and_then(|character| {
+                        snapshot.hover_for_dereference(LspPosition {
+                            line: position.line,
+                            character,
+                        })
+                    });
+            }
         }
         let owned_type_site = document
             .text

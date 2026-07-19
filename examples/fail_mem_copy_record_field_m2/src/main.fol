@@ -1,0 +1,16 @@
+// `[cpy]` requires the `copy` capability (V3_MEM §4.1). A record is not
+// copy-safe when a field is move-only (here a unique pointer), so copying the
+// whole record is rejected; transfer it with `[mov]` instead.
+typ Handle: rec = {
+    link: ptr[int],
+};
+
+fun[] take(handle: Handle): int = {
+    return 0;
+};
+
+fun[] main(): int = {
+    var value: int = 7;
+    var handle: Handle = { link = [ref]value };
+    return take([cpy]handle);
+};

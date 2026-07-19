@@ -20,9 +20,7 @@ pub fn available_bundled_std_root() -> Option<PathBuf> {
 pub fn effective_std_root(explicit: Option<&str>) -> Option<String> {
     explicit
         .map(str::to_string)
-        .or_else(|| {
-            available_bundled_std_root().map(|path| path.to_string_lossy().to_string())
-        })
+        .or_else(|| available_bundled_std_root().map(|path| path.to_string_lossy().to_string()))
 }
 
 impl PackageConfig {

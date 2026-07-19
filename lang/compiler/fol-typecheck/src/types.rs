@@ -186,6 +186,9 @@ pub enum CheckedType {
     ChannelSender {
         element_type: CheckedTypeId,
     },
+    ChannelReceiver {
+        element_type: CheckedTypeId,
+    },
     Eventual {
         value_type: CheckedTypeId,
         error_type: Option<CheckedTypeId>,
@@ -203,6 +206,12 @@ pub enum CheckedType {
     Pointer {
         target: CheckedTypeId,
         shared: bool,
+        /// A `ptr[weak, T]` weak handle (`std::rc::Weak<T>`): does not keep the
+        /// shared allocation alive; created with `[weak]`, read via `[upg]`.
+        weak: bool,
+        /// A `ptr[shared, sync, T]` uses an `Arc` and is thread-safe, so it may
+        /// cross task boundaries; `Rc`-backed shared/weak pointers cannot.
+        sync: bool,
     },
     Error {
         inner: Option<CheckedTypeId>,
@@ -274,18 +283,21 @@ impl TypeTable {
                 format!("chn[{}]", self.render_type(*element_type))
             }
             Some(CheckedType::ChannelSender { element_type }) => {
-                format!("chn[{}][tx]", self.render_type(*element_type))
+                format!("chn[tx, {}]", self.render_type(*element_type))
+            }
+            Some(CheckedType::ChannelReceiver { element_type }) => {
+                format!("chn[rx, {}]", self.render_type(*element_type))
             }
             Some(CheckedType::Eventual {
                 value_type,
                 error_type,
             }) => match error_type {
                 Some(error_type) => format!(
-                    "<eventual {}/{}>",
+                    "evt[{} / {}]",
                     self.render_type(*value_type),
                     self.render_type(*error_type)
                 ),
-                None => format!("<eventual {}>", self.render_type(*value_type)),
+                None => format!("evt[{}]", self.render_type(*value_type)),
             },
             Some(CheckedType::Optional { inner }) => {
                 format!("opt[{}]", self.render_type(*inner))
@@ -300,8 +312,17 @@ impl TypeTable {
                     format!("bor[{}]", self.render_type(*inner))
                 }
             }
-            Some(CheckedType::Pointer { target, shared }) => {
-                if *shared {
+            Some(CheckedType::Pointer {
+                target,
+                shared,
+                weak,
+                sync,
+            }) => {
+                if *weak {
+                    format!("ptr[weak, {}]", self.render_type(*target))
+                } else if *shared && *sync {
+                    format!("ptr[shared, sync, {}]", self.render_type(*target))
+                } else if *shared {
                     format!("ptr[shared, {}]", self.render_type(*target))
                 } else {
                     format!("ptr[{}]", self.render_type(*target))

@@ -165,6 +165,17 @@ pub enum AstNode {
         operand: Box<AstNode>,
     },
 
+    /// Canonical V3 ownership operation: `[opt, ...]operand`, e.g. `[mov]value`,
+    /// `[cpy]point`, `[cln]job`, `[bor]owner`, `[mut, bor]owner`,
+    /// `[new, mov]value`, `[weak]shared`, `[upg]weak`, `[fin]value`. The option
+    /// list is normalized to the canonical operation enum; long aliases parse to
+    /// the same values.
+    OwnershipOp {
+        syntax_id: Option<SyntaxNodeId>,
+        options: Vec<crate::ast::options::OwnershipOption>,
+        operand: Box<AstNode>,
+    },
+
     /// Function call: function_name(args) or function_name[TypeArgs](args)
     FunctionCall {
         syntax_id: Option<SyntaxNodeId>,
@@ -199,9 +210,13 @@ pub enum AstNode {
     /// Processor pipe stage: await
     AwaitStage,
 
-    /// Coroutine spawn expression: [>]expr
+    /// Scoped/detached spawn expression: `[spn]expr` / `[>]expr` (scoped,
+    /// exit-joined) or `[spn, det]expr` (detached, not exit-joined).
     Spawn {
         task: Box<AstNode>,
+        /// True for `[spn, det]`: the task is detached and not joined at scope
+        /// or process exit.
+        detached: bool,
     },
 
     /// General invocation: callee(args)
@@ -481,6 +496,7 @@ impl AstNode {
             | AstNode::Edf { syntax_id, .. }
             | AstNode::Loop { syntax_id, .. }
             | AstNode::Select { syntax_id, .. }
+            | AstNode::OwnershipOp { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,
             AstNode::Commented { node, .. } => node.syntax_id(),
             _ => None,
@@ -581,6 +597,18 @@ impl AstNode {
                     }
                 }
             },
+            AstNode::OwnershipOp {
+                options, operand, ..
+            } => {
+                let inner = operand.syntactic_type_hint();
+                if options.contains(&crate::ast::options::OwnershipOption::New) {
+                    inner.map(|t| FolType::Owned { inner: Box::new(t) })
+                } else {
+                    // Move/copy/clone/finalize keep the operand's apparent type;
+                    // borrow/weak/upgrade have no simple syntactic hint.
+                    inner
+                }
+            }
             AstNode::Invoke { callee, .. } => {
                 if let Some(FolType::Function { return_type, .. }) = callee.syntactic_type_hint() {
                     Some(*return_type)
@@ -591,7 +619,7 @@ impl AstNode {
             AstNode::NamedArgument { value, .. } => value.syntactic_type_hint(),
             AstNode::Unpack { value } => value.syntactic_type_hint(),
             AstNode::AsyncStage | AstNode::AwaitStage => None,
-            AstNode::Spawn { task } => task.syntactic_type_hint(),
+            AstNode::Spawn { task, .. } => task.syntactic_type_hint(),
             AstNode::AnonymousFun {
                 params,
                 return_type,
@@ -675,6 +703,9 @@ impl AstNode {
             AstNode::UnaryOp { operand, .. } => {
                 vec![operand.as_ref()]
             }
+            AstNode::OwnershipOp { operand, .. } => {
+                vec![operand.as_ref()]
+            }
             AstNode::NamedArgument { value, .. } => {
                 vec![value.as_ref()]
             }
@@ -682,7 +713,7 @@ impl AstNode {
                 vec![value.as_ref()]
             }
             AstNode::AsyncStage | AstNode::AwaitStage => vec![],
-            AstNode::Spawn { task } => vec![task.as_ref()],
+            AstNode::Spawn { task, .. } => vec![task.as_ref()],
             AstNode::FunctionCall { args, .. } | AstNode::QualifiedFunctionCall { args, .. } => {
                 args.iter().collect()
             }

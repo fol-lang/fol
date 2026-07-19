@@ -1781,13 +1781,13 @@ mod tests {
             "typ Item: rec = { value: int };\n",
             "fun[] main(): int = {\n",
             "    @var owned: Item = { value = 7 };\n",
-            "    @var forwarded_owned: Item = forward(owned);\n",
+            "    @var forwarded_owned: Item = forward([mov]owned);\n",
             "    var seed: int = 11;\n",
-            "    var pointer: ptr[int] = &seed;\n",
-            "    var forwarded_pointer: ptr[int] = forward(pointer);\n",
+            "    var pointer: ptr[int] = [ref]seed;\n",
+            "    var forwarded_pointer: ptr[int] = forward([mov]pointer);\n",
             "    var scalar: int = 3;\n",
             "    var forwarded_scalar: int = forward(scalar);\n",
-            "    return forwarded_owned.value + *forwarded_pointer + scalar + forwarded_scalar;\n",
+            "    return forwarded_owned.value + [drf]forwarded_pointer + scalar + forwarded_scalar;\n",
             "};\n",
         );
         let fixture_root = temp_root("generic_transfer");
@@ -1881,13 +1881,13 @@ mod tests {
     fn executable_backend_preserves_move_only_mux_identity_when_forwarded() {
         let output = build_and_run_fixture(concat!(
             "typ Counter: rec = { marker: ptr[int], value: int };\n",
-            "fun[] update(counter[mux]: Counter): int = {\n",
+            "fun[] update(counter: mux[Counter]): int = {\n",
             "    counter.lock();\n",
             "    counter.value = 42;\n",
             "    counter.unlock();\n",
             "    return 0;\n",
             "};\n",
-            "fun[] forward(counter[mux]: Counter): int = {\n",
+            "fun[] forward(counter: mux[Counter]): int = {\n",
             "    update(counter);\n",
             "    counter.lock();\n",
             "    var value: int = counter.value;\n",
@@ -1896,15 +1896,15 @@ mod tests {
             "};\n",
             "fun[] main(): int = {\n",
             "    var seed: int = 7;\n",
-            "    var marker: ptr[int] = &seed;\n",
-            "    var counter: Counter = { marker = marker, value = 1 };\n",
-            "    return .echo(forward(counter));\n",
+            "    var marker: ptr[int] = [ref]seed;\n",
+            "    var counter: Counter = { marker = [mov]marker, value = 1 };\n",
+            "    return .echo(forward([mov]counter));\n",
             "};\n",
         ));
 
         assert!(
             output.status.success(),
-            "forwarding a move-only [mux] value should build and run: {}",
+            "forwarding a move-only mux[T] value should build and run: {}",
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
@@ -1917,8 +1917,8 @@ mod tests {
             "fun[] main(): int = {\n",
             "    var[mut] total: int = 0;\n",
             "    for (value in {1, 2}) {\n",
-            "        var pointer: ptr[int] = &value;\n",
-            "        var holder: Holder = { pointer = pointer };\n",
+            "        var pointer: ptr[int] = [ref]value;\n",
+            "        var holder: Holder = { pointer = [mov]pointer };\n",
             "        total = total + value;\n",
             "    };\n",
             "    return .echo(total);\n",

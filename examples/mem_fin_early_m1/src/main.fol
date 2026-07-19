@@ -1,0 +1,23 @@
+// `[fin]value` runs a `fin` type's custom finalizer immediately and invalidates
+// the source (V3_MEM §6.1). The finalizer is the compiler-owned receiver
+// contract `pro (Type)finalize(): non`. Here `main` prints the descriptor (3),
+// then the early-finalize operation runs the finalizer and prints its cleanup
+// marker (7), and execution continues to print a final marker (9). Because the
+// early finalization already consumed the value, the scope-exit finalizer does
+// not run a second time.
+
+use std: pkg = {"std"};
+
+typ File()(fin): rec = { descriptor: int };
+
+pro (File)finalize(): non = {
+    var cleaned: int = std::io::echo_int(7);
+    return;
+};
+
+fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    var opened: int = std::io::echo_int(handle.descriptor);
+    [fin]handle;
+    return std::io::echo_int(9);
+};

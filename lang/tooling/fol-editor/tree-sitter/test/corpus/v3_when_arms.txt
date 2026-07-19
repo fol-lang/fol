@@ -1,0 +1,141 @@
+==================
+V3 When Inquiry Arms
+==================
+
+fun[] classify(value: int, maybe: opt[int]): int = {
+    var probe: int = value;
+    when(probe) {
+        is(1) { return 1; }
+        in(2..4) { return 2; }
+        has(5) { return 5; }
+        of(int) { return 6; }
+        case(true) { return 8; }
+        * { return 0; }
+    }
+    when(maybe) {
+        on(present) { return present; }
+        * { return 0; }
+    }
+};
+
+---
+
+(source_file
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (identifier)))
+        (param
+          (identifier)
+          (type_expr
+            (shell_type
+              (type_expr
+                (identifier))))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (identifier)))))
+        (stmt
+          (when_expr
+            (expr
+              (expr_atom
+                (identifier)))
+            (when_block
+              (is_clause
+                (expr
+                  (expr_atom
+                    (integer_literal)))
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal)))))))
+              (in_clause
+                (expr
+                  (range_expr
+                    (expr_atom
+                      (integer_literal))
+                    (expr
+                      (expr_atom
+                        (integer_literal)))))
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal)))))))
+              (has_clause
+                (expr
+                  (expr_atom
+                    (integer_literal)))
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal)))))))
+              (of_clause
+                (expr
+                  (expr_atom
+                    (identifier)))
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal)))))))
+              (case_clause
+                (expr
+                  (expr_atom
+                    (boolean_literal)))
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal)))))))
+              (default_clause
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal))))))))))
+        (expr
+          (when_expr
+            (expr
+              (expr_atom
+                (identifier)))
+            (when_block
+              (on_clause
+                (expr
+                  (expr_atom
+                    (identifier)))
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (identifier)))))))
+              (default_clause
+                (block
+                  (stmt
+                    (return_stmt
+                      (expr
+                        (expr_atom
+                          (integer_literal))))))))))))))

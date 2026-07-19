@@ -6,6 +6,6 @@ fun[] consume(value: int): int = {
 
 fun[] main(): int = {
     @var owned: int = 29;
-    [>]consume(owned);
+    [>]consume([mov]owned);
     return 0;
 };

@@ -1,0 +1,15 @@
+// Canonical scoped spawn (V3_PROC): `[spn]call` spawns a lexically scoped task,
+// joined at scope exit. `[>]call` is its shorthand; this example uses the
+// canonical `[spn]` spelling.
+
+use std: pkg = {"std"};
+
+fun[] worker(value: int): int = {
+    return value;
+};
+
+fun[] main(): int = {
+    var value: int = 17;
+    [spn]std::io::echo_int(worker(value));
+    return value - 17;
+};

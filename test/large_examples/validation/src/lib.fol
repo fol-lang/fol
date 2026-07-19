@@ -855,7 +855,7 @@ fun[exp] validate_age(input: UserInput): ValidationResult = {
     var range_err: opt[str] = validate_in_range(input.age, 13, 150, "age");
     when(range_err) {
         case(nil) { return result_pass("age"); }
-        * { return result_fail("age", {range_err!}); }
+        * { return result_fail("age", {[uwp]range_err}); }
     }
 };
 
@@ -929,7 +929,7 @@ fun[exp] validate_config_port(cfg: ConfigInput): ValidationResult = {
     var err: opt[str] = validate_in_range(cfg.port, 1, 65535, "port");
     when(err) {
         case(nil) { return result_pass("port"); }
-        * { return result_fail("port", {err!}); }
+        * { return result_fail("port", {[uwp]err}); }
     }
 };
 
@@ -937,7 +937,7 @@ fun[exp] validate_config_timeout(cfg: ConfigInput): ValidationResult = {
     var err: opt[str] = validate_in_range(cfg.timeout, 1, 300, "timeout");
     when(err) {
         case(nil) { return result_pass("timeout"); }
-        * { return result_fail("timeout", {err!}); }
+        * { return result_fail("timeout", {[uwp]err}); }
     }
 };
 
@@ -945,7 +945,7 @@ fun[exp] validate_config_connections(cfg: ConfigInput): ValidationResult = {
     var err: opt[str] = validate_in_range(cfg.max_connections, 1, 10000, "connections");
     when(err) {
         case(nil) { return result_pass("connections"); }
-        * { return result_fail("connections", {err!}); }
+        * { return result_fail("connections", {[uwp]err}); }
     }
 };
 

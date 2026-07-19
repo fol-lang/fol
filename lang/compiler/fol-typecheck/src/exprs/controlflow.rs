@@ -99,12 +99,72 @@ pub(crate) fn type_when(
                     "range/set when/in branches are not yet supported in V1",
                 ));
             }
-            WhenCase::On { .. } => {
-                return Err(unsupported_node_surface(
-                    resolved,
-                    expr,
-                    "channel when/on branches are not part of the shipped channel surface; use select",
-                ));
+            WhenCase::On { channel, body } => {
+                // Safe shell choice (V3_MEM §3.3): the scrutinee must be a
+                // nil-able shell, and `on(v)` binds its present payload `T`. Both
+                // `opt[T]` (present branch = some) and `err[T]` (present branch =
+                // a stored error payload; `nil` = no error) are nil-able shells.
+                let payload_type = match typed.type_table().get(selector_apparent) {
+                    Some(crate::CheckedType::Optional { inner }) => *inner,
+                    Some(crate::CheckedType::Error { inner: Some(inner) }) => *inner,
+                    _ => {
+                        return Err(unsupported_node_surface(
+                            resolved,
+                            expr,
+                            "an 'on' branch requires an 'opt[T]' or 'err[T]' scrutinee; channel 'on' is not supported (use select)",
+                        ));
+                    }
+                };
+                let (on_scope, symbol) = match channel {
+                    AstNode::Identifier {
+                        name,
+                        syntax_id: Some(syntax_id),
+                    } => {
+                        let scope = resolved.scope_for_syntax(*syntax_id).ok_or_else(|| {
+                            TypecheckError::new(
+                                TypecheckErrorKind::Internal,
+                                "'on' branch lost its resolver scope",
+                            )
+                        })?;
+                        let symbol = decls::find_symbol_id_in_scope(
+                            resolved,
+                            context.source_unit_id,
+                            scope,
+                            &[SymbolKind::ValueBinding],
+                            name,
+                        )?;
+                        (scope, symbol)
+                    }
+                    _ => {
+                        return Err(node_origin(resolved, expr).map_or_else(
+                            || {
+                                TypecheckError::new(
+                                    TypecheckErrorKind::InvalidInput,
+                                    "an 'on' branch requires a payload binding name, e.g. 'on(value)'",
+                                )
+                            },
+                            |origin| {
+                                TypecheckError::with_origin(
+                                    TypecheckErrorKind::InvalidInput,
+                                    "an 'on' branch requires a payload binding name, e.g. 'on(value)'",
+                                    origin,
+                                )
+                            },
+                        ));
+                    }
+                };
+                decls::record_symbol_type(typed, symbol, payload_type)?;
+                let body_context = TypeContext {
+                    scope_id: on_scope,
+                    ..context
+                };
+                let body_entry_flow = typed.ownership_flow_state();
+                let body_type = type_body_transferring_value(typed, resolved, body_context, body)?;
+                if !body_type.is_never(typed) {
+                    branch_flows.push(typed.ownership_flow_state());
+                }
+                typed.restore_ownership_flow(&body_entry_flow);
+                case_types.push(body_type);
             }
             WhenCase::Case { condition, body }
             | WhenCase::Is {
@@ -369,6 +429,7 @@ pub(crate) fn type_loop(
                 repeating_loop_scope: Some(binder_scope),
                 inside_deferred_block: context.inside_deferred_block,
                 inside_error_deferred_block: context.inside_error_deferred_block,
+                field_projection_root: false,
             };
             if let Some(condition) = condition.as_deref() {
                 let guard_raw = type_node(typed, resolved, loop_context, condition)?;
@@ -425,6 +486,11 @@ pub(crate) fn type_select(
             "blocking select requires at least one channel arm",
         ));
     }
+    super::helpers::reject_bound_guard_boundary(
+        typed,
+        "blocking select",
+        node_origin(resolved, node),
+    )?;
     let entry_flow = typed.ownership_flow_state();
     let mut branch_flows = Vec::new();
     let mut used_scopes = std::collections::BTreeSet::new();
@@ -605,6 +671,64 @@ pub(crate) fn type_return(
         "return".to_string(),
         node_origin(resolved, value),
     )?;
+    // A returned borrow must originate outside the routine. Returning a borrow
+    // of an owned local or by-value parameter leaves the borrow dangling after
+    // the routine returns, so it is rejected. Borrows of already-borrowed
+    // sources are handled by the reborrow rule elsewhere.
+    if matches!(
+        typed.type_table().get(actual),
+        Some(crate::CheckedType::Borrowed { .. })
+    ) {
+        // A borrow of a temporary has no owner to trace; it dangles the moment
+        // the enclosing expression ends, so it can never be returned.
+        if super::calls::is_borrow_of_temporary(value) {
+            let message =
+                "cannot return a borrow of a temporary value; the borrow would dangle after the routine returns"
+                    .to_string();
+            return Err(match node_origin(resolved, value) {
+                Some(origin) => {
+                    TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin)
+                }
+                None => TypecheckError::new(TypecheckErrorKind::Ownership, message),
+            });
+        }
+        if let Some(source) = super::bindings::borrow_source_symbol(resolved, value) {
+            // Trace the borrow chain to its root owner. A reborrow of a borrow
+            // that ultimately roots in an owned routine-local still dangles; only
+            // a chain that roots in a borrowed input (whose value is Borrowed and
+            // is not itself a loan of a local) escapes soundly.
+            let mut root = source;
+            while let Some(borrow) = typed.borrow_for_binding(root) {
+                if borrow.owner == root {
+                    break;
+                }
+                root = borrow.owner;
+            }
+            let root_is_borrowed_input = typed
+                .typed_symbol(root)
+                .and_then(|symbol| symbol.declared_type)
+                .and_then(|type_id| typed.type_table().get(type_id))
+                .is_some_and(|typ| matches!(typ, crate::CheckedType::Borrowed { .. }));
+            if !root_is_borrowed_input {
+                let name = resolved
+                    .symbol(root)
+                    .map(|symbol| symbol.name.clone())
+                    .unwrap_or_else(|| "value".to_string());
+                let message = format!(
+                    "cannot return a borrow of the owned local '{name}'; the borrow would dangle after the routine returns"
+                );
+                return Err(match node_origin(resolved, value) {
+                    Some(origin) => {
+                        TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin)
+                    }
+                    None => TypecheckError::new(TypecheckErrorKind::Ownership, message),
+                });
+            }
+        }
+    }
+    // §2.2: returning an existing owned value is a transfer boundary and must
+    // state its operation explicitly.
+    super::bindings::reject_untagged_owned_transfer(typed, resolved, value, actual, "returned")?;
     super::bindings::track_value_transfer(typed, resolved, return_context, Some(value), actual)?;
     super::helpers::reject_all_recoverable_eventuals(
         typed,

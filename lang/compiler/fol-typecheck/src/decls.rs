@@ -110,6 +110,7 @@ fn lower_record_field_layout(
                 repeating_loop_scope: None,
                 inside_deferred_block: false,
                 inside_error_deferred_block: false,
+                field_projection_root: false,
             };
             let typed_default = crate::exprs::type_node_with_expectation(
                 typed,
@@ -142,6 +143,69 @@ fn lower_record_field_layout(
     }
     typed.set_record_layout(record_type_id, layout);
     Ok(())
+}
+
+/// A custom finalizer (`finalize` on a `fin` type) runs foreign-resource cleanup
+/// effects, so it must be declared `pro`, not `fun`/`log` (plan §4.2, §6.1).
+/// Types are lowered before routines, so the `fin` claim is already recorded.
+fn reject_fun_finalizer(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    scope: ScopeId,
+    node: &AstNode,
+    name: &str,
+    receiver_type: Option<&fol_parser::ast::FolType>,
+) -> Result<(), TypecheckError> {
+    if name != "finalize" {
+        return Ok(());
+    }
+    let Some(receiver_ast) = receiver_type else {
+        return Ok(());
+    };
+    let receiver_checked = lower_type(typed, resolved, scope, receiver_ast)?;
+    if !typed.type_resolves_to_fin(receiver_checked) {
+        return Ok(());
+    }
+    if matches!(node, AstNode::ProDecl { .. }) {
+        return Ok(());
+    }
+    let message =
+        "a custom finalizer 'finalize' must be declared 'pro', not 'fun'; finalization performs foreign-resource cleanup effects";
+    Err(node_origin(resolved, node).map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+        |origin| TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin),
+    ))
+}
+
+/// A `fun` may not accept a mutable input loan (V3_MEM §4.2), so a method with a
+/// `[mut, bor]` receiver must be a `pro` — mutating a receiver through the loan
+/// is an effect. Shared `[bor]` receivers stay allowed on `fun`.
+fn reject_fun_mutable_receiver(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    scope: ScopeId,
+    node: &AstNode,
+    receiver_type: Option<&fol_parser::ast::FolType>,
+) -> Result<(), TypecheckError> {
+    let Some(receiver_ast) = receiver_type else {
+        return Ok(());
+    };
+    if matches!(node, AstNode::ProDecl { .. }) {
+        return Ok(());
+    }
+    let receiver_checked = lower_type(typed, resolved, scope, receiver_ast)?;
+    if !matches!(
+        typed.type_table().get(receiver_checked),
+        Some(CheckedType::Borrowed { mutable: true, .. })
+    ) {
+        return Ok(());
+    }
+    let message =
+        "a 'fun' cannot take a mutable '[mut, bor]' receiver; declare it 'pro' (V3_MEM §4.2: a fun may not accept mutable input loans). A shared '[bor]' receiver is allowed on a fun";
+    Err(node_origin(resolved, node).map_or_else(
+        || TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+        |origin| TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin),
+    ))
 }
 
 fn lower_top_level_declaration(
@@ -208,6 +272,15 @@ fn lower_top_level_declaration(
                         .or_else(|| node_origin(resolved, &item.node)),
                 )?;
                 record_symbol_type(typed, symbol_id, type_id)?;
+                // A `var state: mux[T]` local is a first-class managed mutex
+                // (V3_MEM §8.3). It lowers to the guarded inner `T` plus the
+                // `is_mutex` flag, so `.lock()`/`.unlock()`/guarded field access
+                // reuse the same machinery as a `mux[T]` parameter.
+                if matches!(type_hint, FolType::Mutex { .. }) {
+                    if let Some(symbol) = typed.typed_symbol_mut(symbol_id) {
+                        symbol.is_mutex = true;
+                    }
+                }
             }
         }
         AstNode::DestructureDecl {
@@ -300,6 +373,21 @@ fn lower_top_level_declaration(
                 params,
                 return_type.as_ref(),
                 error_type.as_ref(),
+            )?;
+            reject_fun_finalizer(
+                typed,
+                resolved,
+                signature_scope,
+                &item.node,
+                name,
+                receiver_type.as_ref(),
+            )?;
+            reject_fun_mutable_receiver(
+                typed,
+                resolved,
+                signature_scope,
+                &item.node,
+                receiver_type.as_ref(),
             )?;
             lower_nested_declarations_in_nodes(
                 typed,
@@ -417,6 +505,26 @@ fn lower_top_level_declaration(
                 let mut standard_symbol_ids = Vec::new();
                 let mut claims = Vec::new();
                 for contract in explicit_contracts {
+                    // Compiler-owned capability standards (`copy`, `clone`,
+                    // `fin`, `send`, `share`) are recognized directly rather than
+                    // resolved to a user `std` symbol. Record the claim on the
+                    // type without a standard symbol; structural verification of
+                    // the claim is a later slice.
+                    let contract_base = contract
+                        .named_text()
+                        .map(|name| name.split('[').next().unwrap_or(&name).to_string());
+                    if let Some(capability) = contract_base
+                        .as_deref()
+                        .filter(|name| fol_parser::ast::is_capability_standard(name))
+                    {
+                        typed.record_capability_claim(symbol_id, capability.to_string());
+                        // `copy` implies `clone`: a value that duplicates freely
+                        // can always produce an independent clone.
+                        if capability == "copy" {
+                            typed.record_capability_claim(symbol_id, "clone".to_string());
+                        }
+                        continue;
+                    }
                     let standard_symbol_id =
                         lower_standard_symbol_for_contract(resolved, contract)?;
                     standard_symbol_ids.push(standard_symbol_id);
@@ -429,6 +537,89 @@ fn lower_top_level_declaration(
                         standard_symbol_id,
                         type_args,
                     });
+                }
+                // A `copy` value is duplicated with no ownership bookkeeping, so
+                // it cannot also carry custom finalization: `copy` and `fin`
+                // cannot coexist on the same type.
+                if typed
+                    .capability_claims(symbol_id)
+                    .is_some_and(|capabilities| capabilities.contains("fin"))
+                {
+                    typed.record_fin_type(type_id);
+                }
+                if let Some(capabilities) = typed.capability_claims(symbol_id) {
+                    if capabilities.contains("copy") && capabilities.contains("fin") {
+                        let message =
+                            "a type cannot claim both 'copy' and 'fin'; a copyable value cannot have custom finalization";
+                        let origin = node_origin(resolved, &item.node)
+                            .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                        return Err(origin.map_or_else(
+                            || TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+                            |origin| {
+                                TypecheckError::with_origin(
+                                    TypecheckErrorKind::InvalidInput,
+                                    message,
+                                    origin,
+                                )
+                            },
+                        ));
+                    }
+                    // `copy` duplicates a value bit-for-bit, so every field must
+                    // itself be copy-safe. Reject the claim when a field is a
+                    // known move-only/heap type (`str`, owned heap, pointer,
+                    // channel, eventual, borrow). Record/entry fields are allowed
+                    // here (their own `copy` claim is verified on their own
+                    // declaration) to avoid declaration-order false rejections.
+                    if capabilities.contains("copy") {
+                        if let Some(offending) = first_known_non_copy_field(typed, type_id)? {
+                            let message = format!(
+                                "'copy' requires every field to be copy-safe, but field '{offending}' is not"
+                            );
+                            let origin = node_origin(resolved, &item.node)
+                                .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                            return Err(match origin {
+                                Some(origin) => TypecheckError::with_origin(
+                                    TypecheckErrorKind::InvalidInput,
+                                    message,
+                                    origin,
+                                ),
+                                None => {
+                                    TypecheckError::new(TypecheckErrorKind::InvalidInput, message)
+                                }
+                            });
+                        }
+                    }
+                    // `send` lets a value cross a task/thread boundary and
+                    // `share` lets shared access cross one, so every field must
+                    // itself be thread-safe. Reject either claim when a field
+                    // owns a `fin` foreign resource or an `Rc` pointer.
+                    let thread_safety_claim = if capabilities.contains("send") {
+                        Some("send")
+                    } else if capabilities.contains("share") {
+                        Some("share")
+                    } else {
+                        None
+                    };
+                    if let Some(standard) = thread_safety_claim {
+                        if let Some(offending) = first_known_non_thread_safe_field(typed, type_id)?
+                        {
+                            let message = format!(
+                                "'{standard}' requires every field to be {standard}-safe, but field '{offending}' is not"
+                            );
+                            let origin = node_origin(resolved, &item.node)
+                                .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                            return Err(match origin {
+                                Some(origin) => TypecheckError::with_origin(
+                                    TypecheckErrorKind::InvalidInput,
+                                    message,
+                                    origin,
+                                ),
+                                None => {
+                                    TypecheckError::new(TypecheckErrorKind::InvalidInput, message)
+                                }
+                            });
+                        }
+                    }
                 }
                 typed.record_typed_conformance(TypedConformance {
                     type_symbol_id: symbol_id,
@@ -671,6 +862,14 @@ fn lower_nested_declarations_in_node(
                         .intern(CheckedType::Owned { inner: type_id });
                 }
                 record_symbol_type(typed, symbol_id, type_id)?;
+                // A `var state: mux[T]` local is a first-class managed mutex
+                // (V3_MEM §8.3): mark the binding so `.lock()`/`.unlock()` and
+                // guarded field access reuse the `mux[T]` parameter machinery.
+                if matches!(type_hint, FolType::Mutex { .. }) {
+                    if let Some(symbol) = typed.typed_symbol_mut(symbol_id) {
+                        symbol.is_mutex = true;
+                    }
+                }
             }
         }
         AstNode::DestructureDecl {
@@ -737,6 +936,14 @@ fn lower_nested_declarations_in_node(
                 params,
                 return_type.as_ref(),
                 error_type.as_ref(),
+            )?;
+            reject_fun_finalizer(
+                typed,
+                resolved,
+                routine_scope,
+                node,
+                name,
+                receiver_type.as_ref(),
             )?;
             lower_nested_declarations_in_nodes(
                 typed,
@@ -1362,6 +1569,163 @@ fn check_standard_conformance(
                         continue;
                     }
                 };
+            // §4.1 recursive `copy` verification. `copy` has no structural
+            // default (unlike `clone`), so a `copy` type's nominal aggregate
+            // fields must each also claim `copy`. This runs after the main type
+            // pass, so every type's capability claims are already recorded and
+            // the check is declaration-order independent.
+            if typed
+                .capability_claims(type_symbol_id)
+                .is_some_and(|caps| caps.contains("copy"))
+            {
+                match first_field_lacking_declared_copy(typed, receiver_type) {
+                    Ok(Some(offending)) => {
+                        let message = format!(
+                            "'copy' is verified recursively: field '{offending}' has a type that does not claim 'copy'"
+                        );
+                        let origin = node_origin(resolved, &item.node)
+                            .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                        errors.push(match origin {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                message,
+                                origin,
+                            ),
+                            None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+                        });
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                }
+            }
+            // §4.1 recursive `send`/`share` verification: a thread-safe claim on
+            // an aggregate is unsound if any TRANSITIVELY nested field is a `fin`
+            // value, `Rc` shared/weak pointer, or borrow (the emitted Rust would
+            // fail its own `Send`/`Sync` bound). The main type pass only checks
+            // direct fields; recurse here where every type is lowered.
+            let thread_safe_claim = typed.capability_claims(type_symbol_id).and_then(|caps| {
+                if caps.contains("send") {
+                    Some("send")
+                } else if caps.contains("share") {
+                    Some("share")
+                } else {
+                    None
+                }
+            });
+            if let Some(claim) = thread_safe_claim {
+                // The claiming type must not ITSELF be a non-thread-safe leaf
+                // (e.g. a `fin` value is neither `Send` nor `Sync`).
+                match type_is_known_non_thread_safe(typed, receiver_type) {
+                    Ok(true) => {
+                        let message = format!(
+                            "a type that claims '{claim}' cannot itself be a non-{claim}-safe value (a 'fin' value or 'Rc' pointer is neither 'send' nor 'share')"
+                        );
+                        let origin = node_origin(resolved, &item.node)
+                            .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                        errors.push(match origin {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                message,
+                                origin,
+                            ),
+                            None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+                        });
+                        continue;
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                }
+                match first_field_transitively_non_thread_safe(typed, receiver_type) {
+                    Ok(Some(offending)) => {
+                        let message = format!(
+                            "'{claim}' is verified recursively: field '{offending}' transitively contains a value that is not {claim}-safe"
+                        );
+                        let origin = node_origin(resolved, &item.node)
+                            .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                        errors.push(match origin {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                message,
+                                origin,
+                            ),
+                            None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+                        });
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                }
+            }
+            // §4.1 recursive `clone` verification: `clone` gets a structural
+            // default only when EVERY field supports clone, so a `clone` claim is
+            // unsound if any TRANSITIVELY nested field is a unique handle
+            // (channel/receiver/eventual) or a `fin` value (whose structural
+            // clone would fail to emit). Recurse here where every type is lowered.
+            if typed
+                .capability_claims(type_symbol_id)
+                .is_some_and(|caps| caps.contains("clone"))
+            {
+                // The claiming type must not ITSELF be a non-clonable value. A
+                // `fin` value in particular has no structural clone: `fin + clone`
+                // requires a custom clone (§4.1) that FOL does not yet implement,
+                // so structurally cloning it (double-finalizing the resource) is
+                // rejected.
+                match type_is_known_non_clone(typed, receiver_type) {
+                    Ok(true) => {
+                        let message =
+                            "a type that claims 'clone' cannot itself be a non-clonable value; a 'fin' value needs a custom clone (not the structural default), which is not yet supported".to_string();
+                        let origin = node_origin(resolved, &item.node)
+                            .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                        errors.push(match origin {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                message,
+                                origin,
+                            ),
+                            None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+                        });
+                        continue;
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                }
+                match first_field_transitively_non_clone(typed, receiver_type) {
+                    Ok(Some(offending)) => {
+                        let message = format!(
+                            "'clone' is verified recursively: field '{offending}' transitively contains a value that cannot be cloned"
+                        );
+                        let origin = node_origin(resolved, &item.node)
+                            .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                        errors.push(match origin {
+                            Some(origin) => TypecheckError::with_origin(
+                                TypecheckErrorKind::InvalidInput,
+                                message,
+                                origin,
+                            ),
+                            None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+                        });
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                }
+            }
             let Some(conformance) = typed.typed_conformance(type_symbol_id).cloned() else {
                 errors.push(internal_error(
                     format!("typed conformance metadata disappeared for type '{}'", name),
@@ -1791,7 +2155,69 @@ pub(crate) fn validate_generic_bindings_against_constraints(
         }
     }
 
+    // Compiler-owned capability bounds (`T: copy`/`clone`/`send`/`share`/`fin`)
+    // are conditional obligations: the actual type bound to `T` must have the
+    // capability (V3_MEM §4.1).
+    for (generic_symbol_id, actual_type) in bindings {
+        let Some(capabilities) = typed.generic_capability_constraints(*generic_symbol_id) else {
+            continue;
+        };
+        for capability in capabilities {
+            if type_satisfies_capability(typed, *actual_type, capability)? {
+                continue;
+            }
+            let generic_name = typed
+                .resolved()
+                .symbol(*generic_symbol_id)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("T");
+            let actual_name = typed.type_table().render_type(*actual_type);
+            let message = format!(
+                "{surface} requires type '{actual_name}' to satisfy the '{capability}' capability for generic parameter '{generic_name}'; the type does not"
+            );
+            return Err(match origin.clone() {
+                Some(origin) => TypecheckError::with_origin(
+                    TypecheckErrorKind::IncompatibleType,
+                    message,
+                    origin,
+                ),
+                None => TypecheckError::new(TypecheckErrorKind::IncompatibleType, message),
+            });
+        }
+    }
+
     Ok(())
+}
+
+/// Whether `type_id` has the compiler-owned `capability` (V3_MEM §4.1). Uses the
+/// same conservative predicates as operand/claim conformance: only a type that
+/// definitively lacks the capability fails.
+fn type_satisfies_capability(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    capability: &str,
+) -> Result<bool, TypecheckError> {
+    // Generic capability bounds are verified at call sites, after every type is
+    // lowered, so the `clone`/`send`/`share` checks recurse transitively through
+    // nested aggregate fields (V3_MEM §4.1) — mirroring the recursive claim
+    // verification. (`copy` stays structural here, matching the still-structural
+    // `[cpy]` operand check; requiring the declared claim is a later step.)
+    Ok(match capability {
+        "copy" => !type_lacks_copy(typed, type_id)?,
+        "clone" => {
+            !type_is_known_non_clone(typed, type_id)?
+                && first_field_transitively_non_clone(typed, type_id)?.is_none()
+        }
+        "send" | "share" => {
+            !type_is_known_non_thread_safe(typed, type_id)?
+                && first_field_transitively_non_thread_safe(typed, type_id)?.is_none()
+        }
+        "fin" => {
+            let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+            typed.type_resolves_to_fin(apparent)
+        }
+        _ => true,
+    })
 }
 
 fn checked_type_satisfies_standard(
@@ -1904,9 +2330,27 @@ fn lower_routine_generic_params(
             args: Vec::new(),
         });
         record_symbol_type(typed, symbol_id, generic_type)?;
+        // Record compiler-owned capability bounds (`T: copy`/`clone`/`send`/
+        // `share`/`fin`) so call sites can verify the actual type (V3_MEM §4.1).
+        for constraint in &generic.constraints {
+            if let FolType::Named { name, .. } = constraint {
+                let base = name.split('[').next().unwrap_or(name);
+                if fol_parser::ast::is_compiler_owned_generic_constraint(base)
+                    && fol_parser::ast::is_capability_standard(base)
+                {
+                    typed.record_generic_capability_constraint(symbol_id, base.to_string());
+                }
+            }
+        }
         let lowered_constraints = generic
             .constraints
             .iter()
+            // Compiler-owned capability standards carry no standard symbol.
+            .filter(|constraint| {
+                !matches!(constraint, FolType::Named { name, .. }
+                    if fol_parser::ast::is_compiler_owned_generic_constraint(
+                        name.split('[').next().unwrap_or(name)))
+            })
             .map(|constraint| {
                 lower_standard_constraint_for_contract(typed, resolved, signature_scope, constraint)
             })
@@ -2075,10 +2519,10 @@ fn lower_type_inner(
         }
         FolType::Never => Ok(typed.builtin_types().never),
         FolType::Named { name, syntax_id } => {
-            if name == "evt" || name.starts_with("evt[") {
+            if name == "evt" {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::Unsupported,
-                    "eventual types are internal in V3 and cannot be named; produce one with | async and consume it with | await",
+                    "an eventual type needs a value type, e.g. 'evt[T]' or 'evt[T / E]'",
                 ));
             }
             if let Some(instantiated) =
@@ -2246,10 +2690,82 @@ fn lower_type_inner(
                 .type_table_mut()
                 .intern(CheckedType::Channel { element_type }))
         }
+        FolType::Mutex { inner } => {
+            // `mux[T]` marks a mutex-guarded parameter (V3_MEM §8.3). A `mux[T]`
+            // parameter is desugared to `is_mutex` + inner `T` at parse time, so
+            // this arm only sees `mux[T]` in other positions; it lowers to the
+            // guarded inner type and, like channels, requires hosted std.
+            if !typed.capability_model().supports_processor() {
+                return Err(match type_origin(resolved, typ) {
+                    Some(origin) => TypecheckError::with_origin(
+                        TypecheckErrorKind::Unsupported,
+                        "mutex parameters require hosted std support; declare the bundled internal standard dependency",
+                        origin,
+                    ),
+                    None => TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "mutex parameters require hosted std support; declare the bundled internal standard dependency",
+                    ),
+                });
+            }
+            lower_type(typed, resolved, scope_id, inner)
+        }
+        FolType::ChannelSender { element_type } => {
+            // `chn[tx, T]` names a first-class, clone-capable sender endpoint
+            // value (V3_MEM §8.2). Like channels, it requires hosted std.
+            if !typed.capability_model().supports_processor() {
+                return Err(match type_origin(resolved, typ) {
+                    Some(origin) => TypecheckError::with_origin(
+                        TypecheckErrorKind::Unsupported,
+                        "channel types require hosted std support; declare the bundled internal standard dependency",
+                        origin,
+                    ),
+                    None => TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "channel types require hosted std support; declare the bundled internal standard dependency",
+                    ),
+                });
+            }
+            let element_type = lower_type(typed, resolved, scope_id, element_type)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::ChannelSender { element_type }))
+        }
+        FolType::ChannelReceiver { element_type } => {
+            // `chn[rx, T]` names a first-class, move-only unique receiver
+            // endpoint value (V3_MEM §8.2). Like channels, it requires hosted std.
+            if !typed.capability_model().supports_processor() {
+                return Err(match type_origin(resolved, typ) {
+                    Some(origin) => TypecheckError::with_origin(
+                        TypecheckErrorKind::Unsupported,
+                        "channel types require hosted std support; declare the bundled internal standard dependency",
+                        origin,
+                    ),
+                    None => TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "channel types require hosted std support; declare the bundled internal standard dependency",
+                    ),
+                });
+            }
+            let element_type = lower_type(typed, resolved, scope_id, element_type)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::ChannelReceiver { element_type }))
+        }
         FolType::Owned { inner } => {
             reject_heap_backed_type_in_core(typed, resolved, typ, "owned heap type '@T'", None)?;
             let inner = lower_type(typed, resolved, scope_id, inner)?;
             Ok(typed.type_table_mut().intern(CheckedType::Owned { inner }))
+        }
+        FolType::Borrowed { inner, mutable, .. } => {
+            // A borrowed type annotation `T[bor]` / `T[mut, bor]` / `T[bor=L]`
+            // lowers to a borrow of the inner type. Named lifetimes are parsed
+            // but not yet region-checked (later Slice C work).
+            let inner = lower_type(typed, resolved, scope_id, inner)?;
+            Ok(typed.type_table_mut().intern(CheckedType::Borrowed {
+                inner,
+                mutable: *mutable,
+            }))
         }
         FolType::Pointer { qualifier, target } => {
             if matches!(qualifier, fol_parser::ast::PointerQualifier::Raw) {
@@ -2265,10 +2781,15 @@ fn lower_type_inner(
                     ),
                 });
             }
+            let weak = matches!(qualifier, fol_parser::ast::PointerQualifier::Weak);
+            let sync = matches!(qualifier, fol_parser::ast::PointerQualifier::SharedSync);
+            let shared = sync || matches!(qualifier, fol_parser::ast::PointerQualifier::Shared);
             let target = lower_type(typed, resolved, scope_id, target)?;
             Ok(typed.type_table_mut().intern(CheckedType::Pointer {
                 target,
-                shared: matches!(qualifier, fol_parser::ast::PointerQualifier::Shared),
+                weak,
+                shared,
+                sync,
             }))
         }
         FolType::Set { types } => {
@@ -2276,6 +2797,18 @@ fn lower_type_inner(
             let mut member_types = Vec::new();
             for member in types {
                 member_types.push(lower_type(typed, resolved, scope_id, member)?);
+            }
+            for member in &member_types {
+                if checked_type_blocks_ordering(
+                    typed,
+                    *member,
+                    &mut std::collections::BTreeSet::new(),
+                ) {
+                    return Err(unorderable_container_member_error(
+                        "a set member",
+                        type_origin(resolved, typ),
+                    ));
+                }
             }
             Ok(typed
                 .type_table_mut()
@@ -2288,6 +2821,14 @@ fn lower_type_inner(
             reject_heap_backed_type_in_core(typed, resolved, typ, "map[...]", None)?;
             let key_type = lower_type(typed, resolved, scope_id, key_type)?;
             let value_type = lower_type(typed, resolved, scope_id, value_type)?;
+            // A `map[K, V]` is `BTreeMap`-backed, so only the KEY must be `Ord`.
+            if checked_type_blocks_ordering(typed, key_type, &mut std::collections::BTreeSet::new())
+            {
+                return Err(unorderable_container_member_error(
+                    "a map key",
+                    type_origin(resolved, typ),
+                ));
+            }
             Ok(typed.type_table_mut().intern(CheckedType::Map {
                 key_type,
                 value_type,
@@ -2305,6 +2846,27 @@ fn lower_type_inner(
                 .map(|inner| lower_type(typed, resolved, scope_id, inner))
                 .transpose()?;
             Ok(typed.type_table_mut().intern(CheckedType::Error { inner }))
+        }
+        FolType::Eventual {
+            value_type,
+            error_type,
+            // The public lifetime `L` from `evt[L, T]` names the parent scope
+            // for public APIs (V3_MEM §8.1); like `[bor=L]`, it is accepted but
+            // not yet region-checked, so it does not affect the checked type.
+            ..
+        } => {
+            // Namable eventual: `evt[T]`, `evt[T / E]`, `evt[L, T]`, and
+            // `evt[L, T / E]` all denote the same one-shot eventual that a
+            // `| async` stage produces.
+            let value_type = lower_type(typed, resolved, scope_id, value_type)?;
+            let error_type = error_type
+                .as_ref()
+                .map(|error_type| lower_type(typed, resolved, scope_id, error_type))
+                .transpose()?;
+            Ok(typed.type_table_mut().intern(CheckedType::Eventual {
+                value_type,
+                error_type,
+            }))
         }
         FolType::Record { fields } => {
             let mut lowered = BTreeMap::new();
@@ -2811,6 +3373,7 @@ fn checked_type_references_symbol(
         // value inline, so it also breaks recursive value layout.
         CheckedType::Channel { .. }
         | CheckedType::ChannelSender { .. }
+        | CheckedType::ChannelReceiver { .. }
         | CheckedType::Eventual { .. } => false,
         CheckedType::Set { member_types } => {
             member_types.iter().any(|member| refers(*member, visited))
@@ -2828,6 +3391,82 @@ fn checked_type_references_symbol(
         CheckedType::Borrowed { inner, .. } => refers(inner, visited),
         CheckedType::Error { inner } => inner.is_some_and(|inner| refers(inner, visited)),
         CheckedType::Builtin(_) | CheckedType::Routine(_) => false,
+    }
+}
+
+/// Whether `type_id` cannot be a set member or map key because it transitively
+/// contains a value with no Rust `Ord` — a float (`f64: !Ord`) or a weak pointer
+/// (`Weak<T>: !Ord`). Set/map storage is `BTreeSet`/`BTreeMap`-backed, so such a
+/// member/key typechecks but fails the emitted Rust build. The walk descends
+/// through aggregates, nominal bodies, and non-weak pointers (`Rc<T>`/`Box<T>`
+/// are `Ord` only when `T` is), with a `visited` cycle guard.
+fn unorderable_container_member_error(role: &str, origin: Option<SyntaxOrigin>) -> TypecheckError {
+    let message = format!(
+        "{role} must be orderable, but this type has (or transitively contains) a \
+         'flt' or 'ptr[weak, T]', which have no ordering; sets and maps are \
+         'BTreeSet'/'BTreeMap'-backed and require orderable members/keys"
+    );
+    match origin {
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+        }
+        None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+    }
+}
+
+fn checked_type_blocks_ordering(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    visited: &mut std::collections::BTreeSet<CheckedTypeId>,
+) -> bool {
+    if !visited.insert(type_id) {
+        return false;
+    }
+    let Some(checked) = typed.type_table().get(type_id).cloned() else {
+        return false;
+    };
+    let blocks = |inner: CheckedTypeId, visited: &mut std::collections::BTreeSet<CheckedTypeId>| {
+        checked_type_blocks_ordering(typed, inner, visited)
+    };
+    match checked {
+        CheckedType::Builtin(crate::BuiltinType::Float) => true,
+        CheckedType::Pointer { weak: true, .. } => true,
+        CheckedType::Pointer { target, .. } => blocks(target, visited),
+        CheckedType::Owned { inner }
+        | CheckedType::Optional { inner }
+        | CheckedType::Borrowed { inner, .. } => blocks(inner, visited),
+        CheckedType::Array { element_type, .. }
+        | CheckedType::Vector { element_type }
+        | CheckedType::Sequence { element_type } => blocks(element_type, visited),
+        CheckedType::Set { member_types } => {
+            member_types.iter().any(|member| blocks(*member, visited))
+        }
+        CheckedType::Map {
+            key_type,
+            value_type,
+        } => blocks(key_type, visited) || blocks(value_type, visited),
+        CheckedType::Error { inner } => inner.is_some_and(|inner| blocks(inner, visited)),
+        CheckedType::Record { fields } => fields.values().any(|field| blocks(*field, visited)),
+        CheckedType::Entry { variants } => variants
+            .values()
+            .filter_map(|variant| *variant)
+            .any(|variant| blocks(variant, visited)),
+        CheckedType::Declared { symbol, args, .. } => {
+            args.iter().any(|arg| blocks(*arg, visited)) || {
+                let inner = typed
+                    .apparent_type_override(type_id)
+                    .or_else(|| typed.typed_symbol(symbol).and_then(|s| s.declared_type));
+                inner.is_some_and(|inner| blocks(inner, visited))
+            }
+        }
+        // Channels/eventuals/routines are not ordinary set members; leave them to
+        // the emitted-Rust bound rather than over-rejecting here.
+        CheckedType::Channel { .. }
+        | CheckedType::ChannelSender { .. }
+        | CheckedType::ChannelReceiver { .. }
+        | CheckedType::Eventual { .. }
+        | CheckedType::Builtin(_)
+        | CheckedType::Routine(_) => false,
     }
 }
 
@@ -2941,6 +3580,13 @@ pub(crate) fn substitute_generic_checked_type(
                 .type_table_mut()
                 .intern(CheckedType::ChannelSender { element_type }))
         }
+        CheckedType::ChannelReceiver { element_type } => {
+            let element_type =
+                substitute_generic_checked_type(typed, element_type, bindings, origin)?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::ChannelReceiver { element_type }))
+        }
         CheckedType::Eventual {
             value_type,
             error_type,
@@ -2964,6 +3610,20 @@ pub(crate) fn substitute_generic_checked_type(
                     substitute_generic_checked_type(typed, member, bindings, origin.clone())
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            // A generic `set[T]` becomes concrete here; re-validate orderability
+            // so `set[T]` instantiated with `flt`/`ptr[weak,_]` is rejected.
+            for member in &member_types {
+                if checked_type_blocks_ordering(
+                    typed,
+                    *member,
+                    &mut std::collections::BTreeSet::new(),
+                ) {
+                    return Err(unorderable_container_member_error(
+                        "a set member",
+                        origin.clone(),
+                    ));
+                }
+            }
             Ok(typed
                 .type_table_mut()
                 .intern(CheckedType::Set { member_types }))
@@ -2974,7 +3634,13 @@ pub(crate) fn substitute_generic_checked_type(
         } => {
             let key_type =
                 substitute_generic_checked_type(typed, key_type, bindings, origin.clone())?;
-            let value_type = substitute_generic_checked_type(typed, value_type, bindings, origin)?;
+            let value_type =
+                substitute_generic_checked_type(typed, value_type, bindings, origin.clone())?;
+            // Only the key must be orderable (BTreeMap); re-check the concrete key.
+            if checked_type_blocks_ordering(typed, key_type, &mut std::collections::BTreeSet::new())
+            {
+                return Err(unorderable_container_member_error("a map key", origin));
+            }
             Ok(typed.type_table_mut().intern(CheckedType::Map {
                 key_type,
                 value_type,
@@ -2996,11 +3662,19 @@ pub(crate) fn substitute_generic_checked_type(
                 .type_table_mut()
                 .intern(CheckedType::Borrowed { inner, mutable }))
         }
-        CheckedType::Pointer { target, shared } => {
+        CheckedType::Pointer {
+            target,
+            shared,
+            weak,
+            sync,
+        } => {
             let target = substitute_generic_checked_type(typed, target, bindings, origin)?;
-            Ok(typed
-                .type_table_mut()
-                .intern(CheckedType::Pointer { target, shared }))
+            Ok(typed.type_table_mut().intern(CheckedType::Pointer {
+                target,
+                shared,
+                weak,
+                sync,
+            }))
         }
         CheckedType::Error { inner } => {
             let inner = inner
@@ -3582,6 +4256,378 @@ fn record_symbol_generic_constraints(
     Ok(())
 }
 
+/// The first record field whose type is a known move-only/heap type, and thus
+/// cannot satisfy a `copy` claim. Record/entry fields are treated as acceptable
+/// here; their own `copy` obligation is verified on their own declaration.
+fn first_known_non_copy_field(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<Option<String>, TypecheckError> {
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    if let Some(CheckedType::Record { fields }) = typed.type_table().get(apparent) {
+        let fields = fields.clone();
+        for (name, field_type) in &fields {
+            if type_is_known_non_copy(typed, *field_type)? {
+                return Ok(Some(name.clone()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// The first record field that is a nominal user aggregate NOT itself claiming
+/// `copy` (V3_MEM §4.1: "the compiler verifies each claim recursively"). Unlike
+/// `clone`, `copy` has no structural default, so a `copy` type's user-declared
+/// aggregate fields must each declare `copy` too. Primitives and non-nominal
+/// fields are structurally copy-safe and handled by `first_known_non_copy_field`.
+/// Decl-order-safe: run only after every type's capability claims are recorded.
+fn first_field_lacking_declared_copy(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<Option<String>, TypecheckError> {
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    let Some(CheckedType::Record { fields }) = typed.type_table().get(apparent) else {
+        return Ok(None);
+    };
+    let fields = fields.clone();
+    for (name, field_type) in &fields {
+        // Resolve the field's nominal declaring symbol, if any.
+        let Some(CheckedType::Declared { symbol, .. }) = typed.type_table().get(*field_type) else {
+            continue;
+        };
+        let symbol = *symbol;
+        // Only nominal aggregates (records/entries) need an explicit `copy`
+        // claim; a `Declared` alias of a primitive is structurally copy-safe.
+        let field_apparent = crate::exprs::helpers::apparent_type_id(typed, *field_type)?;
+        let is_aggregate = matches!(
+            typed.type_table().get(field_apparent),
+            Some(CheckedType::Record { .. }) | Some(CheckedType::Entry { .. })
+        );
+        if !is_aggregate {
+            continue;
+        }
+        let claims_copy = typed
+            .capability_claims(symbol)
+            .is_some_and(|caps| caps.contains("copy"));
+        if !claims_copy {
+            return Ok(Some(name.clone()));
+        }
+    }
+    Ok(None)
+}
+
+/// Whether `type_id` is a nominal user aggregate (record/entry) that does NOT
+/// declare `copy`. `copy` has no structural default (§4.1), so `[cpy]value`
+/// requires the value's own type to claim `copy` — an all-copy-safe record
+/// without a `(copy)` header is still move/clone-only. Primitives, containers,
+/// and non-nominal types return `false` (their copy-ness is structural and
+/// handled by `type_lacks_copy`). Decl-order-safe: claims are recorded before
+/// any routine body is typed.
+pub(crate) fn type_is_nominal_aggregate_lacking_copy(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<bool, TypecheckError> {
+    let Some(CheckedType::Declared { symbol, .. }) = typed.type_table().get(type_id) else {
+        return Ok(false);
+    };
+    let symbol = *symbol;
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    let is_aggregate = matches!(
+        typed.type_table().get(apparent),
+        Some(CheckedType::Record { .. }) | Some(CheckedType::Entry { .. })
+    );
+    if !is_aggregate {
+        return Ok(false);
+    }
+    Ok(!typed
+        .capability_claims(symbol)
+        .is_some_and(|caps| caps.contains("copy")))
+}
+
+/// Whether a type is a known move-only / heap-backed type that cannot be `copy`.
+/// Conservative: aggregates whose copy-ness depends on other declarations return
+/// `false` so a copy claim is never rejected by declaration order.
+pub(crate) fn type_is_known_non_copy(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<bool, TypecheckError> {
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    Ok(match typed.type_table().get(apparent) {
+        Some(CheckedType::Builtin(crate::BuiltinType::Str)) => true,
+        Some(CheckedType::Owned { .. })
+        | Some(CheckedType::Pointer { .. })
+        | Some(CheckedType::Channel { .. })
+        | Some(CheckedType::ChannelSender { .. })
+        | Some(CheckedType::ChannelReceiver { .. })
+        | Some(CheckedType::Eventual { .. })
+        | Some(CheckedType::Borrowed { .. }) => true,
+        Some(CheckedType::Optional { inner }) => {
+            let inner = *inner;
+            type_is_known_non_copy(typed, inner)?
+        }
+        _ => false,
+    })
+}
+
+/// The first field of a record `type_id` that is not thread-safe, if any. A
+/// field is not thread-safe when it owns a `fin` foreign resource or an
+/// `Rc`-based shared/weak pointer, or is a borrow — none are proven `send` or
+/// `share` (V3_MEM §4.1). Record/entry fields are allowed here; their own
+/// capability claim is verified on their own declaration, avoiding
+/// declaration-order false rejects. Used for both `send` and `share` claims:
+/// FOL's non-safe types (`fin`, `Rc` pointers) are neither `Send` nor `Sync`.
+fn first_known_non_thread_safe_field(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<Option<String>, TypecheckError> {
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    if let Some(CheckedType::Record { fields }) = typed.type_table().get(apparent) {
+        let fields = fields.clone();
+        for (name, field_type) in &fields {
+            if type_is_known_non_thread_safe(typed, *field_type)? {
+                return Ok(Some(name.clone()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Whether `type_id` transitively contains a non-thread-safe leaf, recursing
+/// through record/entry/container fields (V3_MEM §4.1: "verifies each claim
+/// recursively"). A `send`/`share` claim on an aggregate is unsound if any
+/// nested field is a `fin` value, `Rc` shared/weak pointer, or borrow — the
+/// emitted Rust would fail its own `Send`/`Sync` bound. Cycle-guarded for
+/// recursive types. Decl-order-safe only after all types are lowered, so this
+/// is used from `check_standard_conformance`, not the main type pass.
+fn type_transitively_non_thread_safe(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    visiting: &mut std::collections::BTreeSet<CheckedTypeId>,
+) -> Result<bool, TypecheckError> {
+    if type_is_known_non_thread_safe(typed, type_id)? {
+        return Ok(true);
+    }
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    if !visiting.insert(apparent) {
+        return Ok(false);
+    }
+    let mut nested: Vec<CheckedTypeId> = Vec::new();
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Record { fields }) => nested.extend(fields.values().copied()),
+        Some(CheckedType::Entry { variants }) => {
+            nested.extend(variants.values().flatten().copied())
+        }
+        Some(CheckedType::Array { element_type, .. })
+        | Some(CheckedType::Vector { element_type })
+        | Some(CheckedType::Sequence { element_type })
+        | Some(CheckedType::Optional {
+            inner: element_type,
+        }) => nested.push(*element_type),
+        Some(CheckedType::Set { member_types }) => nested.extend(member_types.iter().copied()),
+        Some(CheckedType::Map {
+            key_type,
+            value_type,
+        }) => nested.extend([*key_type, *value_type]),
+        _ => {}
+    }
+    let mut result = false;
+    for field_type in nested {
+        if type_transitively_non_thread_safe(typed, field_type, visiting)? {
+            result = true;
+            break;
+        }
+    }
+    visiting.remove(&apparent);
+    Ok(result)
+}
+
+/// The first direct record field of `type_id` that transitively contains a
+/// non-thread-safe leaf. Reports the direct field name for the `send`/`share`
+/// claim error.
+fn first_field_transitively_non_thread_safe(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<Option<String>, TypecheckError> {
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    let Some(CheckedType::Record { fields }) = typed.type_table().get(apparent) else {
+        return Ok(None);
+    };
+    let fields = fields.clone();
+    for (name, field_type) in &fields {
+        let mut visiting = std::collections::BTreeSet::new();
+        if type_transitively_non_thread_safe(typed, *field_type, &mut visiting)? {
+            return Ok(Some(name.clone()));
+        }
+    }
+    Ok(None)
+}
+
+/// Whether a type is a known non-thread-safe type — neither `send` nor `share`:
+/// a `fin` value, an `Rc`-based shared/weak pointer, or a borrow. Conservative —
+/// aggregates whose thread-safety depends on other declarations return `false`.
+fn type_is_known_non_thread_safe(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<bool, TypecheckError> {
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    if typed.type_resolves_to_fin(apparent) {
+        return Ok(true);
+    }
+    Ok(match typed.type_table().get(apparent) {
+        // An `Rc`-backed shared/weak pointer is not thread-safe; the `Arc`-backed
+        // `ptr[shared, sync, T]` (sync == true) is.
+        Some(CheckedType::Pointer {
+            shared: true,
+            sync: false,
+            ..
+        })
+        | Some(CheckedType::Pointer {
+            weak: true,
+            sync: false,
+            ..
+        })
+        | Some(CheckedType::Borrowed { .. }) => true,
+        Some(CheckedType::Optional { inner }) => {
+            let inner = *inner;
+            type_is_known_non_thread_safe(typed, inner)?
+        }
+        _ => false,
+    })
+}
+
+/// Whether a value of `type_id` definitively lacks the `copy` capability: it is
+/// either a known move-only leaf type, or a record with at least one field that
+/// is not copy-safe. Used to reject `[cpy]` operands (V3_MEM §4.1). Conservative
+/// — an all-copy-safe record is allowed even without an explicit `copy` claim;
+/// requiring the claim is a stricter later Slice B step.
+pub(crate) fn type_lacks_copy(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<bool, TypecheckError> {
+    if type_is_known_non_copy(typed, type_id)? {
+        return Ok(true);
+    }
+    Ok(first_known_non_copy_field(typed, type_id)?.is_some())
+}
+
+/// Whether a type is a known unique/one-shot handle that cannot be `clone`d.
+/// These are the runtime handles with no `Clone` impl: a full channel, a unique
+/// `chn[rx, T]` receiver, and a one-shot eventual. A `chn[tx, T]` sender is
+/// deliberately excluded — senders are clone-capable (V3_MEM §8.2). Conservative:
+/// everything whose clone-ability is structural or capability-declared returns
+/// `false` so a `[cln]` is never rejected by declaration order.
+pub(crate) fn type_is_known_non_clone(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<bool, TypecheckError> {
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    // A `fin` value has no structural `clone`: `copy` and `fin` cannot coexist,
+    // and `fin + clone` requires a custom clone (not the structural default), so
+    // `[cln]` on it is rejected until such a custom clone exists (V3_MEM §4.1).
+    if typed.type_resolves_to_fin(apparent) {
+        return Ok(true);
+    }
+    Ok(matches!(
+        typed.type_table().get(apparent),
+        Some(CheckedType::Channel { .. })
+            | Some(CheckedType::ChannelReceiver { .. })
+            | Some(CheckedType::Eventual { .. })
+    ))
+}
+
+/// Whether a value of `type_id` definitively lacks the `clone` capability: it is
+/// a known non-clone leaf (a unique channel/eventual handle or a `fin` value),
+/// or a record with at least one field that is not clonable. Used to reject
+/// `[cln]` operands (V3_MEM §4.1). Conservative — an all-clonable record is
+/// allowed even without an explicit `clone` claim (structural default).
+pub(crate) fn type_lacks_clone(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<bool, TypecheckError> {
+    if type_is_known_non_clone(typed, type_id)? {
+        return Ok(true);
+    }
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    if let Some(CheckedType::Record { fields }) = typed.type_table().get(apparent) {
+        let fields = fields.clone();
+        for field_type in fields.values() {
+            if type_is_known_non_clone(typed, *field_type)? {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// Whether `type_id` transitively contains a non-clonable leaf (a unique
+/// channel/eventual handle or a `fin` value), recursing through record/entry/
+/// container fields. A `clone` claim on an aggregate is unsound if any nested
+/// field cannot be cloned — the emitted Rust `#[derive(Clone)]` / `.clone()`
+/// would fail to compile (V3_MEM §4.1: "clone receives a structural default
+/// when every field supports it"; `fin + clone` needs an unimplemented custom
+/// clone). Cycle-guarded; decl-order-safe only after all types are lowered.
+fn type_transitively_non_clone(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    visiting: &mut std::collections::BTreeSet<CheckedTypeId>,
+) -> Result<bool, TypecheckError> {
+    if type_is_known_non_clone(typed, type_id)? {
+        return Ok(true);
+    }
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    if !visiting.insert(apparent) {
+        return Ok(false);
+    }
+    let mut nested: Vec<CheckedTypeId> = Vec::new();
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Record { fields }) => nested.extend(fields.values().copied()),
+        Some(CheckedType::Entry { variants }) => {
+            nested.extend(variants.values().flatten().copied())
+        }
+        Some(CheckedType::Array { element_type, .. })
+        | Some(CheckedType::Vector { element_type })
+        | Some(CheckedType::Sequence { element_type })
+        | Some(CheckedType::Optional {
+            inner: element_type,
+        }) => nested.push(*element_type),
+        Some(CheckedType::Set { member_types }) => nested.extend(member_types.iter().copied()),
+        Some(CheckedType::Map {
+            key_type,
+            value_type,
+        }) => nested.extend([*key_type, *value_type]),
+        _ => {}
+    }
+    let mut result = false;
+    for field_type in nested {
+        if type_transitively_non_clone(typed, field_type, visiting)? {
+            result = true;
+            break;
+        }
+    }
+    visiting.remove(&apparent);
+    Ok(result)
+}
+
+/// The first direct record field of `type_id` that transitively contains a
+/// non-clonable leaf. Reports the direct field name for the `clone` claim error.
+fn first_field_transitively_non_clone(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> Result<Option<String>, TypecheckError> {
+    let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+    let Some(CheckedType::Record { fields }) = typed.type_table().get(apparent) else {
+        return Ok(None);
+    };
+    let fields = fields.clone();
+    for (name, field_type) in &fields {
+        let mut visiting = std::collections::BTreeSet::new();
+        if type_transitively_non_clone(typed, *field_type, &mut visiting)? {
+            return Ok(Some(name.clone()));
+        }
+    }
+    Ok(None)
+}
+
 fn lower_generic_constraints_for_params(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -3591,9 +4637,26 @@ fn lower_generic_constraints_for_params(
 ) -> Result<BTreeMap<SymbolId, Vec<GenericConstraint>>, TypecheckError> {
     let mut generic_constraints = BTreeMap::new();
     for (generic, symbol_id) in generics.iter().zip(generic_params.iter().copied()) {
+        // Compiler-owned capability standards (`copy`/`clone`/`fin`/`send`/
+        // `share`) carry no standard symbol; record them as capability bounds on
+        // the generic parameter so call sites can verify the actual type has the
+        // capability (V3_MEM §4.1), then drop them from the symbol-based list.
+        for constraint in &generic.constraints {
+            if let FolType::Named { name, .. } = constraint {
+                let base = name.split('[').next().unwrap_or(name);
+                if fol_parser::ast::is_compiler_owned_generic_constraint(base) {
+                    typed.record_generic_capability_constraint(symbol_id, base.to_string());
+                }
+            }
+        }
         let lowered_constraints = generic
             .constraints
             .iter()
+            .filter(|constraint| {
+                !matches!(constraint, FolType::Named { name, .. }
+                    if fol_parser::ast::is_compiler_owned_generic_constraint(
+                        name.split('[').next().unwrap_or(name)))
+            })
             .map(|constraint| {
                 lower_standard_constraint_for_contract(typed, resolved, scope_id, constraint)
             })

@@ -2,7 +2,7 @@ typ Counter: rec = {
     value: int,
 };
 
-fun[] inspect(counter[mux]: Counter): int = {
+fun[] inspect(counter: mux[Counter]): int = {
     counter.lock();
     dfr {
         var delayed: int = counter.value;

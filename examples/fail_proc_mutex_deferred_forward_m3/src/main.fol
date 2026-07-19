@@ -4,14 +4,14 @@ typ Counter: rec = {
     value: int,
 };
 
-fun[] leaf(counter[mux]: Counter): int = {
+fun[] leaf(counter: mux[Counter]): int = {
     counter.lock();
     var value: int = counter.value;
     counter.unlock();
     return value;
 };
 
-fun[] inspect(counter[mux]: Counter): int = {
+fun[] inspect(counter: mux[Counter]): int = {
     counter.lock();
     dfr {
         var delayed: int = leaf(counter);

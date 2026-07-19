@@ -1,3 +1,0 @@
-fun broken_unary_ref(a: int): int = {
-    return &;
-};

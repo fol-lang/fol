@@ -1,0 +1,16 @@
+// A `T: copy` generic bound is a conditional obligation (V3_MEM §4.1): the
+// actual type at each call site must have the `copy` capability. A record with
+// a move-only field is not copy-safe, so this call is rejected.
+typ Handle: rec = {
+    link: ptr[int],
+};
+
+fun keep(T: copy)(item: T): int = {
+    return 0;
+};
+
+fun[] main(): int = {
+    var value: int = 7;
+    var handle: Handle = { link = [ref]value };
+    return keep([mov]handle);
+};

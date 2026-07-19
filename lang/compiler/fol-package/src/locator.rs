@@ -283,10 +283,15 @@ fn normalize_git_repository_identity(raw: &str) -> String {
         // user is transport detail, not repository identity.
         match rest.split_once('/') {
             Some((authority, path)) => {
-                let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+                let host = authority
+                    .rsplit_once('@')
+                    .map_or(authority, |(_, host)| host);
                 format!("{host}/{path}")
             }
-            None => rest.rsplit_once('@').map_or(rest, |(_, host)| host).to_string(),
+            None => rest
+                .rsplit_once('@')
+                .map_or(rest, |(_, host)| host)
+                .to_string(),
         }
     } else if let Some(rest) = trimmed.strip_prefix("git@") {
         rest.replace(':', "/")
@@ -482,8 +487,9 @@ mod tests {
 
     #[test]
     fn package_locator_rejects_revision_selector_query_params() {
-        let error = parse_package_locator("https://github.com/follang/json.git?rev=0123456789abcdef")
-            .expect_err("revision selector query params should be rejected");
+        let error =
+            parse_package_locator("https://github.com/follang/json.git?rev=0123456789abcdef")
+                .expect_err("revision selector query params should be rejected");
 
         assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
         assert!(
@@ -496,8 +502,9 @@ mod tests {
 
     #[test]
     fn package_locator_rejects_hash_selector_query_params() {
-        let error = parse_package_locator("https://github.com/follang/json.git?hash=0123456789abcdef")
-            .expect_err("hash selector query params should be rejected");
+        let error =
+            parse_package_locator("https://github.com/follang/json.git?hash=0123456789abcdef")
+                .expect_err("hash selector query params should be rejected");
 
         assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
         assert!(
@@ -605,9 +612,8 @@ mod tests {
 
     #[test]
     fn package_locator_rejects_duplicate_hash_selector_query_params() {
-        let error =
-            parse_package_locator("https://github.com/follang/json.git?hash=abc&hash=def")
-                .expect_err("git locators should reject selector query params entirely");
+        let error = parse_package_locator("https://github.com/follang/json.git?hash=abc&hash=def")
+            .expect_err("git locators should reject selector query params entirely");
 
         assert_eq!(error.kind(), crate::PackageErrorKind::InvalidInput);
         assert!(

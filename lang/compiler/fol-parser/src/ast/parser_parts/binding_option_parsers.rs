@@ -25,9 +25,9 @@ impl AstParser {
             if matches!(token.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
                 let _ = tokens.bump();
                 if parsed_options.contains(&VarOption::Borrowing)
-                    && !parsed_options.iter().any(|option| {
-                        matches!(option, VarOption::Mutable | VarOption::Immutable)
-                    })
+                    && !parsed_options
+                        .iter()
+                        .any(|option| matches!(option, VarOption::Mutable | VarOption::Immutable))
                 {
                     parsed_options.push(VarOption::Immutable);
                 }
@@ -97,9 +97,9 @@ impl AstParser {
             if matches!(sep.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
                 let _ = tokens.bump();
                 if parsed_options.contains(&VarOption::Borrowing)
-                    && !parsed_options.iter().any(|option| {
-                        matches!(option, VarOption::Mutable | VarOption::Immutable)
-                    })
+                    && !parsed_options
+                        .iter()
+                        .any(|option| matches!(option, VarOption::Mutable | VarOption::Immutable))
                 {
                     parsed_options.push(VarOption::Immutable);
                 }

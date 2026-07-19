@@ -6,6 +6,6 @@ pro main(): int = {
     };
 };
 
-fun loadMesh(path: str, meshes[mux]: vec[mesh]): int = {
+fun loadMesh(path: str, meshes: mux[vec[mesh]]): int = {
     return 1;
 };

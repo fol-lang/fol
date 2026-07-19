@@ -1,5 +1,5 @@
 fun[] take(pointer[bor]: ptr[ptr[int]]): ptr[int] = {
-    return *pointer;
+    return [drf]pointer;
 };
 
 fun[] main(): int = {

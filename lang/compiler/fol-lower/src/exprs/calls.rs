@@ -1097,6 +1097,7 @@ pub(crate) fn lower_spawn_call(
     source_unit_id: SourceUnitId,
     scope_id: ScopeId,
     task: &AstNode,
+    detached: bool,
 ) -> Result<(), LoweringError> {
     if let AstNode::AnonymousFun {
         syntax_id,
@@ -1246,11 +1247,17 @@ pub(crate) fn lower_spawn_call(
                         element_type: captured,
                     }),
                 ) if outer == captured => LoweredInstrKind::LoadLocal { local: outer_local },
+                // A value capture (`data[mov]`) moves the whole outer local into
+                // the task as its captured parameter; the anon param type
+                // matches the outer local type exactly.
+                _ if outer_type == capture_type => {
+                    LoweredInstrKind::LoadLocal { local: outer_local }
+                }
                 _ => {
                     return Err(LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
                         format!(
-                            "spawn capture '{}[tx]' did not lower to a sender-only endpoint",
+                            "spawn capture '{}' did not lower to a sender endpoint or a moved value",
                             capture.name
                         ),
                     ));
@@ -1264,6 +1271,7 @@ pub(crate) fn lower_spawn_call(
             LoweredInstrKind::SpawnCall {
                 callee: anonymous_routine,
                 args: capture_args,
+                detached,
             },
         )?;
         return Ok(());
@@ -1391,6 +1399,7 @@ pub(crate) fn lower_spawn_call(
         LoweredInstrKind::SpawnCall {
             callee,
             args: lowered_args,
+            detached,
         },
     )?;
     Ok(())
@@ -1846,6 +1855,61 @@ pub(crate) fn resolve_method_target(
             LoweringErrorKind::InvalidInput,
             format!("method '{method}' is ambiguous for the lowered receiver type"),
         )),
+    }
+}
+
+/// Non-erroring lookup of a uniquely-resolved receiver method by name. Returns
+/// `Some(target)` only when exactly one routine named `method` declares a
+/// receiver whose lowered type matches `object_type` — either directly, or as a
+/// `[bor]`/`[mut, bor]` loan of it (the receiver auto-borrows the object, as in
+/// typecheck's method-candidate resolution). A missing or ambiguous match
+/// yields `None`. Used to detect an optional user-defined override (e.g. a
+/// custom `clone` for `[cln]`, V3_MEM §4.1) without hijacking the structural
+/// path when no override exists.
+pub(crate) fn try_resolve_receiver_method(
+    typed_package: &fol_typecheck::TypedPackage,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    type_table: &crate::LoweredTypeTable,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    method: &str,
+    object_type: LoweredTypeId,
+) -> Option<(PackageIdentity, crate::LoweredRoutineId)> {
+    let mut matches = Vec::new();
+    for (symbol_id, symbol) in typed_package.program.resolved().symbols.iter_with_ids() {
+        if symbol.kind != SymbolKind::Routine || symbol.name != method {
+            continue;
+        }
+        let Some(typed_symbol) = typed_package.program.typed_symbol(symbol_id) else {
+            continue;
+        };
+        let Some(receiver_checked_type) = typed_symbol.receiver_type else {
+            continue;
+        };
+        let Some(lowered_receiver_type) = checked_type_map.get(&receiver_checked_type).copied()
+        else {
+            continue;
+        };
+        let matches_object = lowered_receiver_type == object_type
+            || matches!(
+                type_table.get(lowered_receiver_type),
+                Some(crate::LoweredType::Borrowed { inner, .. }) if *inner == object_type
+            );
+        if !matches_object {
+            continue;
+        }
+        let (owning_identity, owning_symbol_id) =
+            canonical_symbol_key(current_identity, symbol.mounted_from.as_ref(), symbol_id);
+        let Some(routine_id) = decl_index.routine_id_for_symbol(&owning_identity, owning_symbol_id)
+        else {
+            continue;
+        };
+        matches.push((owning_identity, routine_id));
+    }
+    if matches.len() == 1 {
+        Some(matches.remove(0))
+    } else {
+        None
     }
 }
 

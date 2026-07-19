@@ -40,6 +40,9 @@ pub fn traverse_named_routine(
     insert_generic_symbols(program, source_unit_id, routine_scope, generics)?;
     for generic in generics {
         for constraint in &generic.constraints {
+            if super::types::constraint_is_capability_standard(constraint) {
+                continue;
+            }
             resolve_type_reference(session, program, source_unit_id, routine_scope, constraint)?;
         }
     }

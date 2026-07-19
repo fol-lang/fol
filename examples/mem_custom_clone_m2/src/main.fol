@@ -1,0 +1,20 @@
+// A type may override structural clone with a pure borrowed-receiver `clone`
+// method (V3_MEM §4.1). `[cln]value` then dispatches to that override instead
+// of copying fields structurally, and the borrowed source stays usable.
+
+use std: pkg = {"std"};
+
+typ Counter()(clone): rec = {
+    value: int,
+    clones: int,
+};
+
+fun (Counter[bor])clone(): Counter = {
+    return { value = self.value, clones = self.clones + 1 };
+};
+
+fun[] main(): int = {
+    var original: Counter = { value = 10, clones = 0 };
+    var duplicate: Counter = [cln]original;
+    return std::io::echo_int(duplicate.value + duplicate.clones + original.clones);
+};

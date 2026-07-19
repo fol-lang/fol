@@ -1,3 +1,0 @@
-fun broken_unary_deref(a: int): int = {
-    return *;
-};

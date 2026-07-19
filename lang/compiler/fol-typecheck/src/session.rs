@@ -520,6 +520,19 @@ impl TypecheckSession {
                     .type_table_mut()
                     .intern(CheckedType::ChannelSender { element_type })
             }
+            CheckedType::ChannelReceiver { element_type } => {
+                let element_type = self.import_type_id(
+                    target_program,
+                    source_identity,
+                    source_program,
+                    element_type,
+                    mounted_symbol_map,
+                    imported_cache,
+                )?;
+                target_program
+                    .type_table_mut()
+                    .intern(CheckedType::ChannelReceiver { element_type })
+            }
             CheckedType::Eventual {
                 value_type,
                 error_type,
@@ -633,7 +646,12 @@ impl TypecheckSession {
                     .type_table_mut()
                     .intern(CheckedType::Borrowed { inner, mutable })
             }
-            CheckedType::Pointer { target, shared } => {
+            CheckedType::Pointer {
+                target,
+                shared,
+                weak,
+                sync,
+            } => {
                 let target = self.import_type_id(
                     target_program,
                     source_identity,
@@ -644,7 +662,12 @@ impl TypecheckSession {
                 )?;
                 target_program
                     .type_table_mut()
-                    .intern(CheckedType::Pointer { target, shared })
+                    .intern(CheckedType::Pointer {
+                        target,
+                        shared,
+                        weak,
+                        sync,
+                    })
             }
             CheckedType::Error { inner } => {
                 let inner = inner

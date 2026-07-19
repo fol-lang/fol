@@ -579,6 +579,7 @@ fn checked_type_contains_generic_parameter(
             | CheckedType::Sequence { element_type }
             | CheckedType::Channel { element_type }
             | CheckedType::ChannelSender { element_type }
+            | CheckedType::ChannelReceiver { element_type }
             | CheckedType::Optional {
                 inner: element_type,
             }
@@ -627,14 +628,10 @@ fn checked_type_contains_generic_parameter(
                     .any(|param| contains_type_id(*param, program, visiting))
                     || signature
                         .return_type
-                        .is_some_and(|return_type| {
-                            contains_type_id(return_type, program, visiting)
-                        })
+                        .is_some_and(|return_type| contains_type_id(return_type, program, visiting))
                     || signature
                         .error_type
-                        .is_some_and(|error_type| {
-                            contains_type_id(error_type, program, visiting)
-                        })
+                        .is_some_and(|error_type| contains_type_id(error_type, program, visiting))
             }
         }
     }

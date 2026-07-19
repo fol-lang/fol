@@ -247,6 +247,19 @@ impl AstParser {
                 continue;
             }
 
+            // A prefix ownership operation at statement position — most
+            // usefully `[fin]place` for early finalization (V3_MEM §6.1). The
+            // operation is a full expression, so route it through the general
+            // expression parser; otherwise the leading `[` falls through to the
+            // identifier tail and the option keyword is parsed as a name.
+            if self.lookahead_is_ownership_operation(tokens)
+                && !(self.peek_is_deref_bracket(tokens) && self.lookahead_is_assignment(tokens))
+            {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
             if self.lookahead_is_spawn_expression(tokens) {
                 body.push(self.parse_logical_expression(tokens)?);
                 self.consume_required_semicolon(tokens)?;
@@ -259,19 +272,10 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(
-                key,
-                KEYWORD::Symbol(SYMBOL::Bang) | KEYWORD::Symbol(SYMBOL::Hash)
-            ) || matches!(token.con().trim(), "!" | "#")
-            {
-                body.push(self.parse_logical_expression(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
             if (AstParser::token_can_be_logical_name(&key)
                 || key.is_textual_literal()
-                || matches!(key, KEYWORD::Symbol(SYMBOL::Star)))
+                || matches!(key, KEYWORD::Symbol(SYMBOL::Star))
+                || self.peek_is_deref_bracket(tokens))
                 && self.lookahead_is_assignment(tokens)
                 && self.can_start_assignment(tokens)
             {

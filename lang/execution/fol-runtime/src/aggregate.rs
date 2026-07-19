@@ -184,6 +184,21 @@ impl<T: FolEchoFormat + ?Sized> FolEchoFormat for std::rc::Rc<T> {
     }
 }
 
+// A weak handle is rendered as an opaque placeholder rather than upgraded and
+// formatted: weak edges exist precisely to break shared cycles, so following one
+// during echo formatting would recurse forever on those cycles.
+impl<T: ?Sized> FolEchoFormat for std::rc::Weak<T> {
+    fn fol_echo_format(&self) -> String {
+        "weak".to_string()
+    }
+}
+
+impl<T: ?Sized> FolEchoFormat for std::sync::Weak<T> {
+    fn fol_echo_format(&self) -> String {
+        "weak".to_string()
+    }
+}
+
 impl<T: FolEchoFormat, const N: usize> FolEchoFormat for FolArray<T, N> {
     fn fol_echo_format(&self) -> String {
         format!("arr[{}]", join_echo(self.iter().map(render_echo)))
@@ -241,7 +256,11 @@ impl<T: FolEchoFormat> FolEchoFormat for FolOption<T> {
 
 impl<T: FolEchoFormat> FolEchoFormat for FolError<T> {
     fn fol_echo_format(&self) -> String {
-        format!("err({})", render_echo(self.as_ref()))
+        if self.is_nil() {
+            "nil".to_string()
+        } else {
+            format!("err({})", render_echo(self.as_ref()))
+        }
     }
 }
 

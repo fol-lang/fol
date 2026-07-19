@@ -7,9 +7,8 @@ impl AstParser {
         token: &fol_lexer::lexer::stage3::element::Element,
     ) -> Result<AstNode, ParseError> {
         let raw = token.con().trim();
-        let wrap_err = |error: ParseError| -> ParseError {
-            ParseError::from_token(token, error.to_string())
-        };
+        let wrap_err =
+            |error: ParseError| -> ParseError { ParseError::from_token(token, error.to_string()) };
 
         match token.key() {
             fol_lexer::token::KEYWORD::Literal(LITERAL::CookedQuoted)
@@ -164,7 +163,9 @@ impl AstParser {
                             } else {
                                 ParseError {
                                     kind: ParseErrorKind::Unsupported,
-                                    message: format!("Unsupported plain binding pattern: {other:?}"),
+                                    message: format!(
+                                        "Unsupported plain binding pattern: {other:?}"
+                                    ),
                                     file: None,
                                     line: 0,
                                     column: 0,

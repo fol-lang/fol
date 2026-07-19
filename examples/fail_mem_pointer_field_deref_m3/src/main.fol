@@ -3,11 +3,11 @@ typ Holder: rec = {
 };
 
 fun[] inspect(holder: Holder): int = {
-    return *holder.link;
+    return [drf]holder.link;
 };
 
 fun[] main(): int = {
     var value: int = 7;
-    var holder: Holder = { link = &value };
-    return inspect(holder);
+    var holder: Holder = { link = [ref]value };
+    return inspect([mov]holder);
 };

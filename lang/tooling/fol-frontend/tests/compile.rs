@@ -484,7 +484,7 @@ fn grouped_direct_json_preserves_ownership_code_and_location() {
         concat!(
             "fun[] main(): int = {\n",
             "    @var owner: int = 3;\n",
-            "    @var moved: int = owner;\n",
+            "    @var moved: int = [mov]owner;\n",
             "    return owner;\n",
             "};\n",
         ),

@@ -15,10 +15,13 @@ var pending = calculate() | async;
 var value = pending | await;
 ```
 
-`| async` starts the call on an OS thread and produces an internal eventual.
-`| await` blocks the current OS thread until that computation finishes. The
-eventual type is not nameable in `V3`; `evt[T]` is only a possible later design
-slot.
+`| async` starts the call on an OS thread and produces a one-shot eventual.
+`| await` blocks the current OS thread until that computation finishes. A local
+binding may name the eventual with its lexical lifetime elided (V3_MEM §8.1):
+`evt[T]` for an infallible call and `evt[T / E]` for a recoverable one, e.g.
+`var work: evt[int] = compute(7) | async`. The public lifetime-carrying
+`evt[L, T]` spelling is also a namable type, naming the region the eventual
+belongs to.
 
 The call to the left of `| async` must resolve directly to a named routine
 declaration. Both `calculate()` and a qualified call such as
@@ -30,9 +33,8 @@ target surface; call a free named routine directly instead.
 
 Nested routine bodies cannot implicitly capture outer locals. Pass ordinary
 outer values through declared parameters instead of relying on a hidden closure
-environment. An outer eventual cannot use that workaround because its type is
-internal and generic crossings are forbidden; await and handle it in the outer
-routine.
+environment. An outer eventual cannot use that workaround because generic
+crossings are forbidden; await and handle it in the outer routine.
 
 Eventual bindings are move-only. A plain binding or assignment transfers the
 eventual and makes the source binding unavailable. An eventual may be consumed
@@ -86,6 +88,7 @@ An eventual is a one-shot task result, not a resumable generator or coroutine.
 the parser but is rejected by semantic analysis and lowering. `async` also does
 not color the called routine or change its declaration.
 
-The eventual slice is implemented end to end. Its exact positive, tier-failure,
-must-handle failure, and unnameable-`evt[T]` example set is maintained in the
+The eventual slice is implemented end to end. Its exact positive (including the
+namable `evt[T]` local), tier-failure, and must-handle failure example set is
+maintained in the
 [canonical shipped processor inventory](./_index.md#shipped-example-inventory).

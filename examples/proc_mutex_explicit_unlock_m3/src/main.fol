@@ -4,7 +4,7 @@ typ Counter: rec = {
     value: int,
 };
 
-fun[] update(counter[mux]: Counter): int = {
+fun[] update(counter: mux[Counter]): int = {
     counter.lock();
     counter.value = 42;
     var result: int = counter.value;

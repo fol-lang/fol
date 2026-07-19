@@ -34,7 +34,12 @@ pub fn resolve_type_reference(
         FolType::Array { element_type, .. }
         | FolType::Vector { element_type }
         | FolType::Sequence { element_type }
-        | FolType::Channel { element_type } => {
+        | FolType::Channel { element_type }
+        | FolType::ChannelSender { element_type }
+        | FolType::ChannelReceiver { element_type }
+        | FolType::Mutex {
+            inner: element_type,
+        } => {
             resolve_type_reference(session, program, source_unit_id, scope_id, element_type)?;
         }
         FolType::Matrix { element_type, .. } => {
@@ -64,14 +69,25 @@ pub fn resolve_type_reference(
         }
         FolType::Optional { inner }
         | FolType::Owned { inner }
-        | FolType::Pointer {
-            target: inner, ..
-        } => {
+        | FolType::Borrowed { inner, .. }
+        | FolType::Pointer { target: inner, .. } => {
             resolve_type_reference(session, program, source_unit_id, scope_id, inner)?;
         }
         FolType::Error { inner } => {
             if let Some(inner) = inner {
                 resolve_type_reference(session, program, source_unit_id, scope_id, inner)?;
+            }
+        }
+        FolType::Eventual {
+            value_type,
+            error_type,
+            // The public lifetime `L` from `evt[L, T]` is preserved for
+            // formatting but, like `[bor=L]`, not yet region-resolved.
+            ..
+        } => {
+            resolve_type_reference(session, program, source_unit_id, scope_id, value_type)?;
+            if let Some(error_type) = error_type {
+                resolve_type_reference(session, program, source_unit_id, scope_id, error_type)?;
             }
         }
         FolType::Limited { base, limits } => {
@@ -99,6 +115,9 @@ pub fn resolve_type_reference(
         }
         FolType::Generic { constraints, .. } => {
             for constraint in constraints {
+                if constraint_is_capability_standard(constraint) {
+                    continue;
+                }
                 resolve_type_reference(session, program, source_unit_id, scope_id, constraint)?;
             }
         }
@@ -122,6 +141,17 @@ pub fn resolve_type_reference(
     Ok(())
 }
 
+/// Whether a generic constraint names a compiler-owned constraint kind (a
+/// capability standard, or `item`/`lif`). Such constraints are recognized
+/// directly and are not resolved as type references.
+pub fn constraint_is_capability_standard(constraint: &FolType) -> bool {
+    if let FolType::Named { name, .. } = constraint {
+        let base = name.split('[').next().unwrap_or(name);
+        return fol_parser::ast::is_compiler_owned_generic_constraint(base);
+    }
+    false
+}
+
 pub fn resolve_contract_reference(
     session: &mut ResolverSession,
     program: &mut ResolvedProgram,
@@ -141,6 +171,13 @@ pub fn resolve_contract_reference(
                 Some(open) => &name[..open],
                 None => name.as_str(),
             };
+            // The compiler-owned capability standards (`copy`, `clone`, `fin`,
+            // `send`, `share`) are recognized directly and do not resolve to a
+            // user-declared `std` symbol, so they are not recorded as symbol
+            // references here; typecheck interprets them as capability claims.
+            if fol_parser::ast::is_capability_standard(base_name) {
+                return Ok(());
+            }
             record_contract_reference(
                 program,
                 source_unit_id,

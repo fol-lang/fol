@@ -18,6 +18,7 @@ pub enum TypecheckErrorKind {
     BorrowConflict,
     BorrowMutability,
     BorrowReturned,
+    Uninitialized,
 }
 
 impl TypecheckErrorKind {
@@ -36,6 +37,7 @@ impl TypecheckErrorKind {
             Self::BorrowConflict => DiagnosticCode::new("O2002"),
             Self::BorrowMutability => DiagnosticCode::new("O2003"),
             Self::BorrowReturned => DiagnosticCode::new("O2004"),
+            Self::Uninitialized => DiagnosticCode::new("O2005"),
         }
     }
 }

@@ -10,6 +10,100 @@ use super::literals::type_set_index_access;
 use super::type_node;
 use super::{TypeContext, TypedExpr};
 
+/// Reject reading `object.field` when that exact static field was already
+/// moved out of a direct owned binding (Slice C §3.1). Sibling fields stay
+/// readable; only the moved place is rejected.
+fn reject_moved_field_projection(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    object: &AstNode,
+    field: &str,
+) -> Result<(), TypecheckError> {
+    let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        name,
+    } = strip_comments(object)
+    else {
+        return Ok(());
+    };
+    let Some(symbol) = resolved
+        .references
+        .iter()
+        .find(|reference| {
+            reference.syntax_id == Some(*syntax_id) && reference.kind == ReferenceKind::Identifier
+        })
+        .and_then(|reference| reference.resolved)
+    else {
+        return Ok(());
+    };
+    if let Some(move_origin) = typed.moved_field_origin(symbol, field).cloned() {
+        let message = format!("use of moved field '{name}.{field}'");
+        let mut error = node_origin(resolved, object).map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+            },
+        );
+        error = error.with_related_origin(move_origin, "field moved here");
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Uniform inner-place access `container[]` (V3_MEM §3.3): reads the payload of
+/// a pointer, an `opt[T]`, or an `err[T]`. Direct access asserts the payload
+/// exists (panics otherwise); the safe form uses `when` choice syntax.
+pub(crate) fn type_inner_place_access(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    container: &AstNode,
+    patterns: &[AstNode],
+) -> Result<TypedExpr, TypecheckError> {
+    if !patterns.is_empty() {
+        return Err(with_node_origin(
+            resolved,
+            container,
+            TypecheckErrorKind::Unsupported,
+            "pattern-list access 'container[pattern, ...]' is not supported in V3; use the uniform inner access 'container[]'",
+        ));
+    }
+    let container_raw = type_node(typed, resolved, context, container)?;
+    let container_expr = plain_value_expr(
+        typed,
+        context,
+        container_raw,
+        node_origin(resolved, container),
+        "inner-place access '[]' receiver",
+    )?;
+    let container_type =
+        container_expr.required_value("inner-place access '[]' does not have a typed receiver")?;
+    let apparent = apparent_type_id(typed, container_type)?;
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Pointer { weak: true, .. }) => Err(with_node_origin(
+            resolved,
+            container,
+            TypecheckErrorKind::Ownership,
+            "a weak pointer 'ptr[weak, T]' cannot be accessed directly; upgrade it with '[upg]' to 'opt[ptr[shared, T]]' first",
+        )),
+        Some(CheckedType::Pointer { target, .. }) => Ok(TypedExpr::value(*target)),
+        Some(CheckedType::Optional { inner }) => Ok(TypedExpr::value(*inner)),
+        Some(CheckedType::Error { inner: Some(inner) }) => Ok(TypedExpr::value(*inner)),
+        Some(CheckedType::Error { inner: None }) => Err(with_node_origin(
+            resolved,
+            container,
+            TypecheckErrorKind::InvalidInput,
+            "'err[]' has no payload to access",
+        )),
+        _ => Err(with_node_origin(
+            resolved,
+            container,
+            TypecheckErrorKind::InvalidInput,
+            "inner-place access '[]' requires a pointer, 'opt[T]', or 'err[T]' receiver",
+        )),
+    }
+}
+
 pub(crate) fn type_field_access(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -41,11 +135,17 @@ pub(crate) fn type_field_access(
             ));
         }
     }
+    // A partially moved aggregate may still be projected for a surviving field,
+    // so mark this read as a projection root: the whole-value "partially moved"
+    // rejection is suppressed while typing the receiver, and the specific field
+    // being read is checked explicitly below (Slice C §3.1).
+    reject_moved_field_projection(typed, resolved, object, field)?;
     let object_raw = type_node(
         typed,
         resolved,
         super::TypeContext {
             allow_mutex_handle: direct_mutex.is_some(),
+            field_projection_root: true,
             ..context
         },
         object,

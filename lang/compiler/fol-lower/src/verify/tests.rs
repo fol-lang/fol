@@ -229,7 +229,9 @@ fn verifier_rejects_runtime_hooks_with_results_and_helper_without_results() {
     let mut type_table = LoweredTypeTable::new();
     let bool_type = type_table.intern_builtin(LoweredBuiltinType::Bool);
     let int_type = type_table.intern_builtin(LoweredBuiltinType::Int);
-    let seq_type = type_table.intern(crate::types::LoweredType::Sequence { element_type: bool_type });
+    let seq_type = type_table.intern(crate::types::LoweredType::Sequence {
+        element_type: bool_type,
+    });
     let recoverable_abi = LoweredRecoverableAbi::v1(bool_type);
     let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "main", LoweredBlockId(0));
     routine.locals.push(LoweredLocal {
@@ -365,9 +367,12 @@ fn verifier_rejects_reading_move_only_aggregates_out_of_borrows() {
     let pointer_type = type_table.intern(crate::types::LoweredType::Pointer {
         target: int_type,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let record_type = type_table.intern(crate::types::LoweredType::Record {
         fields: BTreeMap::from([("pointer".to_string(), pointer_type)]),
+        finalized: false,
     });
     let borrow_type = type_table.intern(crate::types::LoweredType::Borrowed {
         inner: record_type,
@@ -410,8 +415,8 @@ fn verifier_rejects_reading_move_only_aggregates_out_of_borrows() {
         recoverable_abi,
     );
 
-    let errors = verify_workspace(&workspace)
-        .expect_err("verifier should reject move-only borrow reads");
+    let errors =
+        verify_workspace(&workspace).expect_err("verifier should reject move-only borrow reads");
     assert!(errors.iter().any(|error| error
         .message()
         .contains("reads a move-only or generic value out of a borrow")));
@@ -459,8 +464,8 @@ fn verifier_rejects_generic_parameter_leaked_into_non_generic_routine() {
         recoverable_abi,
     );
 
-    let errors = verify_workspace(&workspace)
-        .expect_err("verifier should reject leaked generic parameters");
+    let errors =
+        verify_workspace(&workspace).expect_err("verifier should reject leaked generic parameters");
 
     assert!(
         errors

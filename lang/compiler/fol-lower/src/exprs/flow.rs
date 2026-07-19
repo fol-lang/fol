@@ -218,19 +218,49 @@ pub(crate) fn lower_when_statement(
     let mut has_fallthrough = false;
 
     for (index, case) in cases.iter().enumerate() {
-        let (condition, body) = when_case_condition_and_body(case)?;
-        let lowered_condition = lower_when_case_condition(
-            typed_package,
-            type_table,
-            checked_type_map,
-            current_identity,
-            decl_index,
-            cursor,
-            source_unit_id,
-            scope_id,
-            &subject,
-            condition,
-        )?;
+        // An `on(v)` branch (V3_MEM §3.3 shell choice) tests whether the shell
+        // subject is present and binds its payload in the body block; every other
+        // branch tests value equality against the subject.
+        let (condition_local, body, on_payload) = if let fol_parser::ast::WhenCase::On {
+            channel,
+            body,
+        } = case
+        {
+            let bool_type = checked_type_map
+                .get(&typed_package.program.builtin_types().bool_)
+                .copied()
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "lowered workspace lost builtin bool while lowering an 'on' branch",
+                    )
+                })?;
+            let present = cursor.allocate_local(bool_type, None);
+            cursor.push_instr(
+                Some(present),
+                crate::LoweredInstrKind::OptionalHasValue {
+                    operand: subject.local_id,
+                },
+            )?;
+            let payload =
+                lower_on_branch_payload(typed_package, checked_type_map, source_unit_id, channel)?;
+            (present, body.as_slice(), Some(payload))
+        } else {
+            let (condition, body) = when_case_condition_and_body(case)?;
+            let lowered_condition = lower_when_case_condition(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                &subject,
+                condition,
+            )?;
+            (lowered_condition.local_id, body, None)
+        };
         let body_block = cursor.create_block();
         let else_block = if index + 1 < cases.len() || default.is_some() {
             cursor.create_block()
@@ -238,12 +268,22 @@ pub(crate) fn lower_when_statement(
             ensure_after_block(cursor, &mut after_block)
         };
         cursor.terminate_current_block(crate::LoweredTerminator::Branch {
-            condition: lowered_condition.local_id,
+            condition: condition_local,
             then_block: body_block,
             else_block,
         })?;
 
         cursor.switch_block(body_block)?;
+        if let Some((symbol, payload_type)) = on_payload {
+            let payload_local = cursor.allocate_local(payload_type, None);
+            cursor.push_instr(
+                Some(payload_local),
+                crate::LoweredInstrKind::UnwrapShell {
+                    operand: subject.local_id,
+                },
+            )?;
+            cursor.routine.local_symbols.insert(symbol, payload_local);
+        }
         let _ = lower_body_sequence(
             typed_package,
             type_table,
@@ -1121,19 +1161,48 @@ pub(crate) fn lower_when_expression(
     let mut join_local = None;
 
     for (index, case) in cases.iter().enumerate() {
-        let (condition, body) = when_case_condition_and_body(case)?;
-        let lowered_condition = lower_when_case_condition(
-            typed_package,
-            type_table,
-            checked_type_map,
-            current_identity,
-            decl_index,
-            cursor,
-            source_unit_id,
-            scope_id,
-            &subject,
-            condition,
-        )?;
+        // See `lower_when_statement`: `on(v)` tests shell presence and binds the
+        // payload in the body block; other branches test value equality.
+        let (condition_local, body, on_payload) = if let fol_parser::ast::WhenCase::On {
+            channel,
+            body,
+        } = case
+        {
+            let bool_type = checked_type_map
+                .get(&typed_package.program.builtin_types().bool_)
+                .copied()
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "lowered workspace lost builtin bool while lowering an 'on' branch",
+                    )
+                })?;
+            let present = cursor.allocate_local(bool_type, None);
+            cursor.push_instr(
+                Some(present),
+                crate::LoweredInstrKind::OptionalHasValue {
+                    operand: subject.local_id,
+                },
+            )?;
+            let payload =
+                lower_on_branch_payload(typed_package, checked_type_map, source_unit_id, channel)?;
+            (present, body.as_slice(), Some(payload))
+        } else {
+            let (condition, body) = when_case_condition_and_body(case)?;
+            let lowered_condition = lower_when_case_condition(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                &subject,
+                condition,
+            )?;
+            (lowered_condition.local_id, body, None)
+        };
         let body_block = cursor.create_block();
         let else_block = if index + 1 < cases.len() || !default.is_empty() {
             cursor.create_block()
@@ -1141,12 +1210,22 @@ pub(crate) fn lower_when_expression(
             join_block
         };
         cursor.terminate_current_block(crate::LoweredTerminator::Branch {
-            condition: lowered_condition.local_id,
+            condition: condition_local,
             then_block: body_block,
             else_block,
         })?;
 
         cursor.switch_block(body_block)?;
+        if let Some((symbol, payload_type)) = on_payload {
+            let payload_local = cursor.allocate_local(payload_type, None);
+            cursor.push_instr(
+                Some(payload_local),
+                crate::LoweredInstrKind::UnwrapShell {
+                    operand: subject.local_id,
+                },
+            )?;
+            cursor.routine.local_symbols.insert(symbol, payload_local);
+        }
         let branch_value = lower_body_sequence(
             typed_package,
             type_table,
@@ -1301,6 +1380,63 @@ fn lower_when_branch_value(
             "value-producing when branches must yield a value or terminate early",
         )),
     }
+}
+
+/// Resolve the payload binding of an `on(v)` shell-choice branch: the value
+/// binding declared in the on-branch scope and its lowered payload type.
+fn lower_on_branch_payload(
+    typed_package: &fol_typecheck::TypedPackage,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    source_unit_id: SourceUnitId,
+    channel: &AstNode,
+) -> Result<(fol_resolver::SymbolId, LoweredTypeId), LoweringError> {
+    let (name, syntax_id) = match channel {
+        AstNode::Identifier {
+            name,
+            syntax_id: Some(syntax_id),
+        } => (name, *syntax_id),
+        _ => {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "an 'on' branch requires a payload binding name, e.g. 'on(value)'",
+            ))
+        }
+    };
+    let on_scope = typed_package
+        .program
+        .resolved()
+        .scope_for_syntax(syntax_id)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "'on' branch lost its resolver scope during lowering",
+            )
+        })?;
+    let symbol = crate::decls::find_symbol_in_scope_or_descendants(
+        &typed_package.program,
+        source_unit_id,
+        on_scope,
+        SymbolKind::ValueBinding,
+        name,
+    )
+    .ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!("'on' binding '{name}' does not retain a lowering symbol"),
+        )
+    })?;
+    let payload_type = typed_package
+        .program
+        .typed_symbol(symbol)
+        .and_then(|sym| sym.declared_type)
+        .and_then(|checked| checked_type_map.get(&checked).copied())
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("'on' binding '{name}' does not retain a lowered type"),
+            )
+        })?;
+    Ok((symbol, payload_type))
 }
 
 pub(crate) fn when_case_condition_and_body(

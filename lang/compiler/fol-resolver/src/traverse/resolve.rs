@@ -57,30 +57,12 @@ pub fn resolve_lexical_symbol_of_kinds(
                 ));
             }
 
-            if allowed_kinds.is_empty() {
-                return Err(ambiguity_error_with_optional_origin(
-                    lexical_ambiguity_message(name, missing_role, &matching_symbols),
-                    origin,
-                    &matching_symbols,
-                ));
-            }
-
-            return Err(with_unresolved_name_suggestion(
-                error_with_optional_origin(
-                    ResolverErrorKind::UnresolvedName,
-                    format!(
-                        "could not resolve {} '{}'",
-                        missing_role.unwrap_or("name"),
-                        name
-                    ),
-                    origin.clone(),
-                ),
-                program,
-                starting_scope,
-                name,
-                allowed_kinds,
-                origin.as_ref(),
-            ));
+            // This scope has a symbol with the same (case-folded) name but of a
+            // non-matching kind — e.g. a value binding `node` shadowing the type
+            // `Node`. Types and values occupy distinct namespaces, so a wrong-kind
+            // symbol must not halt the lookup: fall through to the enclosing
+            // scope, where a matching-kind symbol may live. If none is found in
+            // any scope, the post-loop error reports the unresolved name.
         }
 
         current_scope = program.scope(scope_id).and_then(|scope| scope.parent);

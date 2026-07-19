@@ -7,7 +7,7 @@ typ Node: rec = {
 fun[] main(): int = {
     @var left: Node = { value = 2, left = nil, right = nil };
     @var right: Node = { value = 3, left = nil, right = nil };
-    @var root: Node = { value = 1, left = left, right = right };
+    @var root: Node = { value = 1, left = [mov]left, right = [mov]right };
     var top_value: int = root.value;
-    return top_value + (root.left!).value;
+    return top_value + (root.left[]).value;
 };

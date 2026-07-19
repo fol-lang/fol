@@ -1,20 +1,19 @@
-# V4 Interop and Toolchain Boundary Plan
+# V4 C ABI and Toolchain Boundary Plan
 
 > **Status: the hardening prerequisite is complete; the first broader V4
 > milestone is unblocked.** The certified `x86_64-unknown-linux-gnu` pipeline
 > passes from clean, exact PARC, LINC, GERC, and FOL commits through the
 > Make-owned local and CI gates in `../HARDENING.md`. This completes the
-> prerequisite only; it does not complete any broader M0-M10 milestone. A
+> prerequisite only; it does not complete any broader M0-M9 milestone. A
 > checked box in this file means a verified shipped result, not parser
 > acceptance or an implementation sketch.
 
-V4 is the release in which FOL becomes an intentional participant in foreign
+V4 is the release in which FOL becomes an intentional participant in C
 toolchains. It is not "put `extern \"C\"` around the Rust backend." It is the
 combination of:
 
 - a stable, target-specific C ABI projection
 - C import and export, including a bounded header-import path
-- source-level Rust integration without a stable-Rust-ABI claim
 - real executable, static-library, shared-library, object, header, and manifest
   outputs
 - target-aware native dependency and linker planning
@@ -25,8 +24,9 @@ combination of:
 
 V4 is the last currently named milestone, but it is **not** shorthand for
 "every unfinished language idea." Broader V2 expressiveness, generators and
-`yield`, a C++ ABI, unrestricted unsafe code, arbitrary Cargo ingestion, and
-other items explicitly excluded below remain separate work.
+`yield`, direct Rust interop, a C++ ABI, unrestricted unsafe code, arbitrary
+Cargo ingestion, other language bridges, and the other items explicitly
+excluded below remain separate work.
 
 This file is the sole implementation authority for V4 staging. The former
 `plan/C-ABI-CONSIDERATION.md` was intentionally retired rather than retained as
@@ -34,19 +34,97 @@ a competing plan. The book remains the user-facing language contract. Each
 milestone updates the book from "planned" to "shipped" only after that
 milestone's real consumer tests pass.
 
-Where an older statement in this file conflicts with `../HARDENING.md`, the
-hardening plan wins. In particular, FOL does not own sibling contract copies,
-sibling-to-sibling adapters, the native evidence model, the shared native
-target vocabulary, or a second raw Rust FFI emitter. Initial certification is
-only `x86_64-unknown-linux-gnu`; Apple, Windows, musl, and other architectures
-remain promotion candidates until the sibling pipeline has native evidence for
-them.
+The technical ownership rules, exit criteria, and evidence requirements in
+`../HARDENING.md` win over older technical assumptions here. Its top
+"proposed/blocked" banner predates execution and is superseded for status only
+by the completed exit checklist, the committed FOL hardening-completion record,
+and the status above; it must not re-block M0 by stale wording. In particular,
+FOL does not own sibling contract copies, sibling-to-sibling adapters, the
+native evidence model, the shared native target vocabulary, or a second raw
+Rust FFI emitter. Initial certification is only
+`x86_64-unknown-linux-gnu`; Apple, Windows, musl, and other architectures remain
+promotion candidates until the sibling pipeline has native evidence for them.
+
+## Scope decision: one public interop boundary
+
+V4 is **strictly C ABI interop**. In this plan, "foreign," "native," and
+"interop" mean the versioned C ABI unless a sentence explicitly describes a
+private compiler implementation detail. There are exactly two public
+directions:
+
+`V4` is a roadmap milestone name, not a Cargo package-version instruction. The
+root `fol` package remains at `0.2.0`, and existing workspace-member versions
+remain unchanged; V4 does not bump versions, tags, or release metadata unless
+the user separately and explicitly requests it. Implementation may make scoped
+non-version workspace-membership and dependency wiring changes in Cargo
+manifests/lock data when a planned crate requires them.
+
+```text
+C header + C provider -> checked C interface -> ordinary FOL namespace
+FOL ABI export list   -> checked C interface -> .h + .a/.so + manifest
+```
+
+The selected sibling pipeline remains general-purpose and independently
+usable from Rust:
+
+- PARC turns explicit-target C source into a checked source package.
+- LINC proves native provider, layout, symbol, target, and ordered-link facts.
+- GERC turns the accepted C surface into deterministic raw Rust FFI and typed
+  link arguments.
+
+PARC, LINC, and GERC do **not** become FOL-specific crates and do not emit FOL
+source. Their public APIs and data models remain useful to any Rust program
+that needs the same C-intake stages. FOL-specific ownership, capability,
+namespace, annotation, diagnostics, and artifact policy live downstream in
+`fol-abi` and `fol-interop`. In particular, `fol-abi` is the dependency-light
+canonical FOL ABI model and never depends on the siblings; `fol-interop` is the
+adapter that consumes all four models and orchestrates the pipeline.
+
+The compiler may continue to generate Rust internally and invoke `rustc` to
+build FOL artifacts. GERC may continue to generate a private raw Rust import
+module because that is how the Rust-based backend reaches a C provider. Those
+facts are implementation plumbing, not a public Rust interop feature. V4 does
+not accept user Rust source or Cargo packages as FOL interop inputs, emit a
+public Cargo crate or safe Rust facade, accept `.rlib`/Rust `dylib` artifacts,
+scaffold Rust providers, or promise any Rust ABI. A Rust application may
+independently consume FOL's ordinary C header and C library just as any C-ABI
+consumer can, but FOL ships no Rust-specific projection or tooling in V4.
+
+Direct Rust source interop remains a possible later project. It must have its
+own plan, syntax, trust model, compatibility contract, and consumer matrix. It
+may reuse the C ABI and manifest as a conservative bridge, but it cannot add a
+parallel production build truth, make the generic siblings FOL-specific, or
+weaken or delay any C gate in this plan.
+
+## Current hardening anchor: what H7 proves
+
+The completed H7 prerequisite is intentionally narrow. Its certified fixture
+has exactly one `build.fol` executable, one explicit C header, one exact C
+object provider, and one no-argument function returning a 32-bit integer on
+`x86_64-unknown-linux-gnu` with an explicit GCC identity. The pipeline parses
+that header with PARC, validates the exact object/symbol/link evidence with
+LINC, generates the private raw Rust call layer and typed link arguments with
+GERC, compiles the FOL executable, links it to that object, runs it, and checks
+the provider's per-run value.
+
+What H7 gained is a real locked, typed, fail-closed crossing between the four
+repositories: exact revision/schema/feature checks, one shared target
+fingerprint, source/provider/generation evidence, private generated-source
+materialization, typed linker argv, early rejection, and Make/CI-owned
+link-and-run proof. It removed the need to speculate about whether the sibling
+stack can reach the current Rust backend at all.
+
+H7 is **not** the general C feature. It does not prove general import syntax,
+synthetic FOL namespaces, ownership or error annotations, arbitrary function
+signatures, archives/shared providers, C export, headers/manifests generated
+from FOL, `.a`/`.so` production, ABI compatibility, or installed consumers. It
+completes none of M0-M9; those are the work below.
 
 
 # 1. Definition of Done
 
 The repository may say **"V4 is fully implemented"** only when all required
-milestones M0 through M10 are complete and all of these statements are true:
+milestones M0 through M9 are complete and all of these statements are true:
 
 1. A `build.fol` artifact's kind, model, target, optimization, sources,
    generated inputs, ABI exports, native inputs, link order, outputs, and
@@ -65,15 +143,16 @@ milestones M0 through M10 are complete and all of these statements are true:
    rejected before it.
 5. ABI-relevant integer width and sign, float width, character representation,
    record field order, and entry tag order survive parser -> typecheck -> lower.
-6. One compiler-owned foreign surface is the only source for wrappers, C
-   headers, Rust facades, manifests, symbol allowlists, and ABI diagnostics.
-   The backend never infers public ABI from ordinary internal Rust types.
+6. One compiler-owned foreign surface is the only source for C ABI wrappers,
+   C headers, manifests, symbol allowlists, import namespaces, and ABI
+   diagnostics. The backend never infers public ABI from ordinary internal
+   Rust types or from GERC's raw generated syntax.
 7. A real C program consumes a FOL static library and a FOL shared library; a
    real FOL program calls a C library; both directions exercise values, errors,
    and ownership rather than only compiling empty stubs.
-8. A separate Rust consumer compiles the generated Rust source facade, and a
-   FOL consumer calls a Rust adapter through the selected source/bridge model.
-   Documentation never promises a stable Rust binary ABI.
+8. A generated C import becomes an ordinary typed FOL namespace without
+   handwritten `extern` declarations, while GERC's raw module remains private
+   and is regenerated from the same checked C evidence.
 9. Every promised ABI type has normative layout, validity, ownership,
    nullability, cleanup, and error rules plus target-specific layout tests.
 10. No panic or foreign unwind crosses the C boundary. All boundary inputs are
@@ -86,15 +165,16 @@ milestones M0 through M10 are complete and all of these statements are true:
 12. ABI snapshots distinguish compatible additions from breaking changes, and
     an ABI-breaking change cannot pass without an intentional ABI-major bump.
 13. The shipped host/platform matrix passes real compile, link, inspect, and
-    run tests as specified in Section 17. Optional lanes cannot make a required
+    run tests as specified in Section 16. Optional lanes cannot make a required
     lane pass vacuously.
 14. V4 behavior is mirrored through structured diagnostics and explanations,
     frontend artifact summaries, formatter/tool commands, LSP, tree-sitter,
     positive and failure inventories, docs, examples, and the book in the same
     milestone that exposes it.
-15. `make test`, `make tree-test`, `make docs TYPE=mdbook`, the required V4
-    native-consumer target, and the ABI compatibility target are green from a
-    clean checkout.
+15. The final non-mutating `make verify` aggregate defined in Section 16.2 is
+    green from a clean checkout, exercises every required slice gate, and
+    leaves no generated or source diff. Each milestone's narrower direct Make
+    targets are also green when run independently.
 16. C header intake, native evidence, and C-to-Rust projection demonstrably
     pass through the locked sibling `../parc`, `../linc`, and `../gerc`
     pipeline. FOL contains no copied or parallel C parser, binary inspector,
@@ -110,21 +190,26 @@ Keep these rules for all V4 work:
 - **C is the durable binary boundary.** It is target-specific, versioned, and
   described by a manifest. Default Rust layout and the Rust ABI are never
   public contracts.
-- **Rust integration is source/toolchain integration.** Rust consumers compile
-  generated source with a compatible toolchain. FOL consumes Rust through an
-  explicitly generated adapter using the canonical foreign model.
+- **Rust is an internal backend choice, not a V4 interop surface.** Generated
+  Rust, GERC raw modules, `rustc`, and Rust runtime code stay private. Their
+  presence does not create Rust import syntax, a generated Cargo crate, a Rust
+  provider path, or a Rust compatibility promise.
 - **V4 is not a new `fol_model`.** `core`, `memo`, and the explicit bundled
   `std` dependency remain the capability model. Foreign effects are checked
   against that model; linking a native library never upgrades it.
-- **One semantic model, many projections.** Typecheck/lowering own legality and
-  canonical ABI shapes. C headers, C wrappers, Rust facades, manifests, docs,
-  and editor information all consume that truth.
+- **One semantic model, many C-boundary projections.** Typecheck/lowering own
+  legality and canonical ABI shapes. C headers, C ABI wrappers, manifests,
+  import namespaces, docs, and editor information all consume that truth.
 - **Reuse the sibling interop stack.** `../parc` owns C preprocessing, parsing,
   and source extraction; `../linc` owns native/binary/link/ABI evidence;
   `../gerc` owns C-to-Rust projection and emission. FOL owns orchestration,
   FOL-specific policy, annotations, semantic adaptation, and final artifact
   materialization. Missing facts are fixed in the owning sibling repository,
   never reimplemented locally as a workaround.
+- **Keep the sibling crates generic.** PARC, LINC, and GERC remain public,
+  independently usable Rust libraries. Their contracts contain no FOL syntax,
+  compiler IDs, capability rules, ownership policy, or FOL-only output mode.
+  All FOL adaptation remains downstream in `fol-interop`.
 - **Internal and public layouts remain separate.** Ordinary FOL records,
   entries, strings, containers, optionals, recoverables, pointers, and runtime
   helpers may keep evolving. Boundary wrappers project them into explicit ABI
@@ -194,9 +279,12 @@ Generating wrappers from today's `LoweredType` would silently invent an ABI.
 
 - `lang/execution/fol-build/src/graph.rs` can record executable, static,
   shared, object, library-path, system-library, and link metadata.
-- `lang/execution/fol-build/src/artifact.rs::project_graph_artifacts` loses or
-  fabricates important fields: object is projected incorrectly, target/model
-  information is reset, and native attachments are emptied.
+- Hardening improved
+  `lang/execution/fol-build/src/artifact.rs::project_graph_artifacts`: it now
+  preserves object kind/linkage, `fol_model`, `ResolvedTarget`, optimization,
+  library paths, and link inputs. It still leaves include paths empty and does
+  not replace the several downstream partial representations with one complete
+  artifact/action/output/install plan.
 - `ExecArtifact`, graph artifacts, projected artifact definitions, package
   native surfaces, frontend selections, and backend config are separate partial
   representations. No single resolved artifact plan survives end to end.
@@ -219,18 +307,25 @@ second backend-only side path.
   `RustSourceCrate` and `CompiledBinary`.
 - `lang/execution/fol-backend/src/emit/skeleton.rs` always generates
   `src/main.rs` and selects an entry routine.
-- `lang/execution/fol-backend/src/emit/build.rs` drives `rustc` directly for a
-  binary, passes only the internal runtime dependency, and has no native object,
-  library, framework, import-library, rpath, or sysroot plan.
-- An unknown explicit target currently follows the same `None` path as `Host`,
-  so rustc may omit `--target` while the output directory still carries the
-  unrecognized target label.
+- The ordinary production route in
+  `lang/execution/fol-backend/src/emit/build.rs` still drives `rustc` for a
+  binary and lacks a general typed object/library/framework/import-library/
+  rpath/sysroot plan. H7 added a narrow `BackendAuxiliaryRustPlan` and
+  structured `additional_rustc_args` route for private GERC materialization;
+  that anchor is not the general native plan.
+- Hardening added the fallible `fol_types::ResolvedTarget`, routed it through
+  build/frontend/backend, and made backend invocations pass explicit
+  `--target`. Unknown target fallback is now a locked positive regression, not
+  an open M1 bug. The type still stores primarily the canonical Rust triple and
+  lacks the richer object-format/data-layout/support-tier facts needed below.
 - Internal backend mangling in `lang/execution/fol-backend/src/mangle.rs`
   includes lowered numeric IDs. It is useful internally and categorically
   unsuitable for public ABI symbols.
 - `lang/tooling/fol-frontend/src/result.rs::FrontendArtifactKind` cannot report
-  static/shared/object/header/import-library/ABI-manifest/Rust-facade outputs.
-  Compile routing expects a binary.
+  static/shared/object/header/import-library/ABI-manifest outputs. The existing
+  backend Rust-source form is internal materialization, not a V4 public output;
+  H7 added `InteropEvidence`, while general compile routing still expects a
+  binary.
 
 ## 3.4 Runtime and ABI safety
 
@@ -254,7 +349,7 @@ second backend-only side path.
   rename restrictions, ABI diagnostics, manifest navigation, and complete V4
   build-record completion do not exist.
 - `.github/workflows/tests.yml` is Ubuntu-only and does not establish a
-  multi-platform C/Rust consumer matrix. Release output is Linux-musl-only.
+  multi-platform C ABI consumer matrix. Release output is Linux-musl-only.
 - `flake.nix` does not make a pinned C compiler/preprocessor or the required
   sibling interop revisions an explicit V4 toolchain contract.
 - `book/src/055_build/600_artifacts.md` and related build chapters describe
@@ -279,6 +374,14 @@ The checked-in lock manifest is the machine authority for exact accepted
 commits. H7 mirrors that snapshot in CI and the interop book page, and the
 Make-owned lock gate rejects drift between them. Every intentional sibling
 update changes the lock and its compatibility evidence together.
+
+"Required by FOL" does not mean "owned by FOL." Each sibling keeps a public,
+general Rust API that can be used without the FOL compiler: PARC for C source
+analysis, LINC for native evidence and link planning, and GERC for raw Rust FFI
+generation. Their source releases, crate publication policy, and compatibility
+versions remain decisions in their own repositories. FOL pins known-good
+revisions but must not add FOL types, FOL syntax, FOL compiler IDs, or FOL-only
+features to make its integration easier.
 
 The hardening prerequisite freezes these rules for V4:
 
@@ -321,18 +424,20 @@ FOL source
     -> fol-lower constructs fol-abi ForeignInterface + AbiTypeTable
     -> target resolution and ABI verification
     -> one ResolvedAbiSurface
-         -> Rust wrapper emission
+         -> private backend Rust implementing the C ABI wrappers
          -> C header emission
-         -> ABI manifest and symbol allowlist
+         -> ABI manifest, symbol allowlist, and native link interface
          -> frontend/editor descriptions
-    -> compile/link native artifact
+    -> rustc/linker build target-specific .a and .so artifacts
+    -> install .h + .a/.so + .folabi.json + link metadata
     -> PARC re-reads the installed C header
-    -> LINC measures layout and inspects/validates the built native artifact
-    -> GERC emits the raw Rust binding module from that verified C surface
-    -> FOL emits the safe Rust source facade around the GERC module
+    -> LINC measures layout and inspects/validates each built native artifact
+    -> GERC projects the verified C surface as private round-trip evidence
+    -> compare the normalized verified surface with the original fol-abi model
+    -> compile/link/run clean C consumers from the installed prefix
 ```
 
-C or Rust-provider import flow:
+C provider import flow:
 
 ```text
 ResolvedTarget + explicit headers/provider/defines/sysroot
@@ -348,10 +453,6 @@ ResolvedTarget + explicit headers/provider/defines/sysroot
     -> typed fol-build link plan + fol-backend generated-source integration
 ```
 
-A Rust provider first exposes an adapter-owned C header and native library;
-from that point it follows the identical import flow. There is no separate
-Rust-binary ingestion path.
-
 Implementation and repository ownership:
 
 - `fol-types` owns FOL's user-facing target selection and artifact routing. The
@@ -365,18 +466,21 @@ Implementation and repository ownership:
   backend, build, frontend, editor, PARC, LINC, or GERC. This foundation is
   necessary because package/resolver import happens before typecheck/lowering,
   while both import tooling and the backend must consume the same schema.
-- Add `lang/tooling/fol-interop` as the only cross-repository integration
-  layer. It depends on `fol-abi`, `fol-types`, `fol-diagnostics`, `parc`,
-  `linc`, and `gerc`; owns orchestration, target-consistency checks, the
-  annotation overlay, the pipeline report, and handoff into the FOL action
-  graph. It contains no sibling-to-sibling structural adapter and no FOL
-  parser/typechecker/backend rules.
+- Expand/refactor the existing `lang/tooling/fol-interop` into the only
+  cross-repository integration layer. It depends on `fol-abi`, `fol-types`,
+  `fol-diagnostics`, `fol-build`, `parc`, `linc`, and `gerc`; owns orchestration,
+  target-consistency checks, the annotation overlay, the pipeline report, and
+  handoff into the FOL action graph. It contains no sibling-to-sibling
+  structural adapter and no FOL parser/typechecker/backend rules.
 - `../parc` remains the only C preprocessing/parser/source-extraction engine.
 - `../linc` remains the only direct native inspection, ABI-probe,
   declaration/provider-validation, and provider-evidence engine.
 - `../gerc` remains the only general C-to-Rust FFI projection/emission engine.
   FOL may add safe FOL-specific wrappers around its output but must not emit a
   second raw `extern "C"` import module.
+- PARC, LINC, and GERC remain independently usable, FOL-agnostic Rust crates.
+  No FOL AST node, compiler ID, namespace rule, capability tier, ownership
+  policy, or FOL-specific generation mode is added to their public contracts.
 - `fol-package` and `fol-resolver` load a checked `fol-abi` import interface
   and synthesize the ordinary foreign namespace; they never parse headers.
 - `fol-typecheck` owns source legality, foreign effects, raw-address token
@@ -385,8 +489,8 @@ Implementation and repository ownership:
   boundary operations, and verifies that lowered ABI use matches the checked
   interface.
 - `fol-backend` owns FOL export wrappers, C header rendering, export controls,
-  safe Rust facade wrappers, incorporation of GERC-generated private modules,
-  and compiler invocation from the already verified surface.
+  FOL-facing safe import adapters around GERC-generated private modules, and
+  compiler invocation from the already verified surface.
 - `fol-build` owns resolved artifact/action/link/install plans, not language
   type meaning. LINC link evidence is an input to—not a substitute for—the
   final typed FOL link plan.
@@ -403,13 +507,14 @@ that is partial, unsupported, ambiguous, unmeasured where measurement is
 required, rejected by GERC, or missing from the provider is uncallable. No
 stage may silently drop it and still report a fully accepted interface.
 
-Headers, wrappers, manifests, GERC projection, and safe facade generated from
-separate or uncorrelated models are a release blocker. Export verification
-must round-trip the installed header and built library through
-PARC -> LINC -> GERC and compare the normalized public surface back to the
-original `fol-abi` interface.
+Headers, C ABI wrappers, manifests, GERC projection, and FOL-facing import
+adapters generated from separate or uncorrelated models are a release blocker.
+Export verification must round-trip the installed header and built library
+through PARC -> LINC -> GERC and compare the normalized public surface back to
+the original `fol-abi` interface. GERC output from that check is private test
+evidence; it is never installed as a Rust facade.
 
-Lowering is target-independent. A `LoweredWorkspace` carries an
+Lowering is target-independent. A `LoweredWorkspace` carries a
 `ForeignInterfaceTemplate` containing source widths/encodings, declaration
 order, semantic types, boundary operations, and source maps, but no host-sized
 offsets, C data-model guesses, output names, or selected artifact exports. For
@@ -468,8 +573,12 @@ A produced artifact is a set of role-tagged outputs, not one path. Roles cover:
 - C header
 - ABI manifest
 - native link-interface manifest
-- Rust source crate/facade
 - debug symbols where the target produces them
+
+Backend-generated Rust source and GERC raw bindings may exist inside a
+per-plan temporary materialization directory. They are declared private build
+inputs, not produced/installable artifact roles, and must not appear in an
+installed prefix or release archive.
 
 `Object` remains in V4 because the version direction names native objects, but
 it may ship only with a sidecar that enumerates every runtime/native requirement
@@ -478,7 +587,9 @@ cannot be implemented, the object constructor is removed rather than faked.
 
 ## 4.4 Target authority
 
-Add one fallible FOL routing `ResolvedTarget` in `fol-types`. It records:
+Extend the one fallible FOL routing `ResolvedTarget` established by hardening in
+`fol-types`. Preserve its unknown-target rejection and explicit backend
+`--target` behavior while adding:
 
 - canonical target triple
 - architecture, vendor, OS, and environment/ABI
@@ -497,7 +608,8 @@ facts from its own defaults.
 `Host` is explicit and resolved once. An unrecognized explicit target is an
 error, never `Host`. Build options, frontend CLI overrides, backend rustc
 arguments, header import, output naming, manifests, and editor completion all
-consume this type. Delete the current independent target alias tables.
+consume this type. Consolidate/delete any remaining independent target alias or
+normalization tables instead of adding another target model.
 
 Target precedence is fixed:
 
@@ -581,7 +693,7 @@ Boundary restrictions:
 The first scalar milestone does not wait for every aggregate, but no aggregate
 ships until its row has layout and lifetime tests.
 
-## 4.7 Uniform status and panic contract
+## 4.7 Uniform C-export status and panic contract
 
 Every exported C function returns a fixed signed 32-bit `fol_status_t`.
 Ordinary results are written through out parameters. This uniformity prevents
@@ -592,7 +704,7 @@ Reserved status values:
 - `0`: success
 - `1`: FOL recoverable report; the typed error out parameter is initialized
 - `-1`: invalid foreign argument (null, tag, boolean, Unicode, length, etc.)
-- `-2`: contained FOL/Rust panic
+- `-2`: contained FOL/implementation panic
 - `-3`: internal wrapper/runtime failure
 
 User-defined error payloads are separate ABI-safe out values; they are not
@@ -634,7 +746,7 @@ adapter. V4 does **not** permit:
 
 There is no general unsafe block in V4. Imported declarations that cannot be
 projected into the safe canonical shapes stay uncallable and require a small C
-or Rust adapter.
+adapter.
 
 Delete the placeholder `.de_alloc(...)` intrinsic during M0/M4. It must not
 become a universal free. Owned resources instead expose a type/provider-specific
@@ -669,7 +781,6 @@ major/minor version and carries explicit allowlist entries with:
 
 - fully qualified FOL routine
 - exact external C symbol
-- optional stable Rust facade name
 
 M0 freezes one build API spelling; the planned canonical spelling is an
 artifact method shaped as:
@@ -679,12 +790,24 @@ library.set_abi_version({ major = 1, minor = 0 });
 library.add_abi_export({
     routine = "api::add",
     symbol = "fol_demo_add",
-    rust_name = "add",
 });
 ```
 
 If the evaluator requires a different record spelling, update this plan and all
 normative fixtures first; do not ship two names.
+
+This is build-graph configuration, not new routine-declaration syntax. FOL
+source keeps its ordinary `[exp]` visibility marker and ordinary typed routine;
+the library artifact selects the intentional C surface. A static-library and a
+shared-library artifact may select the same entries, but each resolves and
+verifies its own target-specific surface and output set. Successful
+materialization produces the appropriate library form together with the same
+canonical `<artifact>.h` and `<artifact>.folabi.json`; the install plan places
+them in the M0-frozen include, library, and ABI-metadata roles.
+
+The export record intentionally has no `rust_name`, language selector, inferred
+symbol, or wildcard. Future language projections add their own versioned schema
+only if a later plan needs them; V4 does not reserve unused fields.
 
 External names are exact (no backend mangling), ASCII C identifiers, nonempty,
 not globally reserved C identifiers, and unique within the final link/export
@@ -705,7 +828,7 @@ Every target-specific library emits `<artifact>.folabi.json`. It contains:
 - field order, offsets, sizes, alignments, tag widths, and discriminants
 - parameter direction, mutability, nullability, ownership, escape, and
   destructor pairs
-- status/out rules and callback rules
+- export status/out rules, imported provider-error mapping, and callback rules
 - required native link interface
 - compiler/runtime/toolchain identity and native-input provenance
 
@@ -800,7 +923,8 @@ The pipeline is:
    rendering, reparsing, deduplication, or provider substitution.
 4. The explicit annotation overlay supplies facts C cannot express: ownership,
    pointer/length pairing, direction, nullability, escape, destructor pairing,
-   effects, and the selected callable subset.
+   effects, imported error convention/mapping, unwind prohibition, and the
+   selected callable subset.
 5. The accepted result becomes the same `fol-abi::ForeignInterface` used by
    exports and gets a deterministic target-specific manifest.
 6. A `gerc::GenerationRequest` borrows the same accepted PARC source and LINC
@@ -815,6 +939,16 @@ splits, flattens, or reparses GERC output.
 The annotation schema is versioned, rejects unknown fields, uses stable
 declaration identities rather than source order, and is part of both
 fingerprints.
+
+C import errors are never guessed from a return type or function name. The
+initial annotation vocabulary supports an explicitly infallible call and an
+explicit integer-status plus typed out-parameter mapping with enumerated
+success/error codes. M7 may add a null-sentinel mapping only together with the
+complete pointer/ownership contract. Ambient `errno`, platform last-error
+state, undocumented sentinel values, exceptions, and `longjmp` are rejected in
+V4 rather than approximated. The selected mapping is recorded in the import
+manifest and determines whether the synthesized FOL routine returns an ordinary
+value or a typed recoverable result.
 
 Initial supported header subset:
 
@@ -837,6 +971,78 @@ native provider. The package/resolver layer synthesizes a foreign namespace;
 ordinary FOL source uses normal namespace/import lookup. V4 adds no parallel
 handwritten `extern` source declaration grammar.
 
+The existing H7 spine, `artifact.add_c_import({...})`, remains the one
+canonical build method and is extended in place; V4 does not add a parallel
+`extern`, `bind`, or generic-language attachment. M0 freezes its general record
+shape once. The planned single-provider shape is:
+
+```fol
+var header = graph.file_from_root("native/c_math.h");
+var provider = graph.file_from_root("native/libc_math.a");
+var annotations = graph.file_from_root("interop/c_math.toml");
+
+app.add_c_import({
+    alias = "c_math",
+    header = header,
+    provider = provider,
+    provider_kind = "static",
+    annotations = annotations,
+});
+```
+
+The M0 fixture decides the exact grouped/repeated form for multiple entry
+headers/providers and deletes any superseded placeholder in the same change.
+Whichever record form ships must carry these logical facts and may not split
+them across unrelated string options:
+
+- stable package/namespace alias
+- entry headers and explicit C dialect
+- exact target, preprocessor/compiler, sysroot, include roots, and defines
+- one or more exact provider artifacts with kind, mode, and declared order
+- versioned annotation file, selected callable declarations, and explicit
+  ownership/effect/error mappings
+- checked manifest/output location and reproducibility policy
+
+The attachment resolves to one `CheckedCImport`-equivalent handle containing
+both the synthetic package interface and LINC's target-matched ordered native
+link plan. An artifact cannot import the namespace without its provider plan,
+link a provider while using an unrelated interface, or replace either half
+after fingerprinting. `fol tool bind c` exposes the same operation for review,
+caching, and checked-in integration data; the build action verifies the output
+instead of trusting a stale generated file.
+
+The corresponding planned standalone form is intentionally C-specific:
+
+```text
+fol tool bind c \
+  --alias c_math \
+  --target x86_64-unknown-linux-gnu \
+  --header native/c_math.h \
+  --provider native/libc_math.a \
+  --provider-kind static \
+  --annotations interop/c_math.toml \
+  --out build/interop/c_math.folabi.json
+```
+
+It writes the checked target-specific manifest plus a structured pipeline
+report. Any GERC `.rs` files remain private materializer inputs and are not a
+CLI deliverable.
+
+FOL source then uses existing package syntax rather than foreign declarations.
+For an attachment aliased as `c_math`, the intended source shape is:
+
+```fol
+use math: pkg = {"c_math"};
+
+pro[] calculate(value: int[32]): int[32] = {
+    return math::add_one(value);
+};
+```
+
+The exact FOL signature is synthesized from the accepted ABI interface and
+annotation overlay. A header declaration absent from that interface does not
+resolve, even if its symbol happens to exist in the provider.
+
 PARC partial/unsupported diagnostics, LINC unresolved/ambiguous/mismatched
 evidence, and GERC rejection are hard acceptance gates for the affected
 declaration. Cross-target layout probes require an explicit supported runner or
@@ -844,49 +1050,62 @@ non-executing evidence path implemented in LINC; they never execute a foreign
 probe on the host and never substitute host layout. A missing upstream
 capability narrows the supported matrix until fixed in that sibling.
 
-## 4.14 Rust integration boundary
+## 4.14 C-only V4 boundary and deferred Rust seam
 
-The current production direct-`rustc` path remains canonical for FOL-only and C
-ABI artifacts. V4 does not quietly add Cargo as a second production truth.
+V4 exposes exactly one foreign-language contract: the target-specific C ABI.
+The two directions share `fol-abi`, target/type/layout/validity/ownership
+vocabularies, target authority, fingerprints, and evidence rules, but have
+different materialization and error-boundary contracts:
 
-FOL -> Rust:
+| direction | accepted external input | private compiler path | public result |
+|---|---|---|---|
+| C -> FOL | explicit headers, annotations, target, and native providers | PARC source package -> LINC evidence -> GERC raw Rust -> FOL adapters | an ordinary checked FOL namespace linked to the selected C provider |
+| FOL -> C | explicit FOL ABI export allowlist and artifact target | FOL ABI model -> private generated Rust C wrappers -> `rustc`/native linker | installed C header, static/shared library, manifest, and link metadata |
 
-- round-trip the installed FOL C header and native artifact through
-  PARC -> LINC -> GERC
-- use the GERC-emitted raw module as the only unsafe `extern "C"` substrate
-- emit a Cargo-compatible safe source facade with `src/lib.rs` around it
-- expose stable safe Rust names selected from the same ABI export list
-- keep unsafe glue private
-- compile with the consumer's compatible toolchain and exact bundled/published
-  FOL runtime dependency
-- include target, compiler/runtime, feature, and minimum/supported rustc
-  metadata
+A FOL export always uses Section 4.7's uniform `fol_status_t`/out-parameter
+contract and contains backend/FOL panic. A C import preserves the provider's
+actual C signature and calling convention; its explicit annotation maps only a
+supported provider error convention into an ordinary or recoverable FOL result
+and rejects foreign unwind/`longjmp`. The importer never assumes that an
+arbitrary C return value is `fol_status_t` and never silently reinterprets a
+provider's error convention.
 
-Rust -> FOL:
+Rust has only implementation roles in V4:
 
-- generate/scaffold a Rust adapter crate whose public edge is the canonical C
-  ABI/manifest
-- the adapter's own Cargo build owns its dependency graph, features, lockfile,
-  proc macros, and build scripts
-- FOL consumes the produced target-matched header/library through the exact
-  PARC -> LINC -> GERC import/link path
+1. `fol-backend` may render private Rust modules and use direct `rustc` as its
+   canonical production backend for FOL executables and native libraries.
+2. GERC may emit the one private raw `extern "C"` module and typed linker
+   arguments used to call an imported C provider.
+3. Private Rust representation/layout probes, lints, and safety tests may prove
+   that the generated implementation matches the public C shapes.
+4. Rust workspace tests continue to validate the compiler implementation.
 
-This proves both directions without claiming arbitrary `.rlib` compatibility.
-Prebuilt Rust `rlib`/`dylib` ingestion, automatic Cargo feature resolution by
-FOL, and executing third-party build scripts inside `build.fol` are outside V4.
-If broad Cargo ingestion is wanted later, it needs a separate plan and must
-replace—not coexist ambiguously with—the production driver.
+None of those roles creates a public Rust artifact. Generated backend sources
+stay in the materializer's private directory; GERC output is not a FOL source
+namespace; and neither is installed, archived as a consumer API, or assigned a
+compatibility promise. The C header and `.folabi.json` manifest are the public
+descriptions, while `.a` and `.so` are the consumable binary forms on the
+initial certified lane.
 
-The Rust Reference explicitly gives the Rust ABI no stability guarantee, while
-`extern "C"` follows the target's dominant C ABI. Default Rust layout is also
-not a public layout contract. Keep those facts linked in docs:
+The following are explicitly outside V4:
 
-- <https://doc.rust-lang.org/reference/items/external-blocks.html>
-- <https://doc.rust-lang.org/reference/type-layout.html>
-- <https://doc.rust-lang.org/reference/linkage.html>
-- <https://doc.rust-lang.org/rustc/command-line-arguments.html>
-- <https://doc.rust-lang.org/nomicon/ffi.html>
-- <https://doc.rust-lang.org/nomicon/unwinding.html>
+- direct Rust source import into FOL
+- public generated Cargo/source crates or safe Rust facades
+- Rust-provider scaffolding or provider-specific adapters
+- `.rlib`, Rust `dylib`, or Rust ABI compatibility
+- Cargo dependency, feature, lockfile, proc-macro, or build-script ingestion
+- Rust-specific export names, annotations, examples, docs, tests, or release
+  gates
+- any other language-specific bridge layered beside the C ABI
+
+This exclusion is a scope choice, not a claim that future Rust interop is
+impossible. The canonical ABI model and explicit manifest should remain clean
+enough for a separately approved future projection to consume them. That
+future work must define its own user syntax, source/package model, trust and
+toolchain rules, compatibility promise, and real consumer tests. It must not
+reserve unused Rust fields in today's ABI schema, add work to a C milestone,
+turn PARC/LINC/GERC into FOL-specific libraries, or introduce Cargo beside
+direct `rustc` as a second production truth.
 
 
 # 5. M0 — Contract Freeze, Characterization, and Truth Repair
@@ -908,12 +1127,23 @@ Primary files:
 Tasks:
 
 - [ ] Re-run the truth snapshot and record changed symbols/files in this plan.
-- [ ] Add characterization tests for every currently lossy projection, unknown
-  target host fallback, library-to-binary routing, dropped native link input,
-  unstable scalar/order fact, and ID-based public-name hazard.
+- [ ] Lock positive regressions for hardening's fixed behavior: unknown targets
+  reject, backend `--target` is explicit, and object/model/optimization/library
+  paths/link inputs survive graph projection.
+- [ ] Add characterization tests for the remaining lossy fields and routes:
+  include/generated inputs, end-to-end artifact/output/install plans,
+  library/test routing, scalar/order facts, and ID-based public-name hazards.
 - [ ] Freeze the exact `build.fol` spelling for ABI exports, C imports, native
-  exact files, target-specific providers, and adapter annotations. Check in
-  parser/evaluator fixtures even though the semantic path still rejects them.
+  exact files, target-specific providers, and C-import safety/error
+  annotations. Preserve H7's accepted `header`/`provider`/`provider_kind`
+  spine; check in parser/evaluator fixtures for the new general fields even
+  while their owning semantic milestones still reject them.
+- [ ] Freeze V4 as C ABI only: no Rust-specific name, language selector,
+  generated Cargo role, Rust provider, or alternate foreign-declaration syntax
+  appears in the build schema, manifest, artifact inventory, or examples.
+- [ ] Freeze the sibling ownership boundary with compile/API fixtures proving
+  that PARC, LINC, and GERC remain usable without FOL types and that `fol-abi`
+  remains independent of all three.
 - [ ] Freeze the C header naming, include guard, status values, scalar typedefs,
   manifest schema, canonical JSON, two fingerprints, and install layout.
 - [ ] Freeze the platform tiers, required toolchain versions, and skip policy.
@@ -948,11 +1178,12 @@ two competing spellings, an undocumented backend assumption, or an unresolved
 
 # 6. M1 — One Target and One Resolved Artifact Plan
 
-Goal: eliminate lossy artifact/target reconstruction before adding new outputs.
+Goal: eliminate the remaining lossy artifact/target reconstruction before
+adding new outputs.
 
 Primary files and symbols:
 
-- new `lang/compiler/fol-types/src/target.rs`
+- `lang/compiler/fol-types/src/target.rs`
 - `lang/execution/fol-build/src/option.rs`
 - `lang/execution/fol-build/src/artifact.rs`
 - `lang/execution/fol-build/src/graph.rs`
@@ -966,9 +1197,13 @@ Primary files and symbols:
 
 Tasks:
 
-- [ ] Add fallible `ResolvedTarget` and delete duplicated target normalization.
-- [ ] Reject invalid architecture/OS/environment combinations and unknown
-  explicit triples before output directories or commands are created.
+- [ ] Extend the existing fallible `ResolvedTarget` with the architecture,
+  vendor, OS/environment, object format, pointer width, endianness, naming, and
+  support-tier facts from Section 4.4; delete remaining duplicated target
+  normalization.
+- [ ] Preserve unknown-target rejection and explicit backend `--target` as
+  locked regressions; reject invalid combinations and unsupported artifact/
+  interop target use before output directories or commands are created.
 - [ ] Define `ResolvedArtifactPlan` with every field listed in Section 4.3.
 - [ ] Produce it once from the evaluated graph; remove or completely replace
   `project_graph_artifacts` instead of retaining a compatibility projection.
@@ -988,8 +1223,8 @@ Tests:
 - a library-only graph reaches a library backend plan or gives a precise
   not-yet-supported error; it never reports a binary success
 - object remains object through every layer
-- unknown explicit target proves no external process launched and no mislabeled
-  output appeared
+- existing unknown-target regression proves no external process launched and no
+  mislabeled output appeared
 - serialized/equality round-trip covers every ABI-affecting field
 - frontend summaries show selected kind/target/model before compilation
 
@@ -1053,8 +1288,8 @@ Tests:
 Verification:
 
 - `make test`
-- add a Make-owned action/materializer integration target before declaring M2
-  complete
+- new `make test-build-actions` as the Make-owned action/materializer
+  integration gate
 
 **STOP:** M3 may not attach headers/manifests directly to the backend if the
 graph still cannot own, cache, report, and install them.
@@ -1077,8 +1312,10 @@ Primary files:
 Tasks:
 
 - [ ] Add backend product kinds and role-tagged `ProducedArtifact` output sets.
-- [ ] Generate `src/main.rs` only for executable/test products and `src/lib.rs`
-  for library/object/Rust-source products.
+- [ ] Generate `src/main.rs` only for executable/test products and private
+  `src/lib.rs` only for library/object products.
+- [ ] Keep/demote `BackendArtifact::RustSourceCrate` as a private materializer
+  input only; it never becomes a frontend, install, package, or release role.
 - [ ] Drive rustc with the correct `bin`, `staticlib`, and `cdylib` crate types;
   implement object output only with its complete link-interface sidecar.
 - [ ] Derive all certified output names from `ResolvedTarget`; Windows runtime,
@@ -1136,6 +1373,9 @@ Goal: create compiler truth before wrappers or header generation.
 
 Primary files:
 
+- `Cargo.toml` (workspace/dependency registration only; keep version `0.2.0`)
+- new `lang/compiler/fol-abi/Cargo.toml`
+- new `lang/compiler/fol-abi/src/{lib.rs,types.rs,interface.rs,manifest.rs,compat.rs}`
 - `lang/compiler/fol-parser/src/ast/{types.rs,node.rs,options.rs}`
 - `lang/compiler/fol-resolver/src/{model.rs,traverse/}`
 - `lang/compiler/fol-typecheck/src/{types.rs,model.rs,decls.rs,session.rs}`
@@ -1155,8 +1395,14 @@ Tasks:
   optional wrapping remains the nullability marker.
 - [ ] Add foreign import/export metadata, external name, calling convention,
   ownership/nullability/escape/destructor facts, effects, and source origin.
-- [ ] Add `AbiTypeId`, `AbiTypeTable`, canonical shapes from Section 4.6, and a
-  target-resolved `ForeignInterface`/`ResolvedAbiSurface` on `LoweredWorkspace`.
+- [ ] Create/register `fol-abi` as the dependency-foundation crate described in
+  Section 4.1 without changing any workspace/package version field; enforce its
+  dependency prohibition in a crate-graph test.
+- [ ] Define `AbiTypeId`, `AbiTypeTable`, canonical shapes from Section 4.6,
+  `ForeignInterfaceTemplate`, `ForeignInterface`, `ResolvedAbiSurface`,
+  manifests, canonical encoding, fingerprints, and compatibility types in
+  `fol-abi`; make `LoweredWorkspace` carry those canonical types rather than a
+  compiler-local copy.
 - [ ] Add a verifier that rejects every non-projectable type before backend
   emission and reports the complete path to the offending nested field.
 - [ ] Keep package visibility separate from ABI export selection.
@@ -1231,14 +1477,15 @@ Primary files:
   expose existing `FolRecover`)
 - `lang/tooling/fol-frontend/src/{compile/mod.rs,result.rs}`
 - `examples/v4_c_export_scalar/`
-- `test/integration_tests/integration_v4_ffi.rs`
+- `test/integration_tests/integration_v4_c_export.rs`
 
 Tasks:
 
 - [ ] Emit private internal Rust functions plus public `extern "C"` wrappers
   using exact allowlisted symbols and target calling convention.
-- [ ] Use explicit representation types and `#[repr(C)]` only on generated ABI
-  facade records; never blanket-mark internal FOL records.
+- [ ] Use explicit representation types and `#[repr(C)]` only on private
+  generated Rust C-ABI representation records; never blanket-mark internal FOL
+  records.
 - [ ] Use the Rust edition's required unsafe-attribute spelling for exported
   names (`#[unsafe(no_mangle)]`/`export_name` where applicable) and pin generated
   edition/toolchain semantics.
@@ -1297,6 +1544,9 @@ Tasks:
 
 - [ ] Load a checked ABI manifest into a synthetic foreign namespace with
   stable source/header origins for diagnostics/navigation.
+- [ ] Extend the existing H7 `artifact.add_c_import` attachment in place with
+  the M0-frozen alias, scalar annotation/manifest, and static/shared provider
+  forms needed by this slice; bind namespace and provider plan atomically.
 - [ ] Add `ForeignCall` IR distinct from internal `LoweredRoutineId` calls.
 - [ ] Require LINC's checked analysis to resolve every imported symbol to
   exactly one target-compatible provider and ordered link role before
@@ -1307,6 +1557,13 @@ Tasks:
   checks without re-emitting the extern declaration.
 - [ ] Enforce foreign effects against `core`/`memo`/effective `std` without
   implicit upgrades.
+- [ ] Implement the Section 4.13 imported-error subset: explicitly infallible
+  direct results and explicit integer-status/typed-out mappings into ordinary
+  or recoverable FOL results. Never reuse the FOL-export `fol_status_t`
+  convention implicitly.
+- [ ] Reject unannotated error conventions, ambient `errno`/last-error,
+  undocumented sentinels, unwind, and `longjmp` before the call becomes
+  eligible.
 - [ ] Keep unknown/unsafe raw declarations uncallable.
 - [ ] Prove local exact-file, dependency-provided archive, dynamic library,
   system library, and target-specific missing-provider diagnostics.
@@ -1317,6 +1574,11 @@ Tasks:
 Real consumer tests:
 
 - FOL calls a checked C scalar library in static and shared form
+- FOL observes success and provider-defined failure from an annotated C
+  status/out routine as the correct typed result, without reading the success
+  out value on failure
+- the same status/out routine without a complete error mapping remains
+  uncallable; errno/unwind/longjmp declarations reject
 - multi-level native static dependency order works
 - a dependency package exports a real native artifact and interface
 - `core` accepts a declared core-safe scalar call but rejects allocation/hosted
@@ -1333,7 +1595,8 @@ Verification:
 - `make abi-check`
 
 **STOP:** an imported function cannot ship if its provider path, target,
-provenance, effect, calling convention, or safety contract is unknown.
+provenance, effect, calling convention, error mapping, unwind behavior, or
+safety contract is unknown.
 
 
 # 12. M7 — Records, Entries, Errors, Views, Buffers, and Handles
@@ -1343,14 +1606,16 @@ the listed order; omit a later slice rather than weakening an earlier contract.
 
 ## 12.1 POD records
 
-- [ ] Project only named ABI-safe records into generated C/Rust facade structs.
+- [ ] Project only named ABI-safe records into canonical C ABI structs and
+  matching private backend representations.
 - [ ] Preserve source field order; compute and record target size/alignment/
   offset/padding.
-- [ ] Generate C `_Static_assert` and Rust const/layout probes.
+- [ ] Generate C `_Static_assert` and private backend Rust const/layout probes.
 - [ ] Reject recursion by value, hidden runtime fields, packing, and unsupported
   nested types.
 
-Gate: C and Rust probes agree for the certified target.
+Gate: C compiler measurements and private backend layout probes agree for the
+certified target.
 
 ## 12.2 Entries and recoverable errors
 
@@ -1446,14 +1711,20 @@ Tasks:
 - [ ] Construct one explicit PARC `TargetSpec` with the locked compiler
   identity, supported C standard, sysroot, include roots, defines, environment
   policy, and bounded preprocessing policy.
+- [ ] Complete the same `artifact.add_c_import` record with the M0-frozen
+  multiple-header/provider ordering, include/define/sysroot/toolchain, and
+  reproducibility fields needed by bounded general header intake; do not add a
+  second build method or handwritten source declaration route.
 - [ ] Add `fol tool bind c` with human/plain/JSON output and deterministic
   target-specific manifest generation over the typed sibling pipeline.
-- [ ] Add the explicit adapter annotation format for ownership, pointer/length,
-  nullability, effect, escape, and destructor pairs.
+- [ ] Complete the explicit C-import annotation format for ownership,
+  pointer/length pairing, direction, nullability, effect, escape, destructor
+  pairs, imported error convention/mapping, unwind prohibition, and callable
+  selection.
 - [ ] Canonicalize include roots and reject traversal/symlink escape; record
   header, annotation, toolchain, target, and relevant sysroot identities in the
   build fingerprint.
-- [ ] Translate only the supported subset from Section 4.12.
+- [ ] Translate only the supported subset from Section 4.13.
 - [ ] Emit structured diagnostics with header source ranges and exact unsupported
   construct names.
 - [ ] Detect stale generated interfaces when headers/annotations/toolchain/
@@ -1467,10 +1738,14 @@ Tests:
 
 - deterministic import of scalar, POD record, opaque handle, and annotated
   slice headers
+- annotated integer-status plus typed-out header maps provider success/failure
+  to the exact ordinary/recoverable FOL result
 - same header for two targets yields distinct target manifests where required
 - unsupported macro API, varargs, bitfield, packed, flexible array, union, C++,
   unknown calling convention, and unsafe pointer contract each reject clearly
 - changed header/annotation invalidates stale output
+- missing error mapping, ambient `errno`, unwind, and `longjmp` reject rather
+  than acquiring guessed semantics
 - include path traversal/symlink escape rejects
 - generated import is consumed by the M6 real FOL caller
 
@@ -1478,6 +1753,7 @@ Verification:
 
 - `make test`
 - `make test-v4-c`
+- `make test-v4-bind-c`
 - `make test-interop`
 - `make interop-locked`
 - `make abi-check`
@@ -1488,71 +1764,18 @@ target implicitly, accepts unsupported declarations approximately, or lacks
 explicit ownership/effect annotations for pointer/resource APIs.
 
 
-# 14. M9 — Rust Source Facade and Rust Adapter Interop
-
-Goal: prove both Rust directions while keeping the compatibility promise honest.
-
-Primary files:
-
-- `lang/execution/fol-backend/src/abi/`
-- `lang/execution/fol-backend/src/emit/{skeleton.rs,build.rs}`
-- `lang/tooling/fol-frontend/src/{compile,bind,cli}/`
-- `examples/v4_rust_consumer/`
-- `examples/v4_rust_provider/`
-- `test/integration_tests/integration_v4_rust.rs`
-
-FOL -> Rust tasks:
-
-- [ ] Emit a Cargo-compatible source crate with `src/lib.rs`, stable package
-  name, explicit edition, and exact runtime dependency metadata.
-- [ ] Generate public safe Rust types/functions from the canonical interface;
-  keep internal ID-mangled names and unsafe glue private.
-- [ ] Express recoverables as safe Rust `Result` in the facade while preserving
-  the same underlying ABI/error meaning.
-- [ ] Express borrowed/owned values with Rust lifetimes/owned wrappers that call
-  the manifest-paired release routine exactly once.
-- [ ] Compile with `deny(improper_ctypes_definitions)` and
-  `deny(unsafe_op_in_unsafe_fn)`.
-- [ ] Record supported rustc range/toolchain metadata and diagnose mismatch.
-
-Rust -> FOL tasks:
-
-- [ ] Scaffold an adapter crate from a selected manifest/API contract.
-- [ ] Make the adapter crate's own checked-in `Cargo.lock` and Cargo invocation
-  own external dependencies/features/build scripts/proc macros.
-- [ ] Produce a target-specific C ABI library + manifest that M6 consumes.
-- [ ] Add one fixture with an enabled Cargo feature and a transitive dependency
-  to prove the boundary is real.
-- [ ] Run adapter builds locked/frozen/offline where the fixture permits.
-- [ ] Never accept an arbitrary prebuilt `.rlib` as a durable compatible input.
-
-Tests:
-
-- separate Rust crate consumes installed FOL source facade and exercises scalar,
-  record, error, view, and owned handle paths
-- FOL calls Rust provider adapter with feature + transitive dependency
-- toolchain/target/runtime metadata mismatch reports a structured diagnostic
-- drop/release happens once across success, error, and panic
-- public Rust API contains no lowered IDs or internal module names
-- docs and CLI label the output "Rust source facade," not "stable Rust ABI"
-
-Verification:
-
-- `make test`
-- new `make test-v4-rust`
-- `make test-v4-c`
-- `make abi-check`
-- `make docs TYPE=mdbook`
-
-**STOP:** M9 fails if Cargo and direct rustc become two disagreeing production
-drivers, if arbitrary build scripts execute under FOL without an explicit trust
-boundary, or if any documentation implies cross-rustc binary compatibility.
-
-
-# 15. M10 — Compatibility, Tooling, Platform, and Release Closure
+# 14. M9 — C ABI Compatibility, Tooling, Platform, and Release Closure
 
 Goal: close every cross-cutting surface and prove release artifacts, not only
 developer-tree builds.
+
+Primary proof fixtures:
+
+- `examples/v4_c_installed_static/`
+- `examples/v4_c_installed_shared/`
+- `examples/v4_c_roundtrip_fol/`
+- release/archive fixtures under `test/ffi/release/`
+- `test/integration_tests/integration_v4_c_release.rs`
 
 Tasks:
 
@@ -1567,36 +1790,53 @@ Tasks:
 - [ ] Run two clean builds and compare manifest/header/export lists and all
   declared reproducible outputs.
 - [ ] Test concurrent builds and cache isolation.
-- [ ] Package release archives with headers, libraries, import libraries,
-  manifests, link interface, Rust facade, licenses, checksums, provenance, and
-  SBOM.
+- [ ] Install matching static and shared FOL libraries into clean prefixes with
+  only their declared headers, manifests, link metadata, and runtime roles.
+- [ ] Re-read each installed header with PARC, measure and validate each
+  installed library with LINC, and run GERC as private independent projection
+  evidence over those exact checked states.
+- [ ] Normalize that installed C surface back into `fol-abi` and compare every
+  symbol, calling convention, type, layout, status, ownership, destructor, and
+  target fact with the original export `ResolvedAbiSurface`.
+- [ ] Import one installed FOL library into a separate FOL package through the
+  ordinary M8 C-import path and call it, proving there is no privileged
+  FOL-to-FOL or repository-relative shortcut in the round trip.
+- [ ] Compile, link, and run clean C11 consumers against the installed static
+  and shared forms, exercising scalars, records, recoverable errors, views,
+  owned handles, destroy paths, and the supported callback contract.
+- [ ] Package release archives with headers, libraries, any platform-required
+  import libraries, manifests, link interface, licenses, checksums, provenance,
+  and SBOM. Assert that no public Cargo manifest, Rust source facade, GERC raw
+  module, or other backend source appears.
 - [ ] Extract each release archive in a clean directory and compile/link/run C
-  and Rust consumers without repository-relative paths.
+  static and shared consumers without repository-relative paths.
 - [ ] Make the certified `x86_64-unknown-linux-gnu` lane release-blocking and
   keep candidate/experimental compile lanes explicitly non-certifying.
 - [ ] Pin GitHub Actions and Rust/mdBook/tree-sitter/Clang/LLVM/C toolchain
   inputs rather than using mutable `latest` references.
 - [ ] Make CI invoke Makefile-owned validation targets instead of duplicating a
   weaker command set.
-- [ ] Update README, architecture, docs, book, examples, and version plan to
-  present exactly the shipped matrix and remaining exclusions.
+- [ ] Update README, architecture, docs, book, examples, and ABI-versioning
+  guidance to present exactly the shipped matrix and remaining exclusions.
 
 Verification:
 
-- all targets in Section 17
+- all required targets in Section 16; each optional lane emits explicit run or
+  skip evidence and cannot substitute for a required result
 - clean archive consumer tests on the certified platform
 - no unexpected export on any certified shared library
 - no checked-in generated-file drift after verification
 
-**STOP:** V4 cannot close with a skipped certified platform, a release archive that
-only works inside the repo, mutable toolchain/action inputs, or documentation
+**STOP:** V4 cannot close with a skipped certified platform, an uncorrelated
+export/import surface, a release archive that only works inside the repo, a
+public backend-Rust artifact, mutable toolchain/action inputs, or documentation
 whose support matrix is broader than CI evidence.
 
 
-# 16. Cross-Cutting Tooling and Editor Work
+# 15. Cross-Cutting Tooling and Editor Work
 
 This is not a late phase. Apply the relevant rows in the same commit as every
-M0-M10 slice, then perform the full audit in M10.
+M0-M9 slice, then perform the full audit in M9.
 
 ## Diagnostics
 
@@ -1623,8 +1863,8 @@ producer's real construction sites.
 
 ## LSP
 
-- hover shows C/Rust name, calling convention, target, ABI shape, ownership,
-  nullability, effect/tier, and destructor pair
+- hover shows the FOL identity and exact external C name, calling convention,
+  target, ABI shape, ownership, nullability, effect/tier, and destructor pair
 - definition/navigation reaches original FOL declaration, imported header range,
   or generated manifest origin as appropriate
 - references distinguish internal FOL references from foreign export/import
@@ -1671,16 +1911,22 @@ Rule: an editor change may be "none" only when a test proves the compiler-backed
 path already supplies the correct behavior.
 
 
-# 17. Test, Make, CI, and Platform Matrix
+# 16. Test, Make, CI, and Platform Matrix
 
-## 17.1 Canonical inventories
+## 16.1 Canonical inventories
 
 Add one compiler/test-owned inventory in `test/v4_example_inventory.rs`, reused
 by integration tests and `fol-editor` tests. Use names that cannot be confused
 with V3 processor milestone suffixes:
 
-- positive: `v4_c_*`, `v4_rust_*`, `v4_build_*`
+- positive: `v4_c_*`, `v4_build_*`
 - negative: `fail_v4_*`
+
+Wire the file explicitly, mirroring the existing V3 inventory pattern: declare
+it from `test/run_tests.rs`, consume it from the V4 integration modules, include
+it from `lang/tooling/fol-editor/src/lsp/tests/mod.rs`, and include/reuse it in
+the editor command tests in `lang/tooling/fol-editor/src/commands.rs`. A file
+that is merely placed under `test/` but never compiled is not an inventory.
 
 Inventory rows carry expected artifact/model/target, diagnostic code, message
 fragment, related-site expectation, LSP expectation, tree-sitter corpus probe,
@@ -1690,39 +1936,66 @@ Required positive groups:
 
 - artifact/target/link foundation
 - scalar C export and import
+- annotated C provider status/out error mapping and rejection cases
 - POD record and entry/error
 - string/slice view
 - owned buffer and opaque handle lifecycle
 - synchronous callback
 - header import
-- Rust consumer and Rust provider adapter
+- installed static C consumer
+- installed shared C consumer
+- FOL consuming static C and shared C providers
+- generated-header and installed-library round-trip through PARC/LINC/GERC
+- ABI compatibility baseline and clean release archive
 
 Required failure groups include every STOP condition and classifier rejection
 in this plan.
 
-## 17.2 Makefile targets
+## 16.2 Makefile targets
 
-Keep `make` as the public validation interface. Add:
+Keep `make` as the public validation interface. Preserve and extend the
+existing Make-owned lanes rather than duplicating their commands in CI:
 
-- `make fmt-check` — non-mutating `cargo fmt --all -- --check`
-- `make lint` — workspace clippy with warnings denied
+Existing lanes to retain:
+
+- `make fmt-check` — keep the current non-mutating changed-Rust baseline check
+- `make lint` — keep workspace clippy with warnings denied
+- `make test` — keep the full workspace plus ignored-test execution
+- `make interop-check` — keep lock/shape/schema/feature and typed compile checks
+- `make interop-locked` — keep exact clean sibling revision/remote enforcement
+- `make test-interop` — keep the H7 link-and-run gate, which depends on
+  `interop-locked`
+
+Planned V4 lanes to add:
+
+- `make test-build-actions` — operational action/materializer integration suite
 - `make test-native` — required host native artifact/link materialization
 - `make test-v4-c` — C import/export consumer suite
-- `make test-v4-bindgen` — pinned header-import suite
-- `make test-v4-rust` — Rust source facade/adapter suite
+- `make test-v4-bind-c` — pinned PARC/LINC/GERC header-import suite
+- `make test-v4-release` — installed round-trip and clean archive consumers
 - `make test-v4-sanitize` — host ASan/UBSan boundary/lifecycle suite
 - `make test-v4-cross` — optional candidate-target promotion evidence; it does
   not certify or weaken the required native GNU/Linux lane
 - `make abi-check` — manifests, baselines, symbols, layouts, fingerprints
-- `make verify` — fmt-check, lint, build, all required tests including ignored
-  tests, native/C/Rust/ABI, tree-test, generated cleanliness, and mdBook
+- `make tree-check` — generate tree-sitter assets in a temporary location,
+  compare them with the checked-in bundle, and run the non-empty corpus without
+  repairing drift
+
+Before M9 closes, extend the existing `make verify` target from its current
+format/lint/workspace/H7 gates to the complete non-mutating repository gate:
+build, all required tests including ignored tests, the current
+`interop-check` compile/shape gate, the locked link-and-run `test-interop` gate,
+build-action/native/C/ABI/sanitizer/release lanes, `tree-check`, generated
+cleanliness, and `make docs TYPE=mdbook`. Keep the optional cross lane separate
+from the release-blocking aggregate.
 
 `make test` must continue to run the full Rust workspace plus ignored tests and
-must include non-optional host V4 integration tests. A missing optional
-cross/sanitizer tool may skip only its explicitly optional lane with a clear
-reason; it cannot turn required host V4 tests green.
+must include non-optional host V4 integration tests. The certified CI image
+must provide the sanitizer toolchain once M7 pointer/resource slices ship. A
+missing optional cross tool may skip only its explicitly optional lane with a
+clear reason; it cannot turn required host V4 tests green.
 
-## 17.3 Platform support tiers
+## 16.3 Platform support tiers
 
 Certified initial (release-blocking parse, inspect, probe, generate, compile,
 link, and run):
@@ -1744,12 +2017,13 @@ tests. Promotion is an explicit sibling-contract, native-fixture, CI, plan, and
 documentation change. Apple frameworks, Mach-O install names, PE/import
 libraries, and Windows ABI rules remain rejected outside such a promotion.
 
-## 17.4 Boundary safety lanes
+## 16.4 Boundary safety lanes
 
-- generated Rust lints for FFI safety/unsafe bodies
-- C `_Static_assert` and Rust size/align/offset/tag probes
+- private generated Rust lints for FFI safety/unsafe bodies
+- C `_Static_assert` and private Rust size/align/offset/tag probes
 - ASan/UBSan for C consumers and resource lifecycle
-- Miri for generated Rust facade/adapter units where supported
+- Miri for private generated wrapper/validator/import-adapter units where
+  supported
 - fuzz/property tests for manifest decoding and pointer/length/tag/UTF-8
   validators
 - timeout/deadlock protection for callback tests
@@ -1757,7 +2031,7 @@ libraries, and Windows ABI rules remain rejected outside such a promotion.
 - archive-extraction consumer tests
 
 
-# 18. Documentation and Book Matrix
+# 17. Documentation and Book Matrix
 
 Update these in the milestone that changes their truth:
 
@@ -1781,13 +2055,15 @@ Update these in the milestone that changes their truth:
 - `book/src/750_conversion/{100_coercion,200_casting}.md`
 - `book/src/800_memory/200_pointers.md`
 
-Add a dedicated book section and link it in `book/src/SUMMARY.md`:
+Expand the existing interop index, retain its existing
+`book/src/SUMMARY.md` link, and add the planned child pages:
 
 - `book/src/950_interop/_index.md`
 - `book/src/950_interop/100_c_abi.md`
 - `book/src/950_interop/200_c_import.md`
-- `book/src/950_interop/300_rust.md`
-- `book/src/950_interop/400_abi_compatibility.md`
+- `book/src/950_interop/300_c_export.md`
+- `book/src/950_interop/400_ownership.md`
+- `book/src/950_interop/500_abi_compatibility.md`
 
 Documentation must include:
 
@@ -1797,7 +2073,8 @@ Documentation must include:
 - target and link diagnostics
 - ownership/destroy/status/panic/callback examples
 - header importer supported/unsupported matrix
-- Rust source compatibility statement
+- explicit statement that C ABI is the only V4 public interop boundary and
+  backend/GERC Rust is private implementation
 - ABI versioning/baseline workflow
 - platform tiers and runner limitation
 - explicit non-goals
@@ -1806,7 +2083,7 @@ No future module/type/provider is documented as available before a checked-in
 example and real consumer test exist.
 
 
-# 19. Security, Reproducibility, and Supply-Chain Checklist
+# 18. Security, Reproducibility, and Supply-Chain Checklist
 
 - [ ] Canonicalize all native/header/sysroot/tool paths and reject traversal or
   symlink escape from declared roots.
@@ -1822,28 +2099,28 @@ example and real consumer test exist.
 - [ ] Validate every C-originating pointer, length, alignment, capacity, tag,
   bool, Unicode, UTF-8, output pointer, and ownership token before use.
 - [ ] Keep generated unsafe code minimal, linted, locally documented, and
-  inaccessible from safe facade APIs.
+  inaccessible from ordinary FOL and public C ABI surfaces.
 - [ ] Catch/translate panic; reject unwind-capable foreign declarations.
 - [ ] Pair every owned value with one exact provider/domain destroy path.
 - [ ] Prevent callback retention, post-destroy invocation, unapproved reentry,
   and cross-thread invocation.
-- [ ] Treat header importer input and Rust adapter build scripts/proc macros as
-  explicit trusted build inputs; FOL does not execute arbitrary dependency code
-  implicitly.
+- [ ] Treat headers, annotations, providers, preprocessors/compilers, and
+  sysroots as explicit trusted and fingerprinted build inputs; FOL does not
+  execute undeclared dependency code implicitly.
 - [ ] Pin CI actions and toolchain versions; publish checksums, provenance, and
   SBOM with release artifacts.
 
 
-# 20. Risk Register
+# 19. Risk Register
 
 | Risk | Consequence | Prevention / early signal |
 |---|---|---|
 | build graph remains metadata-only | headers/libraries bypass caching/install and drift | M2 materializer gate before ABI outputs |
 | target aliases diverge | host artifact mislabeled or wrong native input linked | one fallible `ResolvedTarget`; no process launch on unknown target |
-| current Rust layout leaks | permanent unstable/UB-prone ABI | canonical facade shapes; classifier/verifier; symbol/layout probes |
+| current Rust layout leaks | permanent unstable/UB-prone ABI | canonical C ABI shapes; classifier/verifier; symbol/layout probes |
 | scalar/order information remains erased | wrong header widths/offsets/tags | M4 preservation tests before backend wrappers |
 | public names use internal IDs | harmless refactor breaks ABI | explicit allowlist names; reorder/determinism tests |
-| Cargo scope expands silently | two build truths, network/build-script trust problems | source/adapter boundary; broad ingestion explicitly out |
+| Rust interop scope creeps into V4 | second interop/build truth delays the C ABI | C-only output inventory; no public Cargo/Rust artifacts; future work needs a separate plan |
 | raw pointers become general unsafe memory | UAF, aliasing, allocator mismatch | address-token-only rule; no deref/arithmetic/casts; paired destroy |
 | panic or invalid C values enter Rust unchecked | UB or foreign unwind | uniform status/out wrappers and validators; sanitizer/fuzz lanes |
 | platform matrix explodes | permanent partial support and vague claims | one certified lane plus explicit candidate/experimental promotion tiers; unsupported triples reject honestly |
@@ -1855,7 +2132,7 @@ example and real consumer test exist.
 | foreign resource cleanup is hidden | leaks/double-free/wrong allocator | explicit ownership states, destroy pairs, lifecycle negatives |
 
 
-# 21. Recommended Implementation and Commit Order
+# 20. Recommended Implementation and Commit Order
 
 Land in this order only:
 
@@ -1872,11 +2149,10 @@ Land in this order only:
 11. M7.4 — owned buffers/opaque handles
 12. M7.5 — synchronous callbacks
 13. M8 — bounded header import
-14. M9 — Rust source facade/provider adapter
-15. M10 — compatibility/platform/release closure
+14. M9 — C ABI compatibility/platform/release closure and installed round trip
 
 Docs, diagnostics, frontend, formatter/tools, LSP, tree-sitter, examples, and
-inventories travel with each numbered slice, not after step 15.
+inventories travel with each numbered slice, not after step 14.
 
 Commit policy during implementation:
 
@@ -1898,7 +2174,7 @@ Representative titles (adjust scope without exceeding the limit):
 - `feat(abi): ship C exports`
 - `feat(abi): ship C imports`
 - `feat(abi): add owned handles`
-- `feat(interop): add Rust facade`
+- `test(interop): prove C ABI round trip`
 - `test(v4): add platform ABI gates`
 - `docs(v4): close interop milestone`
 
@@ -1907,7 +2183,7 @@ may land privately; the public surface appears only with its complete vertical
 consumer/editor/docs slice.
 
 
-# 22. Hard STOP Conditions
+# 21. Hard STOP Conditions
 
 Stop the active milestone immediately if any of the following is true:
 
@@ -1936,10 +2212,11 @@ Stop the active milestone immediately if any of the following is true:
 - a foreign call bypasses `fol_model`/effective-std capability checks
 - callbacks can be retained, reentered, or cross threads outside the frozen rule
 - header import approximates an unsupported C construct
-- Rust binary ABI is described as stable
-- arbitrary Cargo crates/build scripts are ingested without a separate approved
-  trust/dependency/toolchain contract
-- Cargo and direct rustc become parallel production truths
+- a public Rust import/export path, Cargo/source facade, Rust-provider adapter,
+  Rust binary artifact, Rust-specific release gate, or any other language
+  bridge becomes a V4 deliverable
+- arbitrary Cargo crates, features, proc macros, or build scripts are ingested
+- Cargo and direct `rustc` become parallel production truths
 - an interface fingerprint changes from an internal-only refactor
 - a breaking interface change passes without ABI-major bump
 - a required native/editor/tree/docs/platform test is skipped or passes
@@ -1947,12 +2224,14 @@ Stop the active milestone immediately if any of the following is true:
 - docs claim a wider surface than real consumer/CI evidence
 
 
-# 23. Explicit Non-Goals
+# 22. Explicit Non-Goals
 
 Not part of V4 unless this plan is deliberately revised first:
 
-- stable Rust binary ABI or arbitrary prebuilt `.rlib` compatibility
-- a Rust `dylib` compatibility promise
+- all direct Rust interop: Rust source import/export, generated public Cargo
+  crates or safe source facades, Rust-provider adapters, Cargo dependency/
+  feature/build-script ingestion, `.rlib`, Rust `dylib`, or Rust ABI
+  compatibility. This does not prohibit private backend Rust or GERC raw output
 - C++ ABI, templates, overloads, exceptions, or name mangling
 - C varargs
 - unrestricted C macro import
@@ -1970,14 +2249,14 @@ Not part of V4 unless this plan is deliberately revised first:
 - cross-language exceptions/unwind/`longjmp`
 - automatic `pkg-config`, vcpkg, CMake, or arbitrary provider discovery
 - raw linker flags, scripts, or response files in `build.fol`
-- automatic bindings for every C-compatible language
+- any non-C language-specific binding or bridge
 - cross-target execution without an explicit runner
 - weak references/cycle collection merely because V4 touches native resources
 
 
-# 24. Completion Rule
+# 23. Completion Rule
 
-V4 is complete only after M0-M10 and every required M7 sub-slice ship through
+V4 is complete only after M0-M9 and every required M7 sub-slice ship through
 compiler truth, runtime/backend, operational build/link/install routing,
 structured diagnostics, frontend artifacts, formatter/tool commands, LSP,
 tree-sitter grammar/queries/corpus, canonical examples/failures, platform CI,
@@ -1987,9 +2266,11 @@ The final claim must be precise:
 
 > FOL V4 provides a versioned target-specific C ABI with real C import/export,
 > bounded header import, explicit ownership/status/panic rules, target-aware
-> native artifacts and linking, and source-level Rust facades/adapters. It does
-> not promise stable Rust binary ABI, general unsafe pointers, C++, arbitrary
-> Cargo ingestion, or async/runtime-object interop.
+> native artifacts and linking, and consumable C headers, static libraries,
+> shared libraries, relocatable objects with link-interface sidecars, and ABI
+> manifests. Rust remains a private backend/GERC implementation detail. V4
+> does not provide public Rust or other language interop, general unsafe
+> pointers, C++, arbitrary provider discovery, or async/runtime-object interop.
 
 If that sentence is not fully backed by the checked-in consumer matrix and ABI
 baselines, V4 remains partial.

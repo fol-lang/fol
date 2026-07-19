@@ -45,6 +45,15 @@ where
         .push(std::thread::spawn(task));
 }
 
+/// Spawn a detached task (`[spn, det]`): the join handle is dropped, so the task
+/// is never registered for join and is not awaited at scope or process exit.
+pub fn spawn_detached<F>(task: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    drop(std::thread::spawn(task));
+}
+
 pub fn join_all_tasks() {
     let mut first_panic = None;
     loop {
@@ -136,7 +145,7 @@ where
 #[derive(Debug)]
 pub struct FolChannel<T> {
     sender: Mutex<Option<mpsc::Sender<T>>>,
-    receiver: Mutex<mpsc::Receiver<T>>,
+    receiver: Mutex<Option<mpsc::Receiver<T>>>,
     receiver_closed: AtomicBool,
 }
 
@@ -145,7 +154,7 @@ impl<T> Default for FolChannel<T> {
         let (sender, receiver) = mpsc::channel();
         Self {
             sender: Mutex::new(Some(sender)),
-            receiver: Mutex::new(receiver),
+            receiver: Mutex::new(Some(receiver)),
             receiver_closed: AtomicBool::new(false),
         }
     }
@@ -159,6 +168,17 @@ impl<T> FolChannel<T> {
             .as_ref()
             .cloned()
             .map(FolSender)
+    }
+
+    /// Transfer the channel's unique receiver as a first-class `chn[rx, T]`
+    /// value (V3_MEM §8.2). Receivers are unique, so this takes the receiver
+    /// out: the owning channel binding can no longer receive afterward.
+    pub fn acquire_receiver(&self) -> Option<FolReceiver<T>> {
+        self.receiver
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+            .map(FolReceiver::new)
     }
 
     pub fn send(&self, value: T) -> Result<(), T> {
@@ -175,33 +195,32 @@ impl<T> FolChannel<T> {
             .take();
     }
 
-    pub fn receive(&self) -> T {
-        self.close_local_sender();
-        self.receiver
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .recv()
-            .expect("receive from a closed channel")
-    }
-
     pub fn receive_optional(&self) -> FolOption<T> {
         self.close_local_sender();
-        self.receiver
+        let guard = self
+            .receiver
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .recv()
-            .ok()
-            .into()
+            .unwrap_or_else(|error| error.into_inner());
+        // A receiver moved out as a `chn[rx, T]` value leaves the owning
+        // binding unable to receive: report closure rather than blocking.
+        let Some(receiver) = guard.as_ref() else {
+            self.receiver_closed.store(true, Ordering::Release);
+            return None.into();
+        };
+        receiver.recv().ok().into()
     }
 
     pub fn try_receive(&self) -> FolOption<T> {
         self.close_local_sender();
-        match self
+        let guard = self
             .receiver
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .try_recv()
-        {
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(receiver) = guard.as_ref() else {
+            self.receiver_closed.store(true, Ordering::Release);
+            return None.into();
+        };
+        match receiver.try_recv() {
             Ok(value) => Some(value).into(),
             Err(mpsc::TryRecvError::Empty) => None.into(),
             Err(mpsc::TryRecvError::Disconnected) => {
@@ -240,6 +259,37 @@ impl<T> Default for FolSender<T> {
 impl<T> FolSender<T> {
     pub fn send(&self, value: T) -> Result<(), T> {
         self.0.send(value).map_err(|error| error.0)
+    }
+}
+
+/// A first-class `chn[rx, T]` receiver endpoint value (V3_MEM §8.2). Receivers
+/// are unique: unlike `FolSender`, this handle is move-only and never `Clone`.
+#[derive(Debug)]
+pub struct FolReceiver<T>(mpsc::Receiver<T>);
+
+impl<T> Default for FolReceiver<T> {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        drop(sender);
+        Self(receiver)
+    }
+}
+
+impl<T> FolReceiver<T> {
+    fn new(receiver: mpsc::Receiver<T>) -> Self {
+        Self(receiver)
+    }
+
+    pub fn receive_optional(&self) -> FolOption<T> {
+        self.0.recv().ok().into()
+    }
+
+    pub fn try_receive(&self) -> FolOption<T> {
+        match self.0.try_recv() {
+            Ok(value) => Some(value).into(),
+            Err(mpsc::TryRecvError::Empty) => None.into(),
+            Err(mpsc::TryRecvError::Disconnected) => None.into(),
+        }
     }
 }
 
@@ -376,8 +426,14 @@ mod tests {
         spawn_task(move || first.send(19).expect("receiver remains open"));
         spawn_task(move || second.send(23).expect("receiver remains open"));
 
-        let left = channel.receive();
-        let right = channel.receive();
+        let left = channel
+            .receive_optional()
+            .into_option()
+            .expect("first payload present");
+        let right = channel
+            .receive_optional()
+            .into_option()
+            .expect("second payload present");
         join_all_tasks();
 
         assert_eq!(left + right, 42);
@@ -391,11 +447,11 @@ mod tests {
             .expect("sender acquired before receiver use");
         sender.send(19).expect("receiver remains open");
 
-        assert_eq!(channel.receive(), 19);
+        assert_eq!(channel.receive_optional().into_option(), Some(19));
         assert!(channel.acquire_sender().is_none());
 
         sender.send(23).expect("pre-acquired sender remains valid");
-        assert_eq!(channel.receive(), 23);
+        assert_eq!(channel.receive_optional().into_option(), Some(23));
     }
 
     #[test]

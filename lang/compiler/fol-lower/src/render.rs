@@ -93,9 +93,7 @@ pub fn render_lowered_workspace(workspace: &LoweredWorkspace) -> String {
             let _ = writeln!(
                 output,
                 "  standard {} symbol={} kind={:?}",
-                standard.name,
-                standard.symbol_id.0,
-                standard.kind
+                standard.name, standard.symbol_id.0, standard.kind
             );
             for requirement in &standard.required_routines {
                 let _ = writeln!(
@@ -108,8 +106,12 @@ pub fn render_lowered_workspace(workspace: &LoweredWorkspace) -> String {
                         .iter()
                         .map(|type_id| format!("t{}", type_id.0))
                         .collect::<Vec<_>>(),
-                    requirement.return_type.map(|type_id| format!("t{}", type_id.0)),
-                    requirement.error_type.map(|type_id| format!("t{}", type_id.0)),
+                    requirement
+                        .return_type
+                        .map(|type_id| format!("t{}", type_id.0)),
+                    requirement
+                        .error_type
+                        .map(|type_id| format!("t{}", type_id.0)),
                 );
             }
         }
@@ -340,11 +342,11 @@ mod tests {
         std::fs::write(
             &fixture,
             concat!(
-        "fun[] main(flag: bol, items: seq[int]): bol = {\n",
-        "    var shown: int = .echo(.len(items));\n",
-        "    return .eq(flag, .not(false));\n",
-        "};\n",
-    ),
+                "fun[] main(flag: bol, items: seq[int]): bol = {\n",
+                "    var shown: int = .echo(.len(items));\n",
+                "    return .eq(flag, .not(false));\n",
+                "};\n",
+            ),
         )
         .expect("should write intrinsic render fixture");
 
@@ -355,7 +357,8 @@ mod tests {
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("intrinsic render fixture should parse");
-        let resolved = resolve_package_workspace(syntax).expect("intrinsic render fixture should resolve");
+        let resolved =
+            resolve_package_workspace(syntax).expect("intrinsic render fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("intrinsic render fixture should typecheck");

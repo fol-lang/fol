@@ -102,6 +102,9 @@ mod tests {
         // null byte
         assert_eq!(sanitize_revision_segment("abc\x00def"), "abc_def");
         // combined traversal
-        assert_eq!(sanitize_revision_segment("../../etc/passwd"), "______etc_passwd");
+        assert_eq!(
+            sanitize_revision_segment("../../etc/passwd"),
+            "______etc_passwd"
+        );
     }
 }

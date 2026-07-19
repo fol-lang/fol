@@ -47,11 +47,23 @@ pub(crate) struct DeferredBody {
     pub error_only: bool,
 }
 
+/// A `fin` local that must run its custom finalizer at scope exit (V3_MEM §6),
+/// unless the value has been moved out of its declaring scope (then its new
+/// owner finalizes it). `symbol` lets scope-exit lowering consult the typed
+/// move state to skip a moved-out local.
+#[derive(Debug, Clone)]
+pub(crate) struct FinalizeEntry {
+    pub local: LoweredLocalId,
+    pub symbol: SymbolId,
+    pub callee: LoweredRoutineId,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveDeferScope {
     pub kind: DeferScopeKind,
     pub entries: Vec<DeferredBody>,
     pub mutex_guards: Vec<LoweredLocalId>,
+    pub finalizations: Vec<FinalizeEntry>,
     pub lexical_drops: Vec<LoweredLocalId>,
 }
 
@@ -439,6 +451,7 @@ impl<'a> RoutineCursor<'a> {
             kind,
             entries: Vec::new(),
             mutex_guards: Vec::new(),
+            finalizations: Vec::new(),
             lexical_drops: Vec::new(),
         });
     }
@@ -494,6 +507,20 @@ impl<'a> RoutineCursor<'a> {
             ));
         };
         scope.lexical_drops.push(local);
+        Ok(())
+    }
+
+    pub(crate) fn register_finalization(
+        &mut self,
+        entry: FinalizeEntry,
+    ) -> Result<(), LoweringError> {
+        let Some(scope) = self.defer_scopes.last_mut() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "fin local registration requires an active lexical scope",
+            ));
+        };
+        scope.finalizations.push(entry);
         Ok(())
     }
 

@@ -1,0 +1,14 @@
+// Non-lexical borrow lifetimes (V3_MEM Slice C): a borrow ends at its last use,
+// not at the end of its lexical scope. After the borrow's last read the loan is
+// released, so the owner is usable again in the same scope without an explicit
+// give-back.
+
+typ Item: rec = { value: int };
+
+fun[] main(): int = {
+    var[mut] owner: Item = { value = 7 };
+    var[bor] view: Item = [bor]owner;
+    var seen: int = view.value;
+    var direct: int = owner.value;
+    return seen + direct;
+};

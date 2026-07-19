@@ -110,7 +110,7 @@ fn assignment_lowering_emits_local_and_global_store_instructions() {
     ));
     std::fs::write(
         &fixture,
-        "var count: int = 0;\nfun[] main(): int = {\n    var value: int = 1;\n    value = 2;\n    count = value;\n    return value;\n};",
+        "var count: int = 0;\nfun[] main(): int = {\n    var value: int = 1;\n    value = 2;\n    count = value;\n    return [mov]value;\n};",
     )
     .expect("should write lowering assignment fixture");
 
@@ -163,7 +163,7 @@ fn owned_bindings_drop_at_lexical_exit_after_defers_and_moves() {
              };\n\
              {\n\
                  @var moved: Item = { value = 2 };\n\
-                 @var receiver: Item = moved;\n\
+                 @var receiver: Item = [mov]moved;\n\
              };\n\
              return 0;\n\
          };",
@@ -219,16 +219,16 @@ fn owned_bindings_drop_at_lexical_exit_after_defers_and_moves() {
 #[test]
 fn maybe_moved_bindings_still_drop_reinitialized_branch_values() {
     let lowered = lower_fixture_workspace(
-        "fun[] consume(pointer: ptr[int]): int = { return *pointer; };\n\
+        "fun[] consume(pointer: ptr[int]): int = { return [drf]pointer; };\n\
          fun[] main(): int = {\n\
              var choose: bol = true;\n\
              {\n\
                  var first: int = 1;\n\
                  var second: int = 2;\n\
-                 var[mut] pointer: ptr[int] = &first;\n\
+                 var[mut] pointer: ptr[int] = [ref]first;\n\
                  when(choose) {\n\
-                     case(true) { var consumed: int = consume(pointer); }\n\
-                     * { pointer = &second; }\n\
+                     case(true) { var consumed: int = consume([mov]pointer); }\n\
+                     * { pointer = [ref]second; }\n\
                  }\n\
              };\n\
              return 0;\n\
@@ -263,8 +263,8 @@ fn aggregates_and_moved_sources_drop_at_lexical_exit() {
          fun[] main(): int = {\n\
              {\n\
                  var seed: int = 1;\n\
-                 var pointer: ptr[int] = &seed;\n\
-                 var holder: Holder = { pointer = pointer };\n\
+                 var pointer: ptr[int] = [ref]seed;\n\
+                 var holder: Holder = { pointer = [mov]pointer };\n\
              };\n\
              return 0;\n\
          };",
@@ -297,17 +297,17 @@ fn returned_owned_and_shelled_locals_drop_only_source_slots() {
         "typ Item: rec = { value: int };\n\
          fun[] take_owned(): @Item = {\n\
              @var value: Item = { value = 1 };\n\
-             return value;\n\
+             return [mov]value;\n\
          };\n\
          fun[] take_optional(): opt @Item = {\n\
              @var value: Item = { value = 2 };\n\
-             var wrapped: opt @Item = value;\n\
-             return wrapped;\n\
+             var wrapped: opt @Item = [mov]value;\n\
+             return [mov]wrapped;\n\
          };\n\
          fun[] take_error(): err[@Item] = {\n\
              @var value: Item = { value = 3 };\n\
-             var wrapped: err[@Item] = value;\n\
-             return wrapped;\n\
+             var wrapped: err[@Item] = [mov]value;\n\
+             return [mov]wrapped;\n\
          };\n\
          fun[] main(): int = { return 0; };",
     );

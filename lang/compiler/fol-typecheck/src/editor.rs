@@ -1,5 +1,5 @@
-use fol_intrinsics::{intrinsic_registry, IntrinsicStatus, IntrinsicSurface};
 use crate::TypecheckCapabilityModel;
+use fol_intrinsics::{intrinsic_registry, IntrinsicStatus, IntrinsicSurface};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EditorIntrinsicInfo {
@@ -16,6 +16,7 @@ pub enum EditorTypeFamily {
     ErrorShell,
     Pointer,
     Channel,
+    Eventual,
     String,
     Vector,
     Sequence,
@@ -72,6 +73,10 @@ pub fn editor_structured_type_infos() -> &'static [EditorStructuredTypeInfo] {
         EditorStructuredTypeInfo {
             name: "chn",
             family: EditorTypeFamily::Channel,
+        },
+        EditorStructuredTypeInfo {
+            name: "evt",
+            family: EditorTypeFamily::Eventual,
         },
     ];
     TYPES
@@ -138,7 +143,9 @@ pub fn editor_type_family_available_in_model(
         | EditorTypeFamily::OptionalShell
         | EditorTypeFamily::ErrorShell
         | EditorTypeFamily::Pointer => true,
-        EditorTypeFamily::Channel => editor_model_capability(model).hosted_runtime,
+        EditorTypeFamily::Channel | EditorTypeFamily::Eventual => {
+            editor_model_capability(model).hosted_runtime
+        }
         EditorTypeFamily::String
         | EditorTypeFamily::Vector
         | EditorTypeFamily::Sequence
@@ -168,11 +175,11 @@ pub fn editor_intrinsic_available_in_model(
 mod tests {
     use super::{
         editor_builtin_type_names, editor_container_type_names, editor_declaration_keywords,
-        editor_implemented_intrinsics, editor_intrinsic_available_in_model, editor_model_capability,
-        editor_processor_keyword_available_in_model, editor_processor_keyword_infos,
-        editor_shell_type_names, editor_source_kind_names, editor_structured_type_infos,
-        editor_type_family_available_in_model, EditorIntrinsicInfo, EditorProcessorKeywordContext,
-        EditorTypeFamily,
+        editor_implemented_intrinsics, editor_intrinsic_available_in_model,
+        editor_model_capability, editor_processor_keyword_available_in_model,
+        editor_processor_keyword_infos, editor_shell_type_names, editor_source_kind_names,
+        editor_structured_type_infos, editor_type_family_available_in_model, EditorIntrinsicInfo,
+        EditorProcessorKeywordContext, EditorTypeFamily,
     };
     use crate::TypecheckCapabilityModel;
     use fol_intrinsics::{intrinsic_registry, IntrinsicStatus, IntrinsicSurface};
@@ -229,7 +236,10 @@ mod tests {
             fol_lexer::token::buildin::DECLARATION_KEYWORDS
         );
         assert_eq!(editor_builtin_type_names(), crate::BuiltinType::ALL_NAMES);
-        assert_eq!(editor_container_type_names(), fol_parser::CONTAINER_TYPE_NAMES);
+        assert_eq!(
+            editor_container_type_names(),
+            fol_parser::CONTAINER_TYPE_NAMES
+        );
         assert_eq!(editor_shell_type_names(), fol_parser::SHELL_TYPE_NAMES);
         assert_eq!(editor_source_kind_names(), fol_parser::SOURCE_KIND_NAMES);
         assert_eq!(
@@ -237,7 +247,7 @@ mod tests {
                 .iter()
                 .map(|info| info.name)
                 .collect::<Vec<_>>(),
-            ["ptr", "chn"]
+            ["ptr", "chn", "evt"]
         );
         assert_eq!(
             editor_processor_keyword_infos()

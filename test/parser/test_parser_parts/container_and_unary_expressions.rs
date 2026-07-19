@@ -14,21 +14,27 @@ fn test_braced_range_expressions_parse_in_assignment_and_return() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let has_range_assignment = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Assignment { value, .. }
-                    if matches!(value.as_ref(), AstNode::Range { .. })
-                )
-            });
+            let has_range_assignment =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::Assignment { value, .. }
+                            if matches!(value.as_ref(), AstNode::Range { .. })
+                        )
+                    });
 
-            let has_range_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value) }
-                    if matches!(value.as_ref(), AstNode::Range { .. })
-                )
-            });
+            let has_range_return =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::Return { value: Some(value) }
+                            if matches!(value.as_ref(), AstNode::Range { .. })
+                        )
+                    });
 
             assert!(
                 has_range_assignment,
@@ -230,234 +236,6 @@ fn test_unary_plus_preserves_call_and_method_call_expression_shapes() {
     assert!(
         has_method_return,
         "Unary plus on obj.get(a) should preserve method-call return shape"
-    );
-}
-
-#[test]
-fn test_return_expression_unary_ref_parses_as_unary_expression() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_unary_ref.fol")
-        .expect("Should read unary ref function test file");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-
-    let ast = parser
-        .parse(&mut lexer)
-        .expect("Parser should parse unary ref function");
-
-    let return_value = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
-            .into_iter()
-            .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
-                    Some(value.as_ref().clone())
-                } else {
-                    None
-                }
-            })
-            .expect("Program should contain a return value"),
-        _ => panic!("Expected program node"),
-    };
-
-    assert!(
-        matches!(
-            &return_value,
-            AstNode::UnaryOp {
-                op: fol_parser::ast::UnaryOperator::Ref,
-                operand
-            } if matches!(operand.as_ref(), AstNode::Identifier { name, .. } if name == "a")
-        ),
-        "Return value should be unary ref of identifier 'a'"
-    );
-}
-
-#[test]
-fn test_return_expression_unary_deref_precedence() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_unary_deref_precedence.fol")
-            .expect("Should read unary deref precedence function test file");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-
-    let ast = parser
-        .parse(&mut lexer)
-        .expect("Parser should parse unary deref precedence function");
-
-    let return_value = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
-            .into_iter()
-            .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
-                    Some(value.as_ref().clone())
-                } else {
-                    None
-                }
-            })
-            .expect("Program should contain a return value"),
-        _ => panic!("Expected program node"),
-    };
-
-    assert!(
-        matches!(
-            &return_value,
-            AstNode::BinaryOp {
-                op: fol_parser::ast::BinaryOperator::Mul,
-                left,
-                right
-            }
-            if matches!(
-                left.as_ref(),
-                AstNode::UnaryOp {
-                    op: fol_parser::ast::UnaryOperator::Deref,
-                    operand
-                } if matches!(operand.as_ref(), AstNode::Identifier { name, .. } if name == "a")
-            ) && matches!(right.as_ref(), AstNode::Identifier { name, .. } if name == "b")
-        ),
-        "Return value should be multiplication with unary deref on left operand"
-    );
-}
-
-#[test]
-fn test_unary_ref_deref_chains_parse_with_expected_shape() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_unary_ref_deref_chain.fol")
-        .expect("Should read unary ref/deref chain function test file");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-
-    let ast = parser
-        .parse(&mut lexer)
-        .expect("Parser should parse unary ref/deref chain function");
-
-    let (has_chain_assignment, has_chain_return) = match ast {
-        AstNode::Program { declarations } => {
-            let has_chain_assignment = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                    matches!(
-                        node,
-                        AstNode::Assignment { value, .. }
-                        if matches!(
-                            value.as_ref(),
-                            AstNode::UnaryOp {
-                                op: fol_parser::ast::UnaryOperator::Deref,
-                                operand,
-                            }
-                            if matches!(
-                                operand.as_ref(),
-                                AstNode::UnaryOp {
-                                    op: fol_parser::ast::UnaryOperator::Ref,
-                                    operand,
-                                } if matches!(operand.as_ref(), AstNode::Identifier { name, .. } if name == "a")
-                            )
-                        )
-                    )
-                });
-
-            let has_chain_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                    matches!(
-                        node,
-                        AstNode::Return { value: Some(value) }
-                        if matches!(
-                            value.as_ref(),
-                            AstNode::UnaryOp {
-                                op: fol_parser::ast::UnaryOperator::Ref,
-                                operand,
-                            }
-                            if matches!(
-                                operand.as_ref(),
-                                AstNode::UnaryOp {
-                                    op: fol_parser::ast::UnaryOperator::Deref,
-                                    operand,
-                                } if matches!(operand.as_ref(), AstNode::Identifier { name, .. } if name == "a")
-                            )
-                        )
-                    )
-                });
-
-            (has_chain_assignment, has_chain_return)
-        }
-        _ => panic!("Expected program node"),
-    };
-
-    assert!(
-        has_chain_assignment,
-        "Assignment should parse as unary deref over unary ref chain"
-    );
-    assert!(
-        has_chain_return,
-        "Return should parse as unary ref over unary deref chain"
-    );
-}
-
-#[test]
-fn test_mixed_unary_chains_parse_with_expected_shape() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_unary_mixed_chains.fol")
-        .expect("Should read mixed unary chain function test file");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-
-    let ast = parser
-        .parse(&mut lexer)
-        .expect("Parser should parse mixed unary chain function");
-
-    let (has_assignment_chain, has_return_chain) = match ast {
-        AstNode::Program { declarations } => {
-            let has_assignment_chain = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                    matches!(
-                        node,
-                        AstNode::Assignment { value, .. }
-                        if matches!(
-                            value.as_ref(),
-                            AstNode::UnaryOp {
-                                op: fol_parser::ast::UnaryOperator::Neg,
-                                operand,
-                            }
-                            if matches!(
-                                operand.as_ref(),
-                                AstNode::UnaryOp {
-                                    op: fol_parser::ast::UnaryOperator::Deref,
-                                    operand,
-                                }
-                                if matches!(
-                                    operand.as_ref(),
-                                    AstNode::UnaryOp {
-                                        op: fol_parser::ast::UnaryOperator::Ref,
-                                        operand,
-                                    } if matches!(operand.as_ref(), AstNode::Identifier { name, .. } if name == "a")
-                                )
-                            )
-                        )
-                    )
-                });
-
-            let has_return_chain = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value) }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::UnaryOp {
-                            op: fol_parser::ast::UnaryOperator::Not,
-                            operand,
-                        }
-                        if matches!(operand.as_ref(), AstNode::Identifier { name, .. } if name == "a")
-                    )
-                )
-            });
-
-            (has_assignment_chain, has_return_chain)
-        }
-        _ => panic!("Expected program node"),
-    };
-
-    assert!(
-        has_assignment_chain,
-        "Assignment should parse as neg(deref(ref(a))) unary chain"
-    );
-    assert!(
-        has_return_chain,
-        "Return should parse as not(a) when unary plus acts as identity"
     );
 }
 
@@ -804,7 +582,6 @@ fn test_index_assignment_target_missing_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

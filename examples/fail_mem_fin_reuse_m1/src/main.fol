@@ -1,0 +1,21 @@
+// A 'fin' value is affine: it owns a finalizable resource and moves on transfer,
+// so it cannot be used again after it is moved out (V3_MEM §4.1). This holds even
+// though the fields look copy-safe structurally, because 'copy' and 'fin' cannot
+// coexist.
+
+typ File()(fin): rec = { descriptor: int };
+
+pro (File)finalize(): non = {
+    return;
+};
+
+fun[] take(f: File): int = {
+    return f.descriptor;
+};
+
+fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    var first: int = take([mov]handle);
+    var second: int = take([mov]handle);
+    return first + second;
+};

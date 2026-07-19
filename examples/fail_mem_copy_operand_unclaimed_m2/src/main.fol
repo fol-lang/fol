@@ -1,0 +1,14 @@
+// `[cpy]value` requires the value's type to DECLARE `copy` (V3_MEM §4.1): copy
+// has no structural default, so an all-copy-safe record without a `(copy)`
+// conformance header is still move/clone-only. `Plain` never claims `copy`, so
+// `[cpy]p` is rejected — add `(copy)` to `Plain` or use `[cln]`/`[mov]`.
+
+typ Plain: rec = {
+    x: int,
+};
+
+fun[] main(): int = {
+    var p: Plain = { x = 3 };
+    var q: Plain = [cpy]p;
+    return q.x;
+};

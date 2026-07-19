@@ -292,11 +292,33 @@ pub fn render_type_default_expr_in_workspace(
             BackendErrorKind::Unsupported,
             "borrowed references cannot be default-initialized",
         )),
-        LoweredType::Pointer { target, shared } => Ok(format!(
-            "{}::new({})",
-            if *shared { "std::rc::Rc" } else { "Box" },
-            render_type_default_expr_in_workspace(workspace, type_table, *target)?
-        )),
+        LoweredType::Pointer {
+            target,
+            shared,
+            weak,
+            sync,
+        } => {
+            if *weak {
+                // An empty weak handle; upgrading it yields `None`.
+                Ok(if *sync {
+                    "std::sync::Weak::new()".to_string()
+                } else {
+                    "std::rc::Weak::new()".to_string()
+                })
+            } else {
+                Ok(format!(
+                    "{}::new({})",
+                    if *shared && *sync {
+                        "std::sync::Arc"
+                    } else if *shared {
+                        "std::rc::Rc"
+                    } else {
+                        "Box"
+                    },
+                    render_type_default_expr_in_workspace(workspace, type_table, *target)?
+                ))
+            }
+        }
         LoweredType::Array {
             element_type,
             size: Some(_size),
@@ -315,17 +337,13 @@ pub fn render_type_default_expr_in_workspace(
         LoweredType::Sequence { .. } => Ok("rt_model::FolSeq::new(vec![])".to_string()),
         LoweredType::Channel { .. } => Ok("rt::FolChannel::default()".to_string()),
         LoweredType::ChannelSender { .. } => Ok("rt::FolSender::default()".to_string()),
+        LoweredType::ChannelReceiver { .. } => Ok("rt::FolReceiver::default()".to_string()),
         LoweredType::Eventual { .. } => Ok("rt::FolEventual::default()".to_string()),
         LoweredType::Set { .. } => Ok("rt_model::FolSet::from_items(vec![])".to_string()),
         LoweredType::Map { .. } => Ok("rt_model::FolMap::from_pairs(vec![])".to_string()),
         LoweredType::Optional { .. } => Ok("rt::FolOption::nil()".to_string()),
-        LoweredType::Error { inner } => Ok(match inner {
-            Some(inner) => format!(
-                "rt::FolError::new({})",
-                render_type_default_expr_in_workspace(workspace, type_table, *inner)?
-            ),
-            None => "rt::FolError::new(())".to_string(),
-        }),
+        // A nil-able `err[T]` defaults to `nil` (no stored error).
+        LoweredType::Error { .. } => Ok("rt::FolError::nil()".to_string()),
         LoweredType::Record { .. } | LoweredType::Entry { .. } => Ok(format!(
             "{}::default()",
             crate::types::render_rust_type_in_workspace(workspace, type_table, type_id)?

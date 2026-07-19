@@ -1,0 +1,21 @@
+// Guard-VALUE mutex surface (V3_PROC / V3_MEM Slice E, section 8.3): locking a
+// borrowed `mux[T]` yields a lifetime-bound mutable guard bound with
+// `var[mut, bor]`. Field access goes through the guard, and the lock releases
+// automatically when the guard leaves scope (NLL) -- no explicit unlock needed.
+
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+fun[] bump(state: mux[Counter]): int = {
+    var[mut, bor] guard: Counter = ([bor]state).lock();
+    guard.value = guard.value + 1;
+    return std::io::echo_int(guard.value);
+};
+
+fun[] main(): int = {
+    var counter: Counter = { value = 41 };
+    return bump(counter);
+};

@@ -114,6 +114,189 @@ mod tests {
             .expect_err("fixture should be rejected")
     }
 
+    fn typecheck_fixture_ok(contents: &str) {
+        let path = write_typecheck_fixture(contents);
+        let mut stream =
+            FileStream::from_file(path.to_str().expect("utf8 temp path")).expect("open fixture");
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = AstParser::new();
+        let syntax = parser
+            .parse_package(&mut lexer)
+            .expect("fixture should parse");
+        let resolved = resolve_package(syntax).expect("fixture should resolve");
+        Typechecker::new()
+            .check_resolved_program(resolved)
+            .expect("fixture should typecheck");
+    }
+
+    #[test]
+    fn shell_choice_when_on_binds_the_optional_payload() {
+        // A `when` over an `opt[T]` scrutinee binds the present payload in the
+        // `on(value)` branch and takes `*` on nil (V3_MEM §3.3 safe inner access).
+        typecheck_fixture_ok(
+            "fun[] first(): opt[int] = { return 7; };\n\
+             fun[] main(): int = {\n\
+                 var slot: opt[int] = first();\n\
+                 when(slot) {\n\
+                     on(value) { return value; }\n\
+                     * { return 0; }\n\
+                 }\n\
+             };\n",
+        );
+    }
+
+    #[test]
+    fn shell_choice_when_on_requires_a_shell_scrutinee() {
+        // `on` is only valid over a nil-able shell; a plain scrutinee is rejected.
+        let errors = typecheck_fixture_errors(
+            "fun[] main(): int = {\n\
+                 var n: int = 3;\n\
+                 when(n) {\n\
+                     on(value) { return value; }\n\
+                     * { return 0; }\n\
+                 }\n\
+             };\n",
+        );
+        assert!(errors.iter().any(|error| error
+            .message()
+            .contains("requires an 'opt[T]' or 'err[T]' scrutinee")));
+    }
+
+    #[test]
+    fn shell_choice_when_on_binds_the_error_payload() {
+        // `err[T]` is a nil-able shell: `on(code)` binds the stored error
+        // payload and `*` takes the nil (no-error) branch (V3_MEM §3.3/§8.2).
+        typecheck_fixture_ok(
+            "fun[] risky(): err[int] = { return nil; };\n\
+             fun[] main(): int = {\n\
+                 var slot: err[int] = risky();\n\
+                 when(slot) {\n\
+                     on(code) { return code; }\n\
+                     * { return 0; }\n\
+                 }\n\
+             };\n",
+        );
+    }
+
+    #[test]
+    fn eventual_type_can_be_named_for_a_local_binding() {
+        // V3_MEM §8.1: local declarations may elide the lexical lifetime `L`
+        // and spell the eventual produced by `| async` as `evt[T]`.
+        typecheck_fixture_ok(
+            "fun[] compute(seed: int): int = { return seed; };\n\
+             fun[] main(): int = {\n\
+                 var work: evt[int] = compute(7) | async;\n\
+                 var value: int = work | await;\n\
+                 return value;\n\
+             };\n",
+        );
+    }
+
+    #[test]
+    fn recoverable_eventual_type_can_be_named_with_its_error_channel() {
+        // `evt[T / E]` names a recoverable eventual (V3_MEM §8.1).
+        typecheck_fixture_ok(
+            "fun[] risky(seed: int): int / str = {\n\
+                 when(seed) {\n\
+                     is(0) => report \"zero\";\n\
+                     * => return seed;\n\
+                 }\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var work: evt[int / str] = risky(7) | async;\n\
+                 var value: int = work | await || 0;\n\
+                 return value;\n\
+             };\n",
+        );
+    }
+
+    #[test]
+    fn a_bare_eventual_type_name_still_needs_a_value_type() {
+        let errors = typecheck_fixture_errors(
+            "fun[] main(): int = {\n\
+                 var work: evt = 0;\n\
+                 return 0;\n\
+             };\n",
+        );
+        assert!(errors.iter().any(|error| error
+            .message()
+            .contains("an eventual type needs a value type")));
+    }
+
+    #[test]
+    fn capability_standards_are_accepted_in_conformance_lists() {
+        // The compiler-owned capability standards do not require a `std`
+        // declaration and are recognized directly.
+        typecheck_fixture_ok(
+            "typ Point()(copy): rec = { x: int, y: int };\n\
+             typ Job()(clone, send): rec = { input: int };\n\
+             fun[] main(): int = { return 0; };\n",
+        );
+    }
+
+    #[test]
+    fn capability_copy_and_fin_cannot_coexist() {
+        let errors = typecheck_fixture_errors("typ Bad()(copy, fin): rec = { value: int };\n");
+        assert!(errors.iter().any(|error| error
+            .message()
+            .contains("cannot claim both 'copy' and 'fin'")));
+    }
+
+    #[test]
+    fn capability_copy_requires_copy_safe_fields() {
+        let errors = typecheck_fixture_errors("typ Bad()(copy): rec = { link: ptr[int] };\n");
+        assert!(errors.iter().any(|error| error
+            .message()
+            .contains("requires every field to be copy-safe")));
+    }
+
+    #[test]
+    fn returning_a_borrow_of_an_owned_local_is_rejected() {
+        let errors = typecheck_fixture_errors(
+            "typ Job: rec = { input: int };\n\
+             fun dangle(job: Job): Job[bor] = { return [bor]job; };\n",
+        );
+        assert!(errors.iter().any(|error| error
+            .message()
+            .contains("would dangle after the routine returns")));
+    }
+
+    #[test]
+    fn returning_a_borrow_binding_of_a_local_is_rejected_transitively() {
+        // The borrow chain roots in the owned local `owner`, so returning the
+        // borrow binding `view` still dangles.
+        let errors = typecheck_fixture_errors(
+            "typ Job: rec = { input: int };\n\
+             fun leak(): Job[bor] = {\n\
+             var owner: Job = { input = 7 };\n\
+             var[bor] view: Job = [bor]owner;\n\
+             return view;\n\
+             };\n",
+        );
+        assert!(errors
+            .iter()
+            .any(|error| error.message().contains("owned local 'owner'")));
+    }
+
+    #[test]
+    fn observing_a_borrowed_parameter_typechecks() {
+        typecheck_fixture_ok(
+            "typ Job: rec = { input: int };\n\
+             fun size(job[bor]: Job): int = { return job.input; };\n\
+             fun[] main(): int = { return 0; };\n",
+        );
+    }
+
+    #[test]
+    fn compiler_owned_generic_constraint_kinds_are_recognized() {
+        // `item` (any type) and `lif` (a lifetime parameter) are recognized
+        // directly in generic headers, like the capability standards.
+        typecheck_fixture_ok(
+            "fun hold(L: lif, T: item)(value: T): T = { return value; };\n\
+             fun[] main(): int = { var a: int = hold(5); return a; };\n",
+        );
+    }
+
     #[test]
     fn typechecker_foundation_can_be_constructed() {
         let _ = Typechecker::new();

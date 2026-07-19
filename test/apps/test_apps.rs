@@ -105,8 +105,7 @@ fn compile_app_with_roots(
             .to_str()
             .expect("fixture path should be valid utf-8")
             .to_string(),
-    )
-    ;
+    );
     let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
     run_fol(&arg_refs)
 }
@@ -273,8 +272,8 @@ fn app_fixture_tree_exists() {
 
 #[test]
 fn full_v1_showcase_example_compiles_and_runs() {
-    let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("test/apps/showcases/full_v1_showcase/app");
+    let entry =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("test/apps/showcases/full_v1_showcase/app");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&entry);
     assert_artifact_paths_exist(&compile_output);
@@ -351,8 +350,8 @@ fn generic_standard_constraint_exec_fixture_compiles_and_runs() {
 
 #[test]
 fn dfr_v1_showcase_example_compiles_and_runs() {
-    let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("test/apps/showcases/dfr_v1_showcase/app");
+    let entry =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("test/apps/showcases/dfr_v1_showcase/app");
 
     let compile_output = compile_app_keep_build_dir_expect_success(&entry);
     assert_artifact_paths_exist(&compile_output);
@@ -361,7 +360,11 @@ fn dfr_v1_showcase_example_compiles_and_runs() {
         .output()
         .expect("should run dfr v1 showcase binary");
     assert_exit_code(&run_output, 0);
-    assert_stdout_order(&run_output, &["30", "20", "40", "10", "60", "70", "50"], "dfr v1 showcase");
+    assert_stdout_order(
+        &run_output,
+        &["30", "20", "40", "10", "60", "70", "50"],
+        "dfr v1 showcase",
+    );
 }
 
 #[test]
@@ -429,13 +432,13 @@ fn v3_container_observations_compile_and_reuse_move_only_locals() {
     fs::write(
         temp_root.join("main.fol"),
         concat!(
-            "fun[] read(pointer: ptr[int]): int = { return *pointer; };\n",
+            "fun[] read(pointer: ptr[int]): int = { return [drf]pointer; };\n",
             "fun[] main(): int = {\n",
             "    var stored_value: int = 7;\n",
             "    var query_value: int = 7;\n",
-            "    var stored: ptr[int] = &stored_value;\n",
-            "    var query: ptr[int] = &query_value;\n",
-            "    var values: map[ptr[int], int] = {{stored, 3}};\n",
+            "    var stored: ptr[int] = [ref]stored_value;\n",
+            "    var query: ptr[int] = [ref]query_value;\n",
+            "    var values: map[ptr[int], int] = {{[mov]stored, 3}};\n",
             "    var found: int = values[query];\n",
             "    @var heap_values: vec[int] = {4, 5};\n",
             "    var heap_len: int = .len(heap_values);\n",
@@ -456,14 +459,14 @@ fn v3_container_observations_compile_and_reuse_move_only_locals() {
             "    }\n",
             "    var first_replace: int = 1;\n",
             "    var second_replace: int = 2;\n",
-            "    var[mut] replace: ptr[int] = &first_replace;\n",
-            "    var old_replace: int = read(replace);\n",
+            "    var[mut] replace: ptr[int] = [ref]first_replace;\n",
+            "    var old_replace: int = read([mov]replace);\n",
             "    when(true) {\n",
-            "        case(true) { replace = &second_replace; }\n",
-            "        * { replace = &first_replace; }\n",
+            "        case(true) { replace = [ref]second_replace; }\n",
+            "        * { replace = [ref]first_replace; }\n",
             "    }\n",
             "    replace = replace;\n",
-            "    when(found + *query + .len(values) + heap_len + heap_head + heap_tail_len + .len(heap_values) + first_flag + flag_sum + .len(flags) + gated + old_replace + *replace) {\n",
+            "    when(found + [drf]query + .len(values) + heap_len + heap_head + heap_tail_len + .len(heap_values) + first_flag + flag_sum + .len(flags) + gated + old_replace + [drf]replace) {\n",
             "        case(44) { return 0; }\n",
             "        * { panic \"ownership observation failed\"; }\n",
             "    }\n",
@@ -491,12 +494,12 @@ fn v3_moved_records_reinitialize_from_record_literals() {
             "fun[] main(): int = {\n",
             "    var first: int = 1;\n",
             "    var second: int = 2;\n",
-            "    var[mut] holder: Holder = { link = &first, count = 10 };\n",
-            "    var old_count: int = consume(holder);\n",
-            "    holder = { link = &second, count = 20 };\n",
+            "    var[mut] holder: Holder = { link = [ref]first, count = 10 };\n",
+            "    var old_count: int = consume([mov]holder);\n",
+            "    holder = { link = [ref]second, count = 20 };\n",
             "    var new_count: int = holder.count;\n",
             "    var new_link: ptr[int] = holder.link;\n",
-            "    when(old_count + new_count + *new_link) {\n",
+            "    when(old_count + new_count + [drf]new_link) {\n",
             "        case(32) { return 0; }\n",
             "        * { panic \"record reinitialization failed\"; }\n",
             "    }\n",
@@ -572,18 +575,19 @@ fn app_harness_root_helpers_support_std_and_pkg_layouts() {
         ),
     )
     .expect("app source");
-    fs::write(math_root.join("build.fol"), "name: math\nversion: 0.1.0\n")
-        .expect("pkg manifest");
+    fs::write(math_root.join("build.fol"), "name: math\nversion: 0.1.0\n").expect("pkg manifest");
+    fs::write(math_root.join("build.fol"), formal_pkg_build("math")).expect("pkg build");
     fs::write(
-        math_root.join("build.fol"),
-        formal_pkg_build("math"),
+        math_root.join("src").join("lib.fol"),
+        "var[exp] pkg_answer: int = 4;\n",
     )
-    .expect("pkg build");
-    fs::write(math_root.join("src").join("lib.fol"), "var[exp] pkg_answer: int = 4;\n")
-        .expect("pkg source");
+    .expect("pkg source");
 
     let merged_store_root = temp_root.join("store");
-    copy_dir_all(&bundled_std_store_root().join("std"), &merged_store_root.join("std"));
+    copy_dir_all(
+        &bundled_std_store_root().join("std"),
+        &merged_store_root.join("std"),
+    );
     copy_dir_all(&math_root, &merged_store_root.join("math"));
     compile_app_with_roots_expect_success(&app_root, None, Some(&merged_store_root));
 
@@ -882,8 +886,11 @@ fn std_bundled_io_example_compiles_and_runs() {
 #[test]
 fn std_explicit_pkg_example_compiles_and_runs() {
     let fixture = PathBuf::from("examples/std_explicit_pkg");
-    let compile_output =
-        compile_app_with_roots_keep_build_dir_expect_success(&fixture, None, Some(&bundled_std_store_root()));
+    let compile_output = compile_app_with_roots_keep_build_dir_expect_success(
+        &fixture,
+        None,
+        Some(&bundled_std_store_root()),
+    );
     assert_artifact_paths_exist(&compile_output);
 
     let binary = built_binary_path(&compile_output);
@@ -932,7 +939,10 @@ fn mixed_loc_std_pkg_fixture_compiles_and_runs() {
     let root = fixture_root("mixed_loc_std_pkg");
     let app_root = root.join("app");
     let merged_store_root = unique_temp_root("mixed_loc_std_pkg_store");
-    copy_dir_all(&bundled_std_store_root().join("std"), &merged_store_root.join("std"));
+    copy_dir_all(
+        &bundled_std_store_root().join("std"),
+        &merged_store_root.join("std"),
+    );
     copy_dir_all(&root.join("pkg/math"), &merged_store_root.join("math"));
 
     let compile_output = compile_app_with_roots_keep_build_dir_expect_success(
@@ -1024,9 +1034,15 @@ fn dfr_scope_exit_fixture_compiles_and_runs_in_reverse_order() {
     let run_output = compile_and_run_app(&fixture);
     let stdout = String::from_utf8_lossy(&run_output.stdout);
 
-    let seven = stdout.find("7").expect("program should print body output first");
-    let two = stdout.find("2").expect("program should print inner dfr output");
-    let one = stdout.find("1").expect("program should print outer dfr output");
+    let seven = stdout
+        .find("7")
+        .expect("program should print body output first");
+    let two = stdout
+        .find("2")
+        .expect("program should print inner dfr output");
+    let one = stdout
+        .find("1")
+        .expect("program should print outer dfr output");
 
     assert!(
         seven < two && two < one,
@@ -1115,7 +1131,6 @@ fn loc_call_binding_stress_fixture_compiles_and_runs() {
     assert_exit_code(&run_output, 0);
     assert_output_contains(&run_output, "55");
 }
-
 
 #[test]
 fn container_linear_fixture_compiles_and_runs() {
@@ -1406,7 +1421,10 @@ fn fail_recoverable_plain_context_fixture_fails_cleanly() {
     let fixture = fixture_root("fail_recoverable_plain_context");
 
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "cannot use '/ ErrorType' routine results as plain values");
+    assert_output_contains(
+        &output,
+        "cannot use '/ ErrorType' routine results as plain values",
+    );
 }
 
 #[test]
@@ -1480,7 +1498,10 @@ fn fail_membership_operator_fixture_rejects_cleanly() {
 fn fail_named_unpack_with_extra_variadic_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_named_unpack_after_named");
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "Positional call arguments are not allowed after named arguments");
+    assert_output_contains(
+        &output,
+        "Positional call arguments are not allowed after named arguments",
+    );
 }
 
 #[test]
@@ -1524,7 +1545,10 @@ fn fail_unpack_non_sequence_fixture_rejects_cleanly() {
 fn fail_unpack_non_variadic_free_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_unpack_non_variadic_free");
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "call-site unpack is only supported for variadic calls in V1");
+    assert_output_contains(
+        &output,
+        "call-site unpack is only supported for variadic calls in V1",
+    );
 }
 
 #[test]
@@ -1547,21 +1571,30 @@ fn fail_missing_required_named_arg_fixture_rejects_cleanly() {
 fn fail_double_unpack_free_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_double_unpack_free");
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "call-site unpack cannot be combined with other variadic arguments in V1");
+    assert_output_contains(
+        &output,
+        "call-site unpack cannot be combined with other variadic arguments in V1",
+    );
 }
 
 #[test]
 fn fail_double_unpack_method_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_double_unpack_method");
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "call-site unpack cannot be combined with other variadic arguments in V1");
+    assert_output_contains(
+        &output,
+        "call-site unpack cannot be combined with other variadic arguments in V1",
+    );
 }
 
 #[test]
 fn fail_unpack_non_variadic_method_fixture_rejects_cleanly() {
     let fixture = fixture_root("fail_unpack_non_variadic_method");
     let output = compile_app_expect_failure(&fixture);
-    assert_output_contains(&output, "call-site unpack is only supported for variadic calls in V1");
+    assert_output_contains(
+        &output,
+        "call-site unpack is only supported for variadic calls in V1",
+    );
 }
 
 #[test]

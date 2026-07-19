@@ -68,8 +68,7 @@ pub fn plan_namespace_layouts(session: &BackendSession) -> Vec<NamespaceLayoutPl
                 .map(|segment| sanitize_segment(segment))
                 .unwrap_or_else(|| "root".to_string());
             let has_child_namespace = namespace_keys.iter().any(|candidate| {
-                candidate != &namespace
-                    && candidate.starts_with(&format!("{namespace}::"))
+                candidate != &namespace && candidate.starts_with(&format!("{namespace}::"))
             });
             let relative_file = if relative_segments.is_empty() {
                 format!("{module_name}.rs")
@@ -290,9 +289,10 @@ mod tests {
         assert!(plans
             .iter()
             .any(|plan| plan.full_namespace == "app::fmt" && plan.relative_file == "fmt/mod.rs"));
-        assert!(plans.iter().any(
-            |plan| plan.full_namespace == "app::fmt::math" && plan.relative_file == "fmt/math.rs"
-        ));
+        assert!(plans
+            .iter()
+            .any(|plan| plan.full_namespace == "app::fmt::math"
+                && plan.relative_file == "fmt/math.rs"));
 
         let _ = fs::remove_dir_all(&fixture_root);
     }
