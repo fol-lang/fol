@@ -53,11 +53,13 @@ Positive:
 - `examples/proc_spawn_canonical_m1`
 - `examples/proc_spawn_detached_m1`
 - `examples/proc_shared_sync_ptr_m1`
+- `examples/proc_spawn_borrow_m1`
 
 Negative:
 
 - `examples/fail_proc_spawn_detached_borrow_m1`
 - `examples/fail_proc_spawn_fin_m1`
+- `examples/fail_proc_spawn_borrow_mutate_m1`
 - `examples/fail_proc_spawn_heap_use_after_move_m1`
 - `examples/fail_proc_spawn_in_core_m1`
 - `examples/fail_proc_spawn_indirect_m1`

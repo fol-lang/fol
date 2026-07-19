@@ -169,6 +169,15 @@ pub(crate) struct DeferredBindingUse {
     pub(crate) origin: SyntaxOrigin,
 }
 
+/// A shared loan a spawned scoped task holds on an outer binding
+/// (`[>]fun()[state[bor]] = ...`). The owner stays readable but cannot be
+/// mutated or moved until the registering scope exits and joins its tasks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskBorrow {
+    pub(crate) scope: ScopeId,
+    pub(crate) origin: SyntaxOrigin,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeferredTransferConflict {
     pub(crate) symbol: SymbolId,
@@ -257,6 +266,7 @@ pub struct TypedProgram {
     returned_borrows: BTreeMap<SymbolId, SyntaxOrigin>,
     active_mutex_guards: BTreeMap<SymbolId, ActiveMutexGuard>,
     deferred_binding_uses: BTreeMap<SymbolId, Vec<DeferredBindingUse>>,
+    task_borrowed_bindings: BTreeMap<SymbolId, Vec<TaskBorrow>>,
     deferred_transfer_conflict: Option<DeferredTransferConflict>,
     /// Compiler-owned capability standards (`copy`/`clone`/`fin`/`send`/`share`)
     /// claimed by each type declaration via its conformance list. Structural
@@ -637,6 +647,19 @@ impl TypedProgram {
         }
     }
 
+    pub(crate) fn register_task_borrow(&mut self, symbol: SymbolId, task_borrow: TaskBorrow) {
+        let borrows = self.task_borrowed_bindings.entry(symbol).or_default();
+        if !borrows.contains(&task_borrow) {
+            borrows.push(task_borrow);
+        }
+    }
+
+    pub(crate) fn first_task_borrow(&self, symbol: SymbolId) -> Option<&TaskBorrow> {
+        self.task_borrowed_bindings
+            .get(&symbol)
+            .and_then(|borrows| borrows.first())
+    }
+
     pub(crate) fn take_deferred_transfer_conflict(&mut self) -> Option<DeferredTransferConflict> {
         self.deferred_transfer_conflict.take()
     }
@@ -731,6 +754,13 @@ impl TypedProgram {
         self.deferred_binding_uses.retain(|_, uses| {
             uses.retain(|deferred_use| deferred_use.scope != scope);
             !uses.is_empty()
+        });
+    }
+
+    pub(crate) fn release_task_borrows_in_scope(&mut self, scope: ScopeId) {
+        self.task_borrowed_bindings.retain(|_, borrows| {
+            borrows.retain(|task_borrow| task_borrow.scope != scope);
+            !borrows.is_empty()
         });
     }
 
@@ -1045,6 +1075,7 @@ impl TypedProgram {
             returned_borrows: BTreeMap::new(),
             active_mutex_guards: BTreeMap::new(),
             deferred_binding_uses: BTreeMap::new(),
+            task_borrowed_bindings: BTreeMap::new(),
             deferred_transfer_conflict: None,
             capability_claims: BTreeMap::new(),
             generic_capability_constraints: BTreeMap::new(),

@@ -39,7 +39,9 @@ routines, and routine parameters remain indirect calls and are not spawn
 targets in `V3`. The explicit zero-parameter anonymous spawn form carries an
 explicit capture list: channel sender endpoints (`c[tx]`) and value operations
 (`data[mov]`, `amount[cpy]`, `record[cln]`) thread their captures into the
-task; borrowed captures cannot cross the spawn boundary. Receiver-method call
+task, and `state[bor]` lends the outer binding to the scoped task: the owner
+stays readable but is frozen — no mutation, no transfer — until the scope
+joins its tasks. Borrowed captures require a clone-safe, thread-safe owner. Receiver-method call
 syntax is not a named spawn-target form; use a free routine name or qualified
 path instead.
 
@@ -48,7 +50,8 @@ The spawn boundary follows the `V3` memory rules:
 - clone-safe values clone into the task
 - thread-safe move-only values, including `@` ownership and unique pointers,
   move into the task and leave the sender moved-out
-- borrowed values do not cross the thread boundary
+- borrowed values cross only as explicit `[bor]` captures of a scoped task,
+  which freeze their owner until the scope joins
 - `ptr[shared, T]` values do not cross the boundary because their `Rc` backing
   is not thread-safe
 - unresolved generic parameters do not cross until FOL has a thread-safety and

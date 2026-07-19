@@ -98,6 +98,7 @@ pub(crate) const V3_PROC_M1_POSITIVES: &[V3PositiveExample] = &[
     ("examples/proc_spawn_canonical_m1", Some("17\n")),
     ("examples/proc_spawn_detached_m1", Some("41\n")),
     ("examples/proc_shared_sync_ptr_m1", Some("42\n")),
+    ("examples/proc_spawn_borrow_m1", Some("42\n")),
 ];
 
 pub(crate) const V3_PROC_M2_POSITIVES: &[V3PositiveExample] = &[
@@ -485,6 +486,13 @@ pub(crate) const V3_MEM_M3_FAILURES: &[V3FailureExample] = &[
 ];
 
 pub(crate) const V3_PROC_M1_FAILURES: &[V3FailureExample] = &[
+    v3_failure!(
+        "examples/fail_proc_spawn_borrow_mutate_m1",
+        "O1001",
+        "while a spawned task borrows it",
+        true,
+        true
+    ),
     v3_failure!(
         "examples/fail_proc_spawn_in_core_m1",
         "T1002",
@@ -890,6 +898,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/proc_mutex_guard_end_m3", "bump", 2, None),
     ("examples/proc_async_await_m4", "work", 2, None),
     ("examples/proc_await_error_m4", "probe", 2, None),
+    ("examples/proc_spawn_borrow_m1", "observed", 1, None),
     ("examples/proc_evt_named_m4", "work", 2, None),
     ("examples/proc_evt_lifetime_m4", "schedule", 2, None),
 ];

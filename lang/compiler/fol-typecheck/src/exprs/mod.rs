@@ -1234,17 +1234,52 @@ fn type_node_with_expectation_inner(
                         capture_type
                     }
                     (None, Some(OwnershipOption::Borrow)) => {
-                        // Borrowed spawn captures need share-capability and
-                        // region checks that V3 has not built yet; a delayed
-                        // block (`dfr[x[bor]]`) is the in-frame borrowing form.
-                        return Err(unsupported_node_surface(
-                            resolved,
-                            node,
-                            format!(
-                                "borrowed capture '{}[bor]' cannot cross a spawn boundary; use '{}[mov]', '{}[cpy]', or '{}[cln]'",
-                                capture.name, capture.name, capture.name, capture.name
-                            ),
-                        ));
+                        if value_position {
+                            // A routine value's lifetime is unknown without an
+                            // environment lifetime (§5.3), so a loan cannot
+                            // escape into one.
+                            return Err(unsupported_node_surface(
+                                resolved,
+                                node,
+                                format!(
+                                    "borrowed capture '{}[bor]' cannot escape into a routine value; use '{}[cpy]' or '{}[cln]'",
+                                    capture.name, capture.name, capture.name
+                                ),
+                            ));
+                        }
+                        // §8.1: a scoped task may hold a shared loan. The task
+                        // joins at scope exit, so the owner is frozen (no
+                        // mutation, no transfer) until then; reads stay legal.
+                        // The loan requires share-safety: the observed data
+                        // must be thread-safe.
+                        if bindings::ownership_moves_on_transfer(typed, capture_type) {
+                            return Err(with_node_origin(
+                                resolved,
+                                node,
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "borrowed capture '{}[bor]' requires a clone-safe owner; use '{}[mov]' to transfer a move-only value into the task",
+                                    capture.name, capture.name
+                                ),
+                            ));
+                        }
+                        if helpers::type_contains_shared_pointer(typed, capture_type) {
+                            return Err(capture_spawn_send_error(
+                                resolved,
+                                node,
+                                &format!("borrowed capture '{}[bor]'", capture.name),
+                            ));
+                        }
+                        if let Some(origin) = node_origin(resolved, node) {
+                            typed.register_task_borrow(
+                                outer_symbol,
+                                crate::model::TaskBorrow {
+                                    scope: context.scope_id,
+                                    origin,
+                                },
+                            );
+                        }
+                        capture_type
                     }
                     _ => {
                         // (None, None) is rejected above; any endpoint+operation
@@ -1405,6 +1440,32 @@ fn type_node_with_expectation_inner(
                 target,
             )?;
             let whole_target = whole_binding_assignment_symbol(resolved, target);
+            // §8.1: a binding borrowed by a spawned scoped task is frozen —
+            // the task observes it until the scope joins, so mutation is
+            // rejected. Reads stay legal.
+            if let Some(symbol) = assignment_root_symbol(resolved, target) {
+                if let Some(task_borrow) = typed.first_task_borrow(symbol).cloned() {
+                    let name = resolved
+                        .symbol(symbol)
+                        .map(|symbol| symbol.name.as_str())
+                        .unwrap_or("<unknown>");
+                    let message = format!(
+                        "cannot assign to '{name}' while a spawned task borrows it; the loan ends when the scope joins its tasks"
+                    );
+                    return Err(node_origin(resolved, target)
+                        .map_or_else(
+                            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                            |origin| {
+                                TypecheckError::with_origin(
+                                    TypecheckErrorKind::Ownership,
+                                    message.clone(),
+                                    origin,
+                                )
+                            },
+                        )
+                        .with_related_origin(task_borrow.origin, "task borrow created here"));
+                }
+            }
             if context.inside_deferred_block {
                 if let Some(symbol) =
                     whole_target.filter(|symbol| typed.moved_binding_origin(*symbol).is_some())
@@ -1791,6 +1852,21 @@ fn whole_binding_assignment_symbol(
         .and_then(|reference| reference.resolved)
 }
 
+/// The root binding of an assignment target: peels field/index projections to
+/// the underlying identifier, so `x`, `x.field`, and `x[i]` all resolve `x`.
+fn assignment_root_symbol(resolved: &ResolvedProgram, target: &AstNode) -> Option<SymbolId> {
+    let mut node = helpers::strip_comments(target);
+    loop {
+        match node {
+            AstNode::FieldAccess { object, .. } => node = helpers::strip_comments(object),
+            AstNode::IndexAccess { container, .. } => node = helpers::strip_comments(container),
+            AstNode::PatternAccess { container, .. } => node = helpers::strip_comments(container),
+            _ => break,
+        }
+    }
+    whole_binding_assignment_symbol(resolved, node)
+}
+
 fn body_contains_panic(nodes: &[AstNode]) -> bool {
     nodes.iter().any(node_contains_panic)
 }
@@ -2009,6 +2085,7 @@ fn type_body_inner(
     typed.release_borrows_in_scope(context.scope_id);
     typed.release_mutex_guards_in_scope(context.scope_id);
     typed.release_deferred_binding_uses_in_scope(context.scope_id);
+    typed.release_task_borrows_in_scope(context.scope_id);
     typed.release_recoverable_eventual_obligations_in_scope(context.scope_id);
     result
 }

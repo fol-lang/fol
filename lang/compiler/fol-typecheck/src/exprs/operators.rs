@@ -880,6 +880,25 @@ pub(crate) fn type_ownership_op(
                 if let (Some(symbol), Some(origin)) =
                     (resolve_symbol(*syntax_id), node_origin(resolved, operand))
                 {
+                    // §8.1: a binding borrowed by a spawned task is frozen
+                    // until the scope joins; transferring it out is rejected.
+                    if let Some(task_borrow) = typed.first_task_borrow(symbol).cloned() {
+                        let name = resolved
+                            .symbol(symbol)
+                            .map(|symbol| symbol.name.as_str())
+                            .unwrap_or("<unknown>");
+                        return Err(TypecheckError::with_origin(
+                            TypecheckErrorKind::Ownership,
+                            format!(
+                                "cannot move '{name}' while a spawned task borrows it; the loan ends when the scope joins its tasks"
+                            ),
+                            origin,
+                        )
+                        .with_related_origin(
+                            task_borrow.origin,
+                            "task borrow created here",
+                        ));
+                    }
                     typed.mark_binding_moved(symbol, origin);
                 }
             }
