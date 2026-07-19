@@ -1,15 +1,12 @@
 # Memory Model
 
-> **V3 reopened — this chapter describes the first shipped subset, not the
-> final contract.** The ownership model is being deepened into one sound,
-> CFG-based system (explicit `[mov]`/`[cpy]`/`[cln]`/`[bor]` operations,
-> non-lexical borrows, static places, named lifetimes, custom finalization, and
-> a full pointer family) under `plan/V3_MEM.md`. Until that lands, treat the
-> present-tense wording below as the historical subset described in
-> `plan/V3_MEM.md` Appendix A.
-
-This section explains FOL's first shipped V3 memory subset: ownership, lexical
-borrowing, owned allocation, and typed unique/shared pointers.
+This section explains FOL's V3 memory model: explicit ownership operations
+(`[mov]`/`[cpy]`/`[cln]`/`[bor]` and friends) at every transfer boundary,
+non-lexical borrows, static places and partial moves, named and elided
+lifetimes, capability standards, custom finalization, closure environments,
+and the unique/shared/weak/synchronized pointer family. The normative contract
+is `plan/V3_MEM.md`; the first-shipped historical subset is recorded in its
+Appendix A.
 
 The main topics are:
 

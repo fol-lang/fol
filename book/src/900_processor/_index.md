@@ -1,13 +1,5 @@
 # Concurrency
 
-> **V3 reopened — this chapter describes the first shipped subset, not the
-> final contract.** The processor surface is being reintegrated with the
-> deepened ownership model (scoped `[spn]` tasks, public `evt[L, T]` eventuals,
-> typed channel endpoints, first-class `mux[T]`, and explicit transfer
-> operations) under `plan/V3_MEM.md` §8. Until that lands, treat the
-> present-tense wording below as the historical subset described in
-> `plan/V3_PROC.md`.
-
 This section covers FOL's first shipped V3 concurrency and asynchronous
 execution subset. Every processor surface is hosted `std`-only and is
 implemented with OS threads and Rust standard-library synchronization; FOL does
