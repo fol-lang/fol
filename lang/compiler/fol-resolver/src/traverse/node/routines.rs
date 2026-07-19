@@ -76,6 +76,7 @@ pub fn traverse_named_routine(
             .syntax_id
             .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
             .cloned();
+        record_capture_source_reference(program, source_unit_id, scope_id, capture);
         insert_local_symbol_with_origin(
             program,
             source_unit_id,
@@ -191,6 +192,7 @@ pub fn traverse_anonymous_routine(
             .syntax_id
             .and_then(|syntax_id| program.syntax_index().origin(syntax_id))
             .cloned();
+        record_capture_source_reference(program, source_unit_id, scope_id, capture);
         insert_local_symbol_with_origin(
             program,
             source_unit_id,
@@ -250,4 +252,51 @@ pub fn traverse_anonymous_routine(
     }
 
     Ok(())
+}
+
+/// Link a capture-list entry back to the binding it captures: record an
+/// identifier reference at the capture site resolved against the ENCLOSING
+/// scope. The capture's own `SymbolKind::Capture` binding (inserted right
+/// after) shadows the outer name inside the routine body, so without this
+/// reference the outer binding and its captures form disconnected symbol
+/// clusters and editor rename/references miss the capture site entirely.
+/// Resolution failures are left for typecheck to report; the reference is
+/// purely navigational.
+fn record_capture_source_reference(
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    enclosing_scope: ScopeId,
+    capture: &RoutineCapture,
+) {
+    let Some(syntax_id) = capture.syntax_id else {
+        return;
+    };
+    let origin = program.syntax_index().origin(syntax_id).cloned();
+    let Ok(outer_symbol) = super::super::resolve::resolve_visible_symbol_of_kinds(
+        program,
+        enclosing_scope,
+        &capture.name,
+        &[
+            SymbolKind::ValueBinding,
+            SymbolKind::Parameter,
+            SymbolKind::Capture,
+        ],
+        Some("captured binding"),
+        origin,
+    ) else {
+        return;
+    };
+    let reference_id = program.references.push(crate::model::ResolvedReference {
+        id: crate::ReferenceId(0),
+        kind: crate::model::ReferenceKind::Identifier,
+        syntax_id: Some(syntax_id),
+        anchor_syntax_id: None,
+        name: capture.name.clone(),
+        scope: enclosing_scope,
+        source_unit: source_unit_id,
+        resolved: Some(outer_symbol),
+    });
+    if let Some(reference) = program.references.get_mut(reference_id) {
+        reference.id = reference_id;
+    }
 }

@@ -2014,31 +2014,36 @@ impl SemanticSnapshot {
         let Some(symbol_id) = reference.resolved else {
             return Vec::new();
         };
+        let symbol_ids = capture_linked_symbol_ids(program, symbol_id);
         let mut locations = Vec::new();
-        let Some(symbol) = program.symbol(symbol_id) else {
-            return Vec::new();
-        };
 
         if include_declaration {
-            if let Some(origin) = symbol.origin.as_ref() {
-                if let Some(file) = origin.file.as_ref() {
-                    let source_file = self.map_analyzed_file_to_source(file);
-                    locations.push(LspLocation {
-                        uri: format!("file://{source_file}"),
-                        range: location_to_range(&fol_diagnostics::DiagnosticLocation {
-                            file: Some(source_file),
-                            line: origin.line,
-                            column: origin.column,
-                            length: Some(origin.length),
-                        }),
-                    });
-                }
+            for symbol_id in &symbol_ids {
+                let Some(symbol) = program.symbol(*symbol_id) else {
+                    continue;
+                };
+                let Some(origin) = symbol.origin.as_ref() else {
+                    continue;
+                };
+                let Some(file) = origin.file.as_ref() else {
+                    continue;
+                };
+                let source_file = self.map_analyzed_file_to_source(file);
+                locations.push(LspLocation {
+                    uri: format!("file://{source_file}"),
+                    range: location_to_range(&fol_diagnostics::DiagnosticLocation {
+                        file: Some(source_file),
+                        line: origin.line,
+                        column: origin.column,
+                        length: Some(origin.length),
+                    }),
+                });
             }
         }
 
         for hit in program
             .all_references()
-            .filter(|hit| hit.resolved == Some(symbol_id))
+            .filter(|hit| hit.resolved.is_some_and(|id| symbol_ids.contains(&id)))
         {
             let Some(syntax_id) = hit.anchor() else {
                 continue;
@@ -2078,37 +2083,42 @@ impl SemanticSnapshot {
     ) -> EditorResult<LspWorkspaceEdit> {
         ensure_renameable_identifier(new_name)?;
         let (program, symbol) = self.validated_rename_target(reference)?;
-        let symbol_id = symbol.id;
+        let symbol_ids = capture_linked_symbol_ids(program, symbol.id);
 
         let mut edits = Vec::new();
-        let declaration = symbol.origin.as_ref().ok_or_else(|| {
-            EditorError::new(
-                EditorErrorKind::InvalidInput,
-                "rename target is missing a declaration location",
-            )
-        })?;
-        let declaration_file = declaration.file.as_ref().ok_or_else(|| {
-            EditorError::new(
-                EditorErrorKind::InvalidInput,
-                "rename target is missing a declaration file",
-            )
-        })?;
-        edits.push((
-            self.map_analyzed_file_to_source(declaration_file),
-            LspTextEdit {
-                range: location_to_range(&fol_diagnostics::DiagnosticLocation {
-                    file: Some(self.map_analyzed_file_to_source(declaration_file)),
-                    line: declaration.line,
-                    column: declaration.column,
-                    length: Some(declaration.length),
-                }),
-                new_text: new_name.to_string(),
-            },
-        ));
+        for symbol_id in &symbol_ids {
+            let Some(symbol) = program.symbol(*symbol_id) else {
+                continue;
+            };
+            let declaration = symbol.origin.as_ref().ok_or_else(|| {
+                EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    "rename target is missing a declaration location",
+                )
+            })?;
+            let declaration_file = declaration.file.as_ref().ok_or_else(|| {
+                EditorError::new(
+                    EditorErrorKind::InvalidInput,
+                    "rename target is missing a declaration file",
+                )
+            })?;
+            edits.push((
+                self.map_analyzed_file_to_source(declaration_file),
+                LspTextEdit {
+                    range: location_to_range(&fol_diagnostics::DiagnosticLocation {
+                        file: Some(self.map_analyzed_file_to_source(declaration_file)),
+                        line: declaration.line,
+                        column: declaration.column,
+                        length: Some(declaration.length),
+                    }),
+                    new_text: new_name.to_string(),
+                },
+            ));
+        }
 
         for hit in program
             .all_references()
-            .filter(|hit| hit.resolved == Some(symbol_id))
+            .filter(|hit| hit.resolved.is_some_and(|id| symbol_ids.contains(&id)))
         {
             let Some(syntax_id) = hit.anchor() else {
                 continue;
@@ -3286,6 +3296,58 @@ fn signature_call_site(
         active_parameter: active_parameter_index(text, open_paren, cursor_offset),
         span_len: close_paren.saturating_sub(callee_start),
     })
+}
+
+/// Expand a rename/references target across closure-capture links. A
+/// `SymbolKind::Capture` binding shares its declaration span with the
+/// resolver's navigational reference to the outer binding it captures; the
+/// capture list has no aliasing, so the outer binding, every capture of it,
+/// and their body uses must all carry the same name. Renaming any cluster
+/// alone would leave the program unresolvable.
+fn capture_linked_symbol_ids(
+    program: &fol_resolver::ResolvedProgram,
+    start: fol_resolver::SymbolId,
+) -> std::collections::BTreeSet<fol_resolver::SymbolId> {
+    let captures: Vec<(fol_resolver::SymbolId, &fol_parser::ast::SyntaxOrigin)> = program
+        .all_symbols()
+        .filter(|symbol| symbol.kind == fol_resolver::SymbolKind::Capture)
+        .filter_map(|symbol| symbol.origin.as_ref().map(|origin| (symbol.id, origin)))
+        .collect();
+    let mut pairs: Vec<(fol_resolver::SymbolId, fol_resolver::SymbolId)> = Vec::new();
+    if !captures.is_empty() {
+        for reference in program.all_references() {
+            let Some(target) = reference.resolved else {
+                continue;
+            };
+            let Some(syntax_id) = reference.anchor() else {
+                continue;
+            };
+            let Some(origin) = program.syntax_index().origin(syntax_id) else {
+                continue;
+            };
+            for (capture_id, capture_origin) in &captures {
+                if *capture_id != target && *capture_origin == origin {
+                    pairs.push((*capture_id, target));
+                }
+            }
+        }
+    }
+    let mut linked = std::collections::BTreeSet::from([start]);
+    loop {
+        let before = linked.len();
+        for (capture_id, outer_id) in &pairs {
+            if linked.contains(capture_id) {
+                linked.insert(*outer_id);
+            }
+            if linked.contains(outer_id) {
+                linked.insert(*capture_id);
+            }
+        }
+        if linked.len() == before {
+            break;
+        }
+    }
+    linked
 }
 
 fn reference_for_syntax_id(

@@ -542,11 +542,14 @@ fn lsp_server_renames_supported_v3_processor_symbols() {
             &[13_u32, 14][..],
             1649,
         ),
+        // Renaming from the capture-list site rewrites the whole capture
+        // cluster: outer declaration, capture entry, task-body use, and the
+        // later receive site (captures carry no aliasing).
         (
             "examples/proc_channel_capture_m2",
             "channel",
             3,
-            &[4_u32, 5][..],
+            &[3_u32, 4, 5, 7][..],
             1651,
         ),
         (

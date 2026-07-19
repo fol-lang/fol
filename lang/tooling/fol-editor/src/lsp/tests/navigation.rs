@@ -1756,6 +1756,73 @@ fn lsp_server_renames_borrow_bindings_and_borrow_parameters() {
 }
 
 #[test]
+fn lsp_server_renames_closure_captured_bindings_across_the_capture_boundary() {
+    // A capture list has no aliasing: the outer binding, the capture-list
+    // entry, and the closure-body uses must all keep one name. Rename from
+    // either side has to rewrite all four sites or the program stops
+    // resolving.
+    let source = "fun[] main(): int = {\n    var base: int = 30;\n    var reader: {fun (): int} = fun()[base[bor]]: int = { return base + 12; };\n    var result: int = reader();\n    return base + result;\n};\n";
+    for (label, position) in [
+        (
+            "rename_capture_from_outer_decl",
+            LspPosition {
+                line: 1,
+                character: 8,
+            },
+        ),
+        (
+            "rename_capture_from_closure_body",
+            LspPosition {
+                line: 2,
+                character: 65,
+            },
+        ),
+    ] {
+        let (root, uri) = sample_package_root(label);
+        fs::write(root.join("src/main.fol"), source).unwrap();
+        let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+        let mut server = EditorLspServer::new(EditorConfig::default());
+        open_document(&mut server, uri.clone(), &text);
+
+        let rename = server
+            .handle_request(JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: JsonRpcId::Number(945),
+                method: "textDocument/rename".to_string(),
+                params: Some(
+                    serde_json::to_value(LspRenameParams {
+                        text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                        position,
+                        new_name: "anchor".to_string(),
+                    })
+                    .unwrap(),
+                ),
+            })
+            .unwrap()
+            .unwrap();
+        let edit: crate::LspWorkspaceEdit = serde_json::from_value(rename.result.unwrap()).unwrap();
+        let edits = edit.changes.get(&uri).expect("edits for current document");
+        assert_eq!(
+            edits.len(),
+            4,
+            "{label}: outer decl, capture-list entry, closure-body use, and outer use must all rename"
+        );
+        assert!(edits.iter().all(|edit| edit.new_text == "anchor"));
+        assert!(edits.iter().any(|edit| edit.range.start.line == 1));
+        assert!(
+            edits
+                .iter()
+                .filter(|edit| edit.range.start.line == 2)
+                .count()
+                == 2,
+            "{label}: both the capture-list entry and the closure-body use sit on line 2"
+        );
+        assert!(edits.iter().any(|edit| edit.range.start.line == 4));
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+#[test]
 fn lsp_server_renames_same_file_top_level_routines() {
     let (root, uri) = sample_package_root("rename_boundary");
     fs::write(
