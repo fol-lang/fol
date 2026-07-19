@@ -852,24 +852,27 @@ pub fn render_core_instruction_in_workspace(
                 LoweredBinaryOp::Add => format!("{left} + {right}"),
                 LoweredBinaryOp::Sub => format!("{left} - {right}"),
                 LoweredBinaryOp::Mul => format!("{left} * {right}"),
-                LoweredBinaryOp::Div => format!("{left} / {right}"),
-                LoweredBinaryOp::Mod => format!("{left} % {right}"),
+                // Integer division/modulo fault on a zero divisor; the rt
+                // helpers present that as a fol runtime fault instead of a
+                // raw Rust panic pointing into generated code. Float forms
+                // keep the plain operators (they yield inf/NaN, no fault).
+                LoweredBinaryOp::Div => {
+                    if operand_is_float(type_table, routine, left_id) {
+                        format!("{left} / {right}")
+                    } else {
+                        format!("rt::div_int({left}, {right})")
+                    }
+                }
+                LoweredBinaryOp::Mod => {
+                    if operand_is_float(type_table, routine, left_id) {
+                        format!("{left} % {right}")
+                    } else {
+                        format!("rt::mod_int({left}, {right})")
+                    }
+                }
                 LoweredBinaryOp::Pow => {
-                    let left_local = routine.locals.get(left_id).ok_or_else(|| {
-                        BackendError::new(
-                            BackendErrorKind::InvalidInput,
-                            format!("lowered local {:?} is missing", left_id),
-                        )
-                    })?;
-                    if let Some(type_id) = left_local.type_id {
-                        if matches!(
-                            type_table.get(type_id),
-                            Some(LoweredType::Builtin(fol_lower::LoweredBuiltinType::Float))
-                        ) {
-                            format!("rt::pow_float({left}, {right})")
-                        } else {
-                            format!("rt::pow({left}, {right})")
-                        }
+                    if operand_is_float(type_table, routine, left_id) {
+                        format!("rt::pow_float({left}, {right})")
                     } else {
                         format!("rt::pow({left}, {right})")
                     }
@@ -1001,4 +1004,25 @@ pub fn render_core_instruction_in_workspace(
             }
         }
     }
+}
+
+/// Whether a lowered local carries the builtin float type. Arithmetic render
+/// arms use this to pick float operators over the faulting integer helpers;
+/// an untyped local falls back to the integer form, matching the historical
+/// `pow` dispatch.
+fn operand_is_float(
+    type_table: &LoweredTypeTable,
+    routine: &LoweredRoutine,
+    local: fol_lower::LoweredLocalId,
+) -> bool {
+    routine
+        .locals
+        .get(local)
+        .and_then(|local| local.type_id)
+        .is_some_and(|type_id| {
+            matches!(
+                type_table.get(type_id),
+                Some(LoweredType::Builtin(fol_lower::LoweredBuiltinType::Float))
+            )
+        })
 }

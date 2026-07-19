@@ -578,3 +578,29 @@ fn else_less_if_guards_fall_through_and_terminate() {
     assert_successful_stdout(&root, "1\n7\n3\n8\n");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn integer_division_faults_present_as_fol_runtime_faults() {
+    // Division/modulo by zero panic per the arithmetics chapter, but the
+    // message must be a fol runtime fault, not a raw Rust panic pointing
+    // into generated code paths.
+    let root = write_hosted_app(
+        "v3_div_zero_fault",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var a: int = 10;\n\
+             \x20   var b: int = 0;\n\
+             \x20   return std::io::echo_int(a / b);\n\
+             };\n",
+    );
+    let build = assert_build_succeeds(&root);
+    let run = run_with_timeout(&built_binary_path(&build), Duration::from_secs(5));
+    assert!(!run.timed_out, "the faulting division should not hang");
+    assert!(!run.output.status.success());
+    assert!(
+        String::from_utf8_lossy(&run.output.stderr).contains("fol runtime fault: division by zero"),
+        "stderr should carry the branded fault: {}",
+        String::from_utf8_lossy(&run.output.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
