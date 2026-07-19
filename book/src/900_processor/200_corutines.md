@@ -189,6 +189,14 @@ The guarded `T` cannot be copied, returned, embedded, or passed to an ordinary
 `mux[T]` parameter is allowed, including through spawn; data access still
 requires that receiving routine to acquire its own guard.
 
+Wrapping an existing owner into a `mux[T]` parameter transfers it into the
+mutex and consumes the binding: the call site must state `[mov]owner`, and the
+original binding is unusable afterward. An implicit copy at that boundary
+would silently fork the state between the caller's binding and the guarded
+value, so it is rejected even for copy-safe types. Fresh values (record
+literals or call results) pass without an operation — there is no surviving
+source to fork.
+
 For a synchronous call, the caller must unlock a handle before forwarding it
 to another `mux[T]` parameter; otherwise the callee could block trying to acquire
 the caller's guard. One call also cannot pass the same handle to two `mux[T]`

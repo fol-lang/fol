@@ -12,5 +12,5 @@ fun[] inspect(counter: mux[Counter]): int = {
 
 fun[] main(): int = {
     var counter: Counter = { value = 1 };
-    return inspect(counter);
+    return inspect([mov]counter);
 };

@@ -25,5 +25,5 @@ fun[] bump(state: mux[Counter]): int = {
 
 fun[] main(): int = {
     var counter: Counter = { value = 41 };
-    return bump(counter);
+    return bump([mov]counter);
 };

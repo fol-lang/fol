@@ -1647,7 +1647,7 @@ fn lsp_server_completes_only_mutex_methods_after_mutex_receivers() {
             "};\n",
             "fun[] main(): int = {\n",
             "    var counter: Counter = { value = 0 };\n",
-            "    return update(counter);\n",
+            "    return update([mov]counter);\n",
             "};\n",
         ),
     );

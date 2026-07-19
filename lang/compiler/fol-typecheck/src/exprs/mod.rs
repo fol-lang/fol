@@ -1921,6 +1921,22 @@ fn type_node_with_expectation_inner(
                     }
                 }
             }
+            // A literal initializer has a statically known element count, no
+            // matter which container type it lands as; binding a different
+            // number of names would only surface as an index fault at runtime.
+            if let AstNode::ContainerLiteral { elements, .. } = value.as_ref() {
+                if elements.len() != names.len() {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        format!(
+                            "destructuring binds {} names but the initializer has {} elements",
+                            names.len(),
+                            elements.len()
+                        ),
+                    ));
+                }
+            }
             let value_type = type_node_with_expectation(typed, resolved, context, value, None)?
                 .required_value("destructuring initializer does not have a type")?;
             let apparent = helpers::apparent_type_id(typed, value_type)?;
@@ -1938,6 +1954,20 @@ fn type_node_with_expectation_inner(
                         ));
                     }
                     member_types.clone()
+                }
+                Some(CheckedType::Array {
+                    element_type: _,
+                    size: Some(size),
+                }) if *size != names.len() => {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        format!(
+                            "destructuring binds {} names but the array has {} elements",
+                            names.len(),
+                            size
+                        ),
+                    ));
                 }
                 Some(
                     CheckedType::Array { element_type, .. }

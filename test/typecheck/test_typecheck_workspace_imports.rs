@@ -107,7 +107,7 @@ fn imported_mux_signature_allows_mux_handle_forwarding() {
                     "fun[] forward(counter: mux[Counter]): int = { return read(counter); };\n",
                     "fun[] main(): int = {\n",
                     "    var counter: Counter = { value = 42 };\n",
-                    "    return forward(counter);\n",
+                    "    return forward([mov]counter);\n",
                     "};\n",
                 ),
             ),

@@ -18,5 +18,5 @@ fun[] coordinate(counter: mux[Counter]): int = {
 
 fun[] main(): int = {
     var counter: Counter = { value = 0 };
-    return coordinate(counter);
+    return coordinate([mov]counter);
 };

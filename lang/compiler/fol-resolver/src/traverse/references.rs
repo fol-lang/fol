@@ -75,6 +75,7 @@ pub fn record_function_call_reference(
             SymbolKind::Routine,
             SymbolKind::ValueBinding,
             SymbolKind::Parameter,
+            SymbolKind::Capture,
         ],
         Some("callable routine"),
         origin,

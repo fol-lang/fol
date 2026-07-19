@@ -1353,6 +1353,9 @@ pub(crate) fn check_call_arguments(
                     crate::decls::checked_type_contains_generic_param(typed, *expected);
                 let forwards_mutex_handle = signature.mutex_params.contains(&param_index)
                     && argument_is_direct_mutex_handle(typed, resolved, arg);
+                if signature.mutex_params.contains(&param_index) && !forwards_mutex_handle {
+                    validate_mutex_owner_wrap_argument(resolved, arg, callee, origin.clone())?;
+                }
                 let argument_context = TypeContext {
                     allow_mutex_handle: forwards_mutex_handle,
                     ..context
@@ -1873,6 +1876,53 @@ fn argument_is_direct_mutex_handle(
     arg: &AstNode,
 ) -> bool {
     direct_mutex_handle_symbol(typed, resolved, arg).is_some()
+}
+
+/// Wrapping an existing owner into a `mux[T]` parameter transfers it into the
+/// mutex (V3_MEM §8.3): the mutex owns its state uniquely, so an implicit copy
+/// at the boundary would silently fork the state between the caller's binding
+/// and the guarded value. A place argument must therefore state `[mov]`; fresh
+/// rvalues (literals, call results) have no surviving source to fork and pass
+/// through unchanged.
+fn validate_mutex_owner_wrap_argument(
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+    callee: &str,
+    call_origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let stripped = strip_comments(arg);
+    if let AstNode::OwnershipOp { options, .. } = stripped {
+        if options.contains(&fol_parser::ast::OwnershipOption::Move) {
+            return Ok(());
+        }
+        let message = format!(
+            "a mux[T] parameter of '{callee}' takes ownership of the wrapped state; use '[mov]' — a copied, cloned, or borrowed owner would fork the guarded value"
+        );
+        return Err(node_origin(resolved, arg).or(call_origin).map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+            },
+        ));
+    }
+    if matches!(
+        stripped,
+        AstNode::Identifier { .. }
+            | AstNode::QualifiedIdentifier { .. }
+            | AstNode::FieldAccess { .. }
+            | AstNode::IndexAccess { .. }
+    ) {
+        let message = format!(
+            "wrapping an owner into the mux[T] parameter of '{callee}' transfers it into the mutex; state the transfer with '[mov]'"
+        );
+        return Err(node_origin(resolved, arg).or(call_origin).map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+            },
+        ));
+    }
+    Ok(())
 }
 
 fn direct_mutex_handle_symbol(

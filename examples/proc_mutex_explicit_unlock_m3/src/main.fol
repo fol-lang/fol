@@ -14,5 +14,5 @@ fun[] update(counter: mux[Counter]): int = {
 
 fun[] main(): int = {
     var counter: Counter = { value = 0 };
-    return update(counter);
+    return update([mov]counter);
 };

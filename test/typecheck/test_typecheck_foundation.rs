@@ -5340,8 +5340,69 @@ fn mutex_parameter_abi_stays_on_named_direct_calls() {
              fun[] worker(counter: mux[Counter]): int = { return 1; };\n\
              fun[] main(): int = {\n\
                  var counter: Counter = { value = 0 };\n\
-                 return worker(counter);\n\
+                 return worker([mov]counter);\n\
              };\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn mux_parameters_require_explicit_owner_transfer() {
+    // Wrapping an owner into a mux[T] parameter consumes it (V3_MEM §8.3);
+    // an implicit or copying wrap would fork the guarded state between the
+    // caller's binding and the mutex.
+    for (surface, call, expected) in [
+        (
+            "bare owner place",
+            "worker(counter)",
+            "wrapping an owner into the mux[T] parameter of 'worker' transfers it into the mutex",
+        ),
+        (
+            "copied owner",
+            "worker([cpy]counter)",
+            "takes ownership of the wrapped state; use '[mov]'",
+        ),
+        (
+            "reused after transfer",
+            "worker([mov]counter) + worker([mov]counter)",
+            "use of moved binding 'counter'",
+        ),
+    ] {
+        let source = format!(
+            "typ Counter: rec = {{ value: int }};\n\
+             fun[] worker(counter: mux[Counter]): int = {{ return 0; }};\n\
+             fun[] main(): int = {{\n\
+                 var counter: Counter = {{ value = 0 }};\n\
+                 return {call};\n\
+             }};\n"
+        );
+        let errors = typecheck_fixture_folder_errors_with_config(
+            &[("main.fol", source.as_str())],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains(expected)),
+            "{surface} should reject with the transfer rule, got {errors:?}"
+        );
+    }
+
+    // A fresh rvalue has no surviving source to fork and needs no operation.
+    let typed = typecheck_fixture_folder_with_config(
+        &[(
+            "main.fol",
+            "typ Counter: rec = { value: int };\n\
+             fun[] worker(counter: mux[Counter]): int = { return 0; };\n\
+             fun[] main(): int = { return worker({ value = 0 }); };\n",
         )],
         TypecheckConfig {
             capability_model: TypecheckCapabilityModel::Std,

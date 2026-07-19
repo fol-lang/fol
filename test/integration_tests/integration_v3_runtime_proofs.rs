@@ -494,3 +494,55 @@ fn clone_capture_duplicates_a_clonable_record_and_keeps_the_source_live() {
     assert_successful_stdout(&root, "18\n");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn mux_wrap_transfers_the_owner_into_one_mutex() {
+    // Wrapping an owner into a mux[T] parameter requires `[mov]` and hands the
+    // state to exactly one mutex. The pre-fix implicit wrap copied the owner
+    // per boundary, so increments made under one wrap were silently lost when
+    // the same binding was wrapped again.
+    let root = write_hosted_app(
+        "v3_mux_wrap_transfer",
+        "use std: pkg = {\"std\"};\n\
+             typ Counter: rec = { value: int };\n\
+             fun[] coordinate(counter: mux[Counter]): int = {\n\
+             \x20   [>]bump(counter);\n\
+             \x20   [>]bump(counter);\n\
+             \x20   return 0;\n\
+             };\n\
+             fun[] bump(counter: mux[Counter]): int = {\n\
+             \x20   counter.lock();\n\
+             \x20   counter.value = counter.value + 1;\n\
+             \x20   return std::io::echo_int(counter.value);\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var counter: Counter = { value = 0 };\n\
+             \x20   coordinate([mov]counter);\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    // Increments serialize under one lock: the second task must observe the
+    // first task's increment, whatever the scheduling order.
+    assert_successful_stdout(&root, "1\n2\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn captured_closures_are_callable_inside_closure_bodies() {
+    // A closure may capture another closure by `[mov]` and call it: the call
+    // resolves to the capture binding, not the (frozen) outer local. The
+    // pre-fix call path skipped Capture symbols entirely and misreported the
+    // explicit capture as an unsupported implicit one.
+    let root = write_hosted_app(
+        "v3_closure_captures_closure",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var base: int = 3;\n\
+             \x20   var inner: {fun (): int} = fun()[base[cpy]]: int = { return base; };\n\
+             \x20   var outer: {fun (): int} = fun()[inner[mov]]: int = { return inner() + 1; };\n\
+             \x20   return std::io::echo_int(outer());\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "4\n");
+    std::fs::remove_dir_all(root).ok();
+}
