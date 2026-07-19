@@ -298,6 +298,43 @@ fn move_only_pointer_result_crosses_an_eventual() {
 }
 
 #[test]
+fn if_statements_branch_on_the_condition_value() {
+    // `if` desugars to `when (cond) { case (true) ... * ... }`; the case value
+    // must be the literal `true`, never a re-evaluation of the condition (a
+    // self-comparison always matched, so every `if` took its then-branch).
+    // Pins: false condition takes else, true condition takes then, an
+    // else-less false `if` skips, and a following block/`if` statement is
+    // independent — never silently absorbed as an else-branch.
+    let root = write_hosted_app(
+        "v3_if_branching",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var x: int = 1;\n\
+             \x20   if (x > 3) {\n\
+             \x20       std::io::echo_int(99);\n\
+             \x20   } else {\n\
+             \x20       std::io::echo_int(7);\n\
+             \x20   };\n\
+             \x20   if (x < 3) {\n\
+             \x20       std::io::echo_int(11);\n\
+             \x20   }\n\
+             \x20   {\n\
+             \x20       std::io::echo_int(12);\n\
+             \x20   };\n\
+             \x20   if (x > 100) {\n\
+             \x20       std::io::echo_int(88);\n\
+             \x20   }\n\
+             \x20   if (x < 100) {\n\
+             \x20       std::io::echo_int(13);\n\
+             \x20   };\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "7\n11\n12\n13\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn move_capture_carries_an_owned_pointer_into_a_spawned_task() {
     // A spawned task captures an owned `ptr[int]` by `[mov]` (V3_MEM §2.3 value
     // capture / V3_PROC owned spawn capture): the pointer moves whole into the

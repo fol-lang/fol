@@ -52,6 +52,7 @@ Negative:
 - `examples/fail_proc_spawn_detached_borrow_m1`
 - `examples/fail_proc_spawn_fin_m1`
 - `examples/fail_proc_spawn_borrow_mutate_m1`
+- `examples/fail_proc_spawn_weak_m3`
 - `examples/fail_proc_spawn_heap_use_after_move_m1`
 - `examples/fail_proc_spawn_in_core_m1`
 - `examples/fail_proc_spawn_indirect_m1`

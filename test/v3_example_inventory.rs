@@ -627,6 +627,13 @@ pub(crate) const V3_PROC_M2_FAILURES: &[V3FailureExample] = &[
 ];
 
 pub(crate) const V3_PROC_M3_FAILURES: &[V3FailureExample] = &[
+    v3_failure!(
+        "examples/fail_proc_spawn_weak_m3",
+        "O1001",
+        "shared Rc pointers cannot cross a spawn",
+        true,
+        false
+    ),
     v3_failure_codes!(
         "examples/fail_proc_select_old_form_m3",
         "K1001",

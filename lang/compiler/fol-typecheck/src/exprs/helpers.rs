@@ -183,14 +183,17 @@ pub(crate) fn type_contains_shared_pointer(typed: &TypedProgram, type_id: Checke
             contains(typed, apparent, visiting)
         } else {
             match typed.type_table().get(type_id) {
-                // Only `Rc`-backed (non-sync) shared pointers block a boundary
-                // crossing; an `Arc`-backed `ptr[shared, sync, T]` is thread-safe
-                // and may cross (its target is still checked recursively).
+                // `Rc`-backed (non-sync) shared pointers AND their weak
+                // observers (`std::rc::Weak`) block a boundary crossing; the
+                // `Arc`-backed sync forms are thread-safe and may cross (their
+                // target is still checked recursively, so a sync pointer
+                // wrapping an `Rc`-family value stays blocked).
                 Some(CheckedType::Pointer {
-                    shared: true,
                     sync: false,
+                    shared,
+                    weak,
                     ..
-                }) => true,
+                }) if *shared || *weak => true,
                 Some(CheckedType::Pointer { target, .. }) => contains(typed, *target, visiting),
                 Some(CheckedType::Declared { symbol, args, .. }) => {
                     args.iter().any(|arg| contains(typed, *arg, visiting))

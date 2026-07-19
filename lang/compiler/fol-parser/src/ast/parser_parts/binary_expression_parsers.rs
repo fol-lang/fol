@@ -21,7 +21,7 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_logical_xor_expression(tokens)?;
 
-        for _ in 0..32 {
+        for _ in 0..1024 {
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
@@ -77,7 +77,7 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_logical_and_expression(tokens)?;
 
-        for _ in 0..32 {
+        for _ in 0..1024 {
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(key, KEYWORD::Keyword(BUILDIN::Xor))
             })?;
@@ -113,7 +113,7 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_comparison_expression(tokens)?;
 
-        for _ in 0..32 {
+        for _ in 0..1024 {
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
@@ -169,7 +169,7 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_range_expression(tokens)?;
 
-        for _ in 0..32 {
+        for _ in 0..1024 {
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
@@ -428,7 +428,7 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_mul_div_expression(tokens)?;
 
-        for _ in 0..32 {
+        for _ in 0..1024 {
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
@@ -481,7 +481,7 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_pow_expression(tokens)?;
 
-        for _ in 0..32 {
+        for _ in 0..1024 {
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,

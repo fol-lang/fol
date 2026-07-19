@@ -27,7 +27,6 @@ fn test_procedure_method_receiver_syntax_rejects_missing_method_name() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -52,7 +51,6 @@ fn test_function_method_receiver_syntax_rejects_missing_method_name() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -77,7 +75,6 @@ fn test_procedure_method_receiver_syntax_rejects_missing_receiver_close_paren() 
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -102,7 +99,6 @@ fn test_procedure_method_receiver_syntax_rejects_missing_receiver_type() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -227,7 +223,6 @@ fn test_function_method_receiver_missing_bracket_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -268,7 +263,6 @@ fn test_invalid_method_receiver_type_reports_receiver_token_span() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -320,7 +314,6 @@ fn test_none_like_method_receiver_type_reports_dedicated_receiver_diagnostic() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -356,14 +349,16 @@ fn test_function_method_receiver_syntax_accepts_builtin_receiver_type() {
 
     match ast {
         AstNode::Program { declarations } => assert!(
-            program_root_nodes(&declarations).into_iter().any(|node| matches!(
-                node,
-                AstNode::FunDecl {
-                    name,
-                    receiver_type: Some(FolType::Int { .. }),
-                    ..
-                } if name == "parse_msg"
-            )),
+            program_root_nodes(&declarations)
+                .into_iter()
+                .any(|node| matches!(
+                    node,
+                    AstNode::FunDecl {
+                        name,
+                        receiver_type: Some(FolType::Int { .. }),
+                        ..
+                    } if name == "parse_msg"
+                )),
             "Builtin scalar receiver method should retain its receiver type in the AST"
         ),
         _ => panic!("Expected program node"),
@@ -384,14 +379,16 @@ fn test_procedure_method_receiver_syntax_accepts_builtin_receiver_type() {
 
     match ast {
         AstNode::Program { declarations } => assert!(
-            program_root_nodes(&declarations).into_iter().any(|node| matches!(
-                node,
-                AstNode::ProDecl {
-                    name,
-                    receiver_type: Some(FolType::Int { .. }),
-                    ..
-                } if name == "parse_msg"
-            )),
+            program_root_nodes(&declarations)
+                .into_iter()
+                .any(|node| matches!(
+                    node,
+                    AstNode::ProDecl {
+                        name,
+                        receiver_type: Some(FolType::Int { .. }),
+                        ..
+                    } if name == "parse_msg"
+                )),
             "Builtin scalar receiver method should retain its receiver type in the AST"
         ),
         _ => panic!("Expected program node"),
@@ -412,7 +409,6 @@ fn test_function_method_receiver_syntax_rejects_builtin_keyword_receiver_type() 
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -437,7 +433,6 @@ fn test_procedure_method_receiver_syntax_rejects_builtin_keyword_receiver_type()
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -866,9 +861,25 @@ fn test_if_statement_without_else_has_no_default_branch() {
         "If condition should parse less-than expression"
     );
     assert_eq!(lowered_if.1.len(), 1, "If should include one case");
+    // The single case matches on the literal `true` (subject == true), not on
+    // a re-evaluation of the condition, and a missing else desugars to an
+    // empty default branch so statement-position `if` needs no `else`.
     assert!(
-        lowered_if.2.is_none(),
-        "If without else should not include default branch"
+        matches!(
+            &lowered_if.1[0],
+            fol_parser::ast::WhenCase::Case {
+                condition: AstNode::Literal(fol_parser::ast::Literal::Boolean(true)),
+                ..
+            }
+        ),
+        "If case should match on the literal true"
+    );
+    assert!(
+        lowered_if
+            .2
+            .as_ref()
+            .is_some_and(|default| default.is_empty()),
+        "If without else should desugar to an empty default branch"
     );
 }
 
