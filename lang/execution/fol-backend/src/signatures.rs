@@ -680,6 +680,7 @@ mod tests {
             name: "answer".to_string(),
             type_id: int_id,
             mutable: false,
+            initializer: None,
         };
         let mutable = LoweredGlobal {
             id: LoweredGlobalId(1),
@@ -688,6 +689,7 @@ mod tests {
             name: "counter".to_string(),
             type_id: int_id,
             mutable: true,
+            initializer: None,
         };
         let workspace = sample_lowered_workspace();
 
@@ -898,6 +900,7 @@ mod tests {
             name: "answer".to_string(),
             type_id: int_id,
             mutable: false,
+            initializer: None,
         };
         let mut routine = LoweredRoutine::new(LoweredRoutineId(4), "load", LoweredBlockId(0));
         routine.signature = Some(signature_id);

@@ -609,6 +609,7 @@ fn workspace_global_rendering_uses_fol_default_initializers_for_mutable_globals(
             name: "counter".to_string(),
             type_id: int_id,
             mutable: true,
+            initializer: None,
         },
     );
     let workspace = LoweredWorkspace::new(
@@ -714,6 +715,7 @@ fn field_stores_move_unique_values_and_global_storage_rejects_them() {
             name: "pointer".to_string(),
             type_id: unique_pointer_id,
             mutable: true,
+            initializer: None,
         },
     );
     let workspace = LoweredWorkspace::new(

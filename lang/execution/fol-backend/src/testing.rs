@@ -102,6 +102,7 @@ pub(crate) fn sample_lowered_workspace_named(entry_name: &str) -> LoweredWorkspa
             name: "default_name".to_string(),
             type_id: str_type,
             mutable: false,
+            initializer: None,
         },
     );
     entry_package
@@ -170,6 +171,7 @@ pub(crate) fn sample_lowered_workspace_named(entry_name: &str) -> LoweredWorkspa
             name: "answer".to_string(),
             type_id: int_type,
             mutable: false,
+            initializer: None,
         },
     );
     shared_package

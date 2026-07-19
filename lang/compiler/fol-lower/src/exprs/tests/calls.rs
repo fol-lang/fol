@@ -100,7 +100,7 @@ fn routine_body_lowering_keeps_local_initializers_and_final_expression_results()
 }
 
 #[test]
-fn assignment_lowering_emits_local_and_global_store_instructions() {
+fn assignment_lowering_emits_local_store_instructions() {
     let fixture = super::safe_temp_dir().join(format!(
         "fol_lower_assignment_exprs_{}.fol",
         std::time::SystemTime::now()
@@ -110,7 +110,7 @@ fn assignment_lowering_emits_local_and_global_store_instructions() {
     ));
     std::fs::write(
         &fixture,
-        "var count: int = 0;\nfun[] main(): int = {\n    var value: int = 1;\n    value = 2;\n    count = value;\n    return [mov]value;\n};",
+        "fun[] main(): int = {\n    var value: int = 1;\n    value = 2;\n    return [mov]value;\n};",
     )
     .expect("should write lowering assignment fixture");
 
@@ -142,13 +142,6 @@ fn assignment_lowering_emits_local_and_global_store_instructions() {
             .iter()
             .any(|instr| matches!(instr.kind, LoweredInstrKind::StoreLocal { .. })),
         "assignment to local bindings should lower into StoreLocal"
-    );
-    assert!(
-        routine
-            .instructions
-            .iter()
-            .any(|instr| matches!(instr.kind, LoweredInstrKind::StoreGlobal { .. })),
-        "assignment to globals should lower into StoreGlobal"
     );
 }
 

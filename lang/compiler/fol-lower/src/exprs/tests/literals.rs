@@ -805,6 +805,7 @@ fn declaration_index_tracks_globals_and_routines_by_owning_package() {
             name: "answer".to_string(),
             type_id: crate::LoweredTypeId(0),
             mutable: false,
+            initializer: None,
         },
     );
     package.routine_decls.insert(
