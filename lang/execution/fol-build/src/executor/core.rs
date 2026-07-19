@@ -903,6 +903,7 @@ fn validate_type_public_surface(
         FolType::Function {
             params,
             return_type,
+            env_lifetime: _,
         } => {
             for param in params {
                 validate_type_public_surface(package, param)?;

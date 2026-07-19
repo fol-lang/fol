@@ -93,6 +93,7 @@ Positive:
 - `examples/mem_dfr_capture_m2`
 - `examples/mem_closure_capture_m2`
 - `examples/mem_closure_borrow_m2`
+- `examples/mem_closure_env_lifetime_m2`
 
 Negative:
 
@@ -101,6 +102,7 @@ Negative:
 - `examples/fail_mem_dfr_capture_undeclared_m2`
 - `examples/fail_mem_closure_move_only_m2`
 - `examples/fail_mem_closure_escape_m2`
+- `examples/fail_mem_closure_env_leak_m2`
 - `examples/fail_mem_copy_moveonly_m2`
 - `examples/fail_mem_copy_record_field_m2`
 - `examples/fail_mem_send_field_m2`

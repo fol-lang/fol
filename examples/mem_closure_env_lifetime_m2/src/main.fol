@@ -1,0 +1,17 @@
+// An escaping-closure routine type names its environment lifetime with
+// `[bor=L]` (V3_MEM section 5.3): a callee declaring `L: lif` may receive a
+// borrowed-environment closure and call it while the caller's loans are live.
+
+use std: pkg = {"std"};
+
+fun run(L: lif)(callback: {fun (): int}[bor=L]): int = {
+    return callback();
+};
+
+fun[] main(): int = {
+    var base: int = 30;
+    var reader: {fun (): int} = fun()[base[bor]]: int = { return base + 12; };
+    var result: int = run(reader);
+    std::io::echo_int(result);
+    return std::io::echo_int(base);
+};

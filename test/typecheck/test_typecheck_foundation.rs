@@ -478,6 +478,7 @@ fn semantic_type_table_covers_declared_and_structural_shapes() {
         params: vec![alias_id],
         return_type: Some(int_id),
         error_type: None,
+        env_lifetime: false,
     }));
 
     assert_ne!(record, routine);
@@ -545,6 +546,7 @@ fn render_type_handles_routines() {
         params: vec![int_id, str_id],
         return_type: Some(int_id),
         error_type: None,
+        env_lifetime: false,
     }));
     assert_eq!(table.render_type(routine_id), "fun(int, str): int");
 }

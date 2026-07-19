@@ -185,10 +185,12 @@ pub enum FolType {
     },
     None,
 
-    // Function types
+    // Function types. `env_lifetime` carries the `[bor=L]` environment
+    // lifetime of an escaping-closure routine type (V3_MEM section 5.3).
     Function {
         params: Vec<FolType>,
         return_type: Box<FolType>,
+        env_lifetime: Option<String>,
     },
 
     // Generic and module types

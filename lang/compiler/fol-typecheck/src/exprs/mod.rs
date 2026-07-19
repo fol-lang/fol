@@ -1424,6 +1424,7 @@ fn type_node_with_expectation_inner(
                         params: visible_params,
                         return_type: expected_return_type,
                         error_type: expected_error_type,
+                        env_lifetime: false,
                     }));
             Ok(TypedExpr::value(routine_type_id))
         }

@@ -1200,6 +1200,7 @@ fn routine_signature_for_method(
                         params,
                         return_type,
                         error_type,
+                        env_lifetime: false,
                     };
                     if let Some(syntax_id) = call_syntax_id {
                         typed.record_constraint_call_site(syntax_id);
@@ -1244,6 +1245,7 @@ fn routine_signature_for_method(
                             params: requirement.params.clone(),
                             return_type: requirement.return_type,
                             error_type: requirement.error_type,
+                            env_lifetime: false,
                         };
                         matches.push((requirement.symbol_id, signature));
                     }
@@ -1439,7 +1441,18 @@ pub(crate) fn check_call_arguments(
                         Some(CheckedType::Borrowed { .. }),
                     )
                 );
-                if !extracts_sender && !forwards_mutex_handle && !preserves_borrow {
+                // §5.3: a formal parameter carrying a `[bor=L]` environment
+                // lifetime may receive a borrowed-environment closure; the
+                // callee-side nonescaping rules take over from there.
+                let env_lifetime_param = matches!(
+                    typed.type_table().get(*expected),
+                    Some(CheckedType::Routine(signature)) if signature.env_lifetime
+                );
+                if !extracts_sender
+                    && !forwards_mutex_handle
+                    && !preserves_borrow
+                    && !env_lifetime_param
+                {
                     // §2.2: passing an existing owned value as an argument is a
                     // transfer boundary and must state its operation explicitly.
                     super::bindings::reject_untagged_owned_transfer(
@@ -2268,6 +2281,7 @@ fn instantiate_generic_signature(
         params,
         return_type,
         error_type,
+        env_lifetime: signature.env_lifetime,
     })
 }
 

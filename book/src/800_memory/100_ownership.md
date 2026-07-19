@@ -345,7 +345,12 @@ A local, nonescaping closure may also borrow: `[bor]` captures infer their
 lifetime as the enclosing scope. The owner stays readable but is frozen — no
 mutation, no transfer — while the closure can still run, and the closure value
 itself cannot escape that scope: returning it, passing it to a call, storing
-it, or rebinding it is rejected. Channel-endpoint captures never enter routine
+it, or rebinding it is rejected. The one sanctioned crossing is a parameter
+whose routine type names its environment lifetime — `{fun (): int}[bor=L]`
+with a declared `L: lif` — which receives the closure and obeys the same
+nonescaping rules inside the callee
+(`examples/mem_closure_env_lifetime_m2` and
+`examples/fail_mem_closure_env_leak_m2` pin that boundary). Channel-endpoint captures never enter routine
 values (`examples/mem_closure_capture_m2`, `examples/mem_closure_borrow_m2`,
 `examples/fail_mem_closure_move_only_m2`, and
 `examples/fail_mem_closure_escape_m2` pin the contract).

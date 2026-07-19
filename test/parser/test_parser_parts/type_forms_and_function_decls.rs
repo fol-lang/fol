@@ -252,7 +252,8 @@ fn test_type_references_support_braced_function_types() {
                             AstNode::TypeDecl {
                                 name,
                                 type_def: TypeDefinition::Alias {
-                                    target: FolType::Function { params, return_type }
+                                    target: FolType::Function { params, return_type, env_lifetime: _,
+}
                                 },
                                 ..
                             }
@@ -280,7 +281,8 @@ fn test_type_references_support_braced_function_types() {
                                     [
                                         Parameter {
                                             name: param_name,
-                                            param_type: FolType::Function { params, return_type },
+                                            param_type: FolType::Function { params, return_type, env_lifetime: _,
+},
                                             ..
                                         },
                                         ..
@@ -346,7 +348,8 @@ fn test_function_types_are_supported_in_use_and_binding_declarations() {
                             node,
                             AstNode::UseDecl {
                                 name,
-                                path_type: FolType::Function { params, return_type },
+                                path_type: FolType::Function { params, return_type, env_lifetime: _,
+},
                                 ..
                             }
                             if name == "callback"
@@ -362,7 +365,8 @@ fn test_function_types_are_supported_in_use_and_binding_declarations() {
                             node,
                             AstNode::VarDecl {
                                 name,
-                                type_hint: Some(FolType::Function { params, return_type }),
+                                type_hint: Some(FolType::Function { params, return_type, env_lifetime: _,
+}),
                                 value: None,
                                 ..
                             }
@@ -383,7 +387,8 @@ fn test_function_types_are_supported_in_use_and_binding_declarations() {
                                     statement,
                                     AstNode::VarDecl {
                                         name,
-                                        type_hint: Some(FolType::Function { params, return_type }),
+                                        type_hint: Some(FolType::Function { params, return_type, env_lifetime: _,
+}),
                                         value: Some(_),
                                         ..
                                     }

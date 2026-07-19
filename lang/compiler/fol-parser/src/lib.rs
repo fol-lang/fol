@@ -145,9 +145,11 @@ fn strip_type_syntax_ids(typ: ast::FolType) -> ast::FolType {
         ast::FolType::Function {
             params,
             return_type,
+            env_lifetime,
         } => ast::FolType::Function {
             params: params.into_iter().map(strip_type_syntax_ids).collect(),
             return_type: Box::new(strip_type_syntax_ids(*return_type)),
+            env_lifetime,
         },
         ast::FolType::Generic { name, constraints } => ast::FolType::Generic {
             name,

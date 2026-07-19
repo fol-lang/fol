@@ -632,6 +632,7 @@ impl AstNode {
                     .map(|param| param.param_type.clone())
                     .collect(),
                 return_type: Box::new(return_type.clone().unwrap_or(FolType::Any)),
+                env_lifetime: None,
             }),
             AstNode::AnonymousPro {
                 params,
@@ -643,6 +644,7 @@ impl AstNode {
                     .map(|param| param.param_type.clone())
                     .collect(),
                 return_type: Box::new(return_type.clone().unwrap_or(FolType::Any)),
+                env_lifetime: None,
             }),
             AstNode::AnonymousLog {
                 params,
@@ -654,6 +656,7 @@ impl AstNode {
                     .map(|param| param.param_type.clone())
                     .collect(),
                 return_type: Box::new(return_type.clone().unwrap_or(FolType::Bool)),
+                env_lifetime: None,
             }),
             AstNode::AvailabilityAccess { .. } => Some(FolType::Bool),
             AstNode::Inquiry { .. } => None,

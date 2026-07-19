@@ -107,6 +107,7 @@ pub fn resolve_type_reference(
         FolType::Function {
             params,
             return_type,
+            env_lifetime: _,
         } => {
             for param in params {
                 resolve_type_reference(session, program, source_unit_id, scope_id, param)?;

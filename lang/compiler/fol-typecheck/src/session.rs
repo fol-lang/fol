@@ -781,6 +781,7 @@ impl TypecheckSession {
                         params,
                         return_type,
                         error_type,
+                        env_lifetime: false,
                     }))
             }
         };

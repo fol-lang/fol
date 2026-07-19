@@ -66,6 +66,10 @@ pub struct RoutineType {
     pub params: Vec<CheckedTypeId>,
     pub return_type: Option<CheckedTypeId>,
     pub error_type: Option<CheckedTypeId>,
+    /// True when the routine type carries a `[bor=L]` environment lifetime
+    /// (V3_MEM section 5.3): its value may hold borrowed captures whose loans
+    /// are tied to the caller-provided region.
+    pub env_lifetime: bool,
 }
 
 impl RoutineType {
@@ -95,6 +99,7 @@ impl PartialEq for RoutineType {
             && self.params == other.params
             && self.return_type == other.return_type
             && self.error_type == other.error_type
+            && self.env_lifetime == other.env_lifetime
     }
 }
 
@@ -118,6 +123,7 @@ impl Ord for RoutineType {
             &self.params,
             self.return_type,
             self.error_type,
+            self.env_lifetime,
         )
             .cmp(&(
                 &other.generic_params,
@@ -129,6 +135,7 @@ impl Ord for RoutineType {
                 &other.params,
                 other.return_type,
                 other.error_type,
+                other.env_lifetime,
             ))
     }
 }
@@ -144,6 +151,7 @@ impl Hash for RoutineType {
         self.params.hash(state);
         self.return_type.hash(state);
         self.error_type.hash(state);
+        self.env_lifetime.hash(state);
     }
 }
 

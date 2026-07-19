@@ -124,6 +124,7 @@ module.exports = grammar({
       $.channel_type,
       $.eventual_type,
       $.mutex_type,
+      $.function_type,
       $.generic_type_expr,
       $.qualified_path,
       $.identifier,
@@ -131,6 +132,19 @@ module.exports = grammar({
       $.shell_type,
       $.owned_type,
     ),
+
+    // Braced routine type `{fun (n: int): int}` with an optional environment
+    // lifetime `[bor=L]` marking an escaping-closure type (V3 section 5.3).
+    function_type: $ => prec.right(seq(
+      '{',
+      'fun',
+      optional(field('name', $.identifier)),
+      $.params,
+      optional($.return_type),
+      optional($.error_type),
+      '}',
+      optional(seq('[', 'bor', '=', field('env_lifetime', $.identifier), ']')),
+    )),
 
     generic_type_expr: $ => seq(
       field('base', choice($.qualified_path, $.identifier)),

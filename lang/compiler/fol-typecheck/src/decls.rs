@@ -1192,6 +1192,19 @@ fn lower_named_routine_signature(
                 symbol.is_mutex = true;
             }
         }
+        // §5.3: a parameter typed `{fun (...): T}[bor=L]` receives a closure
+        // whose environment may hold loans tied to the caller's region; inside
+        // this routine it obeys the same nonescaping rules as a local
+        // borrowed-environment closure.
+        if matches!(
+            &param.param_type,
+            FolType::Function {
+                env_lifetime: Some(_),
+                ..
+            }
+        ) {
+            typed.mark_bor_env_closure(param_symbol_id);
+        }
         lowered_params.push(param_type);
     }
     // §8.1: an eventual that escapes a routine spells its parent-scope
@@ -1266,6 +1279,7 @@ fn lower_named_routine_signature(
             params: lowered_params,
             return_type: lowered_return,
             error_type: lowered_error,
+            env_lifetime: false,
         }));
     record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
     record_symbol_type(typed, symbol_id, routine_type)?;
@@ -2930,7 +2944,32 @@ fn lower_type_inner(
         FolType::Function {
             params,
             return_type,
+            env_lifetime,
         } => {
+            // §5.3: the environment lifetime must name a declared generic
+            // parameter (`L: lif`) reachable from this signature scope.
+            if let Some(lifetime) = env_lifetime {
+                let source_unit_id = resolved
+                    .scope(scope_id)
+                    .and_then(|scope| scope.source_unit)
+                    .unwrap_or(SourceUnitId(0));
+                if crate::exprs::helpers::find_symbol_in_scope_chain(
+                    resolved,
+                    source_unit_id,
+                    scope_id,
+                    lifetime,
+                    SymbolKind::GenericParameter,
+                )
+                .is_none()
+                {
+                    return Err(TypecheckError::new(
+                        TypecheckErrorKind::Ownership,
+                        format!(
+                            "routine type environment lifetime '{lifetime}' is not a declared lifetime parameter; declare '{lifetime}: lif' in the routine's generic list"
+                        ),
+                    ));
+                }
+            }
             let lowered_params = params
                 .iter()
                 .map(|p| lower_type(typed, resolved, scope_id, p))
@@ -2951,6 +2990,7 @@ fn lower_type_inner(
                     params: lowered_params,
                     return_type: lowered_return,
                     error_type: None,
+                    env_lifetime: env_lifetime.is_some(),
                 })))
         }
         unsupported => Err(unsupported_type_error(
@@ -3781,6 +3821,7 @@ pub(crate) fn substitute_generic_checked_type(
                     params,
                     return_type,
                     error_type,
+                    env_lifetime: signature.env_lifetime,
                 })))
         }
     }

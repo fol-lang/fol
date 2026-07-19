@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_quoted_type_references_parse_inside_function_types() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_quoted_function_type_refs.fol")
-            .expect("Should read quoted function-type reference fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_quoted_function_type_refs.fol")
+        .expect("Should read quoted function-type reference fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -20,7 +19,8 @@ fn test_quoted_type_references_parse_inside_function_types() {
                     AstNode::TypeDecl {
                         name,
                         type_def: TypeDefinition::Alias {
-                            target: FolType::Function { params, return_type }
+                            target: FolType::Function { params, return_type, env_lifetime: _,
+}
                         },
                         ..
                     } if name == "Handler"
@@ -35,10 +35,9 @@ fn test_quoted_type_references_parse_inside_function_types() {
 
 #[test]
 fn test_single_quoted_type_references_parse_inside_function_types() {
-    let mut file_stream = FileStream::from_file(
-        "test/parser/simple_single_quoted_function_type_refs.fol",
-    )
-    .expect("Should read single-quoted function-type reference fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_single_quoted_function_type_refs.fol")
+            .expect("Should read single-quoted function-type reference fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -54,7 +53,8 @@ fn test_single_quoted_type_references_parse_inside_function_types() {
                     AstNode::TypeDecl {
                         name,
                         type_def: TypeDefinition::Alias {
-                            target: FolType::Function { params, return_type }
+                            target: FolType::Function { params, return_type, env_lifetime: _,
+}
                         },
                         ..
                     } if name == "Handler"

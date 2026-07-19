@@ -1,0 +1,11 @@
+// A `[bor=L]` routine parameter is itself a borrowed-environment value
+// (V3_MEM section 5.3): the callee may call it, but returning it out of the
+// routine would let the environment's loans outlive their region.
+
+fun leak(L: lif)(callback: {fun (): int}[bor=L]): {fun (): int} = {
+    return callback;
+};
+
+fun[] main(): int = {
+    return 0;
+};

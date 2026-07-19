@@ -82,6 +82,7 @@ impl AstParser {
             FolType::Function {
                 params: params.into_iter().map(|param| param.param_type).collect(),
                 return_type: Box::new(return_type),
+                env_lifetime: None,
             },
         ))
     }
@@ -90,8 +91,50 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<FolType, ParseError> {
-        self.parse_function_type_signature(tokens)
-            .map(|(_, function_type)| function_type)
+        let (_, mut function_type) = self.parse_function_type_signature(tokens)?;
+        // Optional environment lifetime: `{fun (): int}[bor=L]` marks an
+        // escaping-closure routine type (V3_MEM section 5.3).
+        self.skip_ignorable(tokens)?;
+        if matches!(
+            tokens.curr(false).map(|token| token.key()),
+            Ok(KEYWORD::Symbol(SYMBOL::SquarO))
+        ) && tokens
+            .peek(0, true)
+            .is_ok_and(|token| token.con().trim() == "bor")
+        {
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let equals = tokens.curr(false)?;
+            if !matches!(equals.key(), KEYWORD::Symbol(SYMBOL::Equal)) {
+                return Err(ParseError::from_token(
+                    &equals,
+                    "Expected '=' in routine type environment lifetime '[bor=L]'".to_string(),
+                ));
+            }
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let lifetime_token = tokens.curr(false)?;
+            let lifetime = Self::expect_named_label(
+                &lifetime_token,
+                "Expected a lifetime name in routine type environment lifetime '[bor=L]'",
+            )?;
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let close = tokens.curr(false)?;
+            if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+                return Err(ParseError::from_token(
+                    &close,
+                    "Expected ']' to close routine type environment lifetime".to_string(),
+                ));
+            }
+            let _ = tokens.bump();
+            if let FolType::Function { env_lifetime, .. } = &mut function_type {
+                *env_lifetime = Some(lifetime);
+            }
+        }
+        Ok(function_type)
     }
 
     pub(super) fn parse_balanced_type_suffix(

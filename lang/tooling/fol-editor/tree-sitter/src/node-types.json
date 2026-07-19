@@ -1247,6 +1247,50 @@
     }
   },
   {
+    "type": "function_type",
+    "named": true,
+    "fields": {
+      "env_lifetime": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "error_type",
+          "named": true
+        },
+        {
+          "type": "params",
+          "named": true
+        },
+        {
+          "type": "return_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "generic_param",
     "named": true,
     "fields": {
@@ -3221,6 +3265,10 @@
         },
         {
           "type": "eventual_type",
+          "named": true
+        },
+        {
+          "type": "function_type",
           "named": true
         },
         {
