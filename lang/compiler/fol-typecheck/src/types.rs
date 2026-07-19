@@ -459,6 +459,7 @@ mod tests {
             params: vec![declared, int_id],
             return_type: Some(declared),
             error_type: None,
+            env_lifetime: false,
         }));
 
         assert_eq!(record_first, record_second);
@@ -527,6 +528,7 @@ mod tests {
             params: vec![int_id, str_id],
             return_type: Some(int_id),
             error_type: None,
+            env_lifetime: false,
         }));
         assert_eq!(table.render_type(routine_id), "fun(int, str): int");
     }
