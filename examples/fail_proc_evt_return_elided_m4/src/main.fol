@@ -1,0 +1,19 @@
+// An eventual that escapes a routine must spell its parent-scope lifetime
+// (V3_MEM section 8.1): `evt[L, T]` with a declared `L: lif`. The elided
+// `evt[T]` spelling is local-declaration shorthand only.
+
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+fun make(value: int): evt[int] = {
+    return work(value) | async;
+};
+
+fun[] main(): int = {
+    var pending: evt[int] = make(41);
+    var value: int = pending | await;
+    return std::io::echo_int(value);
+};

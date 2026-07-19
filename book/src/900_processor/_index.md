@@ -125,6 +125,7 @@ Positive:
 
 Negative:
 
+- `examples/fail_proc_evt_return_elided_m4`
 - `examples/fail_proc_evt_detached_m4`
 - `examples/fail_proc_evt_embedded_m4`
 - `examples/fail_proc_async_in_core_m4`

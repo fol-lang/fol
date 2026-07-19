@@ -21,7 +21,10 @@ binding may name the eventual with its lexical lifetime elided (V3_MEM §8.1):
 `evt[T]` for an infallible call and `evt[T / E]` for a recoverable one, e.g.
 `var work: evt[int] = compute(7) | async`. The public lifetime-carrying
 `evt[L, T]` spelling is also a namable type, naming the region the eventual
-belongs to.
+belongs to. An eventual that escapes a routine must spell that lifetime: a
+returning signature declares `L: lif` and writes `evt[L, T]`, and the lifetime
+name must resolve to a declared lifetime parameter. The elided `evt[T]` form
+is local-declaration shorthand only.
 
 The call to the left of `| async` must resolve directly to a named routine
 declaration. Both `calculate()` and a qualified call such as

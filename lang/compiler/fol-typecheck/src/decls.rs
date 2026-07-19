@@ -1193,6 +1193,36 @@ fn lower_named_routine_signature(
         }
         lowered_params.push(param_type);
     }
+    // §8.1: an eventual that escapes a routine spells its parent-scope
+    // lifetime (`evt[L, T]` with a declared `L: lif`); the elided `evt[T]`
+    // form is local-declaration shorthand only.
+    if let Some(FolType::Eventual { lifetime, .. }) = return_type {
+        match lifetime {
+            None => {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::Ownership,
+                    "an eventual returned from a routine must name its parent-scope lifetime; declare 'L: lif' and spell the return type 'evt[L, T]'",
+                ));
+            }
+            Some(name) => {
+                let declared_lif = generics.iter().any(|generic| {
+                    generic.name.eq_ignore_ascii_case(name)
+                        && generic.constraints.iter().any(|constraint| {
+                            matches!(constraint, FolType::Named { name, .. }
+                                if name.split('[').next().unwrap_or(name) == "lif")
+                        })
+                });
+                if !declared_lif {
+                    return Err(TypecheckError::new(
+                        TypecheckErrorKind::Ownership,
+                        format!(
+                            "eventual lifetime '{name}' is not a declared lifetime parameter; declare '{name}: lif' in the routine's generic list"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
     let lowered_return = match return_type {
         None | Some(FolType::None) => None,
         Some(ty) => Some(lower_type(typed, resolved, signature_scope, ty)?),

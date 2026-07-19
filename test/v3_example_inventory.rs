@@ -700,6 +700,13 @@ pub(crate) const V3_PROC_M3_FAILURES: &[V3FailureExample] = &[
 
 pub(crate) const V3_PROC_M4_FAILURES: &[V3FailureExample] = &[
     v3_failure!(
+        "examples/fail_proc_evt_return_elided_m4",
+        "O1001",
+        "must name its parent-scope lifetime",
+        true,
+        false
+    ),
+    v3_failure!(
         "examples/fail_proc_evt_detached_m4",
         "O1001",
         "an eventual handle cannot enter a detached task",
