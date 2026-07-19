@@ -80,12 +80,13 @@ impl AstParser {
                         Some("mov" | "move") => (None, Some(OwnershipOption::Move)),
                         Some("cpy" | "copy") => (None, Some(OwnershipOption::Copy)),
                         Some("cln" | "clone") => (None, Some(OwnershipOption::Clone)),
+                        Some("bor" | "borrow") => (None, Some(OwnershipOption::Borrow)),
                         _ => {
                             return Err(ParseError::from_token(
-                                &inner_token,
-                                "Expected 'tx', 'rx', 'mov', 'cpy', or 'cln' in capture bracket"
-                                    .to_string(),
-                            ));
+                            &inner_token,
+                            "Expected 'tx', 'rx', 'mov', 'cpy', 'cln', or 'bor' in capture bracket"
+                                .to_string(),
+                        ));
                         }
                     };
                 let _ = tokens.bump();

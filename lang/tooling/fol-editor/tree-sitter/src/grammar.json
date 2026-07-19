@@ -2835,6 +2835,18 @@
           "value": "dfr"
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "routine_capture_list"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "SYMBOL",
           "name": "block"
         }
@@ -2846,6 +2858,18 @@
         {
           "type": "STRING",
           "value": "edf"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "routine_capture_list"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         },
         {
           "type": "SYMBOL",
@@ -4842,6 +4866,14 @@
                       {
                         "type": "STRING",
                         "value": "clone"
+                      },
+                      {
+                        "type": "STRING",
+                        "value": "bor"
+                      },
+                      {
+                        "type": "STRING",
+                        "value": "borrow"
                       }
                     ]
                   }

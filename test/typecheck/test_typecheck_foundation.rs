@@ -151,6 +151,63 @@ fn shared_pointer_write_error_keeps_the_target_origin() {
 }
 
 #[test]
+fn dfr_capture_lists_validate_and_apply_their_operations() {
+    // A `[bor]` capture observes the outer binding and a `[mov]` capture
+    // invalidates it for the rest of the scope (V3_MEM section 2.3).
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seed: int = 7;\n\
+             var owned: ptr[int] = [ref]seed;\n\
+             dfr[owned[mov]] {\n\
+                 var last: int = [drf]owned;\n\
+             };\n\
+             var again: int = [drf]owned;\n\
+             return again;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| error
+            .message()
+            .contains("use of moved heap-owned binding 'owned'")),
+        "Expected the moved dfr capture to invalidate the outer binding, got: {errors:?}"
+    );
+
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seen: int = 7;\n\
+             dfr[seen] {\n\
+                 var got: int = seen;\n\
+             };\n\
+             return seen;\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("must state its operation")),
+        "Expected a bare dfr capture to be rejected, got: {errors:?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var seen: int = 7;\n\
+             dfr[seen[bor]] {\n\
+                 var got: int = seen;\n\
+             };\n\
+             return seen;\n\
+         };\n",
+    )]);
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+    assert!(
+        typed.typed_node(syntax_id).is_some(),
+        "Expected the borrowed dfr capture to typecheck cleanly",
+    );
+}
+
+#[test]
 fn dfr_blocks_reject_break() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",

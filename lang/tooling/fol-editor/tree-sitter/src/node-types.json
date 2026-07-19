@@ -720,11 +720,15 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
           "type": "block",
+          "named": true
+        },
+        {
+          "type": "routine_capture_list",
           "named": true
         }
       ]
@@ -787,11 +791,15 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
           "type": "block",
+          "named": true
+        },
+        {
+          "type": "routine_capture_list",
           "named": true
         }
       ]
@@ -2471,6 +2479,14 @@
         "multiple": false,
         "required": false,
         "types": [
+          {
+            "type": "bor",
+            "named": false
+          },
+          {
+            "type": "borrow",
+            "named": false
+          },
           {
             "type": "cln",
             "named": false

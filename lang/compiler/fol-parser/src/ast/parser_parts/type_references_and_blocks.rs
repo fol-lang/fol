@@ -594,6 +594,8 @@ impl AstParser {
         let syntax_id = self.record_syntax_origin(&dfr_token);
 
         let _ = tokens.bump();
+        let captures = self.parse_optional_routine_capture_list(tokens)?;
+        self.ensure_unique_capture_names(&captures, tokens)?;
         self.skip_ignorable(tokens)?;
         let open = tokens.curr(false)?;
         if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
@@ -604,7 +606,11 @@ impl AstParser {
         }
         let _ = tokens.bump();
         let body = self.parse_block_body(tokens, "Expected '}' to close dfr block")?;
-        Ok(AstNode::Dfr { syntax_id, body })
+        Ok(AstNode::Dfr {
+            syntax_id,
+            captures,
+            body,
+        })
     }
 
     pub(super) fn parse_edf_stmt(
@@ -626,6 +632,8 @@ impl AstParser {
         }
         let syntax_id = self.record_syntax_origin(&edf_token);
         let _ = tokens.bump();
+        let captures = self.parse_optional_routine_capture_list(tokens)?;
+        self.ensure_unique_capture_names(&captures, tokens)?;
         self.skip_ignorable(tokens)?;
         let open = tokens.curr(false)?;
         if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
@@ -636,6 +644,10 @@ impl AstParser {
         }
         let _ = tokens.bump();
         let body = self.parse_block_body(tokens, "Expected '}' to close edf block")?;
-        Ok(AstNode::Edf { syntax_id, body })
+        Ok(AstNode::Edf {
+            syntax_id,
+            captures,
+            body,
+        })
     }
 }

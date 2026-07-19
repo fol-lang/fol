@@ -167,7 +167,7 @@
 (ownership_option) @keyword.operator
 (routine_capture_list "[" @punctuation.bracket "]" @punctuation.bracket)
 (routine_capture_list "," @punctuation.delimiter)
-(routine_capture endpoint: ["tx" "rx" "mov" "move" "cpy" "copy" "cln" "clone"] @attribute)
+(routine_capture endpoint: ["tx" "rx" "mov" "move" "cpy" "copy" "cln" "clone" "bor" "borrow"] @attribute)
 (pipe_expr "|" @operator)
 (this_expr) @variable.builtin
 (self_expr) @variable.builtin

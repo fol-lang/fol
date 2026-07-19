@@ -3,8 +3,9 @@ V3 Deferred Cleanup
 ==================
 
 fun[] deferred(fail: bol): int / int = {
-    edf {
-        var error_cleanup: int = 1;
+    var seen: int = 3;
+    edf[seen[bor]] {
+        var error_cleanup: int = seen;
     };
     dfr {
         var cleanup: int = 2;
@@ -35,7 +36,19 @@ fun[] deferred(fail: bol): int / int = {
           (identifier)))
       (block
         (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (integer_literal)))))
+        (stmt
           (edf_stmt
+            (routine_capture_list
+              (routine_capture
+                (identifier)))
             (block
               (stmt
                 (var_decl
@@ -45,7 +58,7 @@ fun[] deferred(fail: bol): int / int = {
                       (identifier)))
                   (expr
                     (expr_atom
-                      (integer_literal))))))))
+                      (identifier))))))))
         (stmt
           (dfr_stmt
             (block

@@ -238,8 +238,8 @@ module.exports = grammar({
     deref_target: $ => prec.right(4, seq('[', 'drf', ']', field('pointer', $.expr_atom))),
     return_stmt: $ => prec.right(seq('return', optional($.expr))),
     yield_stmt: $ => prec.right(seq('yield', optional($.expr))),
-    dfr_stmt: $ => seq('dfr', $.block),
-    edf_stmt: $ => seq('edf', $.block),
+    dfr_stmt: $ => seq('dfr', optional($.routine_capture_list), $.block),
+    edf_stmt: $ => seq('edf', optional($.routine_capture_list), $.block),
     report_stmt: $ => prec.right(seq('report', $.expr)),
     panic_stmt: $ => prec.right(seq('panic', $.expr)),
     assert_stmt: $ => prec.right(seq('assert', optional($.expr))),
@@ -396,7 +396,7 @@ module.exports = grammar({
     routine_capture: $ => seq(
       field('binding', $.identifier),
       optional(seq('[', field('endpoint', choice(
-        'tx', 'rx', 'mov', 'move', 'cpy', 'copy', 'cln', 'clone',
+        'tx', 'rx', 'mov', 'move', 'cpy', 'copy', 'cln', 'clone', 'bor', 'borrow',
       )), ']')),
     ),
     routine_body_expr: $ => choice(prec(1, $.block), prec.right(1, seq('=>', choice(prec(1, $.block), $.stmt)))),

@@ -1182,6 +1182,19 @@ fn type_node_with_expectation_inner(
                         // A clone leaves the source live: no `mark_binding_moved`.
                         capture_type
                     }
+                    (None, Some(OwnershipOption::Borrow)) => {
+                        // Borrowed spawn captures need share-capability and
+                        // region checks that V3 has not built yet; a delayed
+                        // block (`dfr[x[bor]]`) is the in-frame borrowing form.
+                        return Err(unsupported_node_surface(
+                            resolved,
+                            node,
+                            format!(
+                                "borrowed capture '{}[bor]' cannot cross a spawn boundary; use '{}[mov]', '{}[cpy]', or '{}[cln]'",
+                                capture.name, capture.name, capture.name, capture.name
+                            ),
+                        ));
+                    }
                     _ => {
                         // (None, None) is rejected above; any endpoint+operation
                         // mix is impossible (the parser accepts one bracket form).
@@ -1560,7 +1573,16 @@ fn type_node_with_expectation_inner(
             }
             Ok(TypedExpr::value(typed.builtin_types().never))
         }
-        AstNode::Dfr { syntax_id, body } | AstNode::Edf { syntax_id, body } => {
+        AstNode::Dfr {
+            syntax_id,
+            captures,
+            body,
+        }
+        | AstNode::Edf {
+            syntax_id,
+            captures,
+            body,
+        } => {
             if body_contains_return(body) {
                 return Err(TypecheckError::new(
                     TypecheckErrorKind::InvalidInput,
@@ -1598,6 +1620,7 @@ fn type_node_with_expectation_inner(
                 },
                 body,
             )?;
+            apply_deferred_captures(typed, resolved, context, node, captures)?;
             register_deferred_outer_binding_uses(typed, resolved, context.scope_id, body)?;
             Ok(TypedExpr::none())
         }
@@ -2070,6 +2093,136 @@ fn take_deferred_transfer_error(
         )
         .with_related_origin(conflict.deferred_origin, "deferred use registered here"),
     )
+}
+
+/// Validate and apply a `dfr[...]`/`edf[...]` capture list (V3_MEM §2.3).
+/// A delayed block runs in-frame at scope exit, so captures do not cross a
+/// thread boundary: `bor` observes the outer binding (the deferred-use
+/// registration keeps its owner restricted), `mov` transfers ownership into
+/// the block's environment and invalidates the outer binding, and `cpy`/`cln`
+/// duplicate under the same capability rules as spawn captures.
+fn apply_deferred_captures(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    node: &AstNode,
+    captures: &[fol_parser::ast::RoutineCapture],
+) -> Result<(), TypecheckError> {
+    use fol_parser::ast::OwnershipOption;
+
+    for capture in captures {
+        if capture.endpoint.is_some() {
+            return Err(unsupported_node_surface(
+                resolved,
+                node,
+                format!(
+                    "a dfr/edf capture cannot name a channel endpoint; state a value operation such as '{}[bor]'",
+                    capture.name
+                ),
+            ));
+        }
+        let Some(operation) = capture.operation else {
+            return Err(unsupported_node_surface(
+                resolved,
+                node,
+                format!(
+                    "dfr/edf capture '{}' must state its operation: use '{}[bor]', '{}[mov]', '{}[cpy]', or '{}[cln]'",
+                    capture.name, capture.name, capture.name, capture.name, capture.name
+                ),
+            ));
+        };
+        let outer_symbol = [
+            fol_resolver::SymbolKind::ValueBinding,
+            fol_resolver::SymbolKind::Parameter,
+            fol_resolver::SymbolKind::Capture,
+        ]
+        .into_iter()
+        .find_map(|kind| {
+            helpers::find_symbol_in_scope_chain(
+                resolved,
+                context.source_unit_id,
+                context.scope_id,
+                &capture.name,
+                kind,
+            )
+        })
+        .ok_or_else(|| {
+            with_node_origin(
+                resolved,
+                node,
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "dfr/edf capture '{}' does not name a local binding in the enclosing scope",
+                    capture.name
+                ),
+            )
+        })?;
+        let capture_type = typed
+            .typed_symbol(outer_symbol)
+            .and_then(|symbol| symbol.declared_type)
+            .ok_or_else(|| {
+                TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!("dfr/edf capture '{}' does not retain a type", capture.name),
+                )
+            })?;
+        match operation {
+            OwnershipOption::Borrow => {}
+            OwnershipOption::Move => {
+                if let Some(origin) = node_origin(resolved, node) {
+                    typed.mark_binding_moved(outer_symbol, origin);
+                }
+            }
+            OwnershipOption::Copy => {
+                if decls::type_lacks_copy(typed, capture_type)? {
+                    return Err(with_node_origin(
+                        resolved,
+                        node,
+                        TypecheckErrorKind::Ownership,
+                        format!(
+                            "copied capture '{}[cpy]' requires a copy type; use '{}[mov]' or '{}[cln]' instead",
+                            capture.name, capture.name, capture.name
+                        ),
+                    ));
+                }
+            }
+            OwnershipOption::Clone => {
+                if bindings::ownership_moves_on_transfer(typed, capture_type) {
+                    return Err(with_node_origin(
+                        resolved,
+                        node,
+                        TypecheckErrorKind::Ownership,
+                        format!(
+                            "cloned capture '{}[cln]' cannot clone a move-only value; use '{}[mov]' to transfer it",
+                            capture.name, capture.name
+                        ),
+                    ));
+                }
+                if decls::type_lacks_clone(typed, capture_type)? {
+                    return Err(with_node_origin(
+                        resolved,
+                        node,
+                        TypecheckErrorKind::Ownership,
+                        format!(
+                            "cloned capture '{}[cln]' requires a clonable value",
+                            capture.name
+                        ),
+                    ));
+                }
+            }
+            other => {
+                return Err(unsupported_node_surface(
+                    resolved,
+                    node,
+                    format!(
+                        "capture operation '[{}]' is not supported on a dfr/edf capture; use bor, mov, cpy, or cln",
+                        other.canonical()
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn register_deferred_outer_binding_uses(

@@ -1,0 +1,17 @@
+// Delayed-block captures (V3_MEM section 2.3): a dfr/edf capture list states
+// how each outer local enters the block. `[bor]` observes the binding, and
+// `[mov]` transfers it into the block's environment -- the outer binding is
+// invalidated for the rest of the scope, and the block still owns it when the
+// scope-exit cleanup runs it.
+
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var seed: int = 40;
+    var owned: ptr[int] = [ref]seed;
+    var seen: int = 2;
+    dfr[seen[bor], owned[mov]] {
+        std::io::echo_int(seen + [drf]owned);
+    };
+    return seen;
+};

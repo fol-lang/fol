@@ -1005,7 +1005,16 @@ pub(crate) fn lower_body_node(
         // Routine-local imports bind an alias during resolution; they have
         // no runtime effect, so lowering skips them.
         AstNode::UseDecl { .. } => Ok(None),
-        AstNode::Dfr { syntax_id, body } | AstNode::Edf { syntax_id, body } => {
+        AstNode::Dfr {
+            syntax_id,
+            body,
+            captures: _,
+        }
+        | AstNode::Edf {
+            syntax_id,
+            body,
+            captures: _,
+        } => {
             let error_only = matches!(node, AstNode::Edf { .. });
             let construct = if error_only { "edf block" } else { "dfr block" };
             let deferred_scope_id =

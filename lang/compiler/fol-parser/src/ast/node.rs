@@ -417,15 +417,17 @@ pub enum AstNode {
         value: Box<AstNode>,
     },
 
-    /// Deferred statement: dfr { body }
+    /// Deferred statement: dfr[captures] { body }
     Dfr {
         syntax_id: Option<SyntaxNodeId>,
+        captures: Vec<RoutineCapture>,
         body: Vec<AstNode>,
     },
 
-    /// Error-only deferred statement: edf { body }
+    /// Error-only deferred statement: edf[captures] { body }
     Edf {
         syntax_id: Option<SyntaxNodeId>,
+        captures: Vec<RoutineCapture>,
         body: Vec<AstNode>,
     },
 
