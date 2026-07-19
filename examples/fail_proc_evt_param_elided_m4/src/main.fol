@@ -1,0 +1,19 @@
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+// An eventual crossing a routine signature spells its parent-scope lifetime
+// on BOTH sides (V3_MEM §8.1): with storage escapes rejected elsewhere,
+// requiring `L` on parameters and returns is what makes a handle provably
+// unable to outlive `L`. The elided `evt[T]` form stays local-only.
+fun[] consume(handle: evt[int]): int = {
+    var value: int = handle | await;
+    return value;
+};
+
+fun[] main(): int = {
+    var pending: evt[int] = work(41) | async;
+    return std::io::echo_int(consume([mov]pending));
+};

@@ -1148,6 +1148,67 @@ fn lower_nested_declarations_in_node(
     Ok(())
 }
 
+/// §8.1: an eventual crossing a routine signature must spell its parent-scope
+/// lifetime as `evt[L, T]` with `L` declared `L: lif` in the routine's generic
+/// list. Applies to parameters and the return type alike; local bindings may
+/// elide `L`.
+fn require_signature_eventual_lifetime(
+    resolved: &ResolvedProgram,
+    generics: &[Generic],
+    fol_type: &FolType,
+    surface: &str,
+    type_word: &str,
+    syntax_id: Option<SyntaxNodeId>,
+) -> Result<(), TypecheckError> {
+    let FolType::Eventual { lifetime, .. } = fol_type else {
+        return Ok(());
+    };
+    let routine_origin = syntax_id.and_then(|id| resolved.syntax_index().origin(id).cloned());
+    match lifetime {
+        None => {
+            let message = format!(
+                "an eventual {surface} must name its parent-scope lifetime; declare 'L: lif' and spell the {type_word} 'evt[L, T]'"
+            );
+            Err(routine_origin.map_or_else(
+                || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::Ownership,
+                        message.clone(),
+                        origin,
+                    )
+                },
+            ))
+        }
+        Some(name) => {
+            let declared_lif = generics.iter().any(|generic| {
+                generic.name.eq_ignore_ascii_case(name)
+                    && generic.constraints.iter().any(|constraint| {
+                        matches!(constraint, FolType::Named { name, .. }
+                            if name.split('[').next().unwrap_or(name) == "lif")
+                    })
+            });
+            if declared_lif {
+                Ok(())
+            } else {
+                let message = format!(
+                    "eventual lifetime '{name}' is not a declared lifetime parameter; declare '{name}: lif' in the routine's generic list"
+                );
+                Err(routine_origin.map_or_else(
+                    || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                    |origin| {
+                        TypecheckError::with_origin(
+                            TypecheckErrorKind::Ownership,
+                            message.clone(),
+                            origin,
+                        )
+                    },
+                ))
+            }
+        }
+    }
+}
+
 // Signature lowering receives the routine AST fields alongside its semantic
 // context; bundling them would duplicate the parser's routine representation.
 #[allow(clippy::too_many_arguments)]
@@ -1207,46 +1268,32 @@ fn lower_named_routine_signature(
         }
         lowered_params.push(param_type);
     }
-    // §8.1: an eventual that escapes a routine spells its parent-scope
-    // lifetime (`evt[L, T]` with a declared `L: lif`); the elided `evt[T]`
-    // form is local-declaration shorthand only.
-    if let Some(FolType::Eventual { lifetime, .. }) = return_type {
-        let routine_origin = syntax_id.and_then(|id| resolved.syntax_index().origin(id).cloned());
-        match lifetime {
-            None => {
-                let message = "an eventual returned from a routine must name its parent-scope lifetime; declare 'L: lif' and spell the return type 'evt[L, T]'";
-                return Err(routine_origin.map_or_else(
-                    || TypecheckError::new(TypecheckErrorKind::Ownership, message),
-                    |origin| {
-                        TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin)
-                    },
-                ));
-            }
-            Some(name) => {
-                let declared_lif = generics.iter().any(|generic| {
-                    generic.name.eq_ignore_ascii_case(name)
-                        && generic.constraints.iter().any(|constraint| {
-                            matches!(constraint, FolType::Named { name, .. }
-                                if name.split('[').next().unwrap_or(name) == "lif")
-                        })
-                });
-                if !declared_lif {
-                    let message = format!(
-                        "eventual lifetime '{name}' is not a declared lifetime parameter; declare '{name}: lif' in the routine's generic list"
-                    );
-                    return Err(routine_origin.map_or_else(
-                        || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
-                        |origin| {
-                            TypecheckError::with_origin(
-                                TypecheckErrorKind::Ownership,
-                                message.clone(),
-                                origin,
-                            )
-                        },
-                    ));
-                }
-            }
-        }
+    // §8.1: an eventual that crosses a routine signature spells its
+    // parent-scope lifetime (`evt[L, T]` with a declared `L: lif`); the
+    // elided `evt[T]` form is local-declaration shorthand only. With every
+    // storage escape (fields, containers, channels, globals, closures,
+    // detached tasks) rejected elsewhere, a handle can only travel through
+    // signatures, so requiring `L` on BOTH sides makes outliving `L`
+    // structurally impossible — this is the conservative region model.
+    for param in params {
+        require_signature_eventual_lifetime(
+            resolved,
+            generics,
+            &param.param_type,
+            &format!("received as parameter '{}'", param.name),
+            "parameter type",
+            syntax_id,
+        )?;
+    }
+    if let Some(return_type) = return_type {
+        require_signature_eventual_lifetime(
+            resolved,
+            generics,
+            return_type,
+            "returned from a routine",
+            "return type",
+            syntax_id,
+        )?;
     }
     let lowered_return = match return_type {
         None | Some(FolType::None) => None,

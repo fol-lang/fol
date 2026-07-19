@@ -604,3 +604,31 @@ fn integer_division_faults_present_as_fol_runtime_faults() {
     );
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn lifetime_spelled_eventuals_flow_through_signatures_and_await() {
+    // §8.1 conservative region model: with all storage escapes rejected, an
+    // eventual travels only through `evt[L, T]`-spelled signatures and local
+    // moves. Pin the full legal journey: spawn, pass down, forward back up,
+    // await in a callee.
+    let root = write_hosted_app(
+        "v3_evt_lifetime_roundtrip",
+        "use std: pkg = {\"std\"};\n\
+             fun[] work(value: int): int = {\n\
+             \x20   return value + 1;\n\
+             };\n\
+             fun forward(L: lif)(pending: evt[L, int]): evt[L, int] = {\n\
+             \x20   return [mov]pending;\n\
+             };\n\
+             fun consume(L: lif)(pending: evt[L, int]): int = {\n\
+             \x20   return pending | await;\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var pending: evt[int] = work(40) | async;\n\
+             \x20   var routed: evt[int] = forward([mov]pending);\n\
+             \x20   return std::io::echo_int(consume([mov]routed) + 1);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "42\n");
+    std::fs::remove_dir_all(root).ok();
+}

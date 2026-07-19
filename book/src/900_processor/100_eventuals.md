@@ -21,10 +21,17 @@ binding may name the eventual with its lexical lifetime elided (V3_MEM §8.1):
 `evt[T]` for an infallible call and `evt[T / E]` for a recoverable one, e.g.
 `var work: evt[int] = compute(7) | async`. The public lifetime-carrying
 `evt[L, T]` spelling is also a namable type, naming the region the eventual
-belongs to. An eventual that escapes a routine must spell that lifetime: a
-returning signature declares `L: lif` and writes `evt[L, T]`, and the lifetime
-name must resolve to a declared lifetime parameter. The elided `evt[T]` form
-is local-declaration shorthand only.
+belongs to. An eventual that crosses a routine signature must spell that
+lifetime on both sides: a parameter or return type declares `L: lif` and
+writes `evt[L, T]`, and the lifetime name must resolve to a declared lifetime
+parameter. The elided `evt[T]` form is local-declaration shorthand only.
+
+This signature rule is what makes `L` enforceable without a region solver.
+Handles cannot be embedded in aggregates or wrappers, sent through channels,
+stored at module level, captured by routine values, or enter detached tasks —
+so the only way a handle travels is through signatures and local moves.
+Requiring the `evt[L, T]` spelling wherever a signature carries one means a
+handle provably cannot outlive the parent scope `L` names.
 
 The call to the left of `| async` must resolve directly to a named routine
 declaration. Both `calculate()` and a qualified call such as

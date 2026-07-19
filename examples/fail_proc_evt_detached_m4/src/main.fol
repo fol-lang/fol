@@ -4,7 +4,7 @@ fun[] work(value: int): int = {
     return value + 1;
 };
 
-fun[] consume(handle: evt[int]): non = {
+fun consume(L: lif)(handle: evt[L, int]): non = {
     var value: int = handle | await;
     return;
 };
