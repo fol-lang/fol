@@ -1150,11 +1150,17 @@ fn routine_signature_for_method(
     // is only known after monomorphization, so record the call site as a
     // deferred constraint call and type it from the requirement signature.
     if matches.is_empty() {
+        // A borrow parameter (`item[bor]: T`) still dispatches through T's
+        // constraints; the loan wrapper is transparent for method lookup.
+        let constraint_subject = match typed.type_table().get(object_type) {
+            Some(CheckedType::Borrowed { inner, .. }) => *inner,
+            _ => object_type,
+        };
         if let Some(CheckedType::Declared {
             kind: crate::DeclaredTypeKind::GenericParameter,
             symbol: param_symbol,
             ..
-        }) = typed.type_table().get(object_type).cloned()
+        }) = typed.type_table().get(constraint_subject).cloned()
         {
             // A generic parameter's bound can be recorded on more than one
             // typed symbol (the declaring routine/type and the parameter's own
@@ -2061,6 +2067,33 @@ fn infer_generic_bindings_from_argument(
             }
             return Ok(());
         }
+    }
+
+    // A borrow parameter (`item[bor]: T`) meets a borrowed argument
+    // (`[bor]owner`): peel both wrappers together so the generic binds the
+    // OWNER type, not the loan. Binding `bor[Boxy]` would demand conformance
+    // from the loan and break constraint dispatch inside the body.
+    if let (
+        Some(CheckedType::Borrowed {
+            inner: expected_inner,
+            ..
+        }),
+        Some(CheckedType::Borrowed {
+            inner: actual_inner,
+            ..
+        }),
+    ) = (
+        typed.type_table().get(expected).cloned(),
+        typed.type_table().get(actual).cloned(),
+    ) {
+        return infer_generic_bindings_from_argument(
+            typed,
+            expected_inner,
+            actual_inner,
+            bindings,
+            surface,
+            origin,
+        );
     }
 
     let expected = apparent_type_id(typed, expected)?;

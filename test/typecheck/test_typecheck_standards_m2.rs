@@ -71,9 +71,9 @@ fn standards_m2_reject_missing_required_routines_cleanly() {
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
-            && error
-                .message()
-                .contains("type 'Rect' does not satisfy standard 'geo': missing required routine 'area'")
+            && error.message().contains(
+                "type 'Rect' does not satisfy standard 'geo': missing required routine 'area'",
+            )
             && error.message().contains("expected fun area(): int")
     }));
 }
@@ -92,9 +92,7 @@ fn standards_m2_missing_required_routine_diagnostic_includes_multi_param_signatu
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
-            && error
-                .message()
-                .contains("missing required routine 'scale'")
+            && error.message().contains("missing required routine 'scale'")
             && error
                 .message()
                 .contains("expected fun scale(int, int): int")
@@ -118,7 +116,9 @@ fn standards_m2_reject_incompatible_required_routine_signatures_cleanly() {
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
-            && error.message().contains("routine 'area' has incompatible signature")
+            && error
+                .message()
+                .contains("routine 'area' has incompatible signature")
             && error.message().contains("expected fun area(): int")
             && error.message().contains("found fun area(int): int")
     }));
@@ -214,9 +214,9 @@ fn standards_m2_reject_multi_standard_conformance_when_one_protocol_is_missing()
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
-            && error
-                .message()
-                .contains("type 'Rect' does not satisfy standard 'sized': missing required routine 'size'")
+            && error.message().contains(
+                "type 'Rect' does not satisfy standard 'sized': missing required routine 'size'",
+            )
     }));
 }
 
@@ -238,9 +238,9 @@ fn standards_m2_reject_partial_multi_routine_conformance_cleanly() {
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
-            && error
-                .message()
-                .contains("type 'Rect' does not satisfy standard 'geo': missing required routine 'perimeter'")
+            && error.message().contains(
+                "type 'Rect' does not satisfy standard 'geo': missing required routine 'perimeter'",
+            )
     }));
 }
 
@@ -265,7 +265,9 @@ fn standards_m2_reject_multi_routine_conformance_with_one_mismatch_cleanly() {
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
-            && error.message().contains("routine 'perimeter' has incompatible signature")
+            && error
+                .message()
+                .contains("routine 'perimeter' has incompatible signature")
             && error.message().contains("expected fun perimeter(): int")
     }));
 }
@@ -316,7 +318,9 @@ fn standards_m2_reject_cross_file_protocol_signature_mismatches() {
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
-            && error.message().contains("routine 'area' has incompatible signature")
+            && error
+                .message()
+                .contains("routine 'area' has incompatible signature")
             && error.message().contains("expected fun area(): int")
     }));
 }
@@ -340,9 +344,9 @@ fn standards_m2_reject_cross_file_missing_required_routine_with_expected_signatu
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::IncompatibleType
-            && error
-                .message()
-                .contains("type 'Rect' does not satisfy standard 'geo': missing required routine 'perimeter'")
+            && error.message().contains(
+                "type 'Rect' does not satisfy standard 'geo': missing required routine 'perimeter'",
+            )
             && error.message().contains("expected fun perimeter(): int")
     }));
 }
@@ -440,8 +444,9 @@ fn standards_m2_accept_aliases_imported_records_and_memo_types_in_legal_conforma
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("workspace standards fixture should typecheck");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect("workspace standards fixture should typecheck");
     let (_type_symbol, rect) = find_typed_symbol(&typed, "Rect", SymbolKind::Type);
     assert!(rect.declared_type.is_some());
 }
@@ -891,7 +896,8 @@ fn standards_m2_default_protocol_implementation_dispatches_at_call_site() {
 }
 
 #[test]
-fn standards_m2_default_protocol_implementation_still_requires_signature_match_when_conformer_overrides() {
+fn standards_m2_default_protocol_implementation_still_requires_signature_match_when_conformer_overrides(
+) {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "std geo: pro = {\n\
@@ -907,12 +913,15 @@ fn standards_m2_default_protocol_implementation_still_requires_signature_match_w
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::IncompatibleType
-            && error
-                .message()
-                .contains("routine 'area' has incompatible signature")
-    }), "override with wrong signature should still fail: {errors:?}");
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("routine 'area' has incompatible signature")
+        }),
+        "override with wrong signature should still fail: {errors:?}"
+    );
 }
 
 #[test]
@@ -974,9 +983,9 @@ fn standards_o_generic_standard_rejects_arity_mismatch_in_conformance_header() {
     )]);
 
     assert!(
-        errors.iter().any(|error| error
-            .message()
-            .contains("claims generic standard 'Iterator' with 2 type argument(s) but the standard expects 1")),
+        errors.iter().any(|error| error.message().contains(
+            "claims generic standard 'Iterator' with 2 type argument(s) but the standard expects 1"
+        )),
         "arity mismatch in conformance header should fail: {errors:?}"
     );
 }
@@ -1015,9 +1024,9 @@ fn standards_m2_reject_extended_conformance_missing_routine_side() {
     )]);
 
     assert!(
-        errors.iter().any(|error| error
-            .message()
-            .contains("missing required routine 'draw'")),
+        errors
+            .iter()
+            .any(|error| error.message().contains("missing required routine 'draw'")),
         "extended conformance missing routine should still fire routine diagnostic: {errors:?}"
     );
 }
@@ -1062,4 +1071,67 @@ fn standards_m2_accept_blueprint_and_extended_standalone_declarations() {
          };\n",
     )]);
     assert_eq!(typed.all_typed_standards().count(), 2);
+}
+
+#[test]
+fn standards_m2_bind_borrowed_generic_arguments_to_the_owner_type() {
+    // `[bor]owner` into `item[bor]: T` binds T to the OWNER type; the pre-fix
+    // inference bound `bor[Boxy]` and demanded conformance from the loan.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std sized: pro = {\n\
+             fun size(): int;\n\
+         };\n\
+         typ Boxy()(sized): rec = { var edge: int; };\n\
+         fun (Boxy[bor])size(): int = {\n\
+             return [cpy]self.edge * 6;\n\
+         };\n\
+         fun hold(T: sized)(item[bor]: T): int = {\n\
+             return 7;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var b: Boxy = { edge = 3 };\n\
+             return hold([bor]b);\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn standards_m2_constraint_calls_through_borrows_report_the_transfer_rule() {
+    // Constraint method dispatch resolves through the loan wrapper; the
+    // remaining rejection is the ordinary borrow-transfer rule (requirement
+    // signatures carry no receiver-ownership modes yet), NOT a bogus
+    // conformance demand on `bor[T]`.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std sized: pro = {\n\
+             fun size(): int;\n\
+         };\n\
+         typ Boxy()(sized): rec = { var edge: int; };\n\
+         fun (Boxy[bor])size(): int = {\n\
+             return [cpy]self.edge * 6;\n\
+         };\n\
+         fun measure(T: sized)(item[bor]: T): int = {\n\
+             return item.size();\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var b: Boxy = { edge = 3 };\n\
+             return measure([bor]b);\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("out of borrow binding")),
+        "borrowed constraint calls should stop at the transfer rule: {errors:?}"
+    );
+    assert!(
+        !errors
+            .iter()
+            .any(|error| error.message().contains("to satisfy standard")),
+        "the loan itself must not be asked to conform: {errors:?}"
+    );
 }
