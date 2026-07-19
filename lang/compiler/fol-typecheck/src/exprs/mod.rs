@@ -1857,12 +1857,123 @@ fn type_node_with_expectation_inner(
         )),
         AstNode::StdDecl { .. } => Ok(TypedExpr::none()),
         // Declaration-level constructs: type their children but produce no value.
+        AstNode::DestructureDecl {
+            pattern,
+            type_hint,
+            value,
+            ..
+        } => {
+            // Destructuring binds each pattern name to one positional element
+            // of the initializer (book 700_sugar/600_unpacking). V3 supports
+            // fixed names over set/array/vector/sequence initializers; rest
+            // patterns remain staged.
+            let parts: Vec<&fol_parser::ast::BindingPattern> = match pattern {
+                fol_parser::ast::BindingPattern::Sequence(parts) => parts.iter().collect(),
+                single => vec![single],
+            };
+            let mut names = Vec::with_capacity(parts.len());
+            for part in parts {
+                match part {
+                    fol_parser::ast::BindingPattern::Name(name, _) => names.push(name.clone()),
+                    fol_parser::ast::BindingPattern::Rest(_) => {
+                        return Err(unsupported_node_surface(
+                            resolved,
+                            node,
+                            "rest patterns in destructuring are not yet supported; bind fixed positions instead",
+                        ));
+                    }
+                    fol_parser::ast::BindingPattern::Sequence(_) => {
+                        return Err(unsupported_node_surface(
+                            resolved,
+                            node,
+                            "nested destructuring patterns are not yet supported",
+                        ));
+                    }
+                }
+            }
+            let value_type = type_node_with_expectation(typed, resolved, context, value, None)?
+                .required_value("destructuring initializer does not have a type")?;
+            let apparent = helpers::apparent_type_id(typed, value_type)?;
+            let element_types: Vec<CheckedTypeId> = match typed.type_table().get(apparent) {
+                Some(CheckedType::Set { member_types }) => {
+                    if member_types.len() != names.len() {
+                        return Err(unsupported_node_surface(
+                            resolved,
+                            node,
+                            format!(
+                                "destructuring binds {} names but the initializer has {} members",
+                                names.len(),
+                                member_types.len()
+                            ),
+                        ));
+                    }
+                    member_types.clone()
+                }
+                Some(
+                    CheckedType::Array { element_type, .. }
+                    | CheckedType::Vector { element_type }
+                    | CheckedType::Sequence { element_type },
+                ) => vec![*element_type; names.len()],
+                _ => {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        format!(
+                            "destructuring requires a set, array, vector, or sequence initializer, got '{}'",
+                            describe_type(typed, value_type)
+                        ),
+                    ));
+                }
+            };
+            for element in &element_types {
+                if bindings::ownership_moves_on_transfer(typed, *element) {
+                    return Err(with_node_origin(
+                        resolved,
+                        node,
+                        TypecheckErrorKind::Ownership,
+                        "destructuring reads each element by value; move-only elements are not supported — extract them with an explicit removal operation",
+                    ));
+                }
+            }
+            let declared_hint = type_hint
+                .as_ref()
+                .map(|hint| decls::lower_type(typed, resolved, context.scope_id, hint))
+                .transpose()?;
+            for (name, element) in names.iter().zip(element_types.iter()) {
+                let binding_type = if let Some(hint) = declared_hint {
+                    helpers::ensure_assignable(
+                        typed,
+                        hint,
+                        *element,
+                        format!("destructured binding '{name}'"),
+                        node_origin(resolved, node),
+                    )?;
+                    hint
+                } else {
+                    *element
+                };
+                let symbol = helpers::find_symbol_in_scope_chain(
+                    resolved,
+                    context.source_unit_id,
+                    context.scope_id,
+                    name,
+                    fol_resolver::SymbolKind::DestructureBinding,
+                )
+                .ok_or_else(|| {
+                    internal_error(
+                        format!("destructured binding '{name}' lost its resolved symbol"),
+                        node_origin(resolved, node),
+                    )
+                })?;
+                decls::record_symbol_type(typed, symbol, binding_type)?;
+            }
+            Ok(TypedExpr::none())
+        }
         AstNode::UseDecl { .. }
         | AstNode::TypeDecl { .. }
         | AstNode::AliasDecl { .. }
         | AstNode::DefDecl { .. }
         | AstNode::SegDecl { .. }
-        | AstNode::DestructureDecl { .. }
         | AstNode::NamedArgument { .. }
         | AstNode::Unpack { .. }
         | AstNode::PatternWildcard

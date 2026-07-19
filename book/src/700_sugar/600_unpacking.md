@@ -1,5 +1,9 @@
 # Unpacking
 
+> **Current boundary:** fixed-name unpacking (`var a, b = container`) is
+> implemented over set, array, vector, and sequence sources. Rest patterns
+> (`*name`) parse but are rejected by typechecking in this milestone.
+
 Current boundary:
 
 - unpacking / iterable-destructuring forms (`var a, *_ = ...`) are not part of

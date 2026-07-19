@@ -298,6 +298,25 @@ fn move_only_pointer_result_crosses_an_eventual() {
 }
 
 #[test]
+fn destructuring_binds_positional_elements() {
+    // `var a, b = { x, y }` destructures positionally (book unpacking); the
+    // pre-fix parser broadcast the whole container into every binding.
+    let root = write_hosted_app(
+        "v3_destructuring",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var first, second = { 7, 8 };\n\
+             \x20   std::io::echo_int(first * 10 + second);\n\
+             \x20   var xs: vec[int] = { 5, 6, 7 };\n\
+             \x20   var a, b, c = xs;\n\
+             \x20   return std::io::echo_int(a * 100 + b * 10 + c);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "78\n567\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn entry_members_resolve_through_dot_access() {
     // Entries are groups of named constants accessed as `Type.MEMBER`
     // (`::` stays a namespace path). A bare member access types as the entry

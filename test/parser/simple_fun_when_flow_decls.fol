@@ -1,6 +1,6 @@
 fun classify(value: int): int = {
     when(value) {
-        is(0) => var[imu] left, right: int = 0;
+        is(0) => var[imu] left, right: int = 0, 0;
         has(value) => +var[bor] current: int = 1;
     }
 };

@@ -628,6 +628,81 @@ pub(crate) fn lower_body_node(
             )?;
             Ok(None)
         }
+        AstNode::DestructureDecl { pattern, value, .. } => {
+            // Fixed-name destructuring: lower the initializer once, then bind
+            // each name to a positional index read (rest patterns are staged
+            // and rejected at typecheck).
+            let container = lower_expression(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                value,
+            )?;
+            let parts: Vec<&fol_parser::ast::BindingPattern> = match pattern {
+                fol_parser::ast::BindingPattern::Sequence(parts) => parts.iter().collect(),
+                single => vec![single],
+            };
+            let int_type = type_table
+                .find(&crate::LoweredType::Builtin(crate::LoweredBuiltinType::Int))
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "destructuring lost the lowered int index type",
+                    )
+                })?;
+            for (position, part) in parts.iter().enumerate() {
+                let fol_parser::ast::BindingPattern::Name(name, _) = part else {
+                    return Err(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "rest patterns in destructuring are not yet supported",
+                    ));
+                };
+                let symbol = crate::decls::find_symbol_in_scope_or_descendants(
+                    &typed_package.program,
+                    source_unit_id,
+                    scope_id,
+                    SymbolKind::DestructureBinding,
+                    name,
+                )
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("destructured binding '{name}' lost its lowering symbol"),
+                    )
+                })?;
+                let binding_type = typed_package
+                    .program
+                    .typed_symbol(symbol)
+                    .and_then(|symbol| symbol.declared_type)
+                    .and_then(|checked| checked_type_map.get(&checked).copied())
+                    .ok_or_else(|| {
+                        LoweringError::with_kind(
+                            LoweringErrorKind::InvalidInput,
+                            format!("destructured binding '{name}' lost its lowered type"),
+                        )
+                    })?;
+                let index_local = cursor.allocate_local(int_type, None);
+                cursor.push_instr(
+                    Some(index_local),
+                    crate::LoweredInstrKind::Const(crate::LoweredOperand::Int(position as i64)),
+                )?;
+                let element_local = cursor.allocate_local(binding_type, Some(name.clone()));
+                cursor.push_instr(
+                    Some(element_local),
+                    crate::LoweredInstrKind::IndexAccess {
+                        container: container.local_id,
+                        index: index_local,
+                    },
+                )?;
+                cursor.routine.local_symbols.insert(symbol, element_local);
+            }
+            Ok(None)
+        }
         AstNode::LabDecl {
             syntax_id,
             name,

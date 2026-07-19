@@ -85,12 +85,13 @@ impl AstParser {
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                nodes.extend(self.build_binding_nodes(
+                nodes.extend(self.build_binding_nodes_with_form(
                     options.clone(),
                     names,
                     type_hint,
                     values,
                     tokens,
+                    true,
                 )?);
             }
 
