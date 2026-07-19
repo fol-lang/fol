@@ -10,6 +10,7 @@ pub use crate::aggregate::{
 };
 pub use crate::builtins::{len, pow, pow_float, FolLength};
 pub use crate::containers::{index_array, render_array, FolArray};
+pub use crate::error::require;
 pub use crate::shell::{
     unwrap_error_shell, unwrap_error_shell_ref, unwrap_optional_shell, unwrap_optional_shell_ref,
     FolError, FolOption,

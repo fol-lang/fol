@@ -69,3 +69,15 @@ mod tests {
         assert_error_kind(&error, RuntimeErrorKind::InvalidInput);
     }
 }
+
+/// Unwrap a runtime result or abort with the fault message alone. Generated
+/// code routes every fallible runtime access through this so an ordinary
+/// runtime fault (out-of-bounds index, nil unwrap, invalid slice) surfaces as
+/// a single readable line instead of Rust `Result` debug noise pointing into
+/// the generated build directory.
+pub fn require<T>(result: Result<T, RuntimeError>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => panic!("fol runtime fault: {error}"),
+    }
+}

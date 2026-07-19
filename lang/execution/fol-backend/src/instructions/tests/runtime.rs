@@ -483,7 +483,7 @@ fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_err
 
     assert_eq!(
         optional_rendered,
-        "l__pkg__entry__app__r14__l2__a = rt::unwrap_optional_shell(l__pkg__entry__app__r14__l0__maybe.clone()).unwrap();"
+        "l__pkg__entry__app__r14__l2__a = rt::require(rt::unwrap_optional_shell(l__pkg__entry__app__r14__l0__maybe.clone()));"
     );
     assert_eq!(
         error_rendered,
@@ -491,7 +491,7 @@ fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_err
     );
     assert_eq!(
         unique_optional_rendered,
-        "l__pkg__entry__app__r14__l5__pointer = rt::unwrap_optional_shell(l__pkg__entry__app__r14__l4__unique_maybe).unwrap();"
+        "l__pkg__entry__app__r14__l5__pointer = rt::require(rt::unwrap_optional_shell(l__pkg__entry__app__r14__l4__unique_maybe));"
     );
 }
 
@@ -619,7 +619,7 @@ fn runtime_shaped_instruction_snapshot_stays_stable() {
             "l__pkg__entry__app__r15__l8__bad = std::mem::take(&mut l__pkg__entry__app__r15__l1__recover).into_error().expect(\"extract of recoverable error failed: result contains a value\");\n",
             "l__pkg__entry__app__r15__l2__maybe = rt::FolOption::some(l__pkg__entry__app__r15__l0__value.clone());\n",
             "l__pkg__entry__app__r15__l3__err = rt::FolError::new(l__pkg__entry__app__r15__l0__value.clone());\n",
-            "l__pkg__entry__app__r15__l7__ok = rt::unwrap_optional_shell(l__pkg__entry__app__r15__l2__maybe.clone()).unwrap();"
+            "l__pkg__entry__app__r15__l7__ok = rt::require(rt::unwrap_optional_shell(l__pkg__entry__app__r15__l2__maybe.clone()));"
         )
     );
 }

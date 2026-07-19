@@ -635,7 +635,7 @@ pub fn render_core_instruction_in_workspace(
             };
             let expression = match type_table.get(type_id) {
                 Some(LoweredType::Optional { .. }) => {
-                    format!("rt::unwrap_optional_shell({operand}).unwrap()")
+                    format!("rt::require(rt::unwrap_optional_shell({operand}))")
                 }
                 Some(LoweredType::Error { .. }) => {
                     format!("rt::unwrap_error_shell({operand})")
@@ -728,19 +728,19 @@ pub fn render_core_instruction_in_workspace(
                 observed_storage_reference(type_table, type_id, &container_name);
             let expression = match type_table.get(runtime_type) {
                 Some(LoweredType::Array { .. }) => format!(
-                    "rt::index_array({container_ref}, {index_name}.clone()).unwrap().clone()"
+                    "rt::require(rt::index_array({container_ref}, {index_name}.clone())).clone()"
                 ),
                 Some(LoweredType::Vector { .. }) => format!(
-                    "rt::index_vec({container_ref}, {index_name}.clone()).unwrap().clone()"
+                    "rt::require(rt::index_vec({container_ref}, {index_name}.clone())).clone()"
                 ),
                 Some(LoweredType::Sequence { .. }) => format!(
-                    "rt::index_seq({container_ref}, {index_name}.clone()).unwrap().clone()"
+                    "rt::require(rt::index_seq({container_ref}, {index_name}.clone())).clone()"
                 ),
                 Some(LoweredType::Set { .. }) => format!(
-                    "rt::index_set({container_ref}, {index_name}.clone()).unwrap().clone()"
+                    "rt::require(rt::index_set({container_ref}, {index_name}.clone())).clone()"
                 ),
                 Some(LoweredType::Map { .. }) => format!(
-                    "rt::lookup_map({container_ref}, &{index_name}).unwrap().clone()"
+                    "rt::require(rt::lookup_map({container_ref}, &{index_name})).clone()"
                 ),
                 other => {
                     return Err(BackendError::new(
@@ -795,10 +795,10 @@ pub fn render_core_instruction_in_workspace(
                 observed_storage_reference(type_table, type_id, &container_name);
             let expression = match type_table.get(runtime_type) {
                 Some(LoweredType::Vector { .. }) => format!(
-                    "rt::slice_vec({container_ref}, {start_name}.clone(), {end_name}.clone()).unwrap()"
+                    "rt::require(rt::slice_vec({container_ref}, {start_name}.clone(), {end_name}.clone()))"
                 ),
                 Some(LoweredType::Sequence { .. }) => format!(
-                    "rt::slice_seq({container_ref}, {start_name}.clone(), {end_name}.clone()).unwrap()"
+                    "rt::require(rt::slice_seq({container_ref}, {start_name}.clone(), {end_name}.clone()))"
                 ),
                 other => {
                     return Err(BackendError::new(

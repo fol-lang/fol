@@ -298,6 +298,30 @@ fn move_only_pointer_result_crosses_an_eventual() {
 }
 
 #[test]
+fn entry_members_resolve_through_dot_access() {
+    // Entries are groups of named constants accessed as `Type.MEMBER`
+    // (`::` stays a namespace path). A bare member access types as the entry
+    // itself and coerces to its payload only under an explicit expectation.
+    // No prior example exercised entries at runtime, so pin both reads.
+    let root = write_hosted_app(
+        "v3_entry_members",
+        "use std: pkg = {\"std\"};\n\
+             typ Color: ent = {\n\
+             \x20   con RED: int = 2,\n\
+             \x20   con BLUE: int = 5,\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   std::io::echo_int(Color.RED);\n\
+             \x20   var red: int = Color.RED;\n\
+             \x20   var blue: int = Color.BLUE;\n\
+             \x20   return std::io::echo_int(blue + red);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "2\n7\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn whole_reassignment_restores_a_partially_moved_binding() {
     // §3.2: moving one field invalidates only that field, and whole-binding
     // reassignment of the (reassignable) root restores every field. The
