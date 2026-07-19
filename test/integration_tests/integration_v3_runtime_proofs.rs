@@ -298,6 +298,28 @@ fn move_only_pointer_result_crosses_an_eventual() {
 }
 
 #[test]
+fn whole_reassignment_restores_a_partially_moved_binding() {
+    // §3.2: moving one field invalidates only that field, and whole-binding
+    // reassignment of the (reassignable) root restores every field. The
+    // restored aggregate is fully readable afterwards.
+    let root = write_hosted_app(
+        "v3_partial_move_restore",
+        "use std: pkg = {\"std\"};\n\
+             typ Pair: rec = { a: str, b: int };\n\
+             fun[] main(): int = {\n\
+             \x20   var pair: Pair = { a = \"x\", b = 1 };\n\
+             \x20   var taken: str = [mov]pair.a;\n\
+             \x20   std::io::echo_int(pair.b);\n\
+             \x20   pair = { a = \"y\", b = 2 };\n\
+             \x20   std::io::echo_int(pair.b);\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "1\n2\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn if_statements_branch_on_the_condition_value() {
     // `if` desugars to `when (cond) { case (true) ... * ... }`; the case value
     // must be the literal `true`, never a re-evaluation of the condition (a

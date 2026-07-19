@@ -108,6 +108,7 @@ const CORPUS_V3_DEFERRED: &str = include_str!("../tree-sitter/test/corpus/v3_def
 const CORPUS_V3_LEXICAL_BOUNDARIES: &str =
     include_str!("../tree-sitter/test/corpus/v3_lexical_boundaries.txt");
 const CORPUS_V3_WHEN_ARMS: &str = include_str!("../tree-sitter/test/corpus/v3_when_arms.txt");
+const CORPUS_V3_CLOSURES: &str = include_str!("../tree-sitter/test/corpus/v3_closures.txt");
 const SHOWCASE_FIXTURE: &str =
     include_str!("../../../../test/apps/showcases/full_v1_showcase/app/main.fol");
 static GENERATED_HIGHLIGHTS_QUERY: OnceLock<String> = OnceLock::new();
@@ -180,6 +181,10 @@ pub fn fol_tree_sitter_corpus() -> &'static [TreeSitterCorpusCase] {
         TreeSitterCorpusCase {
             name: "v3_when_arms",
             source: CORPUS_V3_WHEN_ARMS,
+        },
+        TreeSitterCorpusCase {
+            name: "v3_closures",
+            source: CORPUS_V3_CLOSURES,
         },
     ]
 }
@@ -1168,7 +1173,7 @@ mod tests {
     #[test]
     fn corpus_smoke_cases_cover_real_language_surfaces() {
         let corpus = fol_tree_sitter_corpus();
-        assert_eq!(corpus.len(), 10);
+        assert_eq!(corpus.len(), 11);
         for case in corpus {
             assert!(
                 case.source.contains("\n---\n"),

@@ -1535,9 +1535,13 @@ fn type_node_with_expectation_inner(
                     ));
                 }
             }
-            let expected = if let Some(symbol) =
-                whole_target.filter(|symbol| typed.moved_binding_origin(*symbol).is_some())
-            {
+            // §3.2: whole-binding reassignment restores a moved OR partially
+            // moved mutable binding, so the target must not be typed as a
+            // read here (a read of either state is rejected).
+            let expected = if let Some(symbol) = whole_target.filter(|symbol| {
+                typed.moved_binding_origin(*symbol).is_some()
+                    || typed.first_moved_field(*symbol).is_some()
+            }) {
                 if let Some(borrow) = typed.active_borrow_for_owner(symbol).cloned() {
                     let name = resolved
                         .symbol(symbol)

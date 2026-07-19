@@ -2086,7 +2086,7 @@ mod tests {
         assert!(summary
             .details
             .iter()
-            .any(|detail| detail == "corpus_files=10"));
+            .any(|detail| detail == "corpus_files=11"));
         assert!(summary
             .details
             .iter()
