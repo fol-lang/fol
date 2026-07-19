@@ -1620,8 +1620,15 @@ fn type_node_with_expectation_inner(
                 },
                 body,
             )?;
-            apply_deferred_captures(typed, resolved, context, node, captures)?;
-            register_deferred_outer_binding_uses(typed, resolved, context.scope_id, body)?;
+            let captured_symbols =
+                apply_deferred_captures(typed, resolved, context, node, captures)?;
+            register_deferred_outer_binding_uses(
+                typed,
+                resolved,
+                context.scope_id,
+                &captured_symbols,
+                body,
+            )?;
             Ok(TypedExpr::none())
         }
         AstNode::Yield { .. } => Err(TypecheckError::new(
@@ -2107,9 +2114,10 @@ fn apply_deferred_captures(
     context: TypeContext,
     node: &AstNode,
     captures: &[fol_parser::ast::RoutineCapture],
-) -> Result<(), TypecheckError> {
+) -> Result<std::collections::BTreeSet<fol_resolver::SymbolId>, TypecheckError> {
     use fol_parser::ast::OwnershipOption;
 
+    let mut captured_symbols = std::collections::BTreeSet::new();
     for capture in captures {
         if capture.endpoint.is_some() {
             return Err(unsupported_node_surface(
@@ -2157,6 +2165,7 @@ fn apply_deferred_captures(
                 ),
             )
         })?;
+        captured_symbols.insert(outer_symbol);
         let capture_type = typed
             .typed_symbol(outer_symbol)
             .and_then(|symbol| symbol.declared_type)
@@ -2222,17 +2231,36 @@ fn apply_deferred_captures(
             }
         }
     }
-    Ok(())
+    Ok(captured_symbols)
+}
+
+/// The scope of the routine that lexically contains `scope`, or `None` for
+/// module-level scopes. Mirrors the resolver-session capture validation.
+fn nearest_routine_scope(resolved: &ResolvedProgram, mut scope: ScopeId) -> Option<ScopeId> {
+    loop {
+        let resolved_scope = resolved.scope(scope)?;
+        if resolved_scope.kind == fol_resolver::ScopeKind::Routine {
+            return Some(scope);
+        }
+        scope = resolved_scope.parent?;
+    }
 }
 
 fn register_deferred_outer_binding_uses(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
     registration_scope: ScopeId,
+    captured_symbols: &std::collections::BTreeSet<fol_resolver::SymbolId>,
     body: &[AstNode],
 ) -> Result<(), TypecheckError> {
     for node in body {
-        register_deferred_outer_binding_uses_in_node(typed, resolved, registration_scope, node)?;
+        register_deferred_outer_binding_uses_in_node(
+            typed,
+            resolved,
+            registration_scope,
+            captured_symbols,
+            node,
+        )?;
     }
     Ok(())
 }
@@ -2241,6 +2269,7 @@ fn register_deferred_outer_binding_uses_in_node(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
     registration_scope: ScopeId,
+    captured_symbols: &std::collections::BTreeSet<fol_resolver::SymbolId>,
     node: &AstNode,
 ) -> Result<(), TypecheckError> {
     if let AstNode::Identifier {
@@ -2280,6 +2309,51 @@ fn register_deferred_outer_binding_uses_in_node(
             let origin = origin_for(resolved, *syntax_id).ok_or_else(|| {
                 internal_error("dfr/edf identifier use lost its syntax origin", None)
             })?;
+            // §2.3: every routine-local outer binding a delayed block uses must
+            // be declared in its capture list. Module-level values and routine
+            // names are not captures.
+            let is_local_binding = resolved
+                .symbol(symbol)
+                .map(|resolved_symbol| {
+                    matches!(
+                        resolved_symbol.kind,
+                        fol_resolver::SymbolKind::ValueBinding
+                            | fol_resolver::SymbolKind::LabelBinding
+                            | fol_resolver::SymbolKind::DestructureBinding
+                            | fol_resolver::SymbolKind::Parameter
+                            | fol_resolver::SymbolKind::Capture
+                            | fol_resolver::SymbolKind::LoopBinder
+                            | fol_resolver::SymbolKind::RollingBinder
+                    ) && nearest_routine_scope(resolved, resolved_symbol.scope).is_some()
+                })
+                .unwrap_or(false);
+            // Channel bindings are not value captures: endpoint acquisition
+            // inside dfr/edf is governed (and rejected) by channel analysis.
+            let is_channel_binding = typed
+                .typed_symbol(symbol)
+                .and_then(|typed_symbol| typed_symbol.declared_type)
+                .and_then(|type_id| typed.type_table().get(type_id))
+                .is_some_and(|checked| {
+                    matches!(
+                        checked,
+                        CheckedType::Channel { .. }
+                            | CheckedType::ChannelSender { .. }
+                            | CheckedType::ChannelReceiver { .. }
+                    )
+                });
+            if is_local_binding && !is_channel_binding && !captured_symbols.contains(&symbol) {
+                let name = resolved
+                    .symbol(symbol)
+                    .map(|resolved_symbol| resolved_symbol.name.clone())
+                    .unwrap_or_default();
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::Ownership,
+                    format!(
+                        "'{name}' is used inside this dfr/edf block but is not declared in its capture list; declare it as '{name}[bor]', '{name}[mov]', '{name}[cpy]', or '{name}[cln]'"
+                    ),
+                    origin,
+                ));
+            }
             typed.register_deferred_binding_use(
                 symbol,
                 crate::model::DeferredBindingUse {
@@ -2291,7 +2365,13 @@ fn register_deferred_outer_binding_uses_in_node(
     }
 
     for child in node.children() {
-        register_deferred_outer_binding_uses_in_node(typed, resolved, registration_scope, child)?;
+        register_deferred_outer_binding_uses_in_node(
+            typed,
+            resolved,
+            registration_scope,
+            captured_symbols,
+            child,
+        )?;
     }
     Ok(())
 }

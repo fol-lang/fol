@@ -262,6 +262,13 @@ pub(crate) const V3_MEM_M2_FAILURES: &[V3FailureExample] = &[
         false
     ),
     v3_failure!(
+        "examples/fail_mem_dfr_capture_undeclared_m2",
+        "O1001",
+        "is not declared in its capture list",
+        false,
+        false
+    ),
+    v3_failure!(
         "examples/fail_mem_copy_moveonly_m2",
         "O1001",
         "'[cpy]' requires the 'copy' capability",

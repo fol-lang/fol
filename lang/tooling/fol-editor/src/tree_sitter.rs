@@ -1228,7 +1228,7 @@ mod tests {
         assert!(corpus.iter().any(|case| {
             case.name == "v3_deferred"
                 && case.source.contains("dfr {")
-                && case.source.contains("edf {")
+                && case.source.contains("edf[seen[bor]] {")
         }));
         assert!(corpus.iter().any(|case| {
             case.name == "v3_lexical_boundaries"

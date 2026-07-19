@@ -159,7 +159,7 @@ fn owned_bindings_drop_at_lexical_exit_after_defers_and_moves() {
          fun[] main(): int = {\n\
              {\n\
                  @var retained: Item = { value = 1 };\n\
-                 dfr { var seen: int = retained.value; };\n\
+                 dfr[retained[bor]] { var seen: int = retained.value; };\n\
              };\n\
              {\n\
                  @var moved: Item = { value = 2 };\n\

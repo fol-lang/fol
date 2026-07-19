@@ -305,7 +305,7 @@ fn dfr_and_edf_reserve_referenced_move_only_outer_bindings() {
             "typ Item: rec = {{ value: int }};\n\
              fun[] main(): int / int = {{\n\
                  @var owned: Item = {{ value = 7 }};\n\
-                 {deferred} {{ var observed: int = owned.value; }};\n\
+                 {deferred}[owned[bor]] {{ var observed: int = owned.value; }};\n\
                  @var moved: Item = [mov]owned;\n\
                  return moved.value;\n\
              }};\n"
@@ -365,7 +365,7 @@ fn deferred_owner_reservations_end_after_the_registration_scope_exits() {
          fun[] main(): int = {\n\
              @var owned: Item = { value = 7 };\n\
              {\n\
-                 dfr { var observed: int = owned.value; };\n\
+                 dfr[owned[bor]] { var observed: int = owned.value; };\n\
              };\n\
              @var moved: Item = [mov]owned;\n\
              return moved.value;\n\
