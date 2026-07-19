@@ -1001,6 +1001,33 @@ fn routine_signature_for_symbol(
     let type_id = super::helpers::apparent_type_id(typed, type_id)?;
     match typed.type_table().get(type_id) {
         Some(CheckedType::Routine(signature)) => {
+            // Imported signatures are translated without their generic
+            // parameter list, so a generic routine crossing the package
+            // boundary cannot be instantiated here; without this guard the
+            // call types as a bare 'T' and the caller gets a baffling
+            // mismatch instead of the boundary.
+            if resolved
+                .symbol(symbol_id)
+                .is_some_and(|symbol| symbol.mounted_from.is_some())
+                && signature_mentions_generic_param(typed, signature)
+            {
+                let name = resolved
+                    .symbol(symbol_id)
+                    .map(|symbol| symbol.name.clone())
+                    .unwrap_or_else(|| format!("symbol {}", symbol_id.0));
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "imported routine '{name}' is generic; cross-package generic instantiation is not supported yet — export a non-generic wrapper and call that instead"
+                    ),
+                    origin.unwrap_or(SyntaxOrigin {
+                        file: None,
+                        line: 1,
+                        column: 1,
+                        length: 1,
+                    }),
+                ));
+            }
             let mut signature = signature.clone();
             signature.param_defaults = typed
                 .typed_symbol(symbol_id)
@@ -2870,4 +2897,18 @@ pub(crate) fn symbol_type(
         ),
         fallback_origin,
     ))
+}
+
+/// Whether any part of a routine signature still names a generic parameter.
+/// Used to fence off imported generic routines, whose translated signatures
+/// carry the parameter types but not the generic parameter list needed to
+/// instantiate them.
+fn signature_mentions_generic_param(typed: &TypedProgram, signature: &RoutineType) -> bool {
+    signature
+        .params
+        .iter()
+        .copied()
+        .chain(signature.return_type)
+        .chain(signature.error_type)
+        .any(|type_id| crate::decls::checked_type_contains_generic_param(typed, type_id))
 }

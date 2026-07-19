@@ -1913,3 +1913,46 @@ fn declaration_signature_lowering_allows_cross_file_named_type_references_in_rou
         })
     );
 }
+
+#[test]
+fn imported_generic_routines_reject_with_the_wrapper_hint() {
+    // Imported signatures drop their generic parameter list, so instantiation
+    // is impossible; the call must stop with the boundary instead of leaking
+    // a bare 'T' mismatch to the caller.
+    let root = unique_temp_dir("workspace_imported_generic_routine");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] wrap(T)(value: T): T = { return [mov]value; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = { return shared::wrap(41); };\n",
+                ),
+            ),
+        ],
+    );
+
+    let result = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    match result {
+        Err(errors) => assert!(
+            errors.iter().any(|error| error
+                .message()
+                .contains("cross-package generic instantiation is not supported yet")),
+            "imported generic call should carry the wrapper hint: {errors:?}"
+        ),
+        Ok(_) => panic!("imported generic call must not typecheck"),
+    }
+}
