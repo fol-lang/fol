@@ -546,3 +546,35 @@ fn captured_closures_are_callable_inside_closure_bodies() {
     assert_successful_stdout(&root, "4\n");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn else_less_if_guards_fall_through_and_terminate() {
+    // A bare `if` guard desugars to a `when` with an EMPTY synthesized
+    // default arm; that arm yields no value, so the when must lower as a
+    // statement. The pre-fix router classified it as value-producing and
+    // lowering died with L1002 on every else-less early-return/report guard.
+    let root = write_hosted_app(
+        "v3_if_guard_fallthrough",
+        "use std: pkg = {\"std\"};\n\
+             fun[] pick(flag: int): int = {\n\
+             \x20   if (flag > 0) {\n\
+             \x20       return 1;\n\
+             \x20   }\n\
+             \x20   return 7;\n\
+             };\n\
+             fun[] risky(flag: int): int / int = {\n\
+             \x20   if (flag > 0) {\n\
+             \x20       report 99;\n\
+             \x20   }\n\
+             \x20   return 8;\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   std::io::echo_int(pick(1));\n\
+             \x20   std::io::echo_int(pick(0));\n\
+             \x20   std::io::echo_int(risky(1) || 3);\n\
+             \x20   return std::io::echo_int(risky(0) || 3);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "1\n7\n3\n8\n");
+    std::fs::remove_dir_all(root).ok();
+}

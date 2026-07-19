@@ -54,11 +54,17 @@ fn body_ends_with_statement(
     typed_package: &fol_typecheck::TypedPackage,
     nodes: &[AstNode],
 ) -> bool {
-    nodes
+    match nodes
         .iter()
         .rev()
         .find(|node| !matches!(node, AstNode::Comment { .. }))
-        .is_some_and(|node| node_is_nonterminating_statement(typed_package, node))
+    {
+        // An empty continuing arm (e.g. the synthesized default of an
+        // else-less `if`) yields no value, so the `when` can only lower as a
+        // statement.
+        None => true,
+        Some(node) => node_is_nonterminating_statement(typed_package, node),
+    }
 }
 
 fn node_is_nonterminating_statement(
