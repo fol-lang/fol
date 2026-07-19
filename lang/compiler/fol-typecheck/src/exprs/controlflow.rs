@@ -431,6 +431,7 @@ pub(crate) fn type_loop(
                 inside_error_deferred_block: context.inside_error_deferred_block,
                 field_projection_root: false,
                 direct_spawn_anonymous: false,
+                direct_binding_anonymous: false,
             };
             if let Some(condition) = condition.as_deref() {
                 let guard_raw = type_node(typed, resolved, loop_context, condition)?;

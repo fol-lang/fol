@@ -74,6 +74,22 @@ pub(crate) fn type_binding_initializer(
             binding_origin.clone(),
         )?;
     }
+    // An anonymous routine that is the whole initializer becomes a local,
+    // nonescaping closure binding; only there may its captures borrow (§5.3).
+    let initializer_is_anonymous = value
+        .map(super::helpers::strip_comments)
+        .is_some_and(|node| {
+            matches!(
+                node,
+                AstNode::AnonymousFun { .. }
+                    | AstNode::AnonymousPro { .. }
+                    | AstNode::AnonymousLog { .. }
+            )
+        });
+    let initializer_context = TypeContext {
+        direct_binding_anonymous: initializer_is_anonymous,
+        ..context
+    };
     let initializer_expr = value
         .map(|value| {
             let typed_value = if borrowing {
@@ -83,7 +99,13 @@ pub(crate) fn type_binding_initializer(
             };
             typed_value
                 .unwrap_or_else(|| {
-                    type_node_with_expectation(typed, resolved, context, value, declared_type)
+                    type_node_with_expectation(
+                        typed,
+                        resolved,
+                        initializer_context,
+                        value,
+                        declared_type,
+                    )
                 })
                 .map_err(|error| {
                     binding_origin
@@ -93,6 +115,25 @@ pub(crate) fn type_binding_initializer(
                 })
         })
         .transpose()?;
+
+    // Remember which local bindings are closures holding borrowed captures;
+    // the transfer boundaries reject those symbols from escaping (§5.3).
+    if initializer_is_anonymous {
+        let holds_borrowed_capture =
+            value
+                .map(super::helpers::strip_comments)
+                .is_some_and(|node| match node {
+                    AstNode::AnonymousFun { captures, .. }
+                    | AstNode::AnonymousPro { captures, .. }
+                    | AstNode::AnonymousLog { captures, .. } => captures.iter().any(|capture| {
+                        capture.operation == Some(fol_parser::ast::OwnershipOption::Borrow)
+                    }),
+                    _ => false,
+                });
+        if holds_borrowed_capture {
+            typed.mark_bor_env_closure(symbol_id);
+        }
+    }
 
     match (declared_type, initializer_expr) {
         (Some(expected), Some(actual_expr)) => {
@@ -1059,6 +1100,43 @@ pub(crate) fn reject_untagged_owned_transfer(
     actual: crate::CheckedTypeId,
     describe: &str,
 ) -> Result<(), TypecheckError> {
+    // §5.3: a closure whose environment holds loans is a local, nonescaping
+    // value — it cannot be returned, passed, stored, or rebound. Every such
+    // egress boundary routes through this helper with a bare identifier.
+    if let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = super::helpers::strip_comments(value)
+    {
+        let escaping_closure = resolved
+            .references
+            .iter()
+            .find(|reference| {
+                reference.syntax_id == Some(*syntax_id)
+                    && reference.kind == fol_resolver::ReferenceKind::Identifier
+            })
+            .and_then(|reference| reference.resolved)
+            .filter(|symbol| typed.is_bor_env_closure(*symbol));
+        if let Some(symbol) = escaping_closure {
+            let name = resolved
+                .symbol(symbol)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("<unknown>");
+            let message = format!(
+                "closure '{name}' holds borrowed captures and cannot escape its scope; call it locally, or capture with '[cpy]' or '[cln]'"
+            );
+            return Err(node_origin(resolved, value).map_or_else(
+                || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::Ownership,
+                        message.clone(),
+                        origin,
+                    )
+                },
+            ));
+        }
+    }
     if matches!(
         super::helpers::strip_comments(value),
         AstNode::Identifier { .. }

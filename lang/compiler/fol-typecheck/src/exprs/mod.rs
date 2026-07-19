@@ -66,6 +66,11 @@ pub(crate) struct TypeContext {
     /// value-position captures build a callable-many-times closure environment
     /// with stricter rules.
     pub(crate) direct_spawn_anonymous: bool,
+    /// True only while typing an anonymous routine that is the whole
+    /// initializer of a local binding. Borrowed closure captures are legal
+    /// only there: the closure is a local, nonescaping value whose loans are
+    /// tied to the enclosing scope (V3_MEM section 5.3).
+    pub(crate) direct_binding_anonymous: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -149,6 +154,7 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
             inside_error_deferred_block: false,
             field_projection_root: false,
             direct_spawn_anonymous: false,
+            direct_binding_anonymous: false,
         };
         for item in &source_unit.items {
             if let Err(error) = type_node(typed, &resolved, context, &item.node) {
@@ -595,6 +601,14 @@ fn validate_processor_boundary_type(
         Some(
             "values containing shared Rc pointers cannot cross a spawn or async thread boundary; use mux[T] data that contains only thread-safe values",
         )
+    } else if matches!(
+        typed.type_table().get(type_id),
+        Some(CheckedType::Routine(_))
+    ) {
+        // Routine values are single-thread `Rc<dyn Fn>` closures.
+        Some(
+            "a routine value cannot cross a spawn or async thread boundary; spawn a named routine directly",
+        )
     } else {
         None
     };
@@ -896,6 +910,7 @@ fn type_node_with_expectation_inner(
                 inside_error_deferred_block: false,
                 field_projection_root: false,
                 direct_spawn_anonymous: false,
+                direct_binding_anonymous: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -1234,15 +1249,15 @@ fn type_node_with_expectation_inner(
                         capture_type
                     }
                     (None, Some(OwnershipOption::Borrow)) => {
-                        if value_position {
-                            // A routine value's lifetime is unknown without an
-                            // environment lifetime (§5.3), so a loan cannot
-                            // escape into one.
+                        if value_position && !context.direct_binding_anonymous {
+                            // Without an environment lifetime (§5.3) a loan
+                            // may enter a routine value only when that value
+                            // is a local, nonescaping binding.
                             return Err(unsupported_node_surface(
                                 resolved,
                                 node,
                                 format!(
-                                    "borrowed capture '{}[bor]' cannot escape into a routine value; use '{}[cpy]' or '{}[cln]'",
+                                    "borrowed capture '{}[bor]' cannot escape into a routine value here; bind the routine to a local first, or use '{}[cpy]' or '{}[cln]'",
                                     capture.name, capture.name, capture.name
                                 ),
                             ));
@@ -1276,6 +1291,11 @@ fn type_node_with_expectation_inner(
                                 crate::model::TaskBorrow {
                                     scope: context.scope_id,
                                     origin,
+                                    kind: if value_position {
+                                        crate::model::TaskBorrowKind::LocalClosure
+                                    } else {
+                                        crate::model::TaskBorrowKind::SpawnTask
+                                    },
                                 },
                             );
                         }
@@ -1343,6 +1363,7 @@ fn type_node_with_expectation_inner(
                 inside_error_deferred_block: false,
                 field_projection_root: false,
                 direct_spawn_anonymous: false,
+                direct_binding_anonymous: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -1450,7 +1471,8 @@ fn type_node_with_expectation_inner(
                         .map(|symbol| symbol.name.as_str())
                         .unwrap_or("<unknown>");
                     let message = format!(
-                        "cannot assign to '{name}' while a spawned task borrows it; the loan ends when the scope joins its tasks"
+                        "cannot assign to '{name}' while {} borrows it; the loan ends when the scope exits",
+                        task_borrow.kind.describe()
                     );
                     return Err(node_origin(resolved, target)
                         .map_or_else(
@@ -1465,6 +1487,29 @@ fn type_node_with_expectation_inner(
                         )
                         .with_related_origin(task_borrow.origin, "task borrow created here"));
                 }
+            }
+            // §5.3: a borrowed-environment closure cannot be rebound through
+            // assignment either.
+            if let Some(symbol) = assignment_root_symbol(resolved, value)
+                .filter(|symbol| typed.is_bor_env_closure(*symbol))
+            {
+                let name = resolved
+                    .symbol(symbol)
+                    .map(|symbol| symbol.name.as_str())
+                    .unwrap_or("<unknown>");
+                let message = format!(
+                    "closure '{name}' holds borrowed captures and cannot escape its scope; call it locally, or capture with '[cpy]' or '[cln]'"
+                );
+                return Err(node_origin(resolved, value).map_or_else(
+                    || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                    |origin| {
+                        TypecheckError::with_origin(
+                            TypecheckErrorKind::Ownership,
+                            message.clone(),
+                            origin,
+                        )
+                    },
+                ));
             }
             if context.inside_deferred_block {
                 if let Some(symbol) =

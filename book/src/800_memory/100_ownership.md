@@ -339,7 +339,13 @@ var first: int = adder(12);
 source live. `[mov]` transfers a clone-safe value and invalidates the outer
 binding; moving a move-only value into a routine value is rejected because the
 closure may run more than once — spawn the routine directly when the value
-should transfer into exactly one execution. Borrowed and channel-endpoint
-captures do not escape into routine values
-(`examples/mem_closure_capture_m2` and
-`examples/fail_mem_closure_move_only_m2` pin the contract).
+should transfer into exactly one execution.
+
+A local, nonescaping closure may also borrow: `[bor]` captures infer their
+lifetime as the enclosing scope. The owner stays readable but is frozen — no
+mutation, no transfer — while the closure can still run, and the closure value
+itself cannot escape that scope: returning it, passing it to a call, storing
+it, or rebinding it is rejected. Channel-endpoint captures never enter routine
+values (`examples/mem_closure_capture_m2`, `examples/mem_closure_borrow_m2`,
+`examples/fail_mem_closure_move_only_m2`, and
+`examples/fail_mem_closure_escape_m2` pin the contract).

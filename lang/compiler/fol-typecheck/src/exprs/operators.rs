@@ -890,7 +890,8 @@ pub(crate) fn type_ownership_op(
                         return Err(TypecheckError::with_origin(
                             TypecheckErrorKind::Ownership,
                             format!(
-                                "cannot move '{name}' while a spawned task borrows it; the loan ends when the scope joins its tasks"
+                                "cannot move '{name}' while {} borrows it; the loan ends when the scope exits",
+                                task_borrow.kind.describe()
                             ),
                             origin,
                         )

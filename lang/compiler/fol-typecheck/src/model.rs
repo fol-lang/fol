@@ -169,13 +169,30 @@ pub(crate) struct DeferredBindingUse {
     pub(crate) origin: SyntaxOrigin,
 }
 
-/// A shared loan a spawned scoped task holds on an outer binding
-/// (`[>]fun()[state[bor]] = ...`). The owner stays readable but cannot be
-/// mutated or moved until the registering scope exits and joins its tasks.
+/// A shared loan held on an outer binding by a spawned scoped task
+/// (`[>]fun()[state[bor]] = ...`) or by a local closure value
+/// (`var f = fun()[state[bor]] ...`). The owner stays readable but cannot be
+/// mutated or moved until the registering scope exits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TaskBorrow {
     pub(crate) scope: ScopeId,
     pub(crate) origin: SyntaxOrigin,
+    pub(crate) kind: TaskBorrowKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskBorrowKind {
+    SpawnTask,
+    LocalClosure,
+}
+
+impl TaskBorrowKind {
+    pub(crate) fn describe(self) -> &'static str {
+        match self {
+            Self::SpawnTask => "a spawned task",
+            Self::LocalClosure => "a local closure",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,6 +284,7 @@ pub struct TypedProgram {
     active_mutex_guards: BTreeMap<SymbolId, ActiveMutexGuard>,
     deferred_binding_uses: BTreeMap<SymbolId, Vec<DeferredBindingUse>>,
     task_borrowed_bindings: BTreeMap<SymbolId, Vec<TaskBorrow>>,
+    bor_env_closures: BTreeSet<SymbolId>,
     deferred_transfer_conflict: Option<DeferredTransferConflict>,
     /// Compiler-owned capability standards (`copy`/`clone`/`fin`/`send`/`share`)
     /// claimed by each type declaration via its conformance list. Structural
@@ -652,6 +670,17 @@ impl TypedProgram {
         if !borrows.contains(&task_borrow) {
             borrows.push(task_borrow);
         }
+    }
+
+    /// Mark `symbol` as a closure value holding borrowed captures; such a
+    /// value cannot escape the scope its loans are tied to (V3_MEM section
+    /// 5.3 local nonescaping closures).
+    pub(crate) fn mark_bor_env_closure(&mut self, symbol: SymbolId) {
+        self.bor_env_closures.insert(symbol);
+    }
+
+    pub(crate) fn is_bor_env_closure(&self, symbol: SymbolId) -> bool {
+        self.bor_env_closures.contains(&symbol)
     }
 
     pub(crate) fn first_task_borrow(&self, symbol: SymbolId) -> Option<&TaskBorrow> {
@@ -1076,6 +1105,7 @@ impl TypedProgram {
             active_mutex_guards: BTreeMap::new(),
             deferred_binding_uses: BTreeMap::new(),
             task_borrowed_bindings: BTreeMap::new(),
+            bor_env_closures: BTreeSet::new(),
             deferred_transfer_conflict: None,
             capability_claims: BTreeMap::new(),
             generic_capability_constraints: BTreeMap::new(),

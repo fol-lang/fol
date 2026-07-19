@@ -112,6 +112,7 @@ fn lower_record_field_layout(
                 inside_error_deferred_block: false,
                 field_projection_root: false,
                 direct_spawn_anonymous: false,
+                direct_binding_anonymous: false,
             };
             let typed_default = crate::exprs::type_node_with_expectation(
                 typed,
