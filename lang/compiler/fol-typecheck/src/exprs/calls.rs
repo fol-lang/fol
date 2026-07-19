@@ -996,6 +996,9 @@ fn routine_signature_for_symbol(
 ) -> Result<RoutineType, TypecheckError> {
     use crate::CheckedType;
     let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
+    // Peel alias/apparent wrappers so a routine value declared through a type
+    // alias (`ali Cb: {fun (n: int): int}`) stays callable.
+    let type_id = super::helpers::apparent_type_id(typed, type_id)?;
     match typed.type_table().get(type_id) {
         Some(CheckedType::Routine(signature)) => {
             let mut signature = signature.clone();

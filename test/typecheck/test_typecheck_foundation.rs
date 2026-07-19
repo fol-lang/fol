@@ -796,8 +796,8 @@ fn expression_typing_keeps_final_routine_body_expression_types() {
 fn expression_typing_accepts_assignments_with_matching_types() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "var total: int = 1;\n\
-         fun[] demo(): int = {\n\
+        "fun[] demo(): int = {\n\
+             var total: int = 1;\n\
              total = 2;\n\
              return total;\n\
          };\n",
@@ -815,11 +815,33 @@ fn expression_typing_accepts_assignments_with_matching_types() {
 }
 
 #[test]
-fn expression_typing_rejects_assignments_with_mismatched_value_types() {
+fn module_level_bindings_reject_assignment() {
+    // Plan section 5.3: module/global values are immutable static values;
+    // shared mutable state goes through mux[T].
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "var total: int = 1;\n\
          fun[] demo(): int = {\n\
+             total = 2;\n\
+             return total;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error
+                .message()
+                .contains("module-level binding 'total' is immutable")
+        }),
+        "Expected the module-level assignment rejection, got: {errors:?}"
+    );
+}
+
+#[test]
+fn expression_typing_rejects_assignments_with_mismatched_value_types() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] demo(): int = {\n\
+             var total: int = 1;\n\
              total = \"bad\";\n\
              return total;\n\
          };\n",

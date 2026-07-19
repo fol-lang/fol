@@ -298,6 +298,26 @@ fn move_only_pointer_result_crosses_an_eventual() {
 }
 
 #[test]
+fn global_constants_read_their_declared_initializers() {
+    // Globals lazily materialized through their DECLARED initializer; the
+    // pre-fix OnceLock initialized from the type default, so `con LIMIT: int
+    // = 9` silently read 0 and `con` globals rendered as mutable.
+    let root = write_hosted_app(
+        "v3_global_initializers",
+        "use std: pkg = {\"std\"};\n\
+             typ Counter: rec = { total: int };\n\
+             con LIMIT: int = 4;\n\
+             con BASE: Counter = { total = 9 };\n\
+             fun[] main(): int = {\n\
+             \x20   std::io::echo_int(LIMIT);\n\
+             \x20   return std::io::echo_int([cpy]BASE.total);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "4\n9\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn destructuring_binds_positional_elements() {
     // `var a, b = { x, y }` destructures positionally (book unpacking); the
     // pre-fix parser broadcast the whole container into every binding.

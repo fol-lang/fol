@@ -1927,8 +1927,22 @@ fn check_standard_conformance(
                     let candidates = typed
                         .all_typed_symbols()
                         .filter(|symbol| {
+                            // A standard requirement is satisfied by a method on
+                            // the conforming type regardless of its receiver
+                            // ownership: `fun (T[bor])size()` and
+                            // `pro (T[mut, bor])clear()` are the canonical V3
+                            // method forms and must count alongside `(T)`.
+                            let receiver_matches =
+                                symbol.receiver_type.is_some_and(|declared_receiver| {
+                                    declared_receiver == receiver_type
+                                        || matches!(
+                                            typed.type_table().get(declared_receiver),
+                                            Some(CheckedType::Borrowed { inner, .. })
+                                                if *inner == receiver_type
+                                        )
+                                });
                             symbol.kind == SymbolKind::Routine
-                                && symbol.receiver_type == Some(receiver_type)
+                                && receiver_matches
                                 && resolved.symbol(symbol.symbol_id).is_some_and(
                                     |resolved_symbol| resolved_symbol.name == requirement.name,
                                 )

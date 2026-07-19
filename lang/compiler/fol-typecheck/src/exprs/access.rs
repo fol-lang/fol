@@ -171,6 +171,42 @@ pub(crate) fn type_field_access(
         ));
     }
     let resolved_type = apparent_type_id(typed, object_type)?;
+    // A record TYPE reference is not a value: `Point.x` must reject at the
+    // checker rather than surfacing as a lowering failure. Entries stay
+    // accessible as `Type.MEMBER` — their members are the type's constants.
+    if matches!(
+        typed.type_table().get(resolved_type),
+        Some(CheckedType::Record { .. })
+    ) {
+        if let AstNode::Identifier {
+            syntax_id: Some(object_syntax),
+            name,
+        } = strip_comments(object)
+        {
+            let names_type_symbol = resolved
+                .references
+                .iter()
+                .find(|reference| reference.syntax_id == Some(*object_syntax))
+                .and_then(|reference| reference.resolved)
+                .and_then(|symbol| resolved.symbol(symbol))
+                .is_some_and(|symbol| {
+                    matches!(
+                        symbol.kind,
+                        fol_resolver::SymbolKind::Type | fol_resolver::SymbolKind::Alias
+                    )
+                });
+            if names_type_symbol {
+                return Err(with_node_origin(
+                    resolved,
+                    object,
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "'{name}' names a record type, not a value; field access '.{field}' requires an instance"
+                    ),
+                ));
+            }
+        }
+    }
     match typed.type_table().get(resolved_type) {
         Some(CheckedType::Record { fields }) => fields
             .get(field)

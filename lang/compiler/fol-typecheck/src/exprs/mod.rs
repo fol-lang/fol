@@ -1489,6 +1489,36 @@ fn type_node_with_expectation_inner(
                         .with_related_origin(task_borrow.origin, "task borrow created here"));
                 }
             }
+            // §5.3: module-level values are immutable static values; shared
+            // mutable state goes through `mux[T]`.
+            if let Some(symbol) = assignment_root_symbol(resolved, target) {
+                let module_level = resolved.symbol(symbol).is_some_and(|resolved_symbol| {
+                    matches!(
+                        resolved_symbol.kind,
+                        fol_resolver::SymbolKind::ValueBinding
+                            | fol_resolver::SymbolKind::LabelBinding
+                    ) && nearest_routine_scope(resolved, resolved_symbol.scope).is_none()
+                });
+                if module_level {
+                    let name = resolved
+                        .symbol(symbol)
+                        .map(|resolved_symbol| resolved_symbol.name.as_str())
+                        .unwrap_or("<unknown>");
+                    let message = format!(
+                        "module-level binding '{name}' is immutable; use mux[T] for shared mutable state"
+                    );
+                    return Err(node_origin(resolved, target).map_or_else(
+                        || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                        |origin| {
+                            TypecheckError::with_origin(
+                                TypecheckErrorKind::Ownership,
+                                message.clone(),
+                                origin,
+                            )
+                        },
+                    ));
+                }
+            }
             // §5.3: a borrowed-environment closure cannot be rebound through
             // assignment either.
             if let Some(symbol) = assignment_root_symbol(resolved, value)
