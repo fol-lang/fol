@@ -91,12 +91,14 @@ Positive:
 - `examples/mem_place_borrow_m2`
 - `examples/mem_edf_m2`
 - `examples/mem_dfr_capture_m2`
+- `examples/mem_closure_capture_m2`
 
 Negative:
 
 - `examples/fail_mem_deferred_report_m2`
 - `examples/fail_mem_dfr_capture_bare_m2`
 - `examples/fail_mem_dfr_capture_undeclared_m2`
+- `examples/fail_mem_closure_move_only_m2`
 - `examples/fail_mem_copy_moveonly_m2`
 - `examples/fail_mem_copy_record_field_m2`
 - `examples/fail_mem_send_field_m2`

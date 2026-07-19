@@ -180,7 +180,12 @@ pub fn render_rust_type_in_workspace(
                 ),
                 (None, _) => String::new(),
             };
-            Ok(format!("fn({rendered_params}){return_section}"))
+            // Routine values are environment-capable closures: a shared handle
+            // to a callable. A plain named-routine reference wraps its fn item;
+            // an anonymous routine with captures wraps a real closure.
+            Ok(format!(
+                "std::rc::Rc<dyn Fn({rendered_params}){return_section}>"
+            ))
         }
     }
 }
@@ -341,12 +346,17 @@ fn aggregate_derives(
             has_weak = true;
         }
     }
-    let mut derives = vec!["Debug", "Clone"];
-    // A `Weak<T>` field (`std::rc::Weak`/`std::sync::Weak`) implements neither
-    // `PartialEq` nor `Eq`, so an aggregate holding one cannot derive equality.
-    if !has_weak {
+    // A routine field is an `Rc<dyn Fn>` closure handle, which implements
+    // neither `Debug` nor `PartialEq`; a `Weak<T>` field implements neither
+    // `PartialEq` nor `Eq`.
+    let mut derives = vec![];
+    if !has_routine {
+        derives.push("Debug");
+    }
+    derives.push("Clone");
+    if !has_weak && !has_routine {
         derives.push("PartialEq");
-        if !has_float && !has_routine {
+        if !has_float {
             derives.push("Eq");
         }
     }
@@ -1103,15 +1113,15 @@ mod tests {
 
         assert_eq!(
             render_rust_type(&table, plain_fn_id),
-            Ok("fn(rt::FolInt, rt_model::FolStr) -> rt::FolBool".to_string())
+            Ok("std::rc::Rc<dyn Fn(rt::FolInt, rt_model::FolStr) -> rt::FolBool>".to_string())
         );
         assert_eq!(
             render_rust_type(&table, void_fn_id),
-            Ok("fn(rt::FolInt)".to_string())
+            Ok("std::rc::Rc<dyn Fn(rt::FolInt)>".to_string())
         );
         assert_eq!(
             render_rust_type(&table, recoverable_fn_id),
-            Ok("fn() -> rt::FolRecover<rt::FolInt, rt_model::FolStr>".to_string())
+            Ok("std::rc::Rc<dyn Fn() -> rt::FolRecover<rt::FolInt, rt_model::FolStr>>".to_string())
         );
     }
 }

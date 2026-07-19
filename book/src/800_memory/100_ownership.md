@@ -321,3 +321,25 @@ rule is scoped to a trailing method call — a plain place chain keeps the
 operation over the place, so `[mov]bundle.held` still moves the `held` subfield
 rather than `bundle`. The same grouping applies to the bracket unary operations,
 so `[drf]pointer.method()` dereferences `pointer` and then calls the method.
+
+## Closure captures
+
+An anonymous routine used as a first-class value declares how outer locals
+enter its environment with the same capture list delayed blocks use. The
+routine value's type is its visible call signature; the environment re-supplies
+the captured values on every invocation:
+
+```fol
+var base: int = 30;
+var adder: {fun (n: int): int} = fun(n: int)[base[cpy]]: int = { return n + base; };
+var first: int = adder(12);
+```
+
+`[cpy]` and `[cln]` duplicate the outer value into the environment, leaving the
+source live. `[mov]` transfers a clone-safe value and invalidates the outer
+binding; moving a move-only value into a routine value is rejected because the
+closure may run more than once — spawn the routine directly when the value
+should transfer into exactly one execution. Borrowed and channel-endpoint
+captures do not escape into routine values
+(`examples/mem_closure_capture_m2` and
+`examples/fail_mem_closure_move_only_m2` pin the contract).

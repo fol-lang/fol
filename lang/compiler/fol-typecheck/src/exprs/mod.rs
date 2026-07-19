@@ -61,6 +61,11 @@ pub(crate) struct TypeContext {
     /// surviving field, so the whole-value "partially moved" rejection is
     /// suppressed here and enforced only for genuine whole-value reads.
     pub(crate) field_projection_root: bool,
+    /// True only while typing an anonymous routine that is the direct task of
+    /// a spawn. Direct-spawn captures thread as one-shot task arguments;
+    /// value-position captures build a callable-many-times closure environment
+    /// with stricter rules.
+    pub(crate) direct_spawn_anonymous: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -143,6 +148,7 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
             inside_deferred_block: false,
             inside_error_deferred_block: false,
             field_projection_root: false,
+            direct_spawn_anonymous: false,
         };
         for item in &source_unit.items {
             if let Err(error) = type_node(typed, &resolved, context, &item.node) {
@@ -784,6 +790,12 @@ fn type_node_with_expectation_inner(
                 TypeContext {
                     error_call_mode: ErrorCallMode::Observe,
                     processor_task_call: processor_call_syntax_id(task),
+                    direct_spawn_anonymous: matches!(
+                        helpers::strip_comments(task),
+                        AstNode::AnonymousFun { .. }
+                            | AstNode::AnonymousPro { .. }
+                            | AstNode::AnonymousLog { .. }
+                    ),
                     ..context
                 },
                 task,
@@ -883,6 +895,7 @@ fn type_node_with_expectation_inner(
                 inside_deferred_block: false,
                 inside_error_deferred_block: false,
                 field_projection_root: false,
+                direct_spawn_anonymous: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -1004,7 +1017,23 @@ fn type_node_with_expectation_inner(
                 .and_then(|id| resolved.scope_for_syntax(id))
                 .unwrap_or(context.scope_id);
             let mut lowered_params = Vec::with_capacity(captures.len() + params.len());
+            // A directly spawned anonymous routine runs exactly once, so its
+            // captures thread as one-shot task arguments. In value position the
+            // routine becomes a callable-many-times closure whose environment
+            // is cloned per call — endpoint captures and move-only transfers
+            // cannot satisfy that contract.
+            let value_position = !context.direct_spawn_anonymous;
             for capture in captures {
+                if value_position && capture.endpoint.is_some() {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        format!(
+                            "channel endpoint capture '{}' requires a directly spawned task; a routine value cannot own a live endpoint",
+                            capture.name
+                        ),
+                    ));
+                }
                 if matches!(capture.endpoint, Some(ChannelEndpoint::Rx)) {
                     return Err(unsupported_node_surface(
                         resolved,
@@ -1103,11 +1132,29 @@ fn type_node_with_expectation_inner(
                         // Owned move capture: the whole value crosses the spawn
                         // boundary, so it must be thread-safe (V3_PROC "owned
                         // captures require send").
-                        if helpers::type_contains_shared_pointer(typed, capture_type) {
+                        if !value_position
+                            && helpers::type_contains_shared_pointer(typed, capture_type)
+                        {
                             return Err(capture_spawn_send_error(
                                 resolved,
                                 node,
                                 &format!("moved capture '{}[mov]'", capture.name),
+                            ));
+                        }
+                        // A closure environment re-materializes its values on
+                        // every call, so a move-only value cannot be moved into
+                        // a routine value that may run more than once.
+                        if value_position
+                            && bindings::ownership_moves_on_transfer(typed, capture_type)
+                        {
+                            return Err(with_node_origin(
+                                resolved,
+                                node,
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "moved capture '{}[mov]' cannot place a move-only value in a routine value that may run more than once; spawn the routine directly or capture with '{}[cln]' after claiming 'clone'",
+                                    capture.name, capture.name
+                                ),
                             ));
                         }
                         // §2.2 capture transfer boundary: `[mov]` consumes the
@@ -1132,7 +1179,9 @@ fn type_node_with_expectation_inner(
                                 ),
                             ));
                         }
-                        if helpers::type_contains_shared_pointer(typed, capture_type) {
+                        if !value_position
+                            && helpers::type_contains_shared_pointer(typed, capture_type)
+                        {
                             return Err(capture_spawn_send_error(
                                 resolved,
                                 node,
@@ -1172,7 +1221,9 @@ fn type_node_with_expectation_inner(
                                 ),
                             ));
                         }
-                        if helpers::type_contains_shared_pointer(typed, capture_type) {
+                        if !value_position
+                            && helpers::type_contains_shared_pointer(typed, capture_type)
+                        {
                             return Err(capture_spawn_send_error(
                                 resolved,
                                 node,
@@ -1256,6 +1307,7 @@ fn type_node_with_expectation_inner(
                 inside_deferred_block: false,
                 inside_error_deferred_block: false,
                 field_projection_root: false,
+                direct_spawn_anonymous: false,
             };
             type_routine_param_defaults(typed, resolved, routine_context, params)?;
             let body_type = type_body(typed, resolved, routine_context, body)?;
@@ -1295,23 +1347,25 @@ fn type_node_with_expectation_inner(
                     });
                 }
             }
+            // The expression's type is the VISIBLE signature: captures belong
+            // to the routine's environment, not its call contract. The lowered
+            // internal routine still threads captures as leading parameters.
+            let visible_params = lowered_params[captures.len()..].to_vec();
             let routine_type_id =
                 typed
                     .type_table_mut()
                     .intern(CheckedType::Routine(RoutineType {
                         generic_params: Vec::new(),
                         generic_constraints: BTreeMap::new(),
-                        param_names: vec![String::new(); lowered_params.len()],
-                        param_defaults: vec![None; lowered_params.len()],
+                        param_names: vec![String::new(); visible_params.len()],
+                        param_defaults: vec![None; visible_params.len()],
                         variadic_index: params.iter().position(|param| param.is_variadic),
                         mutex_params: params
                             .iter()
                             .enumerate()
-                            .filter_map(|(index, param)| {
-                                param.is_mutex.then_some(captures.len() + index)
-                            })
+                            .filter_map(|(index, param)| param.is_mutex.then_some(index))
                             .collect(),
-                        params: lowered_params,
+                        params: visible_params,
                         return_type: expected_return_type,
                         error_type: expected_error_type,
                     }));

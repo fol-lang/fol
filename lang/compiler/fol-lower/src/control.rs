@@ -270,6 +270,14 @@ pub enum LoweredInstrKind {
     RoutineRef {
         routine: LoweredRoutineId,
     },
+    /// A first-class routine value with a captured environment: wraps
+    /// `routine` (whose leading parameters are the captures) together with the
+    /// materialized `env` values into a callable that re-supplies them on
+    /// every invocation.
+    ClosureRef {
+        routine: LoweredRoutineId,
+        env: Vec<LoweredLocalId>,
+    },
     CallIndirect {
         callee: LoweredLocalId,
         args: Vec<LoweredLocalId>,

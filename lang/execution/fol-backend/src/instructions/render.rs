@@ -916,21 +916,69 @@ pub fn render_core_instruction_in_workspace(
                 ));
             }
             let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;
-            let callee_signature = callee_decl.signature.ok_or_else(|| {
+            // The result local is declared with the routine's `Rc<dyn Fn>`
+            // type, so wrapping the fn item unsize-coerces on assignment.
+            Ok(format!("{result} = std::rc::Rc::new({callee_name});"))
+        }
+        LoweredInstrKind::ClosureRef {
+            routine: callee,
+            env,
+        } => {
+            let result = rendered_result_local(package_identity, routine, instruction)?;
+            let (callee_identity, callee_decl) = resolve_routine_decl(workspace, *callee)?;
+            let callee_name = render_routine_path(workspace, callee_identity, callee_decl)?;
+            let signature_id = callee_decl.signature.ok_or_else(|| {
                 BackendError::new(
                     BackendErrorKind::InvalidInput,
                     format!(
-                        "routine '{}' is missing a lowered signature",
+                        "closure routine '{}' is missing a lowered signature",
                         callee_decl.name
                     ),
                 )
             })?;
-            let fn_type = crate::types::render_rust_type_in_workspace(
-                workspace,
-                type_table,
-                callee_signature,
-            )?;
-            Ok(format!("{result} = {callee_name} as {fn_type};"))
+            let Some(fol_lower::LoweredType::Routine(signature)) = type_table.get(signature_id)
+            else {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!(
+                        "closure routine '{}' signature is not a routine type",
+                        callee_decl.name
+                    ),
+                ));
+            };
+            let env_names = env
+                .iter()
+                .map(|local_id| render_local_name(package_identity, routine, *local_id))
+                .collect::<BackendResult<Vec<_>>>()?;
+            let visible_params = signature.params.get(env.len()..).ok_or_else(|| {
+                BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!(
+                        "closure routine '{}' has fewer parameters than captured values",
+                        callee_decl.name
+                    ),
+                )
+            })?;
+            let closure_params = visible_params
+                .iter()
+                .enumerate()
+                .map(|(index, type_id)| {
+                    crate::types::render_rust_type_in_workspace(workspace, type_table, *type_id)
+                        .map(|rendered| format!("__p{index}: {rendered}"))
+                })
+                .collect::<BackendResult<Vec<_>>>()?
+                .join(", ");
+            // The environment values move into the closure and are re-cloned
+            // on every invocation, matching FOL's per-call value semantics.
+            let call_args = env_names
+                .iter()
+                .map(|name| format!("{name}.clone()"))
+                .chain((0..visible_params.len()).map(|index| format!("__p{index}")))
+                .collect::<Vec<_>>()
+                .join(", ");
+            Ok(format!(
+                "{result} = std::rc::Rc::new(move |{closure_params}| {callee_name}({call_args}));"
+            ))
         }
         LoweredInstrKind::CallIndirect {
             callee,
@@ -946,9 +994,11 @@ pub fn render_core_instruction_in_workspace(
             match instruction.result {
                 Some(_) => {
                     let result = rendered_result_local(package_identity, routine, instruction)?;
-                    Ok(format!("{result} = {callee_name}({rendered_args});"))
+                    Ok(format!(
+                        "{result} = ({callee_name}.as_ref())({rendered_args});"
+                    ))
                 }
-                None => Ok(format!("{callee_name}({rendered_args});")),
+                None => Ok(format!("({callee_name}.as_ref())({rendered_args});")),
             }
         }
     }

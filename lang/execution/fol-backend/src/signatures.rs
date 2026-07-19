@@ -562,7 +562,7 @@ fn render_local_declaration(
                 _ => String::new(),
             };
             format!(
-                "{{ fn __fol_uninit({}){return_clause} {{ unreachable!(\"uninitialized function pointer\") }} __fol_uninit as {rendered_type} }}",
+                "{{ fn __fol_uninit({}){return_clause} {{ unreachable!(\"uninitialized routine value\") }} std::rc::Rc::new(__fol_uninit) }}",
                 dummy_params.join(", ")
             )
         }
@@ -961,7 +961,7 @@ mod tests {
             .expect("routine shell with fn pointer");
 
         assert!(rendered.contains("l__pkg__entry__app__r5__l0__callback"));
-        assert!(rendered.contains("unreachable!(\"uninitialized function pointer\")"));
+        assert!(rendered.contains("unreachable!(\"uninitialized routine value\")"));
         assert!(rendered.contains("__fol_uninit"));
     }
 }

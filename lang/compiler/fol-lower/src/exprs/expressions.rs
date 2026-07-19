@@ -1665,6 +1665,7 @@ fn lower_expression_observed_inner(
             return_type.as_ref(),
             error_type.as_ref(),
             body,
+            false,
         ),
         // Parsed surfaces that remain outside the shipped lowering contract.
         AstNode::TemplateCall { .. } => Err(LoweringError::with_kind(
@@ -1959,6 +1960,149 @@ pub(crate) fn direct_local_identifier_value(
     })
 }
 
+/// Pre-intern the FULL internal signature (captures + params) of every
+/// anonymous routine that declares captures. The expression's checked type is
+/// the visible call signature only, so the internal leading-parameter
+/// signature never reaches the lowered type table through checked-type
+/// translation; `lower_anonymous_routine` then finds it here. Resolution
+/// failures are skipped: only checker-approved programs reach lowering, and
+/// the body-lowering pass reports its own precise errors.
+pub(crate) fn pre_intern_anonymous_capture_signatures(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &mut crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+) {
+    fn visit(
+        typed_package: &fol_typecheck::TypedPackage,
+        type_table: &mut crate::LoweredTypeTable,
+        checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+        source_unit_id: SourceUnitId,
+        node: &AstNode,
+    ) {
+        if let AstNode::AnonymousFun {
+            syntax_id,
+            captures,
+            params,
+            return_type,
+            error_type,
+            ..
+        }
+        | AstNode::AnonymousPro {
+            syntax_id,
+            captures,
+            params,
+            return_type,
+            error_type,
+            ..
+        }
+        | AstNode::AnonymousLog {
+            syntax_id,
+            captures,
+            params,
+            return_type,
+            error_type,
+            ..
+        } = node
+        {
+            if !captures.is_empty() {
+                let routine_scope_id = syntax_id
+                    .and_then(|sid| typed_package.program.resolved().scope_for_syntax(sid));
+                let mut lowered_params = Vec::with_capacity(captures.len() + params.len());
+                let mut complete = true;
+                for capture in captures {
+                    let capture_type = routine_scope_id
+                        .and_then(|scope_id| {
+                            crate::decls::find_symbol_in_scope_or_descendants(
+                                &typed_package.program,
+                                source_unit_id,
+                                scope_id,
+                                SymbolKind::Capture,
+                                &capture.name,
+                            )
+                        })
+                        .and_then(|symbol| typed_package.program.typed_symbol(symbol))
+                        .and_then(|symbol| symbol.declared_type)
+                        .and_then(|checked| checked_type_map.get(&checked).copied());
+                    match capture_type {
+                        Some(type_id) => lowered_params.push(type_id),
+                        None => {
+                            complete = false;
+                            break;
+                        }
+                    }
+                }
+                if complete {
+                    for param in params {
+                        match resolve_fol_type_to_lowered(
+                            typed_package,
+                            checked_type_map,
+                            &param.param_type,
+                        ) {
+                            Ok(type_id) => lowered_params.push(type_id),
+                            Err(_) => {
+                                complete = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                let lowered_return_type = match return_type {
+                    None | Some(FolType::None) => Ok(None),
+                    Some(ty) => {
+                        resolve_fol_type_to_lowered(typed_package, checked_type_map, ty).map(Some)
+                    }
+                };
+                let lowered_error_type = match error_type {
+                    None | Some(FolType::None) => Ok(None),
+                    Some(ty) => {
+                        resolve_fol_type_to_lowered(typed_package, checked_type_map, ty).map(Some)
+                    }
+                };
+                if let (true, Ok(return_type), Ok(error_type)) =
+                    (complete, lowered_return_type, lowered_error_type)
+                {
+                    type_table.intern(crate::LoweredType::Routine(crate::LoweredRoutineType {
+                        params: lowered_params,
+                        return_type,
+                        error_type,
+                    }));
+                }
+            }
+        }
+        for child in node.children() {
+            visit(
+                typed_package,
+                type_table,
+                checked_type_map,
+                source_unit_id,
+                child,
+            );
+        }
+    }
+
+    for (source_unit_index, source_unit) in typed_package
+        .program
+        .resolved()
+        .syntax()
+        .source_units
+        .iter()
+        .enumerate()
+    {
+        if source_unit.kind == fol_parser::ast::ParsedSourceUnitKind::Build {
+            continue;
+        }
+        for item in &source_unit.items {
+            visit(
+                typed_package,
+                type_table,
+                checked_type_map,
+                SourceUnitId(source_unit_index),
+                &item.node,
+            );
+        }
+    }
+}
+
 fn resolve_fol_type_to_lowered(
     typed_package: &fol_typecheck::TypedPackage,
     checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
@@ -2105,6 +2249,7 @@ pub(crate) fn lower_anonymous_routine(
     return_type: Option<&FolType>,
     error_type: Option<&FolType>,
     body: &[AstNode],
+    spawn_position: bool,
 ) -> Result<LoweredValue, LoweringError> {
     // Resolve parameter types
     let routine_scope_id =
@@ -2269,6 +2414,70 @@ pub(crate) fn lower_anonymous_routine(
 
     cursor.anonymous_routines.extend(nested_anon);
     cursor.anonymous_routines.push(anon_routine);
+
+    if !spawn_position && !captures.is_empty() {
+        // Value position: materialize the environment now and wrap the
+        // internal routine into a closure value whose visible type excludes
+        // the captures. Endpoint captures are typecheck-rejected here, so
+        // every capture is a plain value materialization.
+        let mut env_locals = Vec::with_capacity(captures.len());
+        for (capture, (_, capture_type, capture_name)) in
+            captures.iter().zip(capture_lowered_types.iter())
+        {
+            let outer_local = cursor
+                .routine
+                .local_symbols
+                .iter()
+                .find_map(|(symbol_id, local_id)| {
+                    typed_package
+                        .program
+                        .resolved()
+                        .symbol(*symbol_id)
+                        .is_some_and(|symbol| symbol.name == capture.name)
+                        .then_some(*local_id)
+                })
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("closure capture '{capture_name}' does not retain an outer local",),
+                    )
+                })?;
+            let env_local = cursor.allocate_local(*capture_type, None);
+            cursor.push_instr(
+                Some(env_local),
+                LoweredInstrKind::LoadLocal { local: outer_local },
+            )?;
+            env_locals.push(env_local);
+        }
+        // The visible call signature (captures excluded) is the checked type
+        // of the anonymous expression, so its lowered translation is already
+        // interned.
+        let visible_type = type_table
+            .find(&LoweredType::Routine(crate::LoweredRoutineType {
+                params: param_lowered_types[captures.len()..].to_vec(),
+                return_type: lowered_return_type,
+                error_type: lowered_error_type,
+            }))
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "anonymous closure did not retain its visible routine type",
+                )
+            })?;
+        let result_local = cursor.allocate_local(visible_type, None);
+        cursor.push_instr(
+            Some(result_local),
+            LoweredInstrKind::ClosureRef {
+                routine: routine_id,
+                env: env_locals,
+            },
+        )?;
+        return Ok(LoweredValue {
+            local_id: result_local,
+            type_id: visible_type,
+            recoverable_error_type: None,
+        });
+    }
 
     // Emit RoutineRef instruction in the current routine
     let result_local = cursor.allocate_local(signature_type_id, None);

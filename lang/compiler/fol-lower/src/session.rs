@@ -87,6 +87,11 @@ impl LoweringSession {
                     .map(|lowered_type_id| (checked_type_id, lowered_type_id))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
+            exprs::pre_intern_anonymous_capture_signatures(
+                package,
+                &mut type_table,
+                &lowered.checked_type_map,
+            );
             decls::lower_routine_signatures(package, &mut lowered)?;
             decls::lower_alias_declarations(package, &mut lowered)?;
             decls::lower_record_declarations(package, &mut lowered)?;

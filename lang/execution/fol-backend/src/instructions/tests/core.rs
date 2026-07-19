@@ -958,7 +958,7 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
 
     assert!(rendered.contains("l__pkg__entry__app__r10__l0__fptr"));
     assert!(rendered.contains("r__pkg__entry__app__r11__target"));
-    assert!(rendered.contains(" as "));
+    assert!(rendered.contains("std::rc::Rc::new("));
 
     let mutex_ref = LoweredInstr {
         id: LoweredInstrId(21),
@@ -1022,7 +1022,7 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
 
     assert_eq!(
         rendered,
-        "l__pkg__entry__app__r12__l2__out = l__pkg__entry__app__r12__l0__callback(l__pkg__entry__app__r12__l1__arg);"
+        "l__pkg__entry__app__r12__l2__out = (l__pkg__entry__app__r12__l0__callback.as_ref())(l__pkg__entry__app__r12__l1__arg);"
     );
 
     let void_indirect = LoweredInstr {
@@ -1040,6 +1040,6 @@ fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
 
     assert_eq!(
         void_rendered,
-        "l__pkg__entry__app__r12__l0__callback(l__pkg__entry__app__r12__l1__arg);"
+        "(l__pkg__entry__app__r12__l0__callback.as_ref())(l__pkg__entry__app__r12__l1__arg);"
     );
 }

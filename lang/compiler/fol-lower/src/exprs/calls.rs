@@ -1148,6 +1148,7 @@ pub(crate) fn lower_spawn_call(
             return_type.as_ref(),
             error_type.as_ref(),
             body,
+            true,
         )?;
         let anonymous_routine = cursor
             .routine

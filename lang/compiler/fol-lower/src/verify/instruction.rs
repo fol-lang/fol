@@ -595,6 +595,29 @@ pub(super) fn verify_instruction(
                 ));
             }
         }
+        crate::LoweredInstrKind::ClosureRef {
+            routine: callee,
+            env,
+        } => {
+            if !valid_routine_ids.contains(callee) {
+                errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' references missing closure routine {}",
+                        routine.name, callee.0
+                    ),
+                ));
+            }
+            for (index, local) in env.iter().enumerate() {
+                verify_local_reference(
+                    routine,
+                    instr.id.0,
+                    &format!("closure env {index}"),
+                    *local,
+                    errors,
+                );
+            }
+        }
         crate::LoweredInstrKind::CallIndirect {
             callee,
             args,

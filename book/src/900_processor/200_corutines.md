@@ -36,10 +36,12 @@ The call form must resolve directly to a named routine declaration. Both an
 unqualified call such as `[>]worker()` and a qualified call such as
 `[>]workers::worker()` are supported. Stored routine values, stored anonymous
 routines, and routine parameters remain indirect calls and are not spawn
-targets in `V3`. The explicit zero-parameter anonymous spawn form remains
-available for explicit channel sender-endpoint captures; it is not a general
-closure-capture surface. Receiver-method call syntax is not a named
-spawn-target form; use a free routine name or qualified path instead.
+targets in `V3`. The explicit zero-parameter anonymous spawn form carries an
+explicit capture list: channel sender endpoints (`c[tx]`) and value operations
+(`data[mov]`, `amount[cpy]`, `record[cln]`) thread their captures into the
+task; borrowed captures cannot cross the spawn boundary. Receiver-method call
+syntax is not a named spawn-target form; use a free routine name or qualified
+path instead.
 
 The spawn boundary follows the `V3` memory rules:
 

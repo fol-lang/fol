@@ -4,6 +4,7 @@ mod calls;
 mod containers;
 mod cursor;
 mod expressions;
+pub(crate) use expressions::pre_intern_anonymous_capture_signatures;
 mod flow;
 mod helpers;
 

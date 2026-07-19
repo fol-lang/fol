@@ -76,6 +76,7 @@ pub(crate) const V3_MEM_M2_POSITIVES: &[V3PositiveExample] = &[
     ("examples/mem_place_borrow_m2", None),
     ("examples/mem_edf_m2", Some("1\n1\n2\n")),
     ("examples/mem_dfr_capture_m2", Some("42\n")),
+    ("examples/mem_closure_capture_m2", Some("42\n30\n30\n")),
 ];
 
 pub(crate) const V3_MEM_M3_POSITIVES: &[V3PositiveExample] = &[
@@ -265,6 +266,13 @@ pub(crate) const V3_MEM_M2_FAILURES: &[V3FailureExample] = &[
         "examples/fail_mem_dfr_capture_undeclared_m2",
         "O1001",
         "is not declared in its capture list",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_closure_move_only_m2",
+        "O1001",
+        "cannot place a move-only value in a routine value",
         false,
         false
     ),
@@ -840,6 +848,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/mem_place_borrow_m2", "part", 2, Some(9)),
     ("examples/mem_edf_m2", "probe", 2, Some(2)),
     ("examples/mem_dfr_capture_m2", "seen", 3, Some(11)),
+    ("examples/mem_closure_capture_m2", "base", 4, Some(9)),
     ("examples/mem_ptr_unique_m3", "outer", 2, Some(3)),
     ("examples/mem_ptr_shared_m3", "first", 2, Some(2)),
     ("examples/mem_ptr_weak_m3", "strong", 2, Some(6)),
