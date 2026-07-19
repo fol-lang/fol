@@ -76,6 +76,7 @@ pub(crate) const V3_MEM_M2_POSITIVES: &[V3PositiveExample] = &[
     ("examples/mem_place_borrow_m2", None),
     ("examples/mem_edf_m2", Some("1\n1\n2\n")),
     ("examples/mem_dfr_capture_m2", Some("42\n")),
+    ("examples/mem_dfr_capture_mut_m2", Some("5\n42\n")),
     ("examples/mem_closure_capture_m2", Some("42\n30\n30\n")),
     ("examples/mem_closure_borrow_m2", Some("42\n30\n30\n")),
     ("examples/mem_closure_env_lifetime_m2", Some("42\n30\n")),
@@ -262,6 +263,13 @@ pub(crate) const V3_MEM_M2_FAILURES: &[V3FailureExample] = &[
         "examples/fail_mem_dfr_capture_bare_m2",
         "T1002",
         "must state its operation",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_dfr_capture_bor_mutation_m2",
+        "O1001",
+        "read-only loan",
         false,
         false
     ),
@@ -893,6 +901,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/mem_place_borrow_m2", "part", 2, Some(9)),
     ("examples/mem_edf_m2", "probe", 2, Some(2)),
     ("examples/mem_dfr_capture_m2", "seen", 3, Some(11)),
+    ("examples/mem_dfr_capture_mut_m2", "total", 5, Some(7)),
     ("examples/mem_closure_capture_m2", "base", 4, Some(8)),
     ("examples/mem_closure_borrow_m2", "base", 4, Some(7)),
     ("examples/mem_closure_env_lifetime_m2", "base", 4, Some(11)),

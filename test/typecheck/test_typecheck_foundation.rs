@@ -208,6 +208,44 @@ fn dfr_capture_lists_validate_and_apply_their_operations() {
 }
 
 #[test]
+fn dfr_composite_mutable_captures_gate_assignment_through_the_loan() {
+    // §2.3: a `[bor]` capture is a read-only loan; assigning through it needs
+    // the composite `[mut, bor]` spelling.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var[mut] total: int = 5;\n\
+             dfr[total[bor]] { total = total + 1; };\n\
+             return total;\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("read-only loan")),
+        "assignment through a [bor] capture should reject: {errors:?}"
+    );
+
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var[mut] total: int = 5;\n\
+             dfr[total[mut, bor]] { total = total + 1; };\n\
+             return total;\n\
+         };\n",
+    )]);
+    let syntax_id = find_named_routine_syntax_id(&typed, "main");
+    assert!(
+        typed.typed_node(syntax_id).is_some(),
+        "Expected the [mut, bor] dfr capture to typecheck cleanly",
+    );
+
+    // `mut` composing with anything but `bor` is rejected at parse time
+    // ("'mut' composes only with 'bor' in a capture bracket"), before this
+    // harness runs; the parser guard is exercised by the fail example.
+}
+
+#[test]
 fn dfr_blocks_reject_break() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",

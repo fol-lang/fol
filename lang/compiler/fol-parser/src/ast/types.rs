@@ -403,6 +403,9 @@ pub struct RoutineCapture {
     /// channel-endpoint capture (`c[tx]`) leaves this `None` and uses
     /// `endpoint` instead; the two are mutually exclusive.
     pub operation: Option<OwnershipOption>,
+    /// True for the composite `[mut, bor]` capture: a mutable loan of the
+    /// outer binding. Only legal together with `operation == Borrow`.
+    pub mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

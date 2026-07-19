@@ -409,9 +409,16 @@ module.exports = grammar({
     routine_capture_list: $ => seq('[', optional(commaSep($.routine_capture)), ']'),
     routine_capture: $ => seq(
       field('binding', $.identifier),
-      optional(seq('[', field('endpoint', choice(
-        'tx', 'rx', 'mov', 'move', 'cpy', 'copy', 'cln', 'clone', 'bor', 'borrow',
-      )), ']')),
+      optional(seq(
+        '[',
+        // The composite `[mut, bor]` capture takes a mutable loan; `mut`
+        // composes only with `bor` (enforced by the compiler parser).
+        optional(seq(field('mutability', 'mut'), ',')),
+        field('endpoint', choice(
+          'tx', 'rx', 'mov', 'move', 'cpy', 'copy', 'cln', 'clone', 'bor', 'borrow',
+        )),
+        ']',
+      )),
     ),
     routine_body_expr: $ => choice(prec(1, $.block), prec.right(1, seq('=>', choice(prec(1, $.block), $.stmt)))),
     call_expr: $ => prec.left(3, seq(

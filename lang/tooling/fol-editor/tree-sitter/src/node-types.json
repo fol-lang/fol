@@ -2564,6 +2564,16 @@
             "named": false
           }
         ]
+      },
+      "mutability": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "mut",
+            "named": false
+          }
+        ]
       }
     }
   },

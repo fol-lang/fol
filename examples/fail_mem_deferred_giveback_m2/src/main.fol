@@ -3,7 +3,7 @@ typ Item: rec = { value: int };
 fun[] main(): int = {
     var[mut] owner: Item = { value = 7 };
     var[mut, bor] edit: Item = [bor]owner;
-    dfr[edit[bor]] { edit.value = 9; };
+    dfr[edit[mut, bor]] { edit.value = 9; };
     [end]edit;
     var seen: int = owner.value;
     return seen;

@@ -63,13 +63,42 @@ impl AstParser {
             let _ = tokens.bump();
 
             self.skip_ignorable(tokens)?;
-            let (endpoint, operation) = if matches!(
+            let (endpoint, operation, mutable) = if matches!(
                 tokens.curr(false).map(|token| token.key()),
                 Ok(KEYWORD::Symbol(SYMBOL::SquarO))
             ) {
                 let _ = tokens.bump();
                 self.skip_ignorable(tokens)?;
-                let inner_token = tokens.curr(false)?;
+                let mut inner_token = tokens.curr(false)?;
+                // The composite `[mut, bor]` capture takes a mutable loan;
+                // `mut` composes only with `bor`.
+                let mutable = matches!(
+                    Self::token_to_named_label(&inner_token).as_deref(),
+                    Some("mut")
+                );
+                if mutable {
+                    let _ = tokens.bump();
+                    self.skip_ignorable(tokens)?;
+                    let separator = tokens.curr(false)?;
+                    if !matches!(separator.key(), KEYWORD::Symbol(SYMBOL::Comma)) {
+                        return Err(ParseError::from_token(
+                            &separator,
+                            "Expected ',' after 'mut' in capture bracket".to_string(),
+                        ));
+                    }
+                    let _ = tokens.bump();
+                    self.skip_ignorable(tokens)?;
+                    inner_token = tokens.curr(false)?;
+                    if !matches!(
+                        Self::token_to_named_label(&inner_token).as_deref(),
+                        Some("bor" | "borrow")
+                    ) {
+                        return Err(ParseError::from_token(
+                            &inner_token,
+                            "'mut' composes only with 'bor' in a capture bracket".to_string(),
+                        ));
+                    }
+                }
                 // The capture bracket carries either a channel endpoint
                 // (`c[tx]` / `c[rx]`) or a value-capture ownership operation
                 // (`data[mov]` / `data[cpy]`); the two are mutually exclusive.
@@ -99,15 +128,16 @@ impl AstParser {
                     ));
                 }
                 let _ = tokens.bump();
-                (endpoint, operation)
+                (endpoint, operation, mutable)
             } else {
-                (None, None)
+                (None, None, false)
             };
             captures.push(RoutineCapture {
                 name,
                 syntax_id,
                 endpoint,
                 operation,
+                mutable,
             });
 
             self.skip_ignorable(tokens)?;

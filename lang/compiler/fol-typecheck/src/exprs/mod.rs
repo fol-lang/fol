@@ -1815,8 +1815,11 @@ fn type_node_with_expectation_inner(
                 },
                 body,
             )?;
-            let captured_symbols =
-                apply_deferred_captures(typed, resolved, context, node, captures)?;
+            let captured_modes = apply_deferred_captures(typed, resolved, context, node, captures)?;
+            let captured_symbols = captured_modes
+                .keys()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
             register_deferred_outer_binding_uses(
                 typed,
                 resolved,
@@ -1824,6 +1827,9 @@ fn type_node_with_expectation_inner(
                 &captured_symbols,
                 body,
             )?;
+            // §2.3: a `[bor]` capture is a shared, read-only loan; assigning
+            // through it (whole or field) needs the composite `[mut, bor]`.
+            reject_immutable_capture_mutations(resolved, &captured_modes, body)?;
             Ok(TypedExpr::none())
         }
         AstNode::Yield { .. } => Err(TypecheckError::new(
@@ -2050,6 +2056,71 @@ fn type_node_with_expectation_inner(
 /// Check whether an AST body contains at least one `return` statement (non-recursive into nested routines).
 fn body_contains_return(nodes: &[AstNode]) -> bool {
     nodes.iter().any(node_contains_return)
+}
+
+/// §2.3: inside a dfr/edf body, assignment through a captured binding is only
+/// legal when the capture is the composite `[mut, bor]` mutable loan; a plain
+/// `[bor]` capture is a shared, read-only loan. Nested routines and nested
+/// deferred blocks carry their own capture lists, so the scan stops at them.
+fn reject_immutable_capture_mutations(
+    resolved: &ResolvedProgram,
+    captured_modes: &std::collections::BTreeMap<SymbolId, bool>,
+    body: &[AstNode],
+) -> Result<(), TypecheckError> {
+    fn scan(
+        resolved: &ResolvedProgram,
+        captured_modes: &std::collections::BTreeMap<SymbolId, bool>,
+        node: &AstNode,
+    ) -> Result<(), TypecheckError> {
+        match helpers::strip_comments(node) {
+            AstNode::FunDecl { .. }
+            | AstNode::ProDecl { .. }
+            | AstNode::LogDecl { .. }
+            | AstNode::AnonymousFun { .. }
+            | AstNode::AnonymousPro { .. }
+            | AstNode::AnonymousLog { .. }
+            | AstNode::Dfr { .. }
+            | AstNode::Edf { .. } => Ok(()),
+            stripped => {
+                if let AstNode::Assignment { target, .. } = stripped {
+                    if let Some(symbol) = assignment_root_symbol(resolved, target) {
+                        if captured_modes.get(&symbol) == Some(&false) {
+                            let name = resolved
+                                .symbol(symbol)
+                                .map(|symbol| symbol.name.clone())
+                                .unwrap_or_else(|| "<binding>".to_string());
+                            let message = format!(
+                                "captured '{name}[bor]' is a read-only loan; capture it '{name}[mut, bor]' to assign through it"
+                            );
+                            return Err(node_origin(resolved, stripped).map_or_else(
+                                || {
+                                    TypecheckError::new(
+                                        TypecheckErrorKind::Ownership,
+                                        message.clone(),
+                                    )
+                                },
+                                |origin| {
+                                    TypecheckError::with_origin(
+                                        TypecheckErrorKind::Ownership,
+                                        message.clone(),
+                                        origin,
+                                    )
+                                },
+                            ));
+                        }
+                    }
+                }
+                for child in stripped.children() {
+                    scan(resolved, captured_modes, child)?;
+                }
+                Ok(())
+            }
+        }
+    }
+    for node in body {
+        scan(resolved, captured_modes, node)?;
+    }
+    Ok(())
 }
 
 fn whole_binding_assignment_symbol(
@@ -2466,10 +2537,10 @@ fn apply_deferred_captures(
     context: TypeContext,
     node: &AstNode,
     captures: &[fol_parser::ast::RoutineCapture],
-) -> Result<std::collections::BTreeSet<fol_resolver::SymbolId>, TypecheckError> {
+) -> Result<std::collections::BTreeMap<fol_resolver::SymbolId, bool>, TypecheckError> {
     use fol_parser::ast::OwnershipOption;
 
-    let mut captured_symbols = std::collections::BTreeSet::new();
+    let mut captured_symbols = std::collections::BTreeMap::new();
     for capture in captures {
         if capture.endpoint.is_some() {
             return Err(unsupported_node_surface(
@@ -2477,6 +2548,16 @@ fn apply_deferred_captures(
                 node,
                 format!(
                     "a dfr/edf capture cannot name a channel endpoint; state a value operation such as '{}[bor]'",
+                    capture.name
+                ),
+            ));
+        }
+        if capture.mutable && capture.operation != Some(OwnershipOption::Borrow) {
+            return Err(unsupported_node_surface(
+                resolved,
+                node,
+                format!(
+                    "'mut' composes only with 'bor'; write '{}[mut, bor]' for a mutable loan",
                     capture.name
                 ),
             ));
@@ -2517,7 +2598,10 @@ fn apply_deferred_captures(
                 ),
             )
         })?;
-        captured_symbols.insert(outer_symbol);
+        // Owner assignability for a `[mut, bor]` capture is enforced by the
+        // ordinary assignment rule when the body types (`var[imu]`/`con`
+        // owners reject there); the capture itself only records the mode.
+        captured_symbols.insert(outer_symbol, capture.mutable);
         let capture_type = typed
             .typed_symbol(outer_symbol)
             .and_then(|symbol| symbol.declared_type)

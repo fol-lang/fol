@@ -94,3 +94,59 @@ fun[] deferred(fail: bol): int / int = {
                       (expr
                         (expr_atom
                           (integer_literal))))))))))))))
+
+================================================================================
+dfr composite mutable borrow capture
+================================================================================
+
+fun[] main(): int = {
+    var[mut] total: int = 5;
+    dfr[total[mut, bor]] { total = total + 1; };
+    return total;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (var_decl
+            (decl_modifiers
+              (modifier_list
+                (identifier)))
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (integer_literal)))))
+        (stmt
+          (dfr_stmt
+            (routine_capture_list
+              (routine_capture
+                (identifier)))
+            (block
+              (stmt
+                (assignment_stmt
+                  (identifier)
+                  (expr
+                    (binary_expr
+                      (expr_atom
+                        (identifier))
+                      (expr
+                        (expr_atom
+                          (integer_literal))))))))))
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (identifier)))))))))

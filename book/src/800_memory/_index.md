@@ -88,6 +88,7 @@ Positive:
 - `examples/mem_place_borrow_m2`
 - `examples/mem_edf_m2`
 - `examples/mem_dfr_capture_m2`
+- `examples/mem_dfr_capture_mut_m2`
 - `examples/mem_closure_capture_m2`
 - `examples/mem_closure_borrow_m2`
 - `examples/mem_closure_env_lifetime_m2`
@@ -96,6 +97,7 @@ Negative:
 
 - `examples/fail_mem_deferred_report_m2`
 - `examples/fail_mem_dfr_capture_bare_m2`
+- `examples/fail_mem_dfr_capture_bor_mutation_m2`
 - `examples/fail_mem_dfr_capture_undeclared_m2`
 - `examples/fail_mem_closure_move_only_m2`
 - `examples/fail_mem_closure_escape_m2`
