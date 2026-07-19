@@ -1211,11 +1211,15 @@ fn lower_named_routine_signature(
     // lifetime (`evt[L, T]` with a declared `L: lif`); the elided `evt[T]`
     // form is local-declaration shorthand only.
     if let Some(FolType::Eventual { lifetime, .. }) = return_type {
+        let routine_origin = syntax_id.and_then(|id| resolved.syntax_index().origin(id).cloned());
         match lifetime {
             None => {
-                return Err(TypecheckError::new(
-                    TypecheckErrorKind::Ownership,
-                    "an eventual returned from a routine must name its parent-scope lifetime; declare 'L: lif' and spell the return type 'evt[L, T]'",
+                let message = "an eventual returned from a routine must name its parent-scope lifetime; declare 'L: lif' and spell the return type 'evt[L, T]'";
+                return Err(routine_origin.map_or_else(
+                    || TypecheckError::new(TypecheckErrorKind::Ownership, message),
+                    |origin| {
+                        TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin)
+                    },
                 ));
             }
             Some(name) => {
@@ -1227,11 +1231,18 @@ fn lower_named_routine_signature(
                         })
                 });
                 if !declared_lif {
-                    return Err(TypecheckError::new(
-                        TypecheckErrorKind::Ownership,
-                        format!(
-                            "eventual lifetime '{name}' is not a declared lifetime parameter; declare '{name}: lif' in the routine's generic list"
-                        ),
+                    let message = format!(
+                        "eventual lifetime '{name}' is not a declared lifetime parameter; declare '{name}: lif' in the routine's generic list"
+                    );
+                    return Err(routine_origin.map_or_else(
+                        || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                        |origin| {
+                            TypecheckError::with_origin(
+                                TypecheckErrorKind::Ownership,
+                                message.clone(),
+                                origin,
+                            )
+                        },
                     ));
                 }
             }

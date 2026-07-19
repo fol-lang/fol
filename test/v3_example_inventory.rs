@@ -879,7 +879,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/mem_place_borrow_m2", "part", 2, Some(9)),
     ("examples/mem_edf_m2", "probe", 2, Some(2)),
     ("examples/mem_dfr_capture_m2", "seen", 3, Some(11)),
-    ("examples/mem_closure_capture_m2", "base", 4, Some(9)),
+    ("examples/mem_closure_capture_m2", "base", 4, Some(8)),
     ("examples/mem_closure_borrow_m2", "base", 4, Some(7)),
     ("examples/mem_closure_env_lifetime_m2", "base", 4, Some(11)),
     ("examples/mem_ptr_unique_m3", "outer", 2, Some(3)),
