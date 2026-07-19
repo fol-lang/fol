@@ -749,7 +749,8 @@ fn lower_entry_decl(
     })
 }
 
-pub(super) fn lower_global_decl(
+pub(super) #[allow(clippy::too_many_arguments)]
+fn lower_global_decl(
     typed_package: &fol_typecheck::TypedPackage,
     lowered_package: &LoweredPackage,
     symbol_id: SymbolId,
