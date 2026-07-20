@@ -7121,3 +7121,38 @@ fn eventual_receiver_declarations_reject_with_the_await_hint() {
         "evt receivers should reject at declaration: {errors:?}"
     );
 }
+
+#[test]
+fn eventual_types_cannot_hide_behind_names_or_routine_types() {
+    // §8.1: the parent-scope lifetime is spelled per signature; an alias,
+    // type declaration, or routine-type wrapper would smuggle a handle past
+    // the 'evt[L, T]' spelling.
+    for (surface, source, expected) in [
+        (
+            "alias",
+            "ali Pending: evt[int];\nfun[] main(): int = { return 0; };\n",
+            "cannot be aliased",
+        ),
+        (
+            "type declaration",
+            "typ Handle: evt[int];\nfun[] main(): int = { return 0; };\n",
+            "cannot be named through type declaration",
+        ),
+        (
+            "routine type parameter",
+            "fun[] apply(handler: {fun (pending: evt[int]): int}): int = {\n\
+                 return 0;\n\
+             };\n\
+             fun[] main(): int = { return 0; };\n",
+            "cannot be embedded in aggregate or wrapper types",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains(expected)),
+            "{surface} smuggling of an eventual should reject: {errors:?}"
+        );
+    }
+}

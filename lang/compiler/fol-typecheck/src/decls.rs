@@ -432,6 +432,17 @@ fn lower_top_level_declaration(
             record_symbol_generic_constraints(typed, symbol_id, generic_constraints)?;
             let type_id = match type_def {
                 TypeDefinition::Alias { target } => {
+                    // §8.1: same rule as `ali` — an eventual cannot hide
+                    // behind a type name; the lifetime is spelled per
+                    // signature.
+                    if matches!(target, FolType::Eventual { .. }) {
+                        return Err(TypecheckError::new(
+                            TypecheckErrorKind::Unsupported,
+                            format!(
+                                "an eventual type cannot be named through type declaration '{name}'; spell 'evt[L, T]' directly in each signature"
+                            ),
+                        ));
+                    }
                     lower_type(typed, resolved, type_scope, target)?
                 }
                 TypeDefinition::Record {
@@ -757,6 +768,17 @@ fn lower_top_level_declaration(
             });
         }
         AstNode::AliasDecl { name, target, .. } => {
+            // §8.1: an eventual's parent-scope lifetime is spelled at each
+            // signature; hiding `evt[...]` behind an alias would evade that
+            // spelling (and alias-typed handles cannot await anyway).
+            if matches!(target, FolType::Eventual { .. }) {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "an eventual type cannot be aliased as '{name}'; spell 'evt[L, T]' directly in each signature"
+                    ),
+                ));
+            }
             let symbol_id = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Alias], name)?;
             let symbol_scope = resolved
                 .symbol(symbol_id)

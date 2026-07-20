@@ -145,7 +145,20 @@ pub(crate) fn type_embeds_full_channel(typed: &TypedProgram, type_id: CheckedTyp
                         || embeds(typed, *value_type, false, visiting)
                         || error_type.is_some_and(|error| embeds(typed, error, false, visiting))
                 }
-                Some(CheckedType::Builtin(_)) | Some(CheckedType::Routine(_)) | None => false,
+                // A routine type is a wrapper too: a full channel or eventual
+                // in its parameters or results would ride the routine value
+                // past frame boundaries.
+                Some(CheckedType::Routine(signature)) => {
+                    let signature = signature.clone();
+                    signature
+                        .params
+                        .iter()
+                        .copied()
+                        .chain(signature.return_type)
+                        .chain(signature.error_type)
+                        .any(|part| embeds(typed, part, false, visiting))
+                }
+                Some(CheckedType::Builtin(_)) | None => false,
             }
         };
         visiting.remove(&type_id);
