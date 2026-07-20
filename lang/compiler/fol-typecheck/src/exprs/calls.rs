@@ -159,6 +159,9 @@ pub(crate) fn type_dot_intrinsic_call(
                     syntax_id,
                     expected_type,
                 )?,
+                None if terminal_intrinsic_signature(typed, entry.name).is_some() => {
+                    type_terminal_intrinsic(typed, resolved, context, entry, args, syntax_id)?
+                }
                 None => {
                     let message = if entry.availability != fol_intrinsics::IntrinsicAvailability::V1
                     {
@@ -494,6 +497,92 @@ fn type_echo_intrinsic(
     super::bindings::track_value_transfer(typed, resolved, context, Some(&args[0]), operand_type)?;
     typed.record_node_type(syntax_id, context.source_unit_id, operand_type)?;
     Ok(TypedExpr::value(operand_type).with_optional_effect(operand_expr.recoverable_effect))
+}
+
+/// Fixed (params, result) signature for a terminal/OS runtime hook, or None
+/// when the name is not one. These are the primitive layer for interactive
+/// terminal programs and are hosted-std-only like `echo`.
+fn terminal_intrinsic_signature(
+    typed: &TypedProgram,
+    name: &str,
+) -> Option<(Vec<crate::CheckedTypeId>, crate::CheckedTypeId)> {
+    let builtins = typed.builtin_types();
+    match name {
+        "write" => Some((vec![builtins.str_], builtins.str_)),
+        "read_key" => Some((Vec::new(), builtins.int)),
+        "raw_mode" => Some((vec![builtins.bool_], builtins.bool_)),
+        "sleep_ms" => Some((vec![builtins.int], builtins.int)),
+        "now_ms" => Some((Vec::new(), builtins.int)),
+        "term_cols" | "term_rows" => Some((Vec::new(), builtins.int)),
+        "int_to_str" => Some((vec![builtins.int], builtins.str_)),
+        _ => None,
+    }
+}
+
+fn type_terminal_intrinsic(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    entry: &fol_intrinsics::IntrinsicEntry,
+    args: &[AstNode],
+    syntax_id: SyntaxNodeId,
+) -> Result<TypedExpr, TypecheckError> {
+    let origin = origin_for(resolved, syntax_id);
+    let (params, result) = terminal_intrinsic_signature(typed, entry.name)
+        .expect("terminal intrinsic dispatch already matched the name");
+    if typed.capability_model() != crate::TypecheckCapabilityModel::Std {
+        let message = format!(
+            "'.{}(...)' requires hosted std support; declare build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }}) and use 'fol_model = memo' (current artifact model is '{}')",
+            entry.name,
+            typed.capability_model().as_str()
+        );
+        return Err(match origin {
+            Some(origin) => {
+                TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+            }
+            None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+        });
+    }
+    if args.len() != params.len() {
+        return Err(match origin {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                wrong_arity_message(entry, args.len()),
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                wrong_arity_message(entry, args.len()),
+            ),
+        });
+    }
+    let mut effect = None;
+    for (arg, expected) in args.iter().zip(params.iter()) {
+        let raw = type_node(typed, resolved, context, arg)?;
+        let expr = plain_value_expr(
+            typed,
+            context,
+            raw,
+            node_origin(resolved, arg),
+            "plain use of an errorful intrinsic operand",
+        )?;
+        let actual = expr.required_value("intrinsic operand does not have a type")?;
+        ensure_assignable(
+            typed,
+            *expected,
+            apparent_type_id(typed, actual)?,
+            format!("'.{}(...)'", entry.name),
+            origin.clone().or_else(|| node_origin(resolved, arg)),
+        )?;
+        effect = super::helpers::merge_recoverable_effects(
+            typed,
+            origin.clone(),
+            entry.name,
+            [effect, expr.recoverable_effect],
+        )?;
+    }
+    typed.record_node_type(syntax_id, context.source_unit_id, result)?;
+    Ok(TypedExpr::value(result).with_optional_effect(effect))
 }
 
 pub(crate) fn type_report_call(

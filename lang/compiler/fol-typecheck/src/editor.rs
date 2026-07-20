@@ -165,7 +165,19 @@ pub fn editor_intrinsic_available_in_model(
     model: TypecheckCapabilityModel,
     intrinsic: EditorIntrinsicInfo,
 ) -> bool {
-    if intrinsic.name == "echo" {
+    // `echo` and the terminal/OS hooks need the hosted std runtime.
+    if matches!(
+        intrinsic.name,
+        "echo"
+            | "write"
+            | "read_key"
+            | "raw_mode"
+            | "sleep_ms"
+            | "now_ms"
+            | "term_cols"
+            | "term_rows"
+            | "int_to_str"
+    ) {
         return editor_model_capability(model).hosted_runtime;
     }
     true

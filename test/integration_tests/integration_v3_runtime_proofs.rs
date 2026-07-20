@@ -632,3 +632,28 @@ fn lifetime_spelled_eventuals_flow_through_signatures_and_await() {
     assert_successful_stdout(&root, "42\n");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn terminal_primitives_write_convert_and_keep_time() {
+    // The TUI primitive layer: `.write` emits without a newline (two writes
+    // land on one line), `int_to_str` renders decimals, `sleep_ms` forwards
+    // its duration, and `now_ms` yields a positive epoch stamp.
+    let root = write_hosted_app(
+        "v3_terminal_primitives",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var left: str = std::io::write(\"4\");\n\
+             \x20   var right: str = std::io::write(\"2\\n\");\n\
+             \x20   var rendered: str = std::fmt::int_to_str(-137);\n\
+             \x20   var echoed: str = std::io::echo_str(rendered);\n\
+             \x20   std::io::echo_int(std::time::sleep_ms(1));\n\
+             \x20   var stamp: int = std::time::now_ms();\n\
+             \x20   if (stamp > 0) {\n\
+             \x20       std::io::echo_int(1);\n\
+             \x20   }\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "42\n-137\n1\n1\n");
+    std::fs::remove_dir_all(root).ok();
+}

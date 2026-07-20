@@ -1,0 +1,7 @@
+fun[exp] sleep_ms(ms: int): int = {
+    return .sleep_ms(ms);
+};
+
+fun[exp] now_ms(): int = {
+    return .now_ms();
+};

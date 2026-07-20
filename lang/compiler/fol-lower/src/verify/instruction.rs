@@ -268,14 +268,29 @@ pub(super) fn verify_instruction(
                     ),
                 ));
             }
-            if let Some(result) = instr.result {
-                errors.push(LoweringError::with_kind(
+            // Forwarding hooks (`echo`/`write`) return their operand and must
+            // not write a result local; the value-producing terminal hooks
+            // must write one.
+            let forwards_operand = matches!(
+                fol_intrinsics::intrinsic_by_id(*intrinsic).map(|entry| entry.name),
+                Some("echo" | "write")
+            );
+            match (forwards_operand, instr.result) {
+                (true, Some(result)) => errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
                     format!(
                         "lowered routine '{}' runtime hook instruction {} must not write result local {}",
                         routine.name, instr.id.0, result.0
                     ),
-                ));
+                )),
+                (false, None) => errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' value-producing runtime hook instruction {} must write a result local",
+                        routine.name, instr.id.0
+                    ),
+                )),
+                _ => {}
             }
             for arg in args {
                 verify_local_reference(routine, instr.id.0, "runtime hook arg", *arg, errors);

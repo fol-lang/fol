@@ -143,7 +143,7 @@
 (field_access field: (identifier) @property)
 (dot_intrinsic "." @operator)
 (dot_intrinsic name: (identifier) @function.builtin
-  (#match? @function.builtin "^(eq|nq|lt|gt|ge|le|not|len|echo)$"))
+  (#match? @function.builtin "^(eq|nq|lt|gt|ge|le|not|len|echo|write|read_key|raw_mode|sleep_ms|now_ms|term_cols|term_rows|int_to_str)$"))
 (binary_expr operator: "^" @operator)
 (range_expr ".." @operator)
 (range_expr "..." @operator)

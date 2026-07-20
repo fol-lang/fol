@@ -15,3 +15,7 @@ fun[exp] triple(value: int): int = {
 fun[exp] sum2(left: int, right: int): int = {
     return left + right;
 };
+
+fun[exp] int_to_str(value: int): str = {
+    return .int_to_str(value);
+};

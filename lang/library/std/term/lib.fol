@@ -1,0 +1,11 @@
+fun[exp] raw_mode(enable: bol): bol = {
+    return .raw_mode(enable);
+};
+
+fun[exp] cols(): int = {
+    return .term_cols();
+};
+
+fun[exp] rows(): int = {
+    return .term_rows();
+};

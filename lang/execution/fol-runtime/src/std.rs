@@ -342,6 +342,90 @@ pub fn echo<T: FolEchoFormat>(value: T) -> T {
     value
 }
 
+/// Write a string to stdout without a trailing newline and flush it — the
+/// frame-rendering primitive for terminal programs.
+pub fn write(value: FolStr) -> FolStr {
+    use std::io::Write as _;
+    print!("{}", value.as_str());
+    let _ = std::io::stdout().flush();
+    value
+}
+
+/// Block for one byte of standard input. Yields -1 at end of input so callers
+/// can end their read loop without a recoverable shell.
+pub fn read_key() -> crate::value::FolInt {
+    use std::io::Read as _;
+    let mut buffer = [0u8; 1];
+    match std::io::stdin().read(&mut buffer) {
+        Ok(1) => buffer[0] as crate::value::FolInt,
+        _ => -1,
+    }
+}
+
+/// Enable or disable terminal raw mode via `stty` on the controlling
+/// terminal; forwards the requested state (a no-op when stdin is not a tty or
+/// `stty` is unavailable).
+pub fn raw_mode(enable: bool) -> bool {
+    let mut command = std::process::Command::new("stty");
+    if enable {
+        command.args(["raw", "-echo"]);
+    } else {
+        command.arg("sane");
+    }
+    let _ = command
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    enable
+}
+
+/// Sleep the current thread for the given milliseconds; negative values are
+/// treated as zero. Forwards the requested duration.
+pub fn sleep_ms(ms: crate::value::FolInt) -> crate::value::FolInt {
+    std::thread::sleep(std::time::Duration::from_millis(ms.max(0) as u64));
+    ms
+}
+
+/// Milliseconds since the unix epoch.
+pub fn now_ms() -> crate::value::FolInt {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as crate::value::FolInt)
+        .unwrap_or(0)
+}
+
+fn term_size() -> (crate::value::FolInt, crate::value::FolInt) {
+    let probed = std::process::Command::new("stty")
+        .arg("size")
+        .stdin(std::process::Stdio::inherit())
+        .output()
+        .ok()
+        .and_then(|output| {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let mut parts = text.split_whitespace();
+            let rows = parts.next()?.parse::<i64>().ok()?;
+            let cols = parts.next()?.parse::<i64>().ok()?;
+            Some((rows, cols))
+        });
+    probed.unwrap_or((24, 80))
+}
+
+/// The terminal width in columns (80 when it cannot be determined).
+pub fn term_cols() -> crate::value::FolInt {
+    term_size().1
+}
+
+/// The terminal height in rows (24 when it cannot be determined).
+pub fn term_rows() -> crate::value::FolInt {
+    term_size().0
+}
+
+/// Render an integer as its decimal string.
+pub fn int_to_str(value: crate::value::FolInt) -> FolStr {
+    FolStr::new(value.to_string())
+}
+
 pub fn module_name() -> &'static str {
     "std"
 }

@@ -413,24 +413,32 @@ pub fn render_core_instruction_in_workspace(
                     format!("intrinsic id {:?} is not registered", intrinsic),
                 )
             })?;
-            match (entry.name, args.as_slice()) {
-                ("echo", [value]) => {
+            let rendered = match (entry.name, args.as_slice()) {
+                ("echo", [value])
+                | ("write", [value])
+                | ("int_to_str", [value])
+                | ("raw_mode", [value])
+                | ("sleep_ms", [value]) => {
                     let value =
                         render_transfer_expr(type_table, package_identity, routine, *value)?;
-                    let rendered = format!("rt::echo({value})");
-                    match instruction.result {
-                        Some(_) => {
-                            let result =
-                                rendered_result_local(package_identity, routine, instruction)?;
-                            Ok(format!("{result} = {rendered};"))
-                        }
-                        None => Ok(format!("{rendered};")),
-                    }
+                    format!("rt::{}({value})", entry.name)
                 }
-                (other, _) => Err(BackendError::new(
-                    BackendErrorKind::Unsupported,
-                    format!("runtime hook emission is not implemented yet for '.{other}(...)'"),
-                )),
+                ("read_key" | "now_ms" | "term_cols" | "term_rows", []) => {
+                    format!("rt::{}()", entry.name)
+                }
+                (other, _) => {
+                    return Err(BackendError::new(
+                        BackendErrorKind::Unsupported,
+                        format!("runtime hook emission is not implemented yet for '.{other}(...)'"),
+                    ))
+                }
+            };
+            match instruction.result {
+                Some(_) => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    Ok(format!("{result} = {rendered};"))
+                }
+                None => Ok(format!("{rendered};")),
             }
         }
         LoweredInstrKind::CheckRecoverable { operand } => {

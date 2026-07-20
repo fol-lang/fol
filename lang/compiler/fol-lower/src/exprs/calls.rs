@@ -361,7 +361,11 @@ pub(crate) fn lower_dot_intrinsic_call(
         .collect::<Result<Vec<_>, _>>()?;
 
     let kind = match lowering_mode {
-        Some(fol_intrinsics::IntrinsicLoweringMode::RuntimeHook) if name == "echo" => {
+        // `echo` and `write` forward their operand unchanged; the hook runs
+        // for its side effect only.
+        Some(fol_intrinsics::IntrinsicLoweringMode::RuntimeHook)
+            if name == "echo" || name == "write" =>
+        {
             let [operand] = lowered_args.as_slice() else {
                 return Err(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
@@ -377,6 +381,11 @@ pub(crate) fn lower_dot_intrinsic_call(
             )?;
             return Ok(*operand);
         }
+        // The remaining terminal/OS hooks produce a fresh value.
+        Some(fol_intrinsics::IntrinsicLoweringMode::RuntimeHook) => LoweredInstrKind::RuntimeHook {
+            intrinsic: intrinsic_id,
+            args: lowered_args.iter().map(|value| value.local_id).collect(),
+        },
         _ => LoweredInstrKind::IntrinsicCall {
             intrinsic: intrinsic_id,
             args: lowered_args.iter().map(|value| value.local_id).collect(),
