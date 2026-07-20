@@ -7063,3 +7063,61 @@ fn pathological_nesting_is_rejected_with_a_clean_diagnostic() {
     let main = find_named_routine_syntax_id(&typed, "main");
     assert!(typed.typed_node(main).is_some());
 }
+
+#[test]
+fn composite_mutable_captures_stay_deferred_block_only() {
+    // `[mut, bor]` is an in-frame dfr/edf capture form; tasks and routine
+    // values run outside the owner's frame and must reject it BEFORE the
+    // backend (the pre-fix path died at rustc).
+    for (surface, source) in [
+        (
+            "routine value",
+            "fun[] main(): int = {\n\
+                 var[mut] total: int = 5;\n\
+                 var bump: {fun (): int} = fun()[total[mut, bor]]: int = {\n\
+                     return total;\n\
+                 };\n\
+                 return bump();\n\
+             };\n",
+        ),
+        (
+            "spawned task",
+            "fun[] main(): int = {\n\
+                 var[mut] total: int = 5;\n\
+                 [>]fun()[total[mut, bor]] = {\n\
+                     var got: int = total;\n\
+                 };\n\
+                 return total;\n\
+             };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains("only supported on dfr/edf blocks")),
+            "{surface} should reject [mut, bor] captures cleanly: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn eventual_receiver_declarations_reject_with_the_await_hint() {
+    // An eventual has no method surface; a receiver would smuggle a handle
+    // past the evt[L, T] signature spelling.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun (evt[int])poke(): int = {\n\
+             return 1;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("cannot be a method receiver")),
+        "evt receivers should reject at declaration: {errors:?}"
+    );
+}

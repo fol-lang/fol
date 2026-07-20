@@ -297,3 +297,47 @@ pub fn record_qualified_type_reference(
     }
     Ok(reference_id)
 }
+
+/// Link a dfr/edf capture-list entry to the outer binding it captures: the
+/// deferred block runs in-frame and binds no new symbol, so the entry is a
+/// plain use of the enclosing binding. Recording it keeps editor
+/// rename/references covering the capture site. Resolution failures are left
+/// for typecheck to report; the reference is purely navigational.
+pub(crate) fn record_deferred_capture_reference(
+    program: &mut ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    capture: &fol_parser::ast::RoutineCapture,
+) {
+    let Some(syntax_id) = capture.syntax_id else {
+        return;
+    };
+    let origin = program.syntax_index().origin(syntax_id).cloned();
+    let Ok(symbol_id) = super::resolve::resolve_visible_symbol_of_kinds(
+        program,
+        scope_id,
+        &capture.name,
+        &[
+            SymbolKind::ValueBinding,
+            SymbolKind::Parameter,
+            SymbolKind::Capture,
+        ],
+        Some("captured binding"),
+        origin,
+    ) else {
+        return;
+    };
+    let reference_id = program.references.push(ResolvedReference {
+        id: ReferenceId(0),
+        kind: ReferenceKind::Identifier,
+        syntax_id: Some(syntax_id),
+        anchor_syntax_id: None,
+        name: capture.name.clone(),
+        scope: scope_id,
+        source_unit: source_unit_id,
+        resolved: Some(symbol_id),
+    });
+    if let Some(reference) = program.references.get_mut(reference_id) {
+        reference.id = reference_id;
+    }
+}

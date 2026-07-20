@@ -1039,6 +1039,20 @@ fn type_node_with_expectation_inner(
             // cannot satisfy that contract.
             let value_position = !context.direct_spawn_anonymous;
             for capture in captures {
+                // The composite `[mut, bor]` mutable loan is an in-frame
+                // dfr/edf capture form; a task or routine value runs outside
+                // the owner's frame, where a mutable loan has no sound
+                // substrate.
+                if capture.mutable {
+                    return Err(unsupported_node_surface(
+                        resolved,
+                        node,
+                        format!(
+                            "'{}[mut, bor]' captures are only supported on dfr/edf blocks; tasks and routine values may observe with '{}[bor]' or take a value capture",
+                            capture.name, capture.name
+                        ),
+                    ));
+                }
                 if value_position && capture.endpoint.is_some() {
                     return Err(unsupported_node_surface(
                         resolved,

@@ -1285,6 +1285,17 @@ fn lower_named_routine_signature(
             syntax_id,
         )?;
     }
+    // An eventual has no method surface: its whole API is `| await` plus the
+    // signature flows above. A receiver would smuggle a handle past the
+    // lifetime spelling, so reject the declaration outright.
+    if let Some(FolType::Eventual { .. }) = receiver_type {
+        let message = "an eventual cannot be a method receiver; await it, or pass it to a named routine through an 'evt[L, T]' parameter";
+        let routine_origin = syntax_id.and_then(|id| resolved.syntax_index().origin(id).cloned());
+        return Err(routine_origin.map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message),
+            |origin| TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin),
+        ));
+    }
     if let Some(return_type) = return_type {
         require_signature_eventual_lifetime(
             resolved,

@@ -1756,6 +1756,56 @@ fn lsp_server_renames_borrow_bindings_and_borrow_parameters() {
 }
 
 #[test]
+fn lsp_server_renames_bindings_through_dfr_capture_lists() {
+    // A dfr/edf capture entry is a plain use of the outer binding (the block
+    // runs in-frame); rename must rewrite the capture-list token too or the
+    // program stops resolving.
+    let source = "fun[] main(): int = {\n    var[mut] total: int = 5;\n    dfr[total[mut, bor]] { total = total + 1; };\n    return total;\n};\n";
+    let (root, uri) = sample_package_root("rename_dfr_capture");
+    fs::write(root.join("src/main.fol"), source).unwrap();
+    let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
+    let mut server = EditorLspServer::new(EditorConfig::default());
+    open_document(&mut server, uri.clone(), &text);
+
+    let rename = server
+        .handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: JsonRpcId::Number(946),
+            method: "textDocument/rename".to_string(),
+            params: Some(
+                serde_json::to_value(LspRenameParams {
+                    text_document: LspTextDocumentIdentifier { uri: uri.clone() },
+                    position: LspPosition {
+                        line: 1,
+                        character: 13,
+                    },
+                    new_name: "counter".to_string(),
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap()
+        .unwrap();
+    let edit: crate::LspWorkspaceEdit = serde_json::from_value(rename.result.unwrap()).unwrap();
+    let edits = edit.changes.get(&uri).expect("edits for current document");
+    assert_eq!(
+        edits.len(),
+        5,
+        "decl, capture-list entry, both body uses, and the return must all rename"
+    );
+    assert!(edits.iter().all(|edit| edit.new_text == "counter"));
+    assert!(
+        edits
+            .iter()
+            .filter(|edit| edit.range.start.line == 2)
+            .count()
+            == 3,
+        "capture entry plus the two body uses sit on line 2"
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn lsp_server_renames_closure_captured_bindings_across_the_capture_boundary() {
     // A capture list has no aliasing: the outer binding, the capture-list
     // entry, and the closure-body uses must all keep one name. Rename from

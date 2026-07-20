@@ -383,13 +383,25 @@ fn traverse_node_inner(
         AstNode::Dfr {
             syntax_id,
             body,
-            captures: _,
+            captures,
         }
         | AstNode::Edf {
             syntax_id,
             body,
-            captures: _,
+            captures,
         } => {
+            // Link each capture-list entry to the binding it captures so
+            // editor rename/references cover the capture site; dfr/edf
+            // captures bind no new symbol (the block runs in-frame), so the
+            // entry is purely a use of the outer binding.
+            for capture in captures {
+                super::references::record_deferred_capture_reference(
+                    program,
+                    source_unit_id,
+                    scope_id,
+                    capture,
+                );
+            }
             traverse_block_body(
                 session,
                 program,
