@@ -1,6 +1,6 @@
 [package]
 name = "fol-resolver"
-version = "0.1.4"
+version.workspace = true
 authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 edition = "2021"
 description = "Whole-program name resolution for FOL language"

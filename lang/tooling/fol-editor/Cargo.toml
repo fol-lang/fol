@@ -1,6 +1,6 @@
 [package]
 name = "fol-editor"
-version = "0.1.4"
+version.workspace = true
 edition = "2021"
 authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 description = "Editor tooling crate for the FOL language"

@@ -1,6 +1,6 @@
 [package]
 name = "fol-build"
-version = "0.1.4"
+version.workspace = true
 authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 edition = "2021"
 description = "Build system execution for FOL language"

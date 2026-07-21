@@ -1,6 +1,6 @@
 [package]
 name = "fol-frontend"
-version = "0.1.4"
+version.workspace = true
 edition = "2021"
 authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 description = "User-facing frontend crate for the FOL toolchain"

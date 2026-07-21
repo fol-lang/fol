@@ -1,6 +1,6 @@
 [package]
 name = "fol-interop"
-version = "0.1.4"
+version.workspace = true
 edition = "2021"
 authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 description = "Checked FOL handoff to the PARC, LINC, and GERC interop pipeline"
