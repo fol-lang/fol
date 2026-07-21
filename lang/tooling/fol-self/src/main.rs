@@ -519,7 +519,7 @@ fn install_from_source(home: &Path, version: &str, repo: &Path) -> Result<(), St
 
 fn install_from_network(home: &Path, version: &str) -> Result<(), String> {
     let target = format!("{}-{}", env::consts::ARCH, env::consts::OS);
-    let url = format!("{RELEASE_URL_BASE}/v{version}/folc-v{version}-{target}.tar.gz");
+    let url = format!("{RELEASE_URL_BASE}/v{version}/fol-compiler-and-lib-v{version}-{target}.tar.gz");
     let destination = toolchains_root(home).join(normalize_version_dir(version));
     let tarball = toolchains_root(home).join(format!(".download-v{version}.tar.gz"));
 

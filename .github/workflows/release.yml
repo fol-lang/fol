@@ -70,7 +70,7 @@ jobs:
           cp -R lang/library/std "$STAGE/std"
           # Archive root must hold exactly {folc, std/} — `fol self install`
           # unpacks it straight into $FOL_HOME/toolchains/v$VERSION/.
-          tar -czf "folc-v${VERSION}-${{ matrix.target }}.tar.gz" -C "$STAGE" folc std
+          tar -czf "fol-compiler-and-lib-v${VERSION}-${{ matrix.target }}.tar.gz" -C "$STAGE" folc std
           # fol itself, ready to drop on PATH.
           cp target/release/fol "fol-v${VERSION}-${{ matrix.target }}"
 
@@ -87,6 +87,6 @@ jobs:
             2>/dev/null || true
           gh release upload "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            "folc-v${VERSION}-${{ matrix.target }}.tar.gz" \
+            "fol-compiler-and-lib-v${VERSION}-${{ matrix.target }}.tar.gz" \
             "fol-v${VERSION}-${{ matrix.target }}" \
             --clobber
