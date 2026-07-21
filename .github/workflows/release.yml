@@ -19,10 +19,6 @@ jobs:
             target: x86_64-linux
           - runner: ubuntu-24.04-arm
             target: aarch64-linux
-          - runner: macos-13
-            target: x86_64-macos
-          - runner: macos-latest
-            target: aarch64-macos
     steps:
       - name: Checkout FOL
         uses: actions/checkout@v4
@@ -68,9 +64,14 @@ jobs:
           STAGE="$(mktemp -d)"
           cp target/release/folc "$STAGE/folc"
           cp -R lang/library/std "$STAGE/std"
-          # Archive root must hold exactly {folc, std/} — `fol self install`
-          # unpacks it straight into $FOL_HOME/toolchains/v$VERSION/.
-          tar -czf "fol-compiler-and-lib-v${VERSION}-${{ matrix.target }}.tar.gz" -C "$STAGE" folc std
+          # folc compiles emitted Rust against the runtime crate sources, so
+          # the toolchain ships them beside the binary.
+          mkdir "$STAGE/runtime"
+          cp lang/execution/fol-runtime/Cargo.toml "$STAGE/runtime/Cargo.toml"
+          cp -R lang/execution/fol-runtime/src "$STAGE/runtime/src"
+          # Archive root must hold exactly {folc, std/, runtime/} — `fol self
+          # install` unpacks it straight into $FOL_HOME/toolchains/v$VERSION/.
+          tar -czf "fol-compiler-and-lib-v${VERSION}-${{ matrix.target }}.tar.gz" -C "$STAGE" folc std runtime
           # fol itself, ready to drop on PATH.
           cp target/release/fol "fol-v${VERSION}-${{ matrix.target }}"
 

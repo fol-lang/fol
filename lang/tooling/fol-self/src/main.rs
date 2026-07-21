@@ -509,6 +509,17 @@ fn install_from_source(home: &Path, version: &str, repo: &Path) -> Result<(), St
     fs::copy(&bin, destination.join("folc"))
         .map_err(|error| format!("cannot copy {}: {error}", bin.display()))?;
     copy_dir(&std_source, &destination.join("std"))?;
+    // folc compiles emitted Rust against the runtime crate sources.
+    let runtime_source = repo.join("lang/execution/fol-runtime");
+    let runtime_destination = destination.join("runtime");
+    fs::create_dir_all(&runtime_destination)
+        .map_err(|error| format!("cannot create {}: {error}", runtime_destination.display()))?;
+    fs::copy(
+        runtime_source.join("Cargo.toml"),
+        runtime_destination.join("Cargo.toml"),
+    )
+    .map_err(|error| format!("cannot copy runtime Cargo.toml: {error}"))?;
+    copy_dir(&runtime_source.join("src"), &runtime_destination.join("src"))?;
     println!(
         "installed fol {version} -> {} (from {})",
         destination.display(),

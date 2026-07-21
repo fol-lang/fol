@@ -6,12 +6,24 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn backend_runtime_source_root_with_override(override_path: Option<&Path>) -> PathBuf {
-    override_path.map(Path::to_path_buf).unwrap_or_else(|| {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
-            .join("fol-runtime")
-    })
+    if let Some(path) = override_path {
+        return path.to_path_buf();
+    }
+    // An installed toolchain ships the runtime crate next to the running
+    // binary (`$FOL_HOME/toolchains/vX.X.X/{folc, std/, runtime/}`), which
+    // wins over the source-tree path compiled into dev builds.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let bundled = dir.join("runtime");
+            if bundled.join("src").join("lib.rs").is_file() {
+                return bundled;
+            }
+        }
+    }
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+        .join("fol-runtime")
 }
 
 pub fn backend_runtime_source_root() -> PathBuf {

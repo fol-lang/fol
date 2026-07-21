@@ -98,20 +98,19 @@ fn test_release_workflow_ships_fetchable_toolchain_artifacts() {
         );
     }
     assert!(
-        release_workflow.contains("-C \"$STAGE\" folc std"),
-        "release tarballs must hold exactly {{folc, std/}} at the archive root for `fol self install`"
+        release_workflow.contains("-C \"$STAGE\" folc std runtime"),
+        "release tarballs must hold exactly {{folc, std/, runtime/}} at the archive root for `fol self install`"
     );
-    for target in [
-        "x86_64-linux",
-        "aarch64-linux",
-        "x86_64-macos",
-        "aarch64-macos",
-    ] {
+    for target in ["x86_64-linux", "aarch64-linux"] {
         assert!(
             release_workflow.contains(target),
             "release workflow should cover the {target} target that `fol self install` requests"
         );
     }
+    assert!(
+        !release_workflow.contains("macos"),
+        "fol is linux-only; the release workflow must not build macos targets"
+    );
 }
 
 #[test]
