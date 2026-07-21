@@ -663,13 +663,20 @@ mod tests {
         assert!(result
             .summary
             .contains("built 1 workspace package(s) into "));
-        assert_eq!(result.artifacts.len(), 2);
+        // Build root, binary, and the materialized `graph.install(...)` copy.
+        assert_eq!(result.artifacts.len(), 3);
         assert_eq!(result.artifacts[0].kind, FrontendArtifactKind::BuildRoot);
         assert_eq!(result.artifacts[1].kind, FrontendArtifactKind::Binary);
         assert!(result.artifacts[1]
             .path
             .as_ref()
             .expect("binary path should be retained")
+            .is_file());
+        assert_eq!(result.artifacts[2].kind, FrontendArtifactKind::Installed);
+        assert!(result.artifacts[2]
+            .path
+            .as_ref()
+            .expect("installed path should be retained")
             .is_file());
 
         std::fs::remove_dir_all(&workspace.root.root).ok();

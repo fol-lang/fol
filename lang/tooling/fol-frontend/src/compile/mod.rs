@@ -752,8 +752,51 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
         result.artifacts.push(FrontendArtifactSummary::new(
             FrontendArtifactKind::Binary,
             selection.label.clone(),
-            Some(std::path::PathBuf::from(binary_path)),
+            Some(std::path::PathBuf::from(binary_path.clone())),
         ));
+        // Materialize `graph.install(...)` for this artifact: copy the built
+        // binary to its projected destination (`<install_prefix>/bin/<name>`).
+        // Before this, the install step was projection-only — the summary
+        // advertised an install prefix nothing was ever copied into.
+        if let Some(binding) = &selection.graph_binding {
+            for install in binding.graph.installs() {
+                let Some(fol_package::BuildInstallTarget::Artifact(artifact_id)) = &install.target
+                else {
+                    continue;
+                };
+                if *artifact_id != binding.artifact_id {
+                    continue;
+                }
+                let destination = std::path::PathBuf::from(&install.projected_destination);
+                if let Some(parent) = destination.parent() {
+                    std::fs::create_dir_all(parent).map_err(|error| {
+                        FrontendError::new(
+                            FrontendErrorKind::CommandFailed,
+                            format!(
+                                "install step '{}' could not create '{}': {error}",
+                                install.name,
+                                parent.display()
+                            ),
+                        )
+                    })?;
+                }
+                std::fs::copy(&binary_path, &destination).map_err(|error| {
+                    FrontendError::new(
+                        FrontendErrorKind::CommandFailed,
+                        format!(
+                            "install step '{}' could not copy the binary to '{}': {error}",
+                            install.name,
+                            destination.display()
+                        ),
+                    )
+                })?;
+                result.artifacts.push(FrontendArtifactSummary::new(
+                    FrontendArtifactKind::Installed,
+                    install.name.clone(),
+                    Some(destination),
+                ));
+            }
+        }
         if let Some(report) = interop_report {
             result.artifacts.push(FrontendArtifactSummary::new(
                 FrontendArtifactKind::InteropEvidence,
