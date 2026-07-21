@@ -70,9 +70,9 @@ jobs:
           cp -R lang/library/std "$STAGE/std"
           # Archive root must hold exactly {folc, std/} — `fol self install`
           # unpacks it straight into $FOL_HOME/toolchains/v$VERSION/.
-          tar -czf "fol-v${VERSION}-${{ matrix.target }}.tar.gz" -C "$STAGE" folc std
-          # The manager itself, as a standalone bootstrap binary.
-          cp target/release/fol "fol-manager-v${VERSION}-${{ matrix.target }}"
+          tar -czf "folc-v${VERSION}-${{ matrix.target }}.tar.gz" -C "$STAGE" folc std
+          # fol itself, ready to drop on PATH.
+          cp target/release/fol "fol-v${VERSION}-${{ matrix.target }}"
 
       - name: Upload release assets
         working-directory: fol
@@ -87,6 +87,6 @@ jobs:
             2>/dev/null || true
           gh release upload "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            "fol-v${VERSION}-${{ matrix.target }}.tar.gz" \
-            "fol-manager-v${VERSION}-${{ matrix.target }}" \
+            "folc-v${VERSION}-${{ matrix.target }}.tar.gz" \
+            "fol-v${VERSION}-${{ matrix.target }}" \
             --clobber
