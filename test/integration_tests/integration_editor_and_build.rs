@@ -5533,6 +5533,44 @@ fn test_book_summary_includes_the_build_direction_page() {
 }
 
 #[test]
+fn test_book_documents_the_toolchain_manager_up_front() {
+    let summary = std::fs::read_to_string(repo_root().join("book/src/SUMMARY.md"))
+        .expect("book summary should exist");
+    let position = summary
+        .find("./025_toolchain/_index.md")
+        .expect("book summary should include the toolchain chapter");
+    assert!(
+        position < summary.find("./000_overview/_index.md").unwrap_or(usize::MAX),
+        "the toolchain chapter should sit at the top of the book, before the overview"
+    );
+
+    let chapter = std::fs::read_to_string(repo_root().join("book/src/025_toolchain/_index.md"))
+        .expect("toolchain chapter should exist");
+    for claim in [
+        "FOL_HOME",
+        ".fol/toolchain",
+        "//fol",
+        "fol self install",
+        "fol-compiler-and-lib-v",
+        "runtime/",
+    ] {
+        assert!(
+            chapter.contains(claim),
+            "toolchain chapter should document {claim}"
+        );
+    }
+
+    let readme = std::fs::read_to_string(repo_root().join("README.md"))
+        .expect("README should exist");
+    for claim in ["FOL_HOME", "//fol 0.2.1", "fol self install", "fol-compiler-and-lib-v"] {
+        assert!(
+            readme.contains(claim),
+            "README should document the toolchain flow, missing: {claim}"
+        );
+    }
+}
+
+#[test]
 fn test_v2_current_subset_inventory_stays_honest() {
     let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
         .expect("generic milestone note should load");

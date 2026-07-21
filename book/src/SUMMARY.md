@@ -1,5 +1,8 @@
 # Summary
 - [Introduction](./follang.md)
+- [Toolchain Management](./025_toolchain/_index.md)
+  - [Installing & Developing](./025_toolchain/100_install.md)
+  - [Versions In Depth](./025_toolchain/200_versions.md)
 - [Overview](./000_overview/_index.md)
   - [Notation And Conventions](./000_overview/100_conventions.md)
   - [Frontend Workflow](./000_overview/200_frontend.md)
