@@ -351,14 +351,95 @@ pub fn write(value: FolStr) -> FolStr {
     value
 }
 
+/// The shared stdin byte feed: one reader thread owns stdin so blocking and
+/// timed reads can coexist without competing for the handle.
+fn key_feed() -> &'static std::sync::Mutex<std::sync::mpsc::Receiver<u8>> {
+    static FEED: std::sync::OnceLock<std::sync::Mutex<std::sync::mpsc::Receiver<u8>>> =
+        std::sync::OnceLock::new();
+    FEED.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::Read as _;
+            let mut stdin = std::io::stdin();
+            let mut buffer = [0u8; 1];
+            while let Ok(1) = stdin.read(&mut buffer) {
+                if sender.send(buffer[0]).is_err() {
+                    break;
+                }
+            }
+        });
+        std::sync::Mutex::new(receiver)
+    })
+}
+
 /// Block for one byte of standard input. Yields -1 at end of input so callers
 /// can end their read loop without a recoverable shell.
 pub fn read_key() -> crate::value::FolInt {
-    use std::io::Read as _;
-    let mut buffer = [0u8; 1];
-    match std::io::stdin().read(&mut buffer) {
-        Ok(1) => buffer[0] as crate::value::FolInt,
-        _ => -1,
+    let feed = key_feed()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match feed.recv() {
+        Ok(byte) => byte as crate::value::FolInt,
+        Err(_) => -1,
+    }
+}
+
+/// One byte of standard input within a timeout: the byte value, -2 when the
+/// timeout elapses first, or -1 at end of input. The escape-sequence
+/// disambiguator for key decoders.
+pub fn read_key_ms(timeout_ms: crate::value::FolInt) -> crate::value::FolInt {
+    let feed = key_feed()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match feed.recv_timeout(std::time::Duration::from_millis(timeout_ms.max(0) as u64)) {
+        Ok(byte) => byte as crate::value::FolInt,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => -2,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => -1,
+    }
+}
+
+/// The substring at a byte offset and length, clamped to the string and
+/// snapped outward to UTF-8 boundaries so it never panics.
+pub fn str_sub(text: FolStr, start: crate::value::FolInt, len: crate::value::FolInt) -> FolStr {
+    let bytes = text.as_str().as_bytes();
+    let total = bytes.len();
+    let from = start.clamp(0, total as i64) as usize;
+    let until = (start.max(0) as usize)
+        .saturating_add(len.max(0) as usize)
+        .min(total);
+    let mut from = from.min(until);
+    let mut until = until;
+    while from < total && !text.as_str().is_char_boundary(from) {
+        from += 1;
+    }
+    while until > from && !text.as_str().is_char_boundary(until) {
+        until -= 1;
+    }
+    FolStr::new(&text.as_str()[from..until])
+}
+
+/// The byte value at an index, or -1 outside the string.
+pub fn str_byte(text: FolStr, index: crate::value::FolInt) -> crate::value::FolInt {
+    if index < 0 {
+        return -1;
+    }
+    text.as_str()
+        .as_bytes()
+        .get(index as usize)
+        .map(|byte| *byte as crate::value::FolInt)
+        .unwrap_or(-1)
+}
+
+/// A one-byte string from a byte value (empty outside 0-255).
+pub fn byte_to_str(value: crate::value::FolInt) -> FolStr {
+    if !(0..=255).contains(&value) {
+        return FolStr::new("");
+    }
+    let byte = value as u8;
+    if byte.is_ascii() {
+        FolStr::new((byte as char).to_string())
+    } else {
+        FolStr::new(String::from_utf8_lossy(&[byte]).to_string())
     }
 }
 

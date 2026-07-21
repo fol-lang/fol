@@ -21,3 +21,7 @@ fun[exp] write(value: str): str = {
 fun[exp] read_key(): int = {
     return .read_key();
 };
+
+fun[exp] read_key_ms(timeout: int): int = {
+    return .read_key_ms(timeout);
+};

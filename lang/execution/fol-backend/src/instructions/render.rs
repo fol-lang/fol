@@ -418,10 +418,26 @@ pub fn render_core_instruction_in_workspace(
                 | ("write", [value])
                 | ("int_to_str", [value])
                 | ("raw_mode", [value])
-                | ("sleep_ms", [value]) => {
+                | ("sleep_ms", [value])
+                | ("byte_to_str", [value])
+                | ("read_key_ms", [value]) => {
                     let value =
                         render_transfer_expr(type_table, package_identity, routine, *value)?;
                     format!("rt::{}({value})", entry.name)
+                }
+                ("str_sub", [text, start, count]) => {
+                    let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
+                    let start =
+                        render_transfer_expr(type_table, package_identity, routine, *start)?;
+                    let count =
+                        render_transfer_expr(type_table, package_identity, routine, *count)?;
+                    format!("rt::str_sub({text}, {start}, {count})")
+                }
+                ("str_byte", [text, index]) => {
+                    let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
+                    let index =
+                        render_transfer_expr(type_table, package_identity, routine, *index)?;
+                    format!("rt::str_byte({text}, {index})")
                 }
                 ("read_key" | "now_ms" | "term_cols" | "term_rows", []) => {
                     format!("rt::{}()", entry.name)

@@ -657,3 +657,28 @@ fn terminal_primitives_write_convert_and_keep_time() {
     assert_successful_stdout(&root, "42\n-137\n1\n1\n");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn string_primitives_slice_index_and_absorb_chars() {
+    // The text-shaping primitive layer: byte-range substrings, byte reads,
+    // byte-to-string conversion, and `+` absorbing one-character literals
+    // (which type as `chr`) on either side of a string.
+    let root = write_hosted_app(
+        "v3_string_primitives",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var text: str = \"hello world\";\n\
+             \x20   var head: str = std::strn::sub(text, 0, 5);\n\
+             \x20   var echoed: str = std::io::echo_str(head + \"!\");\n\
+             \x20   std::io::echo_int(std::strn::byte_at(text, 0));\n\
+             \x20   std::io::echo_int(std::strn::byte_at(text, 99));\n\
+             \x20   var q: str = std::strn::from_byte(113);\n\
+             \x20   var wrapped: str = std::io::echo_str(\"<\" + q + \">\");\n\
+             \x20   var padded: str = \"0\" + std::fmt::int_to_str(7);\n\
+             \x20   var shown: str = std::io::echo_str(padded);\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "hello!\n104\n-1\n<q>\n07\n");
+    std::fs::remove_dir_all(root).ok();
+}

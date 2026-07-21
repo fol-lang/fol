@@ -177,6 +177,10 @@ pub fn editor_intrinsic_available_in_model(
             | "term_cols"
             | "term_rows"
             | "int_to_str"
+            | "str_sub"
+            | "str_byte"
+            | "byte_to_str"
+            | "read_key_ms"
     ) {
         return editor_model_capability(model).hosted_runtime;
     }
