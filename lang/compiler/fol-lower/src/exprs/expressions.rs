@@ -2620,11 +2620,24 @@ pub(crate) fn lower_invoke(
 
 fn binary_op_result_type(
     typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
     checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
     op: LoweredBinaryOp,
     left_type: LoweredTypeId,
+    right_type: LoweredTypeId,
 ) -> Option<LoweredTypeId> {
+    let is_str = |type_id: LoweredTypeId| {
+        matches!(
+            type_table.get(type_id),
+            Some(crate::LoweredType::Builtin(crate::LoweredBuiltinType::Str))
+        )
+    };
     match op {
+        // Concatenation absorbs single characters on either side, so the
+        // result is a string whenever either operand is one.
+        LoweredBinaryOp::Add if is_str(left_type) || is_str(right_type) => checked_type_map
+            .get(&typed_package.program.builtin_types().str_)
+            .copied(),
         LoweredBinaryOp::Add
         | LoweredBinaryOp::Sub
         | LoweredBinaryOp::Mul
@@ -2681,13 +2694,20 @@ fn lower_binary_op(
         scope_id,
         right,
     )?;
-    let result_type = binary_op_result_type(typed_package, checked_type_map, op, left_val.type_id)
-        .ok_or_else(|| {
-            LoweringError::with_kind(
-                LoweringErrorKind::InvalidInput,
-                "binary operator result type could not be resolved in the lowered type table",
-            )
-        })?;
+    let result_type = binary_op_result_type(
+        typed_package,
+        type_table,
+        checked_type_map,
+        op,
+        left_val.type_id,
+        right_val.type_id,
+    )
+    .ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            "binary operator result type could not be resolved in the lowered type table",
+        )
+    })?;
     let result_local = cursor.allocate_local(result_type, None);
     cursor.push_instr(
         Some(result_local),

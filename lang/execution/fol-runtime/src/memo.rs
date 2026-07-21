@@ -121,6 +121,26 @@ impl Add for FolStr {
     }
 }
 
+impl Add<char> for FolStr {
+    type Output = FolStr;
+
+    fn add(mut self, rhs: char) -> FolStr {
+        self.0.push(rhs);
+        self
+    }
+}
+
+impl Add<FolStr> for char {
+    type Output = FolStr;
+
+    fn add(self, rhs: FolStr) -> FolStr {
+        let mut built = String::with_capacity(rhs.0.len() + self.len_utf8());
+        built.push(self);
+        built.push_str(&rhs.0);
+        FolStr(built)
+    }
+}
+
 impl fmt::Display for FolStr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())

@@ -284,6 +284,18 @@ pub(crate) fn type_binary_op(
                     Some(CheckedType::Builtin(crate::BuiltinType::Str)),
                 ) => Ok(TypedExpr::value(typed.builtin_types().str_)
                     .with_optional_effect(merged_effect)),
+                // Concatenation absorbs single characters on either side —
+                // without this, a one-character literal (which types as
+                // `chr`) poisons every `text + "x"` expression.
+                (
+                    Some(CheckedType::Builtin(crate::BuiltinType::Str)),
+                    Some(CheckedType::Builtin(crate::BuiltinType::Char)),
+                )
+                | (
+                    Some(CheckedType::Builtin(crate::BuiltinType::Char)),
+                    Some(CheckedType::Builtin(crate::BuiltinType::Str)),
+                ) => Ok(TypedExpr::value(typed.builtin_types().str_)
+                    .with_optional_effect(merged_effect)),
                 _ => Err(invalid_binary_operator_error(
                     typed, op, left_type, right_type,
                 )),
