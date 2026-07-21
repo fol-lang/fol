@@ -1,20 +1,53 @@
 use super::*;
 
 impl AstParser {
+    /// True when the token stream begins with the deref bracket op `[drf]`
+    /// (the replacement for the removed prefix `*`). Used so a deref-assignment
+    /// target `[drf]place = value` is dispatched like the old `*place = value`.
+    pub(super) fn peek_is_deref_bracket(
+        &self,
+        tokens: &fol_lexer::lexer::stage3::Elements,
+    ) -> bool {
+        if !tokens
+            .curr(false)
+            .ok()
+            .is_some_and(|token| matches!(token.key(), KEYWORD::Symbol(SYMBOL::SquarO)))
+        {
+            return false;
+        }
+        let significant = tokens
+            .next_vec()
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|token| !Self::key_is_soft_ignorable(&token.key()))
+            .take(2)
+            .collect::<Vec<_>>();
+        matches!(
+            significant.as_slice(),
+            [word, close]
+                if word.con().trim() == "drf"
+                    && matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC))
+        )
+    }
+
     pub(super) fn lookahead_is_assignment(
         &self,
         tokens: &fol_lexer::lexer::stage3::Elements,
     ) -> bool {
-        if tokens
+        let is_star = tokens
             .curr(false)
             .ok()
-            .is_some_and(|token| matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)))
-        {
+            .is_some_and(|token| matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)));
+        let is_bracket = self.peek_is_deref_bracket(tokens);
+        if is_star || is_bracket {
+            // Skip the deref marker: nothing for `*`, the `drf` + `]` for `[drf]`.
+            let skip = if is_bracket { 2 } else { 0 };
             let significant = tokens
                 .next_vec()
                 .into_iter()
                 .filter_map(Result::ok)
                 .filter(|token| !Self::key_is_soft_ignorable(&token.key()))
+                .skip(skip)
                 .take(2)
                 .collect::<Vec<_>>();
             return matches!(

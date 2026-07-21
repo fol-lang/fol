@@ -1,7 +1,7 @@
 fun[] main(): int = {
     var seed: int = 7;
-    var inner: ptr[int] = &seed;
-    var shared: ptr[shared, ptr[int]] = &inner;
-    var invalid: ptr[int] = *shared;
+    var inner: ptr[int] = [ref]seed;
+    var shared: ptr[shared, ptr[int]] = [ref]inner;
+    var invalid: ptr[int] = [drf]shared;
     return 0;
 };

@@ -9,10 +9,11 @@ pub mod visitor;
 
 pub use node::AstNode;
 pub use options::{
-    binding_is_mutable, decl_visibility, fun_decl_visibility, type_decl_visibility,
-    use_decl_visibility, var_decl_visibility, BinaryOperator, CallSurface, CharEncoding,
-    CommentKind, ContainerType, DeclOption, FloatSize, FunOption, IntSize, Literal, StandardKind,
-    TypeOption, UnaryOperator, UseOption, UsePathSegment, UsePathSeparator, VarOption,
+    binding_is_mutable, decl_visibility, fun_decl_visibility, is_capability_standard,
+    is_compiler_owned_generic_constraint, type_decl_visibility, use_decl_visibility,
+    var_decl_visibility, BinaryOperator, CallSurface, CharEncoding, CommentKind, ContainerType,
+    DeclOption, FloatSize, FunOption, IntSize, Literal, OwnershipOption, StandardKind, TypeOption,
+    UnaryOperator, UseOption, UsePathSegment, UsePathSeparator, VarOption, CAPABILITY_STANDARDS,
 };
 pub use syntax::{
     ParsedDeclScope, ParsedDeclVisibility, ParsedPackage, ParsedSourceUnit, ParsedSourceUnitKind,

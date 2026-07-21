@@ -33,6 +33,7 @@ pub(crate) fn sample_lowered_workspace_named(entry_name: &str) -> LoweredWorkspa
             ("name".to_string(), str_type),
             ("active".to_string(), bool_type),
         ]),
+        finalized: false,
     });
     let main_signature = type_table.intern(LoweredType::Routine(LoweredRoutineType {
         params: vec![bool_type],
@@ -101,6 +102,7 @@ pub(crate) fn sample_lowered_workspace_named(entry_name: &str) -> LoweredWorkspa
             name: "default_name".to_string(),
             type_id: str_type,
             mutable: false,
+            initializer: None,
         },
     );
     entry_package
@@ -169,6 +171,7 @@ pub(crate) fn sample_lowered_workspace_named(entry_name: &str) -> LoweredWorkspa
             name: "answer".to_string(),
             type_id: int_type,
             mutable: false,
+            initializer: None,
         },
     );
     shared_package

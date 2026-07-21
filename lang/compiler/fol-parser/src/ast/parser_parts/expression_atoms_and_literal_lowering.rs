@@ -41,12 +41,7 @@ impl AstParser {
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<(), ParseError> {
         let mut count = 0u32;
-        loop {
-            let token = match tokens.curr(false) {
-                Ok(token) => token,
-                Err(_) => break,
-            };
-
+        while let Ok(token) = tokens.curr(false) {
             if Self::key_is_layout_ignorable(&token.key()) {
                 count += 1;
                 if count > 128 {
@@ -106,12 +101,7 @@ impl AstParser {
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<(), ParseError> {
         let mut count = 0u32;
-        loop {
-            let token = match tokens.curr(false) {
-                Ok(token) => token,
-                Err(_) => break,
-            };
-
+        while let Ok(token) = tokens.curr(false) {
             if Self::key_is_soft_ignorable(&token.key()) {
                 count += 1;
                 if count > 128 {
@@ -346,33 +336,17 @@ impl AstParser {
             ));
         }
 
-        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::And)) {
-            return Some((
-                "Expected expression after unary '&'",
-                Some(UnaryOperator::Ref),
-            ));
-        }
+        // Prefix `&x` (ref) and `*x` (deref) are removed — no raw symbols on
+        // values. Use the bracket ops `[ref]x` / `[drf]x` (parsed via
+        // `parse_ownership_operation`), which lower to the same UnaryOperator.
 
-        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)) {
-            return Some((
-                "Expected expression after unary '*'",
-                Some(UnaryOperator::Deref),
-            ));
-        }
+        // Prefix borrow-from `#x` is removed — no raw symbols on values. Use
+        // the bracket op `[bor]x` (parsed via `parse_ownership_operation`).
 
-        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Hash)) || token.con().trim() == "#" {
-            return Some((
-                "Expected expression after borrow-from '#'",
-                Some(UnaryOperator::BorrowFrom),
-            ));
-        }
-
-        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Bang)) || token.con().trim() == "!" {
-            return Some((
-                "Expected borrow binding after give-back '!'",
-                Some(UnaryOperator::GiveBack),
-            ));
-        }
+        // Prefix give-back `!x` is removed — no raw symbols on values. Use the
+        // bracket op `[end]x` (parsed via `parse_ownership_operation`). Note `!`
+        // survives elsewhere: `!=` (binary), the `!var` static sigil, and the
+        // `!T` never-type shorthand — none go through this expression prefix.
 
         None
     }

@@ -8,13 +8,13 @@ typ Parcel: rec = {
 
 fun[] ownership(owner: Parcel): int = {
     @var heap: Parcel = { value = 1 };
-    ~var replacement: Parcel = { value = 2 };
+    var[mut] replacement: Parcel = { value = 2 };
     var[bor] view: Parcel = owner;
     var[mut] mutable_owner: Parcel = replacement;
     var[mut, bor] mutable_view: Parcel = mutable_owner;
     mutable_view.value = heap.value;
-    !mutable_view;
-    !view;
+    [end]mutable_view;
+    [end]view;
     return mutable_owner.value;
 };
 
@@ -59,6 +59,9 @@ fun[] ownership(owner: Parcel): int = {
                         (integer_literal)))))))))
         (stmt
           (var_decl
+            (decl_modifiers
+              (modifier_list
+                (identifier)))
             (typed_binding
               (identifier)
               (type_expr
@@ -120,12 +123,14 @@ fun[] ownership(owner: Parcel): int = {
                   (identifier))))))
         (stmt
           (expr
-            (unary_expr
+            (ownership_op
+              (ownership_option)
               (expr_atom
                 (identifier)))))
         (stmt
           (expr
-            (unary_expr
+            (ownership_op
+              (ownership_option)
               (expr_atom
                 (identifier)))))
         (stmt
@@ -153,7 +158,7 @@ fun[] main(): int = {
     var[bor] view: Parcel = owner;
     var first: int = inspect(view);
     var second: int = inspect(view);
-    !view;
+    [end]view;
     return first + second;
 };
 
@@ -255,7 +260,8 @@ fun[] main(): int = {
                         (identifier)))))))))
         (stmt
           (expr
-            (unary_expr
+            (ownership_op
+              (ownership_option)
               (expr_atom
                 (identifier)))))
         (stmt

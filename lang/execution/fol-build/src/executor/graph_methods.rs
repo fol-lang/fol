@@ -38,7 +38,7 @@ impl BuildBodyExecutor {
             })?;
         match &field.value {
             AstNode::Identifier { name, .. } => match self.scope.get(name.as_str()) {
-                Some(ExecValue::SourceFile { path }) => Ok(path.clone()),
+                Some(ExecValue::SourceFile { path, .. }) => Ok(path.clone()),
                 Some(ExecValue::SourceDir { .. }) => Err(BuildEvaluationError::new(
                     BuildEvaluationErrorKind::InvalidInput,
                     format!(
@@ -133,6 +133,15 @@ impl BuildBodyExecutor {
                     .ok_or_else(|| self.unsupported(method))?;
                 let kind = parse_option_kind(&kind_str).ok_or_else(|| self.unsupported(method))?;
                 let default = parse_option_default(kind, fields, |f| self.resolve_string(f));
+                if fields.iter().any(|field| field.name == "default") && default.is_none() {
+                    return Err(BuildEvaluationError::new(
+                        BuildEvaluationErrorKind::InvalidInput,
+                        format!(
+                            "option '{}' has an invalid default for declared kind '{}'",
+                            name, kind_str
+                        ),
+                    ));
+                }
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::Option(crate::api::UserOptionRequest {
@@ -343,6 +352,8 @@ impl BuildBodyExecutor {
                         let actual = match resolved.descriptor.provenance {
                             PathHandleProvenance::Source => "source-file handle",
                             PathHandleProvenance::Generated => "generated-output handle",
+                            PathHandleProvenance::DependencyFile => "dependency-file handle",
+                            PathHandleProvenance::DependencyDir => "dependency-dir handle",
                             PathHandleProvenance::DependencyGenerated => {
                                 "dependency-generated-output handle"
                             }
@@ -393,6 +404,7 @@ impl BuildBodyExecutor {
                     name,
                     path,
                     kind: BuildRuntimeGeneratedFileKind::Write,
+                    provenance: PathHandleProvenance::Generated,
                 }))
             }
 
@@ -427,6 +439,7 @@ impl BuildBodyExecutor {
                     name,
                     path: destination_path,
                     kind: BuildRuntimeGeneratedFileKind::Copy,
+                    provenance: PathHandleProvenance::Generated,
                 }))
             }
 
@@ -464,6 +477,7 @@ impl BuildBodyExecutor {
                     name: output.clone(),
                     path: output,
                     kind: BuildRuntimeGeneratedFileKind::ToolOutput,
+                    provenance: PathHandleProvenance::Generated,
                 }))
             }
 
@@ -500,6 +514,7 @@ impl BuildBodyExecutor {
                     name: output.clone(),
                     path: output,
                     kind: BuildRuntimeGeneratedFileKind::GeneratedDir,
+                    provenance: PathHandleProvenance::Generated,
                 }))
             }
 
@@ -613,6 +628,7 @@ impl BuildBodyExecutor {
                     name: output.clone(),
                     path: output,
                     kind: BuildRuntimeGeneratedFileKind::CodegenOutput,
+                    provenance: PathHandleProvenance::Generated,
                 }))
             }
 
@@ -653,6 +669,7 @@ impl BuildBodyExecutor {
                     name: output.clone(),
                     path: output,
                     kind: BuildRuntimeGeneratedFileKind::GeneratedDir,
+                    provenance: PathHandleProvenance::Generated,
                 }))
             }
 
@@ -751,7 +768,10 @@ impl BuildBodyExecutor {
                         "file_from_root requires a non-empty relative path".to_string(),
                     ));
                 }
-                Ok(Some(ExecValue::SourceFile { path: subpath }))
+                Ok(Some(ExecValue::SourceFile {
+                    path: subpath,
+                    provenance: PathHandleProvenance::Source,
+                }))
             }
 
             "dir_from_root" => {
@@ -775,7 +795,10 @@ impl BuildBodyExecutor {
                         "dir_from_root requires a non-empty relative path".to_string(),
                     ));
                 }
-                Ok(Some(ExecValue::SourceDir { path: subpath }))
+                Ok(Some(ExecValue::SourceDir {
+                    path: subpath,
+                    provenance: PathHandleProvenance::Source,
+                }))
             }
 
             "build_root" => Ok(Some(ExecValue::Str(self.package_root_str.clone()))),
@@ -810,7 +833,7 @@ impl BuildBodyExecutor {
                         )
                     })?;
                 let root_module = self
-                    .parse_config_value(&root_field.value, &["path", "string", "target"])
+                    .parse_config_value(&root_field.value, &["path", "string"])
                     .ok_or_else(|| BuildEvaluationError::new(
                         BuildEvaluationErrorKind::InvalidInput,
                         format!("{method} config is invalid: artifact 'root' must be a string path or path-like option"),
@@ -900,46 +923,52 @@ impl BuildBodyExecutor {
             target: target.clone(),
             optimize: optimize.clone(),
         };
-        let root_placeholder = root_module.placeholder_string();
-
         match method {
             "add_exe" => {
-                self.output.executable_artifacts.push(artifact.clone());
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::AddExe(ExecutableRequest {
                         name: name.clone(),
-                        root_module: root_placeholder,
+                        root_module: root_module.clone(),
+                        fol_model,
+                        target: target.clone(),
+                        optimize: optimize.clone(),
                     }),
                 });
             }
             "add_static_lib" => {
-                self.output.static_library_artifacts.push(artifact.clone());
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::AddStaticLib(StaticLibraryRequest {
                         name: name.clone(),
-                        root_module: root_placeholder,
+                        root_module: root_module.clone(),
+                        fol_model,
+                        target: target.clone(),
+                        optimize: optimize.clone(),
                     }),
                 });
             }
             "add_shared_lib" => {
-                self.output.shared_library_artifacts.push(artifact.clone());
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::AddSharedLib(SharedLibraryRequest {
                         name: name.clone(),
-                        root_module: root_placeholder,
+                        root_module: root_module.clone(),
+                        fol_model,
+                        target: target.clone(),
+                        optimize: optimize.clone(),
                     }),
                 });
             }
             "add_test" => {
-                self.output.test_artifacts.push(artifact.clone());
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::AddTest(TestArtifactRequest {
                         name: name.clone(),
-                        root_module: root_placeholder,
+                        root_module: root_module.clone(),
+                        fol_model,
+                        target: target.clone(),
+                        optimize: optimize.clone(),
                     }),
                 });
             }

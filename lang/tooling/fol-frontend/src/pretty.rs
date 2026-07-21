@@ -117,12 +117,7 @@ pub fn render_diagnostic_pretty(diagnostic: &Diagnostic) -> String {
         if let Some(replacement) = &suggestion.replacement {
             line.push_str(&format!(": `{replacement}`"));
         }
-        out.push_str(&format!(
-            "{}{} {}\n",
-            GUTTER,
-            "= try:".green().bold(),
-            line
-        ));
+        out.push_str(&format!("{}{} {}\n", GUTTER, "= try:".green().bold(), line));
     }
 
     // ── footer: plain-language hint + explain hook ──
@@ -156,7 +151,11 @@ fn render_frame(
         Ok(source_line) => {
             let number = location.line.to_string();
             let width = number.len();
-            out.push_str(&format!("{GUTTER}{} {}\n", " ".repeat(width), "│".bright_black()));
+            out.push_str(&format!(
+                "{GUTTER}{} {}\n",
+                " ".repeat(width),
+                "│".bright_black()
+            ));
             out.push_str(&format!(
                 "{GUTTER}{} {} {}\n",
                 number.bright_black(),
@@ -234,15 +233,16 @@ fn render_summary(report: &DiagnosticReport) -> String {
     let mut parts = Vec::new();
     if report.error_count > 0 {
         let plural = if report.error_count == 1 { "" } else { "s" };
-        let truncated = if report.diagnostics.len() >= 50 { "+" } else { "" };
+        let truncated = if report.diagnostics.len() >= 50 {
+            "+"
+        } else {
+            ""
+        };
         parts.push(format!(
             "{}",
-            format!(
-                "found {}{truncated} error{plural}",
-                report.error_count
-            )
-            .red()
-            .bold()
+            format!("found {}{truncated} error{plural}", report.error_count)
+                .red()
+                .bold()
         ));
     }
     if report.warning_count > 0 {
@@ -298,7 +298,10 @@ mod tests {
             ("B1001", "BACKEND"),
         ] {
             let out = render_diagnostic_pretty(&Diagnostic::error(code, "problem"));
-            assert!(out.contains(expected), "code {code} should map to {expected}: {out}");
+            assert!(
+                out.contains(expected),
+                "code {code} should map to {expected}: {out}"
+            );
         }
     }
 

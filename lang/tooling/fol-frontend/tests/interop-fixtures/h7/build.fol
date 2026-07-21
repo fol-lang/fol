@@ -1,0 +1,22 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "interop_h7", version = "0.1.0" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var header = graph.file_from_root("native/provider.h");
+    var provider = graph.file_from_root("native/provider.o");
+    var app = graph.add_exe({
+        name = "interop_h7",
+        root = "src/main.fol",
+        fol_model = "core",
+        target = target,
+        optimize = optimize,
+    });
+    app.add_c_import({
+        header = header,
+        provider = provider,
+        provider_kind = "object",
+    });
+    graph.add_run(app);
+};

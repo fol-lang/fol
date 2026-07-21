@@ -24,7 +24,8 @@ fn build_evaluation_operations_keep_origin_and_payload_shape() {
         }),
         kind: BuildEvaluationOperationKind::AddExe(ExecutableRequest {
             name: "app".to_string(),
-            root_module: "src/app.fol".to_string(),
+            root_module: "src/app.fol".into(),
+            ..ExecutableRequest::default()
         }),
     };
 
@@ -32,7 +33,7 @@ fn build_evaluation_operations_keep_origin_and_payload_shape() {
     match operation.kind {
         BuildEvaluationOperationKind::AddExe(request) => {
             assert_eq!(request.name, "app");
-            assert_eq!(request.root_module, "src/app.fol");
+            assert_eq!(request.root_module.placeholder_string(), "src/app.fol");
         }
         other => panic!("unexpected operation kind: {other:?}"),
     }
@@ -64,9 +65,15 @@ fn build_evaluator_replays_standard_and_user_option_operations() {
     };
 
     let result = evaluate_build_plan(&request).expect("option replay should succeed");
+    let expected_target = fol_types::ResolvedTarget::host().unwrap().render();
 
     assert_eq!(result.graph.options().len(), 3);
     assert_eq!(result.package_root, "/pkg");
+    assert_eq!(
+        result.resolved_options.get("target"),
+        Some(expected_target.as_str())
+    );
+    assert_eq!(result.resolved_options.get("optimize"), Some("debug"));
 }
 
 #[test]
@@ -79,7 +86,8 @@ fn build_evaluator_replays_graph_building_operations_into_a_validated_graph() {
                 origin: None,
                 kind: BuildEvaluationOperationKind::AddExe(ExecutableRequest {
                     name: "app".to_string(),
-                    root_module: "src/app.fol".to_string(),
+                    root_module: "src/app.fol".into(),
+                    ..ExecutableRequest::default()
                 }),
             },
             BuildEvaluationOperation {

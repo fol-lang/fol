@@ -1,0 +1,17 @@
+// Ownership ops bind to a method-call receiver with no parens (V3_MEM 2.2):
+// [mut, bor]x.bump() groups as a mutable-borrow receiver call and the
+// mutation persists; [bor]x.peek() borrows the receiver for a read.
+
+use std: pkg = {"std"};
+
+typ Tally: rec = { value: int };
+
+fun (Tally[bor])peek(): int = { return self.value; };
+pro (Tally[mut, bor])bump(): non = { self.value = self.value + 1; return; };
+
+fun[] main(): int = {
+    var[mut] tally: Tally = { value = 40 };
+    [mut, bor]tally.bump();
+    [mut, bor]tally.bump();
+    return std::io::echo_int([bor]tally.peek());
+};

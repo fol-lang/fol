@@ -1,0 +1,16 @@
+use std: pkg = {"std"};
+
+// A first-class `chn[rx, T]` receiver value carries the channel's unique
+// receiver. It is move-only (never cloned) and can be passed across routines
+// and received through directly (V3_MEM §8.2).
+fun[] drain(source: chn[rx, int]): opt[int] = {
+    return source[rx];
+};
+
+fun[] main(): int = {
+    var channel: chn[int];
+    var sent: err[int] = 37 | channel[tx];
+    var receiver: chn[rx, int] = channel[rx];
+    var received: opt[int] = drain([mov]receiver);
+    return std::io::echo_int(received[]);
+};

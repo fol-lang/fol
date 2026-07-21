@@ -23,8 +23,9 @@ fn plain_mode_command_summaries_stay_script_friendly() {
 
     run_command_from_args_in_dir(["fol", "work", "init", "--bin"], &root)
         .expect("init should succeed");
-    let (_, result) = run_command_from_args_in_dir(["fol", "code", "build", "--keep-build-dir"], &root)
-        .expect("build should succeed");
+    let (_, result) =
+        run_command_from_args_in_dir(["fol", "code", "build", "--keep-build-dir"], &root)
+            .expect("build should succeed");
     let rendered = FrontendOutput::new(FrontendOutputConfig {
         mode: OutputMode::Plain,
         ..FrontendOutputConfig::default()

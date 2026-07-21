@@ -275,7 +275,9 @@ mod tests {
         let error = parse_package_lockfile("version: 99\n")
             .expect_err("incompatible lockfile version should fail");
 
-        assert!(error.message().contains("not compatible with supported version"));
+        assert!(error
+            .message()
+            .contains("not compatible with supported version"));
     }
 
     #[test]

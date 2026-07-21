@@ -1,14 +1,14 @@
 fun[] consume(pointer: ptr[int]): int = {
-    return *pointer;
+    return [drf]pointer;
 };
 
 fun[] main(): int = {
     var first: int = 1;
     var second: int = 2;
-    var[mut] pointer: ptr[int] = &first;
-    consume(pointer);
+    var[mut] pointer: ptr[int] = [ref]first;
+    consume([mov]pointer);
     dfr {
-        pointer = &second;
+        pointer = [ref]second;
     };
     return 0;
 };

@@ -1,0 +1,17 @@
+// A type cannot claim both `fin` and `clone` (V3_MEM §4.1): a `fin` value has no
+// structural clone — `fin + clone` requires a custom clone that duplicates the
+// finalizable resource, which FOL does not yet implement. Structurally cloning
+// `File` would double-finalize its descriptor, so the `(fin, clone)` claim is
+// rejected.
+
+typ File()(fin, clone): rec = {
+    descriptor: int,
+};
+
+pro (File)finalize(): non = {
+    return;
+};
+
+fun[] main(): int = {
+    return 0;
+};

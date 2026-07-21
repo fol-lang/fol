@@ -307,7 +307,7 @@ fn unwrap_lowering_uses_explicit_shell_unwrap_instructions() {
     ));
     std::fs::write(
         &fixture,
-        "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] from_optional(value: MaybeText): str = { return value!; };\nfun[] from_error(value: Failure): str = { return value! };\n",
+        "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] from_optional(value: MaybeText): str = { return [uwp]value; };\nfun[] from_error(value: Failure): str = { return [uwp]value };\n",
     )
     .expect("should write lowering unwrap fixture");
 
@@ -618,7 +618,7 @@ fn borrowed_values_lower_to_explicit_plain_value_reads() {
          };\n\
          fun[] main(): int = {\n\
              var owner: int = 7;\n\
-             return read(#owner);\n\
+             return read([bor]owner);\n\
          };\n",
     );
     let read = workspace

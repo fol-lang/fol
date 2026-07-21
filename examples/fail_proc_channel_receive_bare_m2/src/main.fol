@@ -1,0 +1,8 @@
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var channel: chn[int];
+    var sent: err[int] = 7 | channel[tx];
+    var value: int = channel[rx];
+    return std::io::echo_int(value);
+};

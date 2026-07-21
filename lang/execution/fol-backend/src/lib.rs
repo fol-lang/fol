@@ -7,6 +7,7 @@
 //! host-compatible artifact can run without that dependency, while executing
 //! a cross-target artifact requires an external runner.
 
+mod auxiliary;
 mod config;
 mod control;
 mod emit;
@@ -39,6 +40,10 @@ pub fn crate_name() -> &'static str {
     CRATE_NAME
 }
 
+pub use auxiliary::{
+    BackendAuxiliaryRustCrate, BackendAuxiliaryRustPlan, BackendMainEntryCall,
+    BackendMainEntryResultObservation,
+};
 pub use config::{
     BackendBuildProfile, BackendConfig, BackendFolModel, BackendMachineTarget, BackendMode,
     BackendRuntimeTier, BackendTarget,
@@ -48,7 +53,8 @@ pub use emit::{
     backend_build_paths, backend_runtime_build_dir, backend_runtime_manifest_path,
     backend_runtime_manifest_path_with_override, backend_runtime_source_entry,
     backend_runtime_source_entry_with_override, backend_runtime_source_root,
-    backend_runtime_source_root_with_override, build_generated_crate_with_rustc,
+    backend_runtime_source_root_with_override, build_generated_crate_with_auxiliary_plan,
+    build_generated_crate_with_rustc, build_generated_crate_with_rustc_args,
     build_runtime_rlib_with_rustc, emit_backend_artifact, emit_cargo_toml,
     emit_generated_crate_skeleton, emit_generated_crate_skeleton_for_config, emit_main_rs,
     emit_main_rs_for_config, emit_namespace_module_shells, emit_namespace_module_shells_for_config,
@@ -112,7 +118,7 @@ mod tests {
         assert_eq!(config.target, BackendTarget::Rust);
         assert_eq!(config.fol_model, BackendFolModel::Std);
         assert_eq!(config.runtime_tier(), BackendRuntimeTier::Std);
-        assert_eq!(config.machine_target, BackendMachineTarget::Host);
+        assert_eq!(config.machine_target, BackendMachineTarget::host().unwrap());
         assert_eq!(config.build_profile, BackendBuildProfile::Release);
         assert_eq!(config.mode, BackendMode::BuildArtifact);
         assert_eq!(session.workspace().package_count(), 2);

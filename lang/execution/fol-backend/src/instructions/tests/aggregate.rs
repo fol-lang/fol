@@ -194,6 +194,8 @@ fn aggregate_constructors_move_unique_elements_and_values() {
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let array_id = table.intern(LoweredType::Array {
         element_type: pointer_id,
@@ -284,9 +286,12 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
     let unique_pointer = table.intern(fol_lower::LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let move_only_record = table.intern(fol_lower::LoweredType::Record {
         fields: BTreeMap::from([("pointer".to_string(), unique_pointer)]),
+        finalized: false,
     });
     let move_only_array = table.intern(fol_lower::LoweredType::Array {
         element_type: move_only_record,
@@ -390,19 +395,19 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
 
     assert_eq!(
         rendered[0],
-        "l__pkg__entry__app__r19__l5__a = rt::index_array(&l__pkg__entry__app__r19__l0__arr, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
+        "l__pkg__entry__app__r19__l5__a = rt::require(rt::index_array(&l__pkg__entry__app__r19__l0__arr, l__pkg__entry__app__r19__l4__index.clone())).clone();"
     );
     assert_eq!(
         rendered[1],
-        "l__pkg__entry__app__r19__l6__b = rt::index_vec(&l__pkg__entry__app__r19__l1__vec, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
+        "l__pkg__entry__app__r19__l6__b = rt::require(rt::index_vec(&l__pkg__entry__app__r19__l1__vec, l__pkg__entry__app__r19__l4__index.clone())).clone();"
     );
     assert_eq!(
         rendered[2],
-        "l__pkg__entry__app__r19__l7__c = rt::index_seq(&l__pkg__entry__app__r19__l2__seq, l__pkg__entry__app__r19__l4__index.clone()).unwrap().clone();"
+        "l__pkg__entry__app__r19__l7__c = rt::require(rt::index_seq(&l__pkg__entry__app__r19__l2__seq, l__pkg__entry__app__r19__l4__index.clone())).clone();"
     );
     assert_eq!(
         rendered[3],
-        "l__pkg__entry__app__r19__l8__d = rt::lookup_map(&l__pkg__entry__app__r19__l3__map, &l__pkg__entry__app__r19__l4__index).unwrap().clone();"
+        "l__pkg__entry__app__r19__l8__d = rt::require(rt::lookup_map(&l__pkg__entry__app__r19__l3__map, &l__pkg__entry__app__r19__l4__index)).clone();"
     );
 
     let error = render_core_instruction(
@@ -431,6 +436,8 @@ fn slice_rendering_rejects_move_only_results_before_clone_emission() {
     let unique_pointer = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let scalar_vec = table.intern(LoweredType::Vector {
         element_type: int_id,
@@ -487,7 +494,7 @@ fn slice_rendering_rejects_move_only_results_before_clone_emission() {
     .expect("copy-safe slice renders");
     assert_eq!(
         rendered,
-        "l__pkg__entry__app__r20__l3__slice = rt::slice_vec(&l__pkg__entry__app__r20__l0__values, l__pkg__entry__app__r20__l1__start.clone(), l__pkg__entry__app__r20__l2__end.clone()).unwrap();"
+        "l__pkg__entry__app__r20__l3__slice = rt::require(rt::slice_vec(&l__pkg__entry__app__r20__l0__values, l__pkg__entry__app__r20__l1__start.clone(), l__pkg__entry__app__r20__l2__end.clone()));"
     );
 
     let error = render_core_instruction(
@@ -520,6 +527,7 @@ fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
     let int_id = table.intern_builtin(LoweredBuiltinType::Int);
     let record_type = table.intern(LoweredType::Record {
         fields: BTreeMap::from([("count".to_string(), int_id)]),
+        finalized: false,
     });
     let entry_type = table.intern(LoweredType::Entry {
         variants: BTreeMap::from([("Ok".to_string(), Some(int_id))]),
@@ -774,8 +782,8 @@ fn aggregate_and_container_snapshot_stays_stable() {
             "l__pkg__entry__app__r20__l4__seq = rt_model::FolSeq::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
             "l__pkg__entry__app__r20__l5__set = rt_model::FolSet::from_items(vec![l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone()]);\n",
             "l__pkg__entry__app__r20__l6__map = rt_model::FolMap::from_pairs(vec![(l__pkg__entry__app__r20__l0__a.clone(), l__pkg__entry__app__r20__l1__b.clone())]);\n",
-            "l__pkg__entry__app__r20__l7__out = rt::index_vec(&l__pkg__entry__app__r20__l3__vec, l__pkg__entry__app__r20__l0__a.clone()).unwrap().clone();\n",
-            "l__pkg__entry__app__r20__l8__set_out = rt::index_set(&l__pkg__entry__app__r20__l5__set, l__pkg__entry__app__r20__l0__a.clone()).unwrap().clone();"
+            "l__pkg__entry__app__r20__l7__out = rt::require(rt::index_vec(&l__pkg__entry__app__r20__l3__vec, l__pkg__entry__app__r20__l0__a.clone())).clone();\n",
+            "l__pkg__entry__app__r20__l8__set_out = rt::require(rt::index_set(&l__pkg__entry__app__r20__l5__set, l__pkg__entry__app__r20__l0__a.clone())).clone();"
         )
     );
 }

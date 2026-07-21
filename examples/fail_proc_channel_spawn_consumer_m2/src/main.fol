@@ -1,5 +1,5 @@
 fun[] consume(channel: chn[int]): int = {
-    return channel[rx];
+    return channel[rx][];
 };
 
 fun[] main(): int = {

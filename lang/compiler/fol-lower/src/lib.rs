@@ -26,10 +26,10 @@ pub use ids::{
 };
 pub use model::{
     LoweredConformance, LoweredEntryCandidate, LoweredExportMount, LoweredFieldLayout,
-    LoweredGlobal, LoweredPackage, LoweredRecoverableAbi, LoweredSourceMap, LoweredSourceMapEntry,
-    LoweredSourceSymbol, LoweredSourceUnit, LoweredStandard, LoweredStandardRoutine,
-    LoweredSymbolOwnership, LoweredTypeDecl, LoweredTypeDeclKind, LoweredVariantLayout,
-    LoweredWorkspace,
+    LoweredGlobal, LoweredGlobalInit, LoweredPackage, LoweredRecoverableAbi, LoweredSourceMap,
+    LoweredSourceMapEntry, LoweredSourceSymbol, LoweredSourceUnit, LoweredStandard,
+    LoweredStandardRoutine, LoweredSymbolOwnership, LoweredTypeDecl, LoweredTypeDeclKind,
+    LoweredVariantLayout, LoweredWorkspace,
 };
 pub use render::render_lowered_workspace;
 pub use session::LoweringSession;

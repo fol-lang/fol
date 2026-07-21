@@ -1,8 +1,8 @@
 use crate::lexer::stage1;
 use crate::lexer::stage2::Element;
 use crate::token::KEYWORD;
-use fol_stream::FileStream;
 use crate::{Con, Vod};
+use fol_stream::FileStream;
 use fol_types::{Win, SLIDER};
 
 pub struct Elements {

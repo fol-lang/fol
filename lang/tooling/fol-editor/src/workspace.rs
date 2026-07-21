@@ -317,15 +317,15 @@ fn copy_directory_tree(from: &Path, to: &Path) -> EditorResult<()> {
         // the live `target/` build tree is both wasteful and racy: cargo can
         // rewrite or delete object files mid-copy, surfacing spurious
         // "No such file" failures. Skip those non-source directories entirely.
-        if file_type.is_dir() {
-            if entry.file_name().to_str().is_some_and(|name| {
+        if file_type.is_dir()
+            && entry.file_name().to_str().is_some_and(|name| {
                 matches!(
                     name,
-                    "target" | ".git" | ".jj" | ".hg" | ".svn" | "node_modules"
+                    "target" | ".tmp" | ".git" | ".jj" | ".hg" | ".svn" | "node_modules"
                 )
-            }) {
-                continue;
-            }
+            })
+        {
+            continue;
         }
         if file_type.is_dir() {
             fs::create_dir_all(&target).map_err(|error| {
@@ -600,7 +600,7 @@ fn is_internal_standard_dependency(dependency: &BuildRuntimeDependency) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use super::{map_document_workspace, materialize_analysis_overlay};
+    use super::{copy_directory_tree, map_document_workspace, materialize_analysis_overlay};
     use crate::{EditorConfig, EditorDocument, EditorDocumentUri};
     use fol_typecheck::TypecheckCapabilityModel;
     use std::fs;
@@ -1136,6 +1136,38 @@ mod tests {
         );
 
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn analysis_overlay_copy_skips_tmp_but_preserves_source_trees() {
+        let source = temp_root("overlay_copy_source");
+        let destination = temp_root("overlay_copy_destination");
+        let app_source = source.join("app/src");
+        let shared_source = source.join("shared/src");
+        let scratch = source.join(".tmp/stale-cargo-target");
+        fs::create_dir_all(&app_source).unwrap();
+        fs::create_dir_all(&shared_source).unwrap();
+        fs::create_dir_all(&scratch).unwrap();
+        fs::write(
+            app_source.join("main.fol"),
+            "fun[] main(): int = { return 0; };\n",
+        )
+        .unwrap();
+        fs::write(
+            shared_source.join("lib.fol"),
+            "fun[exp] helper(): int = { return 7; };\n",
+        )
+        .unwrap();
+        fs::write(scratch.join("artifact.o"), "build output\n").unwrap();
+
+        copy_directory_tree(&source, &destination).unwrap();
+
+        assert!(destination.join("app/src/main.fol").is_file());
+        assert!(destination.join("shared/src/lib.fol").is_file());
+        assert!(!destination.join(".tmp").exists());
+
+        fs::remove_dir_all(source).ok();
+        fs::remove_dir_all(destination).ok();
     }
 
     #[test]

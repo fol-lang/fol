@@ -1,5 +1,5 @@
 use super::*;
-use crate::ast::{ChannelEndpoint, RoutineCapture};
+use crate::ast::{ChannelEndpoint, OwnershipOption, RoutineCapture};
 
 impl AstParser {
     pub(super) fn ensure_unique_capture_names(
@@ -63,41 +63,81 @@ impl AstParser {
             let _ = tokens.bump();
 
             self.skip_ignorable(tokens)?;
-            let endpoint = if matches!(
+            let (endpoint, operation, mutable) = if matches!(
                 tokens.curr(false).map(|token| token.key()),
                 Ok(KEYWORD::Symbol(SYMBOL::SquarO))
             ) {
                 let _ = tokens.bump();
                 self.skip_ignorable(tokens)?;
-                let endpoint_token = tokens.curr(false)?;
-                let endpoint = match Self::token_to_named_label(&endpoint_token).as_deref() {
-                    Some("tx") => ChannelEndpoint::Tx,
-                    Some("rx") => ChannelEndpoint::Rx,
-                    _ => {
+                let mut inner_token = tokens.curr(false)?;
+                // The composite `[mut, bor]` capture takes a mutable loan;
+                // `mut` composes only with `bor`.
+                let mutable = matches!(
+                    Self::token_to_named_label(&inner_token).as_deref(),
+                    Some("mut")
+                );
+                if mutable {
+                    let _ = tokens.bump();
+                    self.skip_ignorable(tokens)?;
+                    let separator = tokens.curr(false)?;
+                    if !matches!(separator.key(), KEYWORD::Symbol(SYMBOL::Comma)) {
                         return Err(ParseError::from_token(
-                            &endpoint_token,
-                            "Expected 'tx' or 'rx' in capture endpoint".to_string(),
+                            &separator,
+                            "Expected ',' after 'mut' in capture bracket".to_string(),
                         ));
                     }
-                };
+                    let _ = tokens.bump();
+                    self.skip_ignorable(tokens)?;
+                    inner_token = tokens.curr(false)?;
+                    if !matches!(
+                        Self::token_to_named_label(&inner_token).as_deref(),
+                        Some("bor" | "borrow")
+                    ) {
+                        return Err(ParseError::from_token(
+                            &inner_token,
+                            "'mut' composes only with 'bor' in a capture bracket".to_string(),
+                        ));
+                    }
+                }
+                // The capture bracket carries either a channel endpoint
+                // (`c[tx]` / `c[rx]`) or a value-capture ownership operation
+                // (`data[mov]` / `data[cpy]`); the two are mutually exclusive.
+                let (endpoint, operation) =
+                    match Self::token_to_named_label(&inner_token).as_deref() {
+                        Some("tx") => (Some(ChannelEndpoint::Tx), None),
+                        Some("rx") => (Some(ChannelEndpoint::Rx), None),
+                        Some("mov" | "move") => (None, Some(OwnershipOption::Move)),
+                        Some("cpy" | "copy") => (None, Some(OwnershipOption::Copy)),
+                        Some("cln" | "clone") => (None, Some(OwnershipOption::Clone)),
+                        Some("bor" | "borrow") => (None, Some(OwnershipOption::Borrow)),
+                        _ => {
+                            return Err(ParseError::from_token(
+                            &inner_token,
+                            "Expected 'tx', 'rx', 'mov', 'cpy', 'cln', or 'bor' in capture bracket"
+                                .to_string(),
+                        ));
+                        }
+                    };
                 let _ = tokens.bump();
                 self.skip_ignorable(tokens)?;
                 let close = tokens.curr(false)?;
                 if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
                     return Err(ParseError::from_token(
                         &close,
-                        "Expected ']' after capture endpoint".to_string(),
+                        "Expected ']' after capture bracket".to_string(),
                     ));
                 }
                 let _ = tokens.bump();
-                Some(endpoint)
+                (endpoint, operation, mutable)
             } else {
-                None
+                (None, None, false)
             };
             captures.push(RoutineCapture {
                 name,
                 syntax_id,
                 endpoint,
+                operation,
+                mutable,
             });
 
             self.skip_ignorable(tokens)?;

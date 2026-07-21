@@ -1,0 +1,8 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "fail_mem_fun_mut_receiver_m2", version = "0.1.0" });
+    var graph = build.graph();
+    var app = graph.add_exe({ name = "fail-mem-fun-mut-receiver-m2", root = "src/main.fol", fol_model = "memo" });
+    graph.install(app);
+    return;
+};

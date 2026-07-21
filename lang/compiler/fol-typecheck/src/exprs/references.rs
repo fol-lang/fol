@@ -62,7 +62,7 @@ pub(crate) fn type_identifier_reference(
                     TypecheckError::new(
                         TypecheckErrorKind::InvalidInput,
                         format!(
-                            "mutex parameter '{name}' cannot be used as an unguarded whole value; access fields after '{name}.lock()' or pass the handle to another [mux] parameter"
+                            "mutex parameter '{name}' cannot be used as an unguarded whole value; access fields after '{name}.lock()' or pass the handle to another mux[T] parameter"
                         ),
                     )
                 },
@@ -70,7 +70,7 @@ pub(crate) fn type_identifier_reference(
                     TypecheckError::with_origin(
                         TypecheckErrorKind::InvalidInput,
                         format!(
-                            "mutex parameter '{name}' cannot be used as an unguarded whole value; access fields after '{name}.lock()' or pass the handle to another [mux] parameter"
+                            "mutex parameter '{name}' cannot be used as an unguarded whole value; access fields after '{name}.lock()' or pass the handle to another mux[T] parameter"
                         ),
                         origin,
                     )
@@ -98,7 +98,22 @@ pub(crate) fn type_identifier_reference(
                 }
                 None if eventual => format!("use of moved eventual binding '{name}'"),
                 None if channel => format!("use of moved channel receiver binding '{name}'"),
-                None => format!("use of moved heap-owned binding '{name}'"),
+                None => {
+                    // A move-only binding (heap-owned `@var`, pointer, ...) keeps
+                    // the "heap-owned" wording; a copy-safe binding invalidated by
+                    // an explicit `[mov]` (V3_MEM §2.1) uses the generic form.
+                    let move_only = typed
+                        .typed_symbol(symbol)
+                        .and_then(|symbol| symbol.declared_type)
+                        .is_some_and(|type_id| {
+                            super::bindings::ownership_moves_on_transfer(typed, type_id)
+                        });
+                    if move_only {
+                        format!("use of moved heap-owned binding '{name}'")
+                    } else {
+                        format!("use of moved binding '{name}'")
+                    }
+                }
             };
             let mut error = origin_for(resolved, syntax_id).map_or_else(
                 || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
@@ -123,6 +138,31 @@ pub(crate) fn type_identifier_reference(
                 },
             );
             return Err(error);
+        }
+        // A partially moved aggregate (a single field moved out under Slice C
+        // §3.1) cannot be read as a whole value: the moved field no longer
+        // exists. Projecting a surviving field is still allowed, so this
+        // rejection is suppressed while typing a field-access receiver.
+        if !context.field_projection_root {
+            if let Some((field, field_origin)) = typed
+                .first_moved_field(symbol)
+                .map(|(field, origin)| (field.clone(), origin.clone()))
+            {
+                let message =
+                    format!("use of partially moved binding '{name}'; field '.{field}' was moved");
+                let mut error = origin_for(resolved, syntax_id).map_or_else(
+                    || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                    |origin| {
+                        TypecheckError::with_origin(
+                            TypecheckErrorKind::Ownership,
+                            message.clone(),
+                            origin,
+                        )
+                    },
+                );
+                error = error.with_related_origin(field_origin, "field moved here");
+                return Err(error);
+            }
         }
         if let Some(borrow) = typed.active_borrow_for_owner(symbol).cloned() {
             let mut error = origin_for(resolved, syntax_id).map_or_else(

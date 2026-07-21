@@ -28,6 +28,7 @@ module.exports = grammar({
     [$.if_stmt, $.if_expr],
     [$.expr, $.range_expr],
     [$.else_clause, $.if_expr],
+    [$.type_expr, $.generic_type_expr],
   ],
 
   rules: {
@@ -112,7 +113,7 @@ module.exports = grammar({
       field('type', $.type_expr),
       optional(seq('=', field('default', $.expr))),
     ),
-    parameter_options: $ => seq('[', commaSep1(choice('bor', 'mux')), ']'),
+    parameter_options: $ => seq('[', commaSep1(seq(choice('bor', 'mut'), optional(seq('=', $.identifier)))), ']'),
     return_type: $ => seq(':', $.type_expr),
     error_type: $ => seq('/', $.type_expr),
     record_type: _ => 'rec',
@@ -121,6 +122,9 @@ module.exports = grammar({
     type_expr: $ => choice(
       $.pointer_type,
       $.channel_type,
+      $.eventual_type,
+      $.mutex_type,
+      $.function_type,
       $.generic_type_expr,
       $.qualified_path,
       $.identifier,
@@ -129,18 +133,49 @@ module.exports = grammar({
       $.owned_type,
     ),
 
+    // Braced routine type `{fun (n: int): int}` with an optional environment
+    // lifetime `[bor=L]` marking an escaping-closure type (V3 section 5.3).
+    function_type: $ => prec.right(seq(
+      '{',
+      'fun',
+      optional(field('name', $.identifier)),
+      $.params,
+      optional($.return_type),
+      optional($.error_type),
+      '}',
+      optional(seq('[', 'bor', '=', field('env_lifetime', $.identifier), ']')),
+    )),
+
     generic_type_expr: $ => seq(
       field('base', choice($.qualified_path, $.identifier)),
       '[',
-      commaSep1(choice($.type_expr, $.integer_literal)),
+      // A bracket item may carry a lifetime assignment, e.g. `Job[bor=L]`.
+      commaSep1(choice(seq($.type_expr, optional(seq('=', $.identifier))), $.integer_literal)),
       ']',
     ),
     container_type: $ => seq(choice('arr', 'vec', 'seq', 'set', 'map'), '[', commaSep1(choice($.type_expr, $.integer_literal)), ']'),
-    channel_type: $ => seq('chn', '[', field('element', $.type_expr), ']'),
+    channel_type: $ => seq(
+      'chn',
+      '[',
+      optional(seq(field('endpoint', choice('tx', 'rx')), ',')),
+      field('element', $.type_expr),
+      ']',
+    ),
+    // `evt[T]`, `evt[L, T]`, `evt[T / E]`, `evt[L, T / E]`.
+    eventual_type: $ => seq(
+      'evt',
+      '[',
+      field('first', $.type_expr),
+      optional(seq(',', field('second', $.type_expr))),
+      optional(seq('/', field('error', $.type_expr))),
+      ']',
+    ),
+    mutex_type: $ => seq('mux', '[', field('target', $.type_expr), ']'),
     pointer_type: $ => prec(2, seq(
       'ptr',
       '[',
-      optional(seq(field('qualifier', choice('shared', 'raw')), ',')),
+      optional(seq(field('qualifier', choice('shared', 'weak', 'raw')), ',')),
+      optional(seq(field('sync', 'sync'), ',')),
       field('target', $.type_expr),
       ']',
     )),
@@ -214,11 +249,11 @@ module.exports = grammar({
       '=',
       field('value', $.expr),
     )),
-    deref_target: $ => prec.right(4, seq('*', field('pointer', $.expr_atom))),
+    deref_target: $ => prec.right(4, seq('[', 'drf', ']', field('pointer', $.expr_atom))),
     return_stmt: $ => prec.right(seq('return', optional($.expr))),
     yield_stmt: $ => prec.right(seq('yield', optional($.expr))),
-    dfr_stmt: $ => seq('dfr', $.block),
-    edf_stmt: $ => seq('edf', $.block),
+    dfr_stmt: $ => seq('dfr', optional($.routine_capture_list), $.block),
+    edf_stmt: $ => seq('edf', optional($.routine_capture_list), $.block),
     report_stmt: $ => prec.right(seq('report', $.expr)),
     panic_stmt: $ => prec.right(seq('panic', $.expr)),
     assert_stmt: $ => prec.right(seq('assert', optional($.expr))),
@@ -263,8 +298,24 @@ module.exports = grammar({
     ),
     when_expr: $ => seq('when', '(', $.expr, ')', $.when_block),
     loop_expr: $ => seq('loop', optional(seq('(', $.expr, ')')), $.block),
-    when_block: $ => seq('{', repeat(choice($.case_clause, $.default_clause, $.comment, $.doc_comment)), '}'),
+    when_block: $ => seq('{', repeat(choice(
+      $.case_clause,
+      $.is_clause,
+      $.in_clause,
+      $.has_clause,
+      $.of_clause,
+      $.on_clause,
+      $.default_clause,
+      $.comment,
+      $.doc_comment,
+    )), '}'),
     case_clause: $ => seq('case', '(', $.expr, ')', $.block),
+    is_clause: $ => seq('is', '(', $.expr, ')', $.block),
+    in_clause: $ => seq('in', '(', $.expr, ')', $.block),
+    has_clause: $ => seq('has', '(', $.expr, ')', $.block),
+    of_clause: $ => seq('of', '(', $.expr, ')', $.block),
+    // `on (binding) { ... }` binds the present/error shell payload.
+    on_clause: $ => seq('on', '(', $.expr, ')', $.block),
     default_clause: $ => seq('*', $.block),
     flow_body: $ => choice(prec(1, $.block), prec.right(1, seq('=>', choice(prec(1, $.block), $.stmt)))),
     expr: $ => choice(
@@ -272,6 +323,7 @@ module.exports = grammar({
       $.pipe_expr,
       $.binary_expr,
       $.unary_expr,
+      $.ownership_op,
       $.if_expr,
       $.when_expr,
       $.loop_expr,
@@ -283,13 +335,30 @@ module.exports = grammar({
       $.expr_atom,
     ),
 
-    pipe_or_expr: $ => prec.left(1, seq(field('left', choice($.expr_atom, $.unary_expr)), '||', field('right', $.expr))),
-    pipe_expr: $ => prec.left(1, seq(field('left', choice($.expr_atom, $.unary_expr)), '|', field('right', $.expr))),
-    binary_expr: $ => prec.left(2, seq(field('left', choice($.expr_atom, $.unary_expr)), field('operator', choice(
+    pipe_or_expr: $ => prec.left(1, seq(field('left', choice($.expr_atom, $.unary_expr, $.ownership_op)), '||', field('right', $.expr))),
+    pipe_expr: $ => prec.left(1, seq(field('left', choice($.expr_atom, $.unary_expr, $.ownership_op)), '|', field('right', $.expr))),
+    binary_expr: $ => prec.left(2, seq(field('left', choice($.expr_atom, $.unary_expr, $.ownership_op)), field('operator', choice(
       '==', '!=', '<=', '>=', '<', '>', '&&', '+', '-', '*', '/', '%', '^',
       'or', 'xor', 'nor', 'and', 'nand', 'as', 'cast', 'is', 'has', 'in', 'on', 'of', 'at'
     )), field('right', $.expr))),
-    unary_expr: $ => prec.right(3, seq(field('operator', choice('not', '-', '&', '*', '#', '!')), field('operand', $.expr_atom))),
+    unary_expr: $ => prec.right(3, seq(field('operator', choice('not', '-')), field('operand', $.expr_atom))),
+
+    // V3 prefix bracket operations: canonical ownership options ([mov]/[cpy]/
+    // [cln]/[bor]/[mut, bor]/[new, ...]/[weak]/[upg]/[fin] plus their readable
+    // aliases) and the standalone bracket unary operators ([uwp]/[drf]/[ref]/
+    // [end]). The operand is a primary expression; `[op]receiver.method()`
+    // rebases over the method receiver in the compiler, which this flat shape
+    // approximates.
+    ownership_op: $ => prec.right(3, seq(
+      '[',
+      commaSep1(field('option', $.ownership_option)),
+      ']',
+      field('operand', choice($.expr_atom, $.ownership_op)),
+    )),
+    ownership_option: _ => choice(
+      'mov', 'move', 'cpy', 'copy', 'cln', 'clone', 'bor', 'borrow',
+      'mut', 'new', 'weak', 'upg', 'fin', 'uwp', 'drf', 'ref', 'end',
+    ),
     expr_atom: $ => choice(
       $.check_expr,
       $.call_expr,
@@ -320,7 +389,6 @@ module.exports = grammar({
       $.integer_literal,
       $.boolean_literal,
       $.nil_literal,
-      $.unwrap_expr,
     ),
 
     if_expr: $ => prec.right(1, seq('if', '(', $.expr, ')', field('then', $.flow_body), 'else', field('else', $.flow_body))),
@@ -329,14 +397,28 @@ module.exports = grammar({
       prec.right(seq(field('operator', choice('..', '...')), field('end', $.expr))),
       prec.right(seq(field('start', choice($.expr_atom, $.unary_expr)), field('operator', choice('..', '...')))),
     ),
-    spawn_expr: $ => prec.right(4, seq('[>]', field('task', $.expr_atom))),
+    // `[spn]call` scoped spawn, `[spn, det]call` detached spawn, `[>]call`
+    // scoped-spawn shorthand.
+    spawn_expr: $ => prec.right(4, seq(
+      choice('[>]', seq('[', 'spn', optional(seq(',', 'det')), ']')),
+      field('task', $.expr_atom),
+    )),
     anonymous_fun_expr: $ => seq('fun', optional($.decl_modifiers), $.params, optional($.routine_capture_list), optional($.return_type), optional($.error_type), choice('=', '=>'), $.routine_body_expr),
     anonymous_pro_expr: $ => seq('pro', optional($.decl_modifiers), $.params, optional($.routine_capture_list), optional($.return_type), optional($.error_type), choice('=', '=>'), $.routine_body_expr),
     anonymous_log_expr: $ => seq('log', optional($.decl_modifiers), $.params, optional($.routine_capture_list), optional($.return_type), optional($.error_type), choice('=', '=>'), $.routine_body_expr),
     routine_capture_list: $ => seq('[', optional(commaSep($.routine_capture)), ']'),
     routine_capture: $ => seq(
       field('binding', $.identifier),
-      optional(seq('[', field('endpoint', choice('tx', 'rx')), ']')),
+      optional(seq(
+        '[',
+        // The composite `[mut, bor]` capture takes a mutable loan; `mut`
+        // composes only with `bor` (enforced by the compiler parser).
+        optional(seq(field('mutability', 'mut'), ',')),
+        field('endpoint', choice(
+          'tx', 'rx', 'mov', 'move', 'cpy', 'copy', 'cln', 'clone', 'bor', 'borrow',
+        )),
+        ']',
+      )),
     ),
     routine_body_expr: $ => choice(prec(1, $.block), prec.right(1, seq('=>', choice(prec(1, $.block), $.stmt)))),
     call_expr: $ => prec.left(3, seq(
@@ -373,10 +455,11 @@ module.exports = grammar({
     index_access: $ => prec.left(4, seq(
       field('container', choice($.identifier, $.qualified_path, $.field_access, $.channel_access, $.index_access)),
       '[',
-      field('index', $.expr),
+      // Empty access `container[]` is the V3 uniform inner-place access
+      // (pointer pointee, opt payload, err payload).
+      optional(field('index', $.expr)),
       ']',
     )),
-    unwrap_expr: $ => prec.left(5, seq(choice($.identifier, $.qualified_path, $.field_access, $.call_expr), '!')),
     record_literal: $ => seq('{', optional(commaSep($.field_init)), '}'),
     field_init: $ => seq(field('name', $.identifier), '=', field('value', $.expr)),
     container_literal: $ => seq('{', optional(commaSep($.expr)), '}'),

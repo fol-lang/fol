@@ -1,0 +1,12 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "fail_mem_ownership_op_combo_m2", version = "0.1.0" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "fail-mem-ownership-op-combo-m2",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    return;
+};

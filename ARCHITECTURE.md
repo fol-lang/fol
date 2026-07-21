@@ -79,9 +79,20 @@ lang/
     fol-backend       Rust code generation and direct rustc invocation
 
   tooling/        user-facing tools
-    fol-frontend      CLI entry point, workspace orchestration
+    fol-self          the `fol` binary: toolchain manager and dispatcher
+    fol-frontend      the `folc` engine: CLI surface, workspace orchestration
     fol-editor        LSP server and tree-sitter integration
 ```
+
+Two binaries come out of the workspace. `fol` (from `fol-self`) is the
+toolchain manager users put on PATH: it owns `fol self …` (install, link,
+default, list, remove, which) and execs the right versioned `folc` for every
+other command, selected via `+<toolchain>`, `FOL_TOOLCHAIN`, the `//fol X.Y.Z`
+pin on the first comment line of `build.fol`, or the configured default.
+`folc` (the root package's binary, built from `fol-frontend/src/main.rs`) is
+the self-contained engine; installed toolchains ship it alongside `std/` and
+`runtime/`, which it resolves relative to its own binary. See the book's
+Toolchain Management chapter for the full contract.
 
 ## Dependency graph
 
@@ -250,7 +261,7 @@ The tooling crates sit beside the pipeline and reach into multiple layers.
   ┌──────────────────────────────────────────────────────────────────┐
   │                        fol-frontend                              │
   │                                                                  │
-  │  the fol CLI binary                                              │
+  │  the folc engine binary (invoked through the fol manager)        │
   │  orchestrates the full pipeline: parse -> resolve -> check ->    │
   │  lower -> backend                                                │
   │  also hosts: workspace discovery, build evaluation,              │

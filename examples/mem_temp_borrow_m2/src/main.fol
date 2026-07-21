@@ -1,0 +1,18 @@
+// Borrowing a temporary (V3_MEM Slice C): a fresh value may be borrowed for the
+// duration of the enclosing expression and passed to a `[bor]` parameter. The
+// temporary lives until the call returns, so the borrow never dangles. It may
+// not be stored in a longer-lived borrow binding.
+
+typ Job: rec = { value: int };
+
+fun[] make_job(): Job = {
+    return { value = 5 };
+};
+
+fun[] inspect(seen: Job[bor]): int = {
+    return seen.value;
+};
+
+fun[] main(): int = {
+    return inspect([bor]make_job());
+};

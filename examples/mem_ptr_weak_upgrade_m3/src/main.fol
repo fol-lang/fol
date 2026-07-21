@@ -1,0 +1,15 @@
+// Upgrading a weak handle is fallible (V3_MEM Slice D, §7.1): `[upg]` yields
+// `opt[ptr[shared, T]]`, which is `nil` when the shared allocation is already
+// gone. The failed-upgrade arm must be handled explicitly; the present arm
+// binds a fresh shared loan that can be dereferenced while it is live.
+
+fun[] main(): int = {
+    var value: int = 20;
+    var strong: ptr[shared, int] = [ref]value;
+    var observer: ptr[weak, int] = [weak]strong;
+    var revived: opt[ptr[shared, int]] = [upg]observer;
+    when(revived) {
+        on(alive) { return [drf]alive; }
+        * { return 0; }
+    }
+};

@@ -3,8 +3,8 @@ use crate::{
     plan_package_layouts, render_entry_definition, render_entry_trait_impl,
     render_global_declaration, render_record_definition, render_record_trait_impl,
     render_routine_definition, render_rust_type_in_workspace, BackendArtifact, BackendConfig,
-    BackendError, BackendErrorKind, BackendResult, BackendRuntimeTier, BackendSession,
-    EmittedRustFile,
+    BackendError, BackendErrorKind, BackendMainEntryResultObservation, BackendResult,
+    BackendRuntimeTier, BackendSession, EmittedRustFile,
 };
 use fol_lower::{LoweredBuiltinType, LoweredType, LoweredTypeId};
 use std::collections::BTreeMap;
@@ -31,6 +31,9 @@ pub fn emit_main_rs_for_config(
     session: &BackendSession,
     config: &BackendConfig,
 ) -> BackendResult<EmittedRustFile> {
+    if let Some(plan) = &config.auxiliary_rust_plan {
+        plan.validate_for_build(&config.machine_target, config.build_profile)?;
+    }
     let layout = plan_generated_crate_layout(session);
     let entry_candidate = session.select_buildable_entry_candidate()?;
     let entry_name = &session.entry_identity().display_name;
@@ -40,6 +43,20 @@ pub fn emit_main_rs_for_config(
     let task_join_guard = matches!(config.runtime_tier(), BackendRuntimeTier::Std)
         .then_some("\n    let _fol_task_join_guard = rt::task_join_guard();")
         .unwrap_or("");
+    let auxiliary_entry_call = config
+        .auxiliary_rust_plan
+        .as_ref()
+        .map(|plan| match plan.entry_call().result_observation() {
+            BackendMainEntryResultObservation::Discard => format!(
+                "\n    let _ = core::hint::black_box({}());",
+                plan.entry_call().render_rust_path(),
+            ),
+            BackendMainEntryResultObservation::StdoutI32 => format!(
+                "\n    let __fol_auxiliary_result: i32 = core::hint::black_box({}());\n    println!(\"{{}}\", __fol_auxiliary_result);",
+                plan.entry_call().render_rust_path(),
+            ),
+        })
+        .unwrap_or_default();
     let entry_wrapper = match resolve_entry_callable(session, entry_candidate, config.runtime_tier())? {
         EntryCallable {
             rust_path,
@@ -60,7 +77,7 @@ pub fn emit_main_rs_for_config(
         path: layout.main_rs_path,
         module_name: "main".to_string(),
         contents: format!(
-            "{}\n\nmod packages;\n\nfn main() {{\n    let _runtime = rt::crate_name();\n    let _runtime_tier = rt_model::tier_name();\n    let _entry_package = \"{entry_name}\";\n    let _entry_name = \"{}\";\n    let _ = (&_runtime, &_runtime_tier, &_entry_package, &_entry_name);{task_join_guard}\n{entry_wrapper}\n}}\n",
+            "{}\n\nmod packages;\n\nfn main() {{\n    let _runtime = rt::crate_name();\n    let _runtime_tier = rt_model::tier_name();\n    let _entry_package = \"{entry_name}\";\n    let _entry_name = \"{}\";\n    let _ = (&_runtime, &_runtime_tier, &_entry_package, &_entry_name);{task_join_guard}{auxiliary_entry_call}\n{entry_wrapper}\n}}\n",
             runtime_main_use_block(runtime_tier),
             entry_candidate.name
         ),

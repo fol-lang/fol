@@ -1,0 +1,15 @@
+use std: pkg = {"std"};
+
+// A `chn[rx, T]` receiver is unique: `[cln]` requires the `clone` capability,
+// which the receiver does not have (V3_MEM §8.2). Transfer it with `[mov]`.
+fun[] drain(source: chn[rx, int]): opt[int] = {
+    return source[rx];
+};
+
+fun[] main(): int = {
+    var channel: chn[int];
+    var sent: err[int] = 37 | channel[tx];
+    var receiver: chn[rx, int] = channel[rx];
+    var received: opt[int] = drain([cln]receiver);
+    return std::io::echo_int(received[]);
+};

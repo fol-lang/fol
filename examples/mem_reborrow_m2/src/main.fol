@@ -1,0 +1,11 @@
+typ Item: rec = { value: int };
+
+fun[] main(): int = {
+    var owner: Item = { value = 7 };
+    var[bor] view: Item = [bor]owner;
+    var[bor] nested: Item = [bor]view;
+    var seen: int = nested.value;
+    [end]nested;
+    [end]view;
+    return owner.value + seen;
+};

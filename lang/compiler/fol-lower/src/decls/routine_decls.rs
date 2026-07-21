@@ -243,6 +243,9 @@ pub fn lower_routine_declarations(
     }
 }
 
+// Routine lowering receives the routine declaration fields plus shared IR
+// state; grouping them would duplicate the typed routine representation.
+#[allow(clippy::too_many_arguments)]
 pub fn lower_routine_decl(
     typed_package: &fol_typecheck::TypedPackage,
     lowered_package: &LoweredPackage,

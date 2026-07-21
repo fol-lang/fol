@@ -170,8 +170,11 @@ fn create_app_with_git_dep(app: &std::path::Path, remote: &std::path::Path) {
 
 fn create_git_package_repo(root: &std::path::Path, name: &str, version: &str) {
     fs::create_dir_all(root.join("src")).expect("package repo should be creatable");
-    fs::write(root.join("build.fol"), semantic_lib_build(name).replace("0.1.0", version))
-        .expect("package build should be writable");
+    fs::write(
+        root.join("build.fol"),
+        semantic_lib_build(name).replace("0.1.0", version),
+    )
+    .expect("package build should be writable");
     fs::write(root.join("src/lib.fol"), "var[exp] level: int = 1;\n")
         .expect("package source should be writable");
     git(root, &["init"]);

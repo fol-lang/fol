@@ -19,7 +19,7 @@ pub mod step;
 
 pub use api::{
     validate_build_name, BuildApi, BuildApiError, BuildApiNameError, BuildArtifactHandle,
-    BuildOptionValue, DependencyArgValue, DependencyHandle, DependencyRequest,
+    BuildCImportRequest, BuildOptionValue, DependencyArgValue, DependencyHandle, DependencyRequest,
     DependencySourceKind, ExecutableRequest, GitDependencyVersionSelector, InstallArtifactRequest,
     InstallDirRequest, InstallFileRequest, InstallHandle, OutputHandle, OutputHandleKind,
     OutputHandleLocator, PathHandle, PathHandleClass, PathHandleProvenance, RunHandle, RunRequest,
@@ -33,10 +33,13 @@ pub use artifact::{
     BuildArtifactModelKind, BuildArtifactModuleConfig, BuildArtifactOutput,
     BuildArtifactPipelinePlan, BuildArtifactPipelineStage, BuildArtifactReport,
     BuildArtifactRootSource, BuildArtifactSet, BuildArtifactTargetConfig,
+    BuildArtifactTargetConfigError,
 };
 pub use codegen::{
-    CodegenKind, CodegenRequest, CodegenResult, GeneratedFileAction, GeneratedFileDefinition,
-    GeneratedFileInstallProjection, GeneratedFileSet, GeneratedOutputDependencySet,
+    materialize_generated_action_plan, CodegenKind, CodegenRequest, CodegenResult,
+    GeneratedFileAction, GeneratedFileDefinition, GeneratedFileInstallProjection,
+    GeneratedFileMaterialization, GeneratedFileMaterializationError,
+    GeneratedFileMaterializationPlan, GeneratedFileSet, GeneratedOutputDependencySet,
     SystemToolRequest, SystemToolResult,
 };
 pub use dependency::{
@@ -60,6 +63,7 @@ pub use eval::{
 };
 pub use graph::{
     BuildArtifact, BuildArtifactDependency, BuildArtifactId, BuildArtifactInput, BuildArtifactKind,
+    BuildCImportAttachment, BuildCImportAttachmentError, BuildCImportProviderKind,
     BuildGeneratedFile, BuildGeneratedFileId, BuildGeneratedFileKind, BuildGraph,
     BuildGraphValidationError, BuildGraphValidationErrorKind, BuildInstall, BuildInstallId,
     BuildInstallKind, BuildInstallTarget, BuildModule, BuildModuleId, BuildModuleKind, BuildOption,
@@ -72,9 +76,8 @@ pub use native::{
 };
 pub use option::{
     BuildOptimizeMode, BuildOptionDeclaration, BuildOptionDeclarationSet, BuildOptionOverride,
-    BuildOptionOverrideParseError, BuildTargetArch, BuildTargetEnvironment, BuildTargetOs,
-    BuildTargetTriple, ResolvedBuildOptionSet, StandardOptimizeDeclaration,
-    StandardTargetDeclaration, UserOptionDeclaration,
+    BuildOptionOverrideParseError, BuildTargetTriple, ResolvedBuildOptionSet,
+    StandardOptimizeDeclaration, StandardTargetDeclaration, UserOptionDeclaration,
 };
 pub use runtime::{
     find_record_field, BuildExecutionRepresentation, BuildRuntimeDependency,

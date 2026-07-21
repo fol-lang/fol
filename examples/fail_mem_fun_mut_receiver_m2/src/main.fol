@@ -1,0 +1,16 @@
+// A `fun` may not accept a mutable input loan (V3_MEM §4.2): mutating through a
+// `[mut, bor]` receiver is an effect, so such a method must be declared `pro`.
+// A shared `[bor]` receiver (read-only) is allowed on a `fun`.
+
+typ Job: rec = {
+    value: int,
+};
+
+fun (Job[mut, bor])bump(): int = {
+    return self.value;
+};
+
+fun[] main(): int = {
+    var[mut] j: Job = { value = 5 };
+    return j.bump();
+};

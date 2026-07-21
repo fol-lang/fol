@@ -1,0 +1,14 @@
+// A scoped task may hold a shared loan (V3_MEM section 8.1): `state[bor]`
+// captures the outer binding as a borrow. The owner stays readable, but it is
+// frozen -- no mutation, no transfer -- until the scope joins its tasks.
+
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var state: int = 41;
+    [>]fun()[state[bor]] = {
+        std::io::echo_int(state + 1);
+    };
+    var observed: int = state + 0;
+    return observed;
+};

@@ -1,6 +1,6 @@
 fun[] main(): int = {
     var value: int = 7;
-    var pointer: ptr[shared, int] = &value;
-    *pointer = 9;
-    return *pointer;
+    var pointer: ptr[shared, int] = [ref]value;
+    [drf]pointer = 9;
+    return [drf]pointer;
 };

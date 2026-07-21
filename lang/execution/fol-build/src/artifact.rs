@@ -4,6 +4,7 @@ pub enum BuildArtifactModelKind {
     StaticLibrary,
     SharedLibrary,
     TestBundle,
+    Object,
     GeneratedSourceBundle,
     DocsBundle,
 }
@@ -13,6 +14,7 @@ pub enum BuildArtifactLinkage {
     Executable,
     Static,
     Shared,
+    Object,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -52,23 +54,56 @@ pub struct BuildArtifactModuleConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildArtifactTargetConfig {
     pub fol_model: BuildArtifactFolModel,
-    pub target: Option<String>,
-    pub optimize: Option<String>,
+    pub target: fol_types::ResolvedTarget,
+    pub optimize: crate::option::BuildOptimizeMode,
 }
 
-impl BuildArtifactTargetConfig {
-    pub fn apply_resolved_options(&self, resolved: &ResolvedBuildOptionSet) -> Self {
-        Self {
-            fol_model: self.fol_model,
-            target: resolved
-                .get("target")
-                .map(str::to_string)
-                .or_else(|| self.target.clone()),
-            optimize: resolved
-                .get("optimize")
-                .map(str::to_string)
-                .or_else(|| self.optimize.clone()),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildArtifactTargetConfigError {
+    InvalidTarget(String),
+    InvalidOptimize(String),
+}
+
+impl std::fmt::Display for BuildArtifactTargetConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidTarget(value) => write!(f, "invalid resolved artifact target '{value}'"),
+            Self::InvalidOptimize(value) => {
+                write!(f, "invalid resolved artifact optimize mode '{value}'")
+            }
         }
+    }
+}
+
+impl std::error::Error for BuildArtifactTargetConfigError {}
+
+impl BuildArtifactTargetConfig {
+    pub fn apply_resolved_options(
+        &self,
+        resolved: &ResolvedBuildOptionSet,
+    ) -> Result<Self, BuildArtifactTargetConfigError> {
+        let target = resolved
+            .get("target")
+            .map(|value| {
+                fol_types::ResolvedTarget::resolve(value)
+                    .map_err(|_| BuildArtifactTargetConfigError::InvalidTarget(value.to_string()))
+            })
+            .transpose()?
+            .unwrap_or_else(|| self.target.clone());
+        let optimize = resolved
+            .get("optimize")
+            .map(|value| {
+                crate::option::BuildOptimizeMode::parse(value).ok_or_else(|| {
+                    BuildArtifactTargetConfigError::InvalidOptimize(value.to_string())
+                })
+            })
+            .transpose()?
+            .unwrap_or(self.optimize);
+        Ok(Self {
+            fol_model: self.fol_model,
+            target,
+            optimize,
+        })
     }
 }
 
@@ -146,19 +181,11 @@ pub fn project_graph_artifacts(graph: &BuildGraph) -> Vec<BuildArtifactDefinitio
                 BuildArtifactKind::Executable => BuildArtifactModelKind::Executable,
                 BuildArtifactKind::StaticLibrary => BuildArtifactModelKind::StaticLibrary,
                 BuildArtifactKind::SharedLibrary => BuildArtifactModelKind::SharedLibrary,
-                BuildArtifactKind::Object => BuildArtifactModelKind::TestBundle,
+                BuildArtifactKind::Test => BuildArtifactModelKind::TestBundle,
+                BuildArtifactKind::Object => BuildArtifactModelKind::Object,
             },
             root_source: BuildArtifactRootSource {
-                path: graph
-                    .artifact_inputs_for(artifact.id)
-                    .find_map(|input| match input {
-                        crate::graph::BuildArtifactInput::Module(module_id) => graph
-                            .modules()
-                            .get(module_id.index())
-                            .map(|module| module.name.clone()),
-                        crate::graph::BuildArtifactInput::GeneratedFile(_) => None,
-                    })
-                    .unwrap_or_default(),
+                path: artifact.root_module.clone(),
             },
             modules: BuildArtifactModuleConfig {
                 roots: graph
@@ -177,15 +204,24 @@ pub fn project_graph_artifacts(graph: &BuildGraph) -> Vec<BuildArtifactDefinitio
                 BuildArtifactKind::Executable => BuildArtifactLinkage::Executable,
                 BuildArtifactKind::StaticLibrary => BuildArtifactLinkage::Static,
                 BuildArtifactKind::SharedLibrary | BuildArtifactKind::Object => {
-                    BuildArtifactLinkage::Shared
+                    if artifact.kind == BuildArtifactKind::Object {
+                        BuildArtifactLinkage::Object
+                    } else {
+                        BuildArtifactLinkage::Shared
+                    }
                 }
+                BuildArtifactKind::Test => BuildArtifactLinkage::Executable,
             },
             target: BuildArtifactTargetConfig {
-                fol_model: BuildArtifactFolModel::default(),
-                target: None,
-                optimize: None,
+                fol_model: artifact.fol_model,
+                target: artifact.target.clone(),
+                optimize: artifact.optimize,
             },
-            native_attachments: BuildArtifactNativeAttachmentSet::default(),
+            native_attachments: BuildArtifactNativeAttachmentSet {
+                include_paths: Vec::new(),
+                library_paths: artifact.library_paths.clone(),
+                link_inputs: artifact.link_inputs.clone(),
+            },
         })
         .collect()
 }
@@ -225,17 +261,17 @@ impl BuildArtifactSet {
 mod tests {
     use super::{
         project_graph_artifacts, BuildArtifactDefinition, BuildArtifactFolModel,
-        BuildArtifactLinkage,
-        BuildArtifactModelKind, BuildArtifactModuleConfig, BuildArtifactNativeAttachmentSet,
-        BuildArtifactOutput, BuildArtifactPipelinePlan, BuildArtifactPipelineStage,
-        BuildArtifactReport, BuildArtifactRootSource, BuildArtifactSet, BuildArtifactTargetConfig,
+        BuildArtifactLinkage, BuildArtifactModelKind, BuildArtifactModuleConfig,
+        BuildArtifactNativeAttachmentSet, BuildArtifactOutput, BuildArtifactPipelinePlan,
+        BuildArtifactPipelineStage, BuildArtifactReport, BuildArtifactRootSource, BuildArtifactSet,
+        BuildArtifactTargetConfig,
     };
     use crate::graph::{BuildArtifactKind, BuildGraph, BuildModuleKind};
     use crate::native::{
         NativeArtifactDefinition, NativeArtifactKind, NativeIncludePath, NativeLibraryPath,
         NativeLinkDirective, NativeLinkInput, NativeLinkMode, NativeSearchPathOrigin,
     };
-    use crate::option::ResolvedBuildOptionSet;
+    use crate::option::{BuildOptimizeMode, ResolvedBuildOptionSet};
 
     #[test]
     fn build_artifact_set_starts_empty() {
@@ -260,8 +296,8 @@ mod tests {
             linkage: BuildArtifactLinkage::Executable,
             target: BuildArtifactTargetConfig {
                 fol_model: BuildArtifactFolModel::Memo,
-                target: None,
-                optimize: None,
+                target: fol_types::ResolvedTarget::host().unwrap(),
+                optimize: BuildOptimizeMode::Debug,
             },
             native_attachments: BuildArtifactNativeAttachmentSet::default(),
         });
@@ -300,8 +336,8 @@ mod tests {
             linkage: BuildArtifactLinkage::Shared,
             target: BuildArtifactTargetConfig {
                 fol_model: BuildArtifactFolModel::Memo,
-                target: Some("x86_64-linux-gnu".to_string()),
-                optimize: Some("release".to_string()),
+                target: fol_types::ResolvedTarget::resolve("x86_64-linux-gnu").unwrap(),
+                optimize: BuildOptimizeMode::ReleaseSafe,
             },
             native_attachments: BuildArtifactNativeAttachmentSet {
                 include_paths: vec![NativeIncludePath {
@@ -335,10 +371,10 @@ mod tests {
         assert_eq!(definition.linkage, BuildArtifactLinkage::Shared);
         assert_eq!(definition.target.fol_model, BuildArtifactFolModel::Memo);
         assert_eq!(
-            definition.target.target.as_deref(),
-            Some("x86_64-linux-gnu")
+            definition.target.target.as_str(),
+            "x86_64-unknown-linux-gnu"
         );
-        assert_eq!(definition.target.optimize.as_deref(), Some("release"));
+        assert_eq!(definition.target.optimize, BuildOptimizeMode::ReleaseSafe);
         assert_eq!(definition.native_attachments.include_paths.len(), 1);
         assert_eq!(definition.native_attachments.library_paths.len(), 1);
         assert_eq!(definition.native_attachments.link_inputs.len(), 2);
@@ -352,19 +388,46 @@ mod tests {
 
         let config = BuildArtifactTargetConfig {
             fol_model: BuildArtifactFolModel::Core,
-            target: Some("x86_64-linux-gnu".to_string()),
-            optimize: Some("debug".to_string()),
+            target: fol_types::ResolvedTarget::resolve("x86_64-linux-gnu").unwrap(),
+            optimize: BuildOptimizeMode::Debug,
         }
-        .apply_resolved_options(&resolved);
+        .apply_resolved_options(&resolved)
+        .expect("valid resolved target config");
 
         assert_eq!(config.fol_model, BuildArtifactFolModel::Core);
-        assert_eq!(config.target.as_deref(), Some("aarch64-macos-gnu"));
-        assert_eq!(config.optimize.as_deref(), Some("release-fast"));
+        assert_eq!(config.target.as_str(), "aarch64-apple-darwin");
+        assert_eq!(config.optimize, BuildOptimizeMode::ReleaseFast);
+    }
+
+    #[test]
+    fn artifact_target_config_rejects_invalid_resolved_values_without_fallback() {
+        let config = BuildArtifactTargetConfig {
+            fol_model: BuildArtifactFolModel::Memo,
+            target: fol_types::ResolvedTarget::host().unwrap(),
+            optimize: BuildOptimizeMode::Debug,
+        };
+        let mut invalid_target = ResolvedBuildOptionSet::new();
+        invalid_target.insert("target", "");
+        assert!(matches!(
+            config.apply_resolved_options(&invalid_target),
+            Err(super::BuildArtifactTargetConfigError::InvalidTarget(value)) if value.is_empty()
+        ));
+
+        let mut invalid_optimize = ResolvedBuildOptionSet::new();
+        invalid_optimize.insert("optimize", "fast-ish");
+        assert!(matches!(
+            config.apply_resolved_options(&invalid_optimize),
+            Err(super::BuildArtifactTargetConfigError::InvalidOptimize(value))
+                if value == "fast-ish"
+        ));
     }
 
     #[test]
     fn artifact_fol_models_parse_and_render_canonically() {
-        assert_eq!(BuildArtifactFolModel::parse("core"), Some(BuildArtifactFolModel::Core));
+        assert_eq!(
+            BuildArtifactFolModel::parse("core"),
+            Some(BuildArtifactFolModel::Core)
+        );
         assert_eq!(
             BuildArtifactFolModel::parse("memo"),
             Some(BuildArtifactFolModel::Memo)
@@ -381,8 +444,8 @@ mod tests {
     fn artifact_target_config_defaults_to_memo_model() {
         let config = BuildArtifactTargetConfig {
             fol_model: BuildArtifactFolModel::default(),
-            target: None,
-            optimize: None,
+            target: fol_types::ResolvedTarget::host().unwrap(),
+            optimize: BuildOptimizeMode::Debug,
         };
 
         assert_eq!(config.fol_model, BuildArtifactFolModel::Memo);
@@ -467,8 +530,8 @@ mod tests {
                 linkage: BuildArtifactLinkage::Executable,
                 target: BuildArtifactTargetConfig {
                     fol_model: BuildArtifactFolModel::Memo,
-                    target: Some("native".to_string()),
-                    optimize: Some("debug".to_string()),
+                    target: fol_types::ResolvedTarget::resolve("native").unwrap(),
+                    optimize: BuildOptimizeMode::Debug,
                 },
                 native_attachments: BuildArtifactNativeAttachmentSet::default(),
             },
@@ -491,18 +554,70 @@ mod tests {
     fn graph_artifact_projection_maps_build_graph_nodes_into_artifact_definitions() {
         let mut graph = BuildGraph::new();
         let main = graph.add_module(BuildModuleKind::Source, "src/main.fol");
-        let exe = graph.add_artifact(BuildArtifactKind::Executable, "app");
-        let lib = graph.add_artifact(BuildArtifactKind::StaticLibrary, "support");
+        let exe = graph.add_configured_artifact(
+            BuildArtifactKind::Executable,
+            "app",
+            "src/main.fol",
+            BuildArtifactFolModel::Memo,
+            fol_types::ResolvedTarget::host().unwrap(),
+            BuildOptimizeMode::Debug,
+        );
+        let lib = graph.add_configured_artifact(
+            BuildArtifactKind::StaticLibrary,
+            "support",
+            "src/main.fol",
+            BuildArtifactFolModel::Memo,
+            fol_types::ResolvedTarget::host().unwrap(),
+            BuildOptimizeMode::Debug,
+        );
+        let test = graph.add_configured_artifact(
+            BuildArtifactKind::Test,
+            "app-test",
+            "test/app.fol",
+            BuildArtifactFolModel::Core,
+            fol_types::ResolvedTarget::resolve("aarch64-linux-gnu").unwrap(),
+            BuildOptimizeMode::ReleaseFast,
+        );
+        let object = graph.add_configured_artifact(
+            BuildArtifactKind::Object,
+            "support-object",
+            "src/support.fol",
+            BuildArtifactFolModel::Memo,
+            fol_types::ResolvedTarget::resolve("x86_64-linux-musl").unwrap(),
+            BuildOptimizeMode::ReleaseSmall,
+        );
         graph.add_artifact_module_input(exe, main);
         graph.add_artifact_module_input(lib, main);
+        graph.add_artifact_module_input(test, main);
+        graph.add_artifact_module_input(object, main);
 
         let projected = project_graph_artifacts(&graph);
 
-        assert_eq!(projected.len(), 2);
+        assert_eq!(projected.len(), 4);
         assert_eq!(projected[0].kind, BuildArtifactModelKind::Executable);
         assert_eq!(projected[0].root_source.path, "src/main.fol");
         assert_eq!(projected[1].kind, BuildArtifactModelKind::StaticLibrary);
         assert_eq!(projected[1].modules.roots, vec!["src/main.fol".to_string()]);
+        assert_eq!(projected[2].kind, BuildArtifactModelKind::TestBundle);
+        assert_eq!(projected[2].linkage, BuildArtifactLinkage::Executable);
+        assert_eq!(projected[2].root_source.path, "test/app.fol");
+        assert_eq!(projected[2].target.fol_model, BuildArtifactFolModel::Core);
+        assert_eq!(
+            projected[2].target.target.as_str(),
+            "aarch64-unknown-linux-gnu"
+        );
+        assert_eq!(projected[2].target.optimize, BuildOptimizeMode::ReleaseFast);
+        assert_eq!(projected[3].kind, BuildArtifactModelKind::Object);
+        assert_eq!(projected[3].linkage, BuildArtifactLinkage::Object);
+        assert_eq!(projected[3].root_source.path, "src/support.fol");
+        assert_eq!(
+            projected[3].target.target.as_str(),
+            "x86_64-unknown-linux-musl"
+        );
+        assert_eq!(
+            projected[3].target.optimize,
+            BuildOptimizeMode::ReleaseSmall
+        );
     }
 }
 use crate::graph::{BuildArtifactKind, BuildGraph};

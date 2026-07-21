@@ -1,0 +1,10 @@
+// A dfr/edf capture must state its operation (V3_MEM section 2.3): a bare
+// capture name is rejected because the transfer boundary must be explicit.
+
+fun[] main(): int = {
+    var seen: int = 7;
+    dfr[seen] {
+        var got: int = seen;
+    };
+    return seen;
+};

@@ -1,0 +1,18 @@
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+fun consume(L: lif)(handle: evt[L, int]): non = {
+    var value: int = handle | await;
+    return;
+};
+
+// An eventual is bound to its parent scope and cannot enter a detached task
+// (V3_MEM §8.1); `[spn, det]` on a call that moves the eventual is rejected.
+fun[] main(): int = {
+    var pending: evt[int] = work(41) | async;
+    [spn, det]consume([mov]pending);
+    return 0;
+};

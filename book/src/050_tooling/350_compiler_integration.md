@@ -156,7 +156,7 @@ meaning survives:
 - canonical positive/failure examples, integration tests, docs, and the book
 
 For V3 specifically, this rule covers every ownership, borrow, pointer, `dfr` /
-`edf`, spawn, channel, `select`, `[mux]`, async, and await boundary. Reusing the
+`edf`, spawn, channel, `select`, `mux[T]`, async, and await boundary. Reusing the
 typechecker is necessary, but it is not permission to skip an explicit syntax,
 tooling, inventory, or documentation audit.
 

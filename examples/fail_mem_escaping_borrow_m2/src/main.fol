@@ -1,0 +1,9 @@
+typ Job: rec = { input: int };
+
+fun dangle(job: Job): Job[bor] = {
+    return [bor]job;
+};
+
+fun[] main(): int = {
+    return 0;
+};

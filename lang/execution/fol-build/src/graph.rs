@@ -45,7 +45,28 @@ pub enum BuildArtifactKind {
     Executable,
     StaticLibrary,
     SharedLibrary,
+    Test,
     Object,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildCImportProviderKind {
+    Object,
+}
+
+impl BuildCImportProviderKind {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "object" => Some(Self::Object),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Object => "object",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,9 +115,56 @@ pub struct BuildArtifact {
     pub id: BuildArtifactId,
     pub kind: BuildArtifactKind,
     pub name: String,
+    pub root_module: String,
+    pub fol_model: crate::artifact::BuildArtifactFolModel,
+    pub target: fol_types::ResolvedTarget,
+    pub optimize: crate::option::BuildOptimizeMode,
     pub library_paths: Vec<NativeLibraryPath>,
     pub link_inputs: Vec<NativeLinkDirective>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildCImportAttachment {
+    pub artifact_id: BuildArtifactId,
+    pub header: String,
+    pub provider: String,
+    pub provider_kind: BuildCImportProviderKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildCImportAttachmentError {
+    UnknownArtifact(BuildArtifactId),
+    Duplicate {
+        artifact_id: BuildArtifactId,
+        header: String,
+        provider: String,
+    },
+    MultipleForArtifact(BuildArtifactId),
+}
+
+impl std::fmt::Display for BuildCImportAttachmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownArtifact(artifact_id) => {
+                write!(f, "cannot attach C import to unknown artifact '{artifact_id}'")
+            }
+            Self::Duplicate {
+                artifact_id,
+                header,
+                provider,
+            } => write!(
+                f,
+                "artifact '{artifact_id}' already has C import header '{header}' with provider '{provider}'"
+            ),
+            Self::MultipleForArtifact(artifact_id) => write!(
+                f,
+                "artifact '{artifact_id}' cannot attach more than one C import"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for BuildCImportAttachmentError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildModule {
@@ -213,6 +281,7 @@ pub struct BuildGraph {
     run_configs: std::collections::BTreeMap<BuildStepId, BuildRunConfig>,
     artifact_links: Vec<BuildArtifactLink>,
     artifact_module_imports: Vec<BuildArtifactModuleImport>,
+    c_imports: Vec<BuildCImportAttachment>,
     step_attachments: Vec<BuildStepAttachment>,
 }
 
@@ -253,6 +322,19 @@ impl BuildGraph {
         &self.artifact_dependencies
     }
 
+    pub fn c_imports(&self) -> &[BuildCImportAttachment] {
+        &self.c_imports
+    }
+
+    pub fn c_imports_for(
+        &self,
+        artifact_id: BuildArtifactId,
+    ) -> impl Iterator<Item = &BuildCImportAttachment> {
+        self.c_imports
+            .iter()
+            .filter(move |attachment| attachment.artifact_id == artifact_id)
+    }
+
     pub fn add_step(
         &mut self,
         kind: BuildStepKind,
@@ -274,19 +356,87 @@ impl BuildGraph {
         kind: BuildArtifactKind,
         name: impl Into<String>,
     ) -> BuildArtifactId {
+        self.add_configured_artifact(
+            kind,
+            name,
+            String::new(),
+            crate::artifact::BuildArtifactFolModel::Memo,
+            fol_types::ResolvedTarget::host()
+                .expect("fol-build requires a supported concrete host target"),
+            crate::option::BuildOptimizeMode::Debug,
+        )
+    }
+
+    pub fn add_configured_artifact(
+        &mut self,
+        kind: BuildArtifactKind,
+        name: impl Into<String>,
+        root_module: impl Into<String>,
+        fol_model: crate::artifact::BuildArtifactFolModel,
+        target: fol_types::ResolvedTarget,
+        optimize: crate::option::BuildOptimizeMode,
+    ) -> BuildArtifactId {
         let id = BuildArtifactId::from_index(self.artifacts.len());
         self.artifacts.push(BuildArtifact {
             id,
             kind,
             name: name.into(),
+            root_module: root_module.into(),
+            fol_model,
+            target,
+            optimize,
             library_paths: Vec::new(),
             link_inputs: Vec::new(),
         });
         id
     }
 
-    pub fn artifact_mut(&mut self, artifact: BuildArtifactId) -> Option<&mut BuildArtifact> {
-        self.artifacts.get_mut(artifact.index())
+    pub fn artifact(&self, artifact_id: BuildArtifactId) -> Option<&BuildArtifact> {
+        self.artifacts
+            .get(artifact_id.index())
+            .filter(|artifact| artifact.id == artifact_id)
+    }
+
+    pub fn artifact_mut(&mut self, artifact_id: BuildArtifactId) -> Option<&mut BuildArtifact> {
+        self.artifacts
+            .get_mut(artifact_id.index())
+            .filter(|artifact| artifact.id == artifact_id)
+    }
+
+    pub fn add_c_import(
+        &mut self,
+        artifact_id: BuildArtifactId,
+        header: impl Into<String>,
+        provider: impl Into<String>,
+        provider_kind: BuildCImportProviderKind,
+    ) -> Result<BuildCImportAttachment, BuildCImportAttachmentError> {
+        if self.artifact(artifact_id).is_none() {
+            return Err(BuildCImportAttachmentError::UnknownArtifact(artifact_id));
+        }
+        let attachment = BuildCImportAttachment {
+            artifact_id,
+            header: header.into(),
+            provider: provider.into(),
+            provider_kind,
+        };
+        if self.c_imports.contains(&attachment) {
+            return Err(BuildCImportAttachmentError::Duplicate {
+                artifact_id,
+                header: attachment.header,
+                provider: attachment.provider,
+            });
+        }
+        if self
+            .c_imports
+            .iter()
+            .any(|existing| existing.artifact_id == artifact_id)
+        {
+            return Err(BuildCImportAttachmentError::MultipleForArtifact(
+                artifact_id,
+            ));
+        }
+        self.c_imports.push(attachment.clone());
+        Ok(attachment)
     }
 
     pub fn add_module(&mut self, kind: BuildModuleKind, name: impl Into<String>) -> BuildModuleId {
@@ -584,29 +734,30 @@ impl BuildGraph {
                         });
                     }
                 }
-                (BuildInstallKind::Directory, Some(BuildInstallTarget::GeneratedFile(generated))) => {
-                    match self.generated_files.get(generated.index()) {
-                        None => {
-                            errors.push(BuildGraphValidationError {
-                                kind: BuildGraphValidationErrorKind::InvalidInstallTarget,
-                                message: format!(
-                                    "install {} references unknown generated file {}",
-                                    install.id, generated
-                                ),
-                            });
-                        }
-                        Some(file) if file.kind != BuildGeneratedFileKind::GeneratedDir => {
-                            errors.push(BuildGraphValidationError {
-                                kind: BuildGraphValidationErrorKind::InvalidInstallTarget,
-                                message: format!(
-                                    "install {} directory target {} is not a generated directory",
-                                    install.id, generated
-                                ),
-                            });
-                        }
-                        Some(_) => {}
+                (
+                    BuildInstallKind::Directory,
+                    Some(BuildInstallTarget::GeneratedFile(generated)),
+                ) => match self.generated_files.get(generated.index()) {
+                    None => {
+                        errors.push(BuildGraphValidationError {
+                            kind: BuildGraphValidationErrorKind::InvalidInstallTarget,
+                            message: format!(
+                                "install {} references unknown generated file {}",
+                                install.id, generated
+                            ),
+                        });
                     }
-                }
+                    Some(file) if file.kind != BuildGeneratedFileKind::GeneratedDir => {
+                        errors.push(BuildGraphValidationError {
+                            kind: BuildGraphValidationErrorKind::InvalidInstallTarget,
+                            message: format!(
+                                "install {} directory target {} is not a generated directory",
+                                install.id, generated
+                            ),
+                        });
+                    }
+                    Some(_) => {}
+                },
                 (BuildInstallKind::Directory, Some(BuildInstallTarget::DirectoryPath(path))) => {
                     if path.is_empty() {
                         errors.push(BuildGraphValidationError {
@@ -690,6 +841,7 @@ impl BuildGraph {
 mod tests {
     use super::{
         BuildArtifactDependency, BuildArtifactId, BuildArtifactInput, BuildArtifactKind,
+        BuildCImportAttachment, BuildCImportAttachmentError, BuildCImportProviderKind,
         BuildGeneratedFileId, BuildGeneratedFileKind, BuildGraph, BuildGraphValidationError,
         BuildGraphValidationErrorKind, BuildInstallId, BuildInstallKind, BuildInstallTarget,
         BuildModuleId, BuildModuleKind, BuildOptionId, BuildOptionKind, BuildStepDependency,
@@ -773,6 +925,106 @@ mod tests {
         assert_eq!(graph.options()[0].kind, BuildOptionKind::Bool);
         assert_eq!(graph.installs()[0].kind, BuildInstallKind::Directory);
         assert_eq!(graph.installs()[0].target, None);
+    }
+
+    #[test]
+    fn c_import_attachments_are_typed_and_scoped_to_their_artifact() {
+        let mut graph = BuildGraph::new();
+        let app = graph.add_artifact(BuildArtifactKind::Executable, "app");
+        let helper = graph.add_artifact(BuildArtifactKind::StaticLibrary, "helper");
+
+        let attachment = graph
+            .add_c_import(
+                app,
+                "native/widget.h",
+                "native/widget.o",
+                BuildCImportProviderKind::Object,
+            )
+            .expect("known artifacts should accept exact object providers");
+
+        assert_eq!(
+            attachment,
+            BuildCImportAttachment {
+                artifact_id: app,
+                header: "native/widget.h".to_string(),
+                provider: "native/widget.o".to_string(),
+                provider_kind: BuildCImportProviderKind::Object,
+            }
+        );
+        assert_eq!(graph.c_imports(), std::slice::from_ref(&attachment));
+        assert_eq!(
+            graph.c_imports_for(app).collect::<Vec<_>>(),
+            vec![&attachment]
+        );
+        assert!(graph.c_imports_for(helper).next().is_none());
+        assert_eq!(graph.artifact(app).map(|artifact| artifact.id), Some(app));
+        assert!(graph.artifact(BuildArtifactId(99)).is_none());
+    }
+
+    #[test]
+    fn c_import_attachments_reject_duplicates_and_unknown_artifacts() {
+        let mut graph = BuildGraph::new();
+        let app = graph.add_artifact(BuildArtifactKind::Executable, "app");
+        graph
+            .add_c_import(
+                app,
+                "native/widget.h",
+                "native/widget.o",
+                BuildCImportProviderKind::Object,
+            )
+            .expect("first attachment should succeed");
+
+        assert!(matches!(
+            graph.add_c_import(
+                app,
+                "native/widget.h",
+                "native/widget.o",
+                BuildCImportProviderKind::Object,
+            ),
+            Err(BuildCImportAttachmentError::Duplicate {
+                artifact_id,
+                ref header,
+                ref provider,
+            }) if artifact_id == app
+                && header == "native/widget.h"
+                && provider == "native/widget.o"
+        ));
+        assert_eq!(graph.c_imports().len(), 1);
+
+        assert_eq!(
+            graph.add_c_import(
+                app,
+                "native/other.h",
+                "native/other.o",
+                BuildCImportProviderKind::Object,
+            ),
+            Err(BuildCImportAttachmentError::MultipleForArtifact(app))
+        );
+        assert_eq!(graph.c_imports().len(), 1);
+
+        let unknown = BuildArtifactId(99);
+        assert_eq!(
+            graph.add_c_import(
+                unknown,
+                "native/other.h",
+                "native/other.o",
+                BuildCImportProviderKind::Object,
+            ),
+            Err(BuildCImportAttachmentError::UnknownArtifact(unknown))
+        );
+        assert_eq!(graph.c_imports().len(), 1);
+    }
+
+    #[test]
+    fn c_import_provider_kind_accepts_only_exact_object_spelling() {
+        assert_eq!(
+            BuildCImportProviderKind::parse("object"),
+            Some(BuildCImportProviderKind::Object)
+        );
+        assert_eq!(BuildCImportProviderKind::Object.as_str(), "object");
+        for invalid in ["Object", "OBJECT", "obj", "archive", ""] {
+            assert_eq!(BuildCImportProviderKind::parse(invalid), None);
+        }
     }
 
     #[test]
@@ -988,10 +1240,8 @@ mod tests {
     #[test]
     fn build_graph_validation_accepts_generated_directory_installs() {
         let mut graph = BuildGraph::new();
-        let generated_dir = graph.add_generated_file(
-            BuildGeneratedFileKind::GeneratedDir,
-            "assets",
-        );
+        let generated_dir =
+            graph.add_generated_file(BuildGeneratedFileKind::GeneratedDir, "assets");
         graph.add_install_with_target(
             BuildInstallKind::Directory,
             "install-generated-dir",
@@ -1002,10 +1252,7 @@ mod tests {
         assert!(graph.validate().is_empty());
 
         // A directory install pointing at a plain generated FILE is invalid.
-        let generated_file = graph.add_generated_file(
-            BuildGeneratedFileKind::Write,
-            "notes.txt",
-        );
+        let generated_file = graph.add_generated_file(BuildGeneratedFileKind::Write, "notes.txt");
         graph.add_install_with_target(
             BuildInstallKind::Directory,
             "install-generated-file-as-dir",

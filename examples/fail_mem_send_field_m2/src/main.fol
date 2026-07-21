@@ -1,0 +1,10 @@
+// The `send` capability lets a value cross a task/thread boundary, so every
+// field must be send-safe (V3_MEM §4.1). An `Rc`-based shared pointer is not
+// thread-safe, so a type claiming `send` cannot hold one.
+typ Registry()(send): rec = {
+    cache: ptr[shared, int],
+};
+
+fun[] main(): int = {
+    return 0;
+};

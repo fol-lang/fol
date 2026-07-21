@@ -61,6 +61,52 @@ fn collect_rust_source_files(root: &std::path::Path) -> Vec<std::path::PathBuf> 
     found
 }
 
+fn collect_text_matches(
+    path: &std::path::Path,
+    excluded: &std::path::Path,
+    needles: &[&str],
+    matches: &mut Vec<String>,
+) -> Result<(), String> {
+    if path == excluded {
+        return Ok(());
+    }
+
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("failed to inspect '{}': {error}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+    if metadata.is_dir() {
+        let mut entries = std::fs::read_dir(path)
+            .map_err(|error| format!("failed to read '{}': {error}", path.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("failed to enumerate '{}': {error}", path.display()))?;
+        entries.sort_by_key(|entry| entry.path());
+        for entry in entries {
+            if entry.file_name() == ".fol" {
+                continue;
+            }
+            collect_text_matches(&entry.path(), excluded, needles, matches)?;
+        }
+        return Ok(());
+    }
+    if !metadata.is_file() {
+        return Ok(());
+    }
+
+    let contents = std::fs::read(path)
+        .map_err(|error| format!("failed to read '{}': {error}", path.display()))?;
+    for needle in needles {
+        if contents
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
+        {
+            matches.push(format!("{} contains {needle:?}", path.display()));
+        }
+    }
+    Ok(())
+}
+
 fn emitted_crate_root(output: &std::process::Output) -> std::path::PathBuf {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let root = stdout
@@ -180,11 +226,7 @@ fn materialize_local_bundled_std_alias(root: &std::path::Path) {
 }
 
 fn expected_runtime_import_for_model(model: &str) -> String {
-    let runtime_module = match model {
-        "memo" => "memo",
-        other => other,
-    };
-    format!("use fol_runtime::{runtime_module} as rt;")
+    format!("use fol_runtime::{model} as rt;")
 }
 
 fn positive_runtime_model_examples() -> &'static [(&'static str, &'static str)] {
@@ -1152,7 +1194,7 @@ fn test_fail_generic_recursive_m1m2_example_rejects_cleanly() {
 
 #[test]
 fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
-    for &(example, _) in V3_MEM_M1_POSITIVES {
+    for &(example, expected_output) in V3_MEM_M1_POSITIVES {
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(
@@ -1170,6 +1212,13 @@ fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
             String::from_utf8_lossy(&run.stdout),
             String::from_utf8_lossy(&run.stderr)
         );
+        if let Some(expected_output) = expected_output {
+            assert_eq!(
+                strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+                expected_output,
+                "{example} should print the inventory-declared stdout"
+            );
+        }
 
         let emitted = collect_rust_source_files(&emitted_crate_root(&build))
             .into_iter()
@@ -1331,6 +1380,11 @@ fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
                 }),
                 "unique pointer example should emit a dereference store"
             );
+        } else if example.contains("weak") {
+            // Weak managed pointers downgrade a shared pointer and upgrade back.
+            assert!(emitted.contains("std::rc::Weak<"));
+            assert!(emitted.contains("std::rc::Rc::downgrade"));
+            assert!(emitted.contains(".upgrade()"));
         } else {
             assert!(emitted.contains("std::rc::Rc<"));
             assert!(emitted.contains("std::rc::Rc::new"));
@@ -1344,16 +1398,16 @@ fn test_unique_pointer_deref_moves_move_only_pointee_end_to_end() {
     let root = write_temp_app(
         "move_only_pointer_deref",
         "fun[] read(pointer[bor]: ptr[int]): int = {\n\
-             return *pointer;\n\
+             return [drf]pointer;\n\
          };\n\
          fun[] main(): int = {\n\
              var seed: int = 41;\n\
-             var inner: ptr[int] = &seed;\n\
-             var outer: ptr[ptr[int]] = &inner;\n\
-             var extracted: ptr[int] = *outer;\n\
+             var inner: ptr[int] = [ref]seed;\n\
+             var outer: ptr[ptr[int]] = [ref]inner;\n\
+             var extracted: ptr[int] = [drf]outer;\n\
              var[bor] view: ptr[int] = extracted;\n\
              var observed: int = read(view);\n\
-             !view;\n\
+             [end]view;\n\
              return observed - 41;\n\
          };\n",
     );
@@ -1383,6 +1437,136 @@ fn test_unique_pointer_deref_moves_move_only_pointee_end_to_end() {
     assert!(
         run.status.success(),
         "move-only pointer dereference should execute: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_when_on_shell_choice_binds_payload_and_runs_end_to_end() {
+    // Safe shell choice (V3_MEM §3.3): `when` over an `opt[T]` binds the present
+    // payload in `on(value)` and takes `*` on nil. The `on` branch lowers to a
+    // presence test plus a payload unwrap, so `main` returns `value - 7 == 0`.
+    let root = write_temp_app(
+        "when_on_shell_choice",
+        "fun[] first(): opt[int] = { return 7; };\n\
+         fun[] main(): int = {\n\
+             var slot: opt[int] = first();\n\
+             when(slot) {\n\
+                 on(value) { return value - 7; }\n\
+                 * { return 99; }\n\
+             }\n\
+         };\n",
+    );
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "when/on shell choice should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        emitted.contains(".is_some()"),
+        "the 'on' branch should lower to a shell presence test: {emitted}"
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("when/on shell choice binary should run");
+    assert!(
+        run.status.success(),
+        "when/on shell choice should execute: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_when_on_nil_takes_default_branch_without_panicking() {
+    // A nil `opt[int]` must take the `*` branch. The `on` branch is guarded by a
+    // presence test, so it never unwraps the empty shell; a clean run proves the
+    // dispatch is correct (a wrong on-branch would panic unwrapping nil).
+    let root = write_temp_app(
+        "when_on_nil_default",
+        "fun[] empty(): opt[int] = { return nil; };\n\
+         fun[] main(): int = {\n\
+             var slot: opt[int] = empty();\n\
+             when(slot) {\n\
+                 on(value) { return value; }\n\
+                 * { return 0; }\n\
+             }\n\
+         };\n",
+    );
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "nil when/on should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("nil when/on binary should run");
+    assert!(
+        run.status.success(),
+        "a nil optional must take the default branch without panicking: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn test_when_on_over_a_nil_able_err_shell_uses_the_error_presence_test() {
+    // `err[T]` is a nil-able shell: `return nil` is the no-error state and
+    // `return payload` stores an error. `on(code)` binds the stored payload; `*`
+    // takes nil. The `on` presence test must lower to the error-shell probe
+    // `.is_err()` (not the optional `.is_some()`); `classify(3)` stores an error
+    // so the on-branch returns `code - 3 == 0` and the binary runs cleanly.
+    let root = write_temp_app(
+        "when_on_err_shell",
+        "fun[] classify(seed: int): err[int] = {\n\
+             when(seed) {\n\
+                 is(0) => return nil;\n\
+                 * => return seed;\n\
+             }\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var slot: err[int] = classify(3);\n\
+             when(slot) {\n\
+                 on(code) { return code - 3; }\n\
+                 * { return 99; }\n\
+             }\n\
+         };\n",
+    );
+    let build = run_example_compile(&root, true);
+    assert!(
+        build.status.success(),
+        "err[T] when/on should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let emitted = collect_rust_source_files(&emitted_crate_root(&build))
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        emitted.contains(".is_err()"),
+        "an 'on' branch over 'err[T]' should lower to the error-shell presence test: {emitted}"
+    );
+    let run = std::process::Command::new(built_binary_path(&build))
+        .output()
+        .expect("err[T] when/on binary should run");
+    assert!(
+        run.status.success(),
+        "err[T] when/on should execute cleanly: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
@@ -1423,13 +1607,24 @@ fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
             .filter_map(|path| std::fs::read_to_string(path).ok())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(emitted.contains("rt::spawn_task(move ||"));
+        if example.contains("detached") {
+            // A detached task is spawned without a join handle (V3_PROC).
+            assert!(emitted.contains("rt::spawn_detached(move ||"));
+        } else {
+            assert!(emitted.contains("rt::spawn_task(move ||"));
+        }
         assert!(emitted.contains("rt::join_all_tasks()"));
         assert!(emitted.contains("rt::task_join_guard()"));
         if example.contains("move_heap") {
             assert!(emitted.contains(" = *l__"));
         } else {
             assert!(emitted.contains(".clone()"));
+        }
+        if example.contains("shared_sync_ptr") {
+            assert!(
+                emitted.contains("std::sync::Arc<"),
+                "{example} should back a 'ptr[shared, sync, T]' with a thread-safe Arc"
+            );
         }
     }
 }
@@ -1598,6 +1793,16 @@ fn test_v3_processor_m2_channel_examples_build_and_run() {
                 "{example} should extract a sender without cloning the channel receiver"
             );
         }
+        if example == "examples/proc_receiver_endpoint_m2" {
+            assert!(
+                emitted.contains("rt::FolReceiver<"),
+                "{example} should type the transferred receiver as a first-class chn[rx, T] value"
+            );
+            assert!(
+                emitted.contains(".acquire_receiver()"),
+                "{example} should transfer the channel's unique receiver out of the channel"
+            );
+        }
     }
 }
 
@@ -1607,11 +1812,11 @@ fn test_v3_channel_receiver_moves_into_a_synchronous_consumer() {
     std::fs::write(
         root.join("src/main.fol"),
         "use std: pkg = {\"std\"};\n\
-         fun[] consume(channel: chn[int]): int = { return channel[rx]; };\n\
+         fun[] consume(channel: chn[int]): int = { return channel[rx][]; };\n\
          fun[] main(): int = {\n\
              var channel: chn[int];\n\
-             42 | channel[tx];\n\
-             return std::io::echo_int(consume(channel));\n\
+             var sent: err[int] = 42 | channel[tx];\n\
+             return std::io::echo_int(consume([mov]channel));\n\
          };\n",
     )
     .expect("channel receiver transfer fixture should write");
@@ -1879,7 +2084,7 @@ fn git_output(root: &std::path::Path, args: &[&str]) -> String {
 }
 
 fn create_git_remote_from_logtiny_fixture(root: &std::path::Path) {
-    let source = repo_root().join("xtra/logtiny");
+    let source = repo_root().join("test/fixtures/logtiny");
     copy_dir_all(&source, root);
     std::fs::remove_dir_all(root.join(".git")).ok();
     std::fs::remove_dir_all(root.join(".fol")).ok();
@@ -1903,7 +2108,7 @@ fn run_fol_with_store_in_dir(
     store_root: &std::path::Path,
     args: &[&str],
 ) -> std::process::Output {
-    std::process::Command::new(env!("CARGO_BIN_EXE_fol"))
+    std::process::Command::new(env!("CARGO_BIN_EXE_folc"))
         .args(["--package-store-root"])
         .arg(store_root)
         .args(args)
@@ -2004,7 +2209,7 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
         "--output",
         "json",
         "parse",
-        "xtra/logtiny/build.fol",
+        "test/fixtures/logtiny/build.fol",
     ]);
     assert!(
         parse.status.success(),
@@ -2017,14 +2222,14 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
     assert!(parse_json["summary"]
         .as_str()
         .expect("parse summary should be a string")
-        .contains("xtra/logtiny/build.fol"));
+        .contains("test/fixtures/logtiny/build.fol"));
 
     let highlight = run_fol(&[
         "tool",
         "--output",
         "json",
         "highlight",
-        "xtra/logtiny/build.fol",
+        "test/fixtures/logtiny/build.fol",
     ]);
     assert!(
         highlight.status.success(),
@@ -2041,14 +2246,14 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
     assert!(highlight_json["summary"]
         .as_str()
         .expect("highlight summary should be a string")
-        .contains("xtra/logtiny/build.fol"));
+        .contains("test/fixtures/logtiny/build.fol"));
 
     let symbols = run_fol(&[
         "tool",
         "--output",
         "json",
         "symbols",
-        "xtra/logtiny/build.fol",
+        "test/fixtures/logtiny/build.fol",
     ]);
     assert!(
         symbols.status.success(),
@@ -2069,7 +2274,7 @@ fn test_editor_file_commands_cover_build_fol_entry_files() {
     assert!(symbols_json["summary"]
         .as_str()
         .expect("symbols summary should be a string")
-        .contains("xtra/logtiny/build.fol"));
+        .contains("test/fixtures/logtiny/build.fol"));
 }
 
 #[test]
@@ -3823,8 +4028,13 @@ fn test_build_rejects_std_imports_without_declared_dependency() {
         !build.status.success(),
         "memo std-import app should fail without declared dependency"
     );
+    // The bundled store lets the import RESOLVE, so the failure now lands at
+    // the hosted-support gate with the actionable add_dep hint instead of a
+    // misleading unfetched-store message.
     assert!(
-        stderr.contains(".fol/pkg/std") || stderr.contains("resolver pkg import target"),
+        stderr.contains("requires hosted std support")
+            || stderr.contains(".fol/pkg/std")
+            || stderr.contains("resolver pkg import target"),
         "memo std-import app should fail because bundled std is dependency-backed: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         stderr
@@ -3969,7 +4179,7 @@ fn test_build_install_prefix_moves_without_changing_build_source() {
 fn test_cli_build_summary_surfaces_install_prefix_and_outputs() {
     let root = temp_example_root("examples/build_install_prefix");
     let install_prefix = root.join(".custom-install");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_fol"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_folc"))
         .args(["code", "build"])
         .env("FOL_INSTALL_PREFIX", &install_prefix)
         .current_dir(&root)
@@ -5323,13 +5533,49 @@ fn test_book_summary_includes_the_build_direction_page() {
 }
 
 #[test]
+fn test_book_documents_the_toolchain_manager_up_front() {
+    let summary = std::fs::read_to_string(repo_root().join("book/src/SUMMARY.md"))
+        .expect("book summary should exist");
+    let position = summary
+        .find("./025_toolchain/_index.md")
+        .expect("book summary should include the toolchain chapter");
+    assert!(
+        position < summary.find("./000_overview/_index.md").unwrap_or(usize::MAX),
+        "the toolchain chapter should sit at the top of the book, before the overview"
+    );
+
+    let chapter = std::fs::read_to_string(repo_root().join("book/src/025_toolchain/_index.md"))
+        .expect("toolchain chapter should exist");
+    for claim in [
+        "FOL_HOME",
+        ".fol/toolchain",
+        "//fol",
+        "fol self install",
+        "fol-compiler-and-lib-v",
+        "runtime/",
+    ] {
+        assert!(
+            chapter.contains(claim),
+            "toolchain chapter should document {claim}"
+        );
+    }
+
+    let readme = std::fs::read_to_string(repo_root().join("README.md"))
+        .expect("README should exist");
+    for claim in ["FOL_HOME", "//fol 0.2.1", "fol self install", "fol-compiler-and-lib-v"] {
+        assert!(
+            readme.contains(claim),
+            "README should document the toolchain flow, missing: {claim}"
+        );
+    }
+}
+
+#[test]
 fn test_v2_current_subset_inventory_stays_honest() {
     let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
         .expect("generic milestone note should load");
     let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
         .expect("standards milestone note should load");
-    let versions = std::fs::read_to_string(repo_root().join("plan/VERSIONS.md"))
-        .expect("version note should load");
 
     assert!(generics_note.contains("examples/generic_routine_m1"));
     assert!(generics_note.contains("examples/generic_routine_pair_m1"));
@@ -5359,15 +5605,6 @@ fn test_v2_current_subset_inventory_stays_honest() {
     assert!(standards_note.contains("not through a second"));
     assert!(standards_note.contains("multi-standard conformance on one type"));
     assert!(standards_note.contains("imported-standard conformance truth"));
-
-    assert!(versions.contains("Milestone 1"));
-    assert!(versions.contains("generic routine core"));
-    assert!(versions.contains("executable generic types"));
-    assert!(!versions.contains("\n- generic types\n"));
-    assert!(versions.contains("Milestone 2"));
-    assert!(versions.contains("protocol standards only"));
-    assert!(versions.contains("both `V3` pillars are implemented end to end"));
-    assert!(!versions.contains("then move into `V3` systems-semantics work"));
 }
 
 #[test]
@@ -5928,20 +6165,6 @@ fn test_v2_docs_pin_remaining_narrow_boundaries_explicitly() {
 }
 
 #[test]
-fn test_agents_md_keeps_current_v2_milestone_truth() {
-    let agents =
-        std::fs::read_to_string(repo_root().join("AGENTS.md")).expect("AGENTS.md should load");
-
-    assert!(agents.contains("generic routine lowering/backend execution now exist"));
-    assert!(
-        agents.contains("protocol standards now lower and the shipped positive protocol examples")
-    );
-    assert!(agents.contains("execute through ordinary procedural emission"));
-    assert!(!agents.contains("no generic lowering yet"));
-    assert!(!agents.contains("no standards lowering/backend support yet"));
-}
-
-#[test]
 fn test_tooling_docs_keep_workspace_symbols_root_scoped() {
     let lsp = std::fs::read_to_string(repo_root().join("book/src/050_tooling/500_lsp.md"))
         .expect("LSP chapter should load");
@@ -6184,7 +6407,6 @@ fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
 #[test]
 fn test_active_repo_surface_keeps_runtime_memo_name_and_no_stale_alloc_refs() {
     let tracked_roots = [
-        "AGENTS.md",
         "docs",
         "book",
         "examples",
@@ -6206,28 +6428,18 @@ fn test_active_repo_surface_keeps_runtime_memo_name_and_no_stale_alloc_refs() {
         "include_str!(\"alloc.rs\")",
     ];
 
+    let excluded = repo_root().join("test/integration_tests/integration_editor_and_build.rs");
     for root in tracked_roots {
         let path = repo_root().join(root);
-        let mut command = std::process::Command::new("rg");
-        command
-            .current_dir(repo_root())
-            .args(["-n", "--fixed-strings"]);
-        command
-            .arg("-g")
-            .arg("!test/integration_tests/integration_editor_and_build.rs");
-        for needle in stale_needles {
-            command.arg("-e").arg(needle);
-        }
-        let output = command
-            .arg(&path)
-            .output()
-            .expect("repo stale-name scan should run");
+        let mut matches = Vec::new();
+        collect_text_matches(&path, &excluded, &stale_needles, &mut matches)
+            .expect("active repo stale-name scan should read every tracked root");
 
         assert!(
-            !output.status.success(),
+            matches.is_empty(),
             "active repo surface '{}' should not keep stale alloc runtime refs:\n{}",
             root,
-            String::from_utf8_lossy(&output.stdout)
+            matches.join("\n")
         );
     }
 

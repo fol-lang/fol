@@ -2,9 +2,11 @@
 
 #[macro_use]
 pub mod r#mod;
+pub mod target;
 
 // Basic types
 pub use r#mod::*;
+pub use target::{ResolveTargetError, ResolvedTarget};
 
 pub fn canonical_identifier_key(name: &str) -> String {
     name.chars()

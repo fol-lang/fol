@@ -10,7 +10,7 @@ fn imported_channel_receiver_effect_reaches_local_spawn_wrappers() {
         &[
             (
                 "shared/lib.fol",
-                "fun[exp] consume(channel: chn[int]): int = { return channel[rx]; };\n",
+                "fun[exp] consume(channel: chn[int]): int = { return channel[rx][]; };\n",
             ),
             (
                 "app/main.fol",
@@ -52,7 +52,7 @@ fn imported_sender_only_channel_routine_stays_spawnable() {
                 "shared/lib.fol",
                 concat!(
                     "fun[exp] produce(channel: chn[int]): int = {\n",
-                    "    42 | channel[tx];\n",
+                    "    var sent: err[int] = 42 | channel[tx];\n",
                     "    return 42;\n",
                     "};\n",
                 ),
@@ -65,7 +65,7 @@ fn imported_sender_only_channel_routine_stays_spawnable() {
                     "fun[] main(): int = {\n",
                     "    var channel: chn[int];\n",
                     "    [>]wrapper(channel);\n",
-                    "    return channel[rx];\n",
+                    "    return channel[rx][];\n",
                     "};\n",
                 ),
             ),
@@ -94,7 +94,7 @@ fn imported_mux_signature_allows_mux_handle_forwarding() {
                 "shared/lib.fol",
                 concat!(
                     "typ[exp] Counter: rec = { value: int };\n",
-                    "fun[exp] read(counter[mux]: Counter): int = {\n",
+                    "fun[exp] read(counter: mux[Counter]): int = {\n",
                     "    counter.lock();\n",
                     "    return counter.value;\n",
                     "};\n",
@@ -104,10 +104,10 @@ fn imported_mux_signature_allows_mux_handle_forwarding() {
                 "app/main.fol",
                 concat!(
                     "use shared: loc = {\"../shared\"};\n",
-                    "fun[] forward(counter[mux]: Counter): int = { return read(counter); };\n",
+                    "fun[] forward(counter: mux[Counter]): int = { return read(counter); };\n",
                     "fun[] main(): int = {\n",
                     "    var counter: Counter = { value = 42 };\n",
-                    "    return forward(counter);\n",
+                    "    return forward([mov]counter);\n",
                     "};\n",
                 ),
             ),
@@ -143,7 +143,7 @@ fn imported_plain_signature_rejects_a_mux_whole_value() {
                 "app/main.fol",
                 concat!(
                     "use shared: loc = {\"../shared\"};\n",
-                    "fun[] bad(counter[mux]: Counter): int = { return read_plain(counter); };\n",
+                    "fun[] bad(counter: mux[Counter]): int = { return read_plain(counter); };\n",
                 ),
             ),
         ],
@@ -174,7 +174,7 @@ fn qualified_imported_spawns_keep_receiver_and_rc_boundaries() {
                 "shared/lib.fol",
                 concat!(
                     "typ[exp] Shared: rec = { value: ptr[shared, int] };\n",
-                    "fun[exp] consume_channel(channel: chn[int]): int = { return channel[rx]; };\n",
+                    "fun[exp] consume_channel(channel: chn[int]): int = { return channel[rx][]; };\n",
                     "fun[exp] consume_shared(value: Shared): int = { return 0; };\n",
                 ),
             ),
@@ -189,7 +189,7 @@ fn qualified_imported_spawns_keep_receiver_and_rc_boundaries() {
                     "};\n",
                     "fun[] bad_shared(): int = {\n",
                     "    var value: int = 1;\n",
-                    "    var shared_value: shared::Shared = { value = &value };\n",
+                    "    var shared_value: shared::Shared = { value = [ref]value };\n",
                     "    [>]shared::consume_shared(shared_value);\n",
                     "    return 0;\n",
                     "};\n",
@@ -311,15 +311,14 @@ fn workspace_expression_typing_rejects_plain_imported_call_argument_mismatches()
         ],
     );
 
-    let errors = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect_err("Workspace entry typing should reject imported call argument mismatches");
+    let errors =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect_err("Workspace entry typing should reject imported call argument mismatches");
 
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::IncompatibleType
-                && error
-                    .message()
-                    .contains("call to 'emit' expects 'int'")
+                && error.message().contains("call to 'emit' expects 'int'")
         }),
         "Expected imported-call argument mismatch diagnostic, got: {errors:?}"
     );
@@ -354,8 +353,11 @@ fn workspace_expression_typing_keeps_qualified_imported_value_and_call_types() {
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should accept qualified imported value and call references");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect(
+                "Workspace entry typing should accept qualified imported value and call references",
+            );
     let value_reference =
         find_typed_reference(&typed, "shared::answer", ReferenceKind::QualifiedIdentifier);
     let call_reference =
@@ -410,8 +412,14 @@ fn workspace_expression_typing_types_plain_imported_method_calls() {
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should accept imported method calls through typed package facts");
+    let typed = typecheck_fixture_workspace_entry_with_config(
+        &root,
+        "app",
+        ResolverConfig::default(),
+    )
+    .expect(
+        "Workspace entry typing should accept imported method calls through typed package facts",
+    );
     let syntax_id = find_named_routine_syntax_id(&typed, "main");
 
     assert_eq!(
@@ -836,7 +844,9 @@ fn workspace_expression_typing_rejects_unknown_named_imported_free_calls() {
 
     let errors =
         typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-            .expect_err("Workspace entry typing should reject unknown named imported free-call args");
+            .expect_err(
+                "Workspace entry typing should reject unknown named imported free-call args",
+            );
 
     assert!(
         errors.iter().any(|error| {
@@ -882,7 +892,9 @@ fn workspace_expression_typing_rejects_duplicate_named_imported_method_calls() {
 
     let errors =
         typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-            .expect_err("Workspace entry typing should reject duplicate named imported method args");
+            .expect_err(
+                "Workspace entry typing should reject duplicate named imported method args",
+            );
 
     assert!(
         errors.iter().any(|error| {
@@ -925,7 +937,9 @@ fn workspace_expression_typing_rejects_unpack_for_imported_non_variadic_free_cal
 
     let errors =
         typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-            .expect_err("Workspace entry typing should reject unpack on imported non-variadic free calls");
+            .expect_err(
+                "Workspace entry typing should reject unpack on imported non-variadic free calls",
+            );
 
     assert!(
         errors.iter().any(|error| {
@@ -1023,8 +1037,11 @@ fn workspace_expression_typing_selects_imported_method_overloads_by_record_recei
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should select imported method overloads by receiver type");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect(
+                "Workspace entry typing should select imported method overloads by receiver type",
+            );
     let counter_syntax_id = find_named_routine_syntax_id(&typed, "read_counter");
     let meter_syntax_id = find_named_routine_syntax_id(&typed, "read_meter");
 
@@ -1073,8 +1090,11 @@ fn workspace_expression_typing_expands_imported_alias_record_shells_for_field_ac
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should expand imported alias record shells for field access");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect(
+            "Workspace entry typing should expand imported alias record shells for field access",
+        );
     let syntax_id = find_named_routine_syntax_id(&typed, "main");
 
     assert_eq!(
@@ -1281,7 +1301,9 @@ fn legacy_single_package_typecheck_rejects_imported_routine_calls_explicitly() {
     );
 
     let errors = typecheck_fixture_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect_err("legacy single-package typechecking should still reject imported routine calls");
+        .expect_err(
+            "legacy single-package typechecking should still reject imported routine calls",
+        );
 
     assert!(
         errors.iter().any(|error| {
@@ -1338,9 +1360,9 @@ fn typecheck_reports_explicit_top_level_binding_type_requirements() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error
-                    .message()
-                    .contains("binding 'mystery' needs a declared type or an inferable initializer in V1")
+                && error.message().contains(
+                    "binding 'mystery' needs a declared type or an inferable initializer in V1",
+                )
         }),
         "Expected the explicit top-level binding type diagnostic, got: {errors:?}"
     );
@@ -1356,9 +1378,9 @@ fn typecheck_reports_explicit_local_binding_type_requirements() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error
-                    .message()
-                    .contains("binding 'mystery' needs a declared type or an inferable initializer in V1")
+                && error.message().contains(
+                    "binding 'mystery' needs a declared type or an inferable initializer in V1",
+                )
         }),
         "Expected the explicit local binding type diagnostic, got: {errors:?}"
     );
@@ -1564,7 +1586,7 @@ fn reopened_v1_nil_diagnostics_keep_binding_site_locations() {
 fn reopened_v1_unwrap_diagnostics_keep_receiver_site_locations() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "fun[] main(): int = {\n    var count: int = 1;\n    return count!;\n};\n",
+        "fun[] main(): int = {\n    var count: int = 1;\n    return [uwp]count;\n};\n",
     )]);
     let error = errors
         .iter()
@@ -1579,7 +1601,7 @@ fn reopened_v1_unwrap_diagnostics_keep_receiver_site_locations() {
         .expect("Expected unwrap diagnostic location");
 
     assert_eq!(location.line, 3);
-    assert_eq!(location.column, 12);
+    assert_eq!(location.column, 17);
     assert_eq!(location.length, Some(5));
     assert!(
         location
@@ -1592,17 +1614,14 @@ fn reopened_v1_unwrap_diagnostics_keep_receiver_site_locations() {
 
 #[test]
 fn nil_typing_rejects_missing_expected_shell_contexts() {
-    let errors = typecheck_fixture_folder_errors(&[(
-        "main.fol",
-        "var label = nil;\n",
-    )]);
+    let errors = typecheck_fixture_folder_errors(&[("main.fol", "var label = nil;\n")]);
 
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error
-                    .message()
-                    .contains("nil literals require an expected opt[...] or err[...] shell type in V1")
+                && error.message().contains(
+                    "nil literals require an expected opt[...] or err[...] shell type in V1",
+                )
         }),
         "Expected the nil expected-shell diagnostic, got: {errors:?}"
     );
@@ -1612,7 +1631,7 @@ fn nil_typing_rejects_missing_expected_shell_contexts() {
 fn shell_typing_accepts_postfix_unwrap_for_optional_and_typed_error_values() {
     let _typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] take_text(value: MaybeText): str = {\n    return value!;\n};\nfun[] take_error(value: Failure): str = {\n    return value!;\n};\n",
+        "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] take_text(value: MaybeText): str = {\n    return value[];\n};\nfun[] take_error(value: Failure): str = {\n    return value[];\n};\n",
     )]);
 }
 
@@ -1625,16 +1644,15 @@ fn shell_typing_rejects_postfix_unwrap_for_recoverable_routine_calls() {
              return 1;\n\
          };\n\
          fun[] main(): int / str = {\n\
-             return load()!;\n\
+             return load()[];\n\
          };\n",
     )]);
 
     assert!(
         errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("postfix '!' unwrap applies to opt[...] and err[...] shell values, not to routine call results with '/ ErrorType' in V1")
+            error
+                .message()
+                .contains("cannot use '/ ErrorType' routine results as plain values")
         }),
         "Expected the recoverable-call unwrap boundary diagnostic, got: {errors:?}"
     );
@@ -1644,15 +1662,13 @@ fn shell_typing_rejects_postfix_unwrap_for_recoverable_routine_calls() {
 fn shell_typing_rejects_postfix_unwrap_for_bare_error_shells() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "ali BareFailure: err[];\nfun[] main(value: BareFailure): str = {\n    return value!;\n};\n",
+        "ali BareFailure: err[];\nfun[] main(value: BareFailure): str = {\n    return value[];\n};\n",
     )]);
 
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error
-                    .message()
-                    .contains("unwrap requires an opt[...] or err[...] shell with a value type in V1")
+                && error.message().contains("'err[]' has no payload to access")
         }),
         "Expected the unwrap shell diagnostic, got: {errors:?}"
     );
@@ -1670,7 +1686,7 @@ fn shell_typing_accepts_nil_in_return_and_call_argument_contexts() {
 fn shell_typing_accepts_postfix_unwrap_in_binding_and_return_contexts() {
     let _typed = typecheck_fixture_folder(&[(
         "main.fol",
-        "ali MaybeText: opt[str];\nfun[] main(value: MaybeText): str = {\n    var label: str = value!;\n    return value!;\n};\n",
+        "ali MaybeText: opt[str];\nfun[] main(value: MaybeText): str = {\n    var label: str = value[];\n    return value[];\n};\n",
     )]);
 }
 
@@ -1678,15 +1694,15 @@ fn shell_typing_accepts_postfix_unwrap_in_binding_and_return_contexts() {
 fn shell_typing_rejects_postfix_unwrap_for_non_shell_targets() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-        "fun[] main(value: int): int = {\n    return value!;\n};\n",
+        "fun[] main(value: int): int = {\n    return value[];\n};\n",
     )]);
 
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error
-                    .message()
-                    .contains("unwrap requires an opt[...] or err[...] shell with a value type in V1")
+                && error.message().contains(
+                    "inner-place access '[]' requires a pointer, 'opt[T]', or 'err[T]' receiver",
+                )
         }),
         "Expected the unwrap non-shell diagnostic, got: {errors:?}"
     );
@@ -1703,7 +1719,9 @@ fn declaration_signature_lowering_resolves_qualified_named_types() {
     let (_total_id, total) = find_typed_symbol(&typed, "total", SymbolKind::ValueBinding);
 
     assert_eq!(
-        typed.type_table().get(total.declared_type.expect("binding should lower")),
+        typed
+            .type_table()
+            .get(total.declared_type.expect("binding should lower")),
         Some(&CheckedType::Declared {
             symbol: count_id,
             name: "Count".to_string(),
@@ -1726,7 +1744,9 @@ fn declaration_signature_lowering_checks_local_bindings() {
     let (_local_id, local) = find_typed_symbol(&typed, "local", SymbolKind::ValueBinding);
 
     assert_eq!(
-        typed.type_table().get(local.declared_type.expect("local binding should lower")),
+        typed
+            .type_table()
+            .get(local.declared_type.expect("local binding should lower")),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
@@ -1735,7 +1755,7 @@ fn declaration_signature_lowering_checks_local_bindings() {
 fn declaration_signature_lowering_checks_nested_routine_signatures() {
     let typed = typecheck_fixture_folder(&[(
         "main.fol",
-         "fun[] demo(seed: int): int = {\n\
+        "fun[] demo(seed: int): int = {\n\
              fun[] helper(item: str): int = {\n\
                  return 1;\n\
              };\n\
@@ -1758,9 +1778,11 @@ fn declaration_signature_lowering_checks_nested_routine_signatures() {
         Some(&CheckedType::Builtin(BuiltinType::Str))
     );
     assert_eq!(
-        typed
-            .type_table()
-            .get(helper_type.return_type.expect("nested routine return should lower")),
+        typed.type_table().get(
+            helper_type
+                .return_type
+                .expect("nested routine return should lower")
+        ),
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
@@ -1776,11 +1798,15 @@ fn declaration_signature_lowering_keeps_alias_target_types_exact() {
     let (_current_id, current) = find_typed_symbol(&typed, "current", SymbolKind::ValueBinding);
 
     assert_eq!(
-        typed.type_table().get(alias.declared_type.expect("alias should lower")),
+        typed
+            .type_table()
+            .get(alias.declared_type.expect("alias should lower")),
         Some(&CheckedType::Builtin(BuiltinType::Str))
     );
     assert_eq!(
-        typed.type_table().get(current.declared_type.expect("binding should lower")),
+        typed
+            .type_table()
+            .get(current.declared_type.expect("binding should lower")),
         Some(&CheckedType::Declared {
             symbol: alias_id,
             name: "PathLabel".to_string(),
@@ -1809,8 +1835,14 @@ fn declaration_signature_lowering_records_entry_variant_payload_types() {
         panic!("entry declaration should lower to an entry semantic type");
     };
 
-    assert_eq!(variants.get("Word"), Some(&Some(typed.builtin_types().str_)));
-    assert_eq!(variants.get("Number"), Some(&Some(typed.builtin_types().int)));
+    assert_eq!(
+        variants.get("Word"),
+        Some(&Some(typed.builtin_types().str_))
+    );
+    assert_eq!(
+        variants.get("Number"),
+        Some(&Some(typed.builtin_types().int))
+    );
 }
 
 #[test]
@@ -1824,7 +1856,9 @@ fn declaration_signature_lowering_allows_forward_cross_file_alias_references() {
     let (_total_id, total) = find_typed_symbol(&typed, "total", SymbolKind::ValueBinding);
 
     assert_eq!(
-        typed.type_table().get(total.declared_type.expect("binding should lower")),
+        typed
+            .type_table()
+            .get(total.declared_type.expect("binding should lower")),
         Some(&CheckedType::Declared {
             symbol: count_id,
             name: "Count".to_string(),
@@ -1866,9 +1900,11 @@ fn declaration_signature_lowering_allows_cross_file_named_type_references_in_rou
         })
     );
     assert_eq!(
-        typed
-            .type_table()
-            .get(load_type.return_type.expect("routine return type should lower")),
+        typed.type_table().get(
+            load_type
+                .return_type
+                .expect("routine return type should lower")
+        ),
         Some(&CheckedType::Declared {
             symbol: user_id,
             name: "User".to_string(),
@@ -1876,4 +1912,120 @@ fn declaration_signature_lowering_allows_cross_file_named_type_references_in_rou
             args: Vec::new(),
         })
     );
+}
+
+#[test]
+fn imported_generic_routines_reject_with_the_wrapper_hint() {
+    // Imported signatures drop their generic parameter list, so instantiation
+    // is impossible; the call must stop with the boundary instead of leaking
+    // a bare 'T' mismatch to the caller.
+    let root = unique_temp_dir("workspace_imported_generic_routine");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] wrap(T)(value: T): T = { return [mov]value; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = { return shared::wrap(41); };\n",
+                ),
+            ),
+        ],
+    );
+
+    let result = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
+    match result {
+        Err(errors) => assert!(
+            errors.iter().any(|error| error
+                .message()
+                .contains("cross-package generic instantiation is not supported yet")),
+            "imported generic call should carry the wrapper hint: {errors:?}"
+        ),
+        Ok(_) => panic!("imported generic call must not typecheck"),
+    }
+}
+
+#[test]
+fn transitively_mounted_symbols_do_not_reexport_to_importers() {
+    // A library that imports std must not leak std's exports into its own
+    // export surface; a consumer importing both previously collided on the
+    // transitive copies.
+    let root = unique_temp_dir("workspace_transitive_mount");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "midlib/lib.fol",
+                "use extra: loc = {\"../extra\"};\n\
+                 fun[exp] wrapped(): int = { return extra::answer() + 1; };\n",
+            ),
+            (
+                "extra/lib.fol",
+                "fun[exp] answer(): int = { return 41; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use midlib: loc = {\"../midlib\"};\n",
+                    "use extra: loc = {\"../extra\"};\n",
+                    "fun[] main(): int = { return midlib::wrapped() + extra::answer(); };\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("importing a library plus its dependency must not collide on transitive mounts");
+}
+
+#[test]
+fn import_aliases_win_over_the_package_self_name_on_fallback() {
+    // A workspace named like its own library import (`icetea` importing an
+    // `icetea` lib directory) resolves qualified paths through the alias
+    // when nothing matches under the package's own root.
+    let root = unique_temp_dir("workspace_selfname_alias");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            ("app/lib/kit/lib.fol", "con[exp] SEED: int = 7;\n"),
+            (
+                "app/main.fol",
+                concat!(
+                    "use app: loc = {\"lib\"};\n",
+                    "fun[] main(): int = { return app::kit::SEED; };\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("the import alias must win when the package self-name path resolves nothing");
 }

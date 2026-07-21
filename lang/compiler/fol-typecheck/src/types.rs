@@ -66,6 +66,10 @@ pub struct RoutineType {
     pub params: Vec<CheckedTypeId>,
     pub return_type: Option<CheckedTypeId>,
     pub error_type: Option<CheckedTypeId>,
+    /// True when the routine type carries a `[bor=L]` environment lifetime
+    /// (V3_MEM section 5.3): its value may hold borrowed captures whose loans
+    /// are tied to the caller-provided region.
+    pub env_lifetime: bool,
 }
 
 impl RoutineType {
@@ -95,6 +99,7 @@ impl PartialEq for RoutineType {
             && self.params == other.params
             && self.return_type == other.return_type
             && self.error_type == other.error_type
+            && self.env_lifetime == other.env_lifetime
     }
 }
 
@@ -118,6 +123,7 @@ impl Ord for RoutineType {
             &self.params,
             self.return_type,
             self.error_type,
+            self.env_lifetime,
         )
             .cmp(&(
                 &other.generic_params,
@@ -129,6 +135,7 @@ impl Ord for RoutineType {
                 &other.params,
                 other.return_type,
                 other.error_type,
+                other.env_lifetime,
             ))
     }
 }
@@ -144,6 +151,7 @@ impl Hash for RoutineType {
         self.params.hash(state);
         self.return_type.hash(state);
         self.error_type.hash(state);
+        self.env_lifetime.hash(state);
     }
 }
 
@@ -186,6 +194,9 @@ pub enum CheckedType {
     ChannelSender {
         element_type: CheckedTypeId,
     },
+    ChannelReceiver {
+        element_type: CheckedTypeId,
+    },
     Eventual {
         value_type: CheckedTypeId,
         error_type: Option<CheckedTypeId>,
@@ -203,6 +214,12 @@ pub enum CheckedType {
     Pointer {
         target: CheckedTypeId,
         shared: bool,
+        /// A `ptr[weak, T]` weak handle (`std::rc::Weak<T>`): does not keep the
+        /// shared allocation alive; created with `[weak]`, read via `[upg]`.
+        weak: bool,
+        /// A `ptr[shared, sync, T]` uses an `Arc` and is thread-safe, so it may
+        /// cross task boundaries; `Rc`-backed shared/weak pointers cannot.
+        sync: bool,
     },
     Error {
         inner: Option<CheckedTypeId>,
@@ -274,18 +291,21 @@ impl TypeTable {
                 format!("chn[{}]", self.render_type(*element_type))
             }
             Some(CheckedType::ChannelSender { element_type }) => {
-                format!("chn[{}][tx]", self.render_type(*element_type))
+                format!("chn[tx, {}]", self.render_type(*element_type))
+            }
+            Some(CheckedType::ChannelReceiver { element_type }) => {
+                format!("chn[rx, {}]", self.render_type(*element_type))
             }
             Some(CheckedType::Eventual {
                 value_type,
                 error_type,
             }) => match error_type {
                 Some(error_type) => format!(
-                    "<eventual {}/{}>",
+                    "evt[{} / {}]",
                     self.render_type(*value_type),
                     self.render_type(*error_type)
                 ),
-                None => format!("<eventual {}>", self.render_type(*value_type)),
+                None => format!("evt[{}]", self.render_type(*value_type)),
             },
             Some(CheckedType::Optional { inner }) => {
                 format!("opt[{}]", self.render_type(*inner))
@@ -300,8 +320,17 @@ impl TypeTable {
                     format!("bor[{}]", self.render_type(*inner))
                 }
             }
-            Some(CheckedType::Pointer { target, shared }) => {
-                if *shared {
+            Some(CheckedType::Pointer {
+                target,
+                shared,
+                weak,
+                sync,
+            }) => {
+                if *weak {
+                    format!("ptr[weak, {}]", self.render_type(*target))
+                } else if *shared && *sync {
+                    format!("ptr[shared, sync, {}]", self.render_type(*target))
+                } else if *shared {
                     format!("ptr[shared, {}]", self.render_type(*target))
                 } else {
                     format!("ptr[{}]", self.render_type(*target))
@@ -430,6 +459,7 @@ mod tests {
             params: vec![declared, int_id],
             return_type: Some(declared),
             error_type: None,
+            env_lifetime: false,
         }));
 
         assert_eq!(record_first, record_second);
@@ -498,6 +528,7 @@ mod tests {
             params: vec![int_id, str_id],
             return_type: Some(int_id),
             error_type: None,
+            env_lifetime: false,
         }));
         assert_eq!(table.render_type(routine_id), "fun(int, str): int");
     }

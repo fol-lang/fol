@@ -41,9 +41,7 @@ fn frontend_run_from_args_prints_help_when_requested_or_when_no_command_is_given
     let empty_code = run_from_args_with_io(["fol"], &mut stdout, &mut stderr);
 
     assert_eq!(empty_code, 0);
-    assert!(String::from_utf8(stdout)
-        .unwrap()
-        .contains("Usage: fol"));
+    assert!(String::from_utf8(stdout).unwrap().contains("Usage: fol"));
     assert!(stderr.is_empty());
 }
 

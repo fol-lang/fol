@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::node::AstNode;
+use super::options::OwnershipOption;
 use super::syntax::SyntaxNodeId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -73,7 +74,14 @@ impl QualifiedPath {
 pub enum PointerQualifier {
     Unique,
     Shared,
+    /// `ptr[shared, sync, T]`: an `Arc`-backed shared pointer that is thread-safe
+    /// (`send`/`share`), so it may cross task boundaries — unlike `Rc`-backed
+    /// `ptr[shared, T]` (V3_MEM §8.3).
+    SharedSync,
     Raw,
+    /// `ptr[weak, T]`: a weak handle to a shared (`ptr[shared, T]`) allocation,
+    /// created with `[weak]` and upgraded with `[upg]` (managed pointer family).
+    Weak,
 }
 
 /// FOL Type system
@@ -117,6 +125,15 @@ pub enum FolType {
     Channel {
         element_type: Box<FolType>,
     },
+    ChannelSender {
+        element_type: Box<FolType>,
+    }, // chn[tx, T] — a first-class, clone-capable sender endpoint value
+    ChannelReceiver {
+        element_type: Box<FolType>,
+    }, // chn[rx, T] — a first-class, move-only unique receiver endpoint value
+    Mutex {
+        inner: Box<FolType>,
+    }, // mux[T] — a first-class managed mutex over its guarded value (V3_MEM §8.3)
 
     // Complex types
     Record {
@@ -133,6 +150,12 @@ pub enum FolType {
     Owned {
         inner: Box<FolType>,
     }, // @T
+    Borrowed {
+        inner: Box<FolType>,
+        /// Named lifetime from `[bor=L]`; `None` for an elided `[bor]`.
+        lifetime: Option<String>,
+        mutable: bool,
+    }, // T[bor], T[mut, bor], T[bor=L]
     Multiple {
         types: Vec<FolType>,
     }, // mul[T1, T2, ...]
@@ -148,16 +171,26 @@ pub enum FolType {
     Error {
         inner: Option<Box<FolType>>,
     },
+    Eventual {
+        value_type: Box<FolType>,
+        /// Recoverable error channel from `evt[T / E]`; `None` for `evt[T]`.
+        error_type: Option<Box<FolType>>,
+        /// Public parent-scope lifetime from `evt[L, T]` / `evt[L, T / E]`;
+        /// `None` when elided as `evt[T]` in a local declaration (V3_MEM §8.1).
+        lifetime: Option<String>,
+    }, // evt[T], evt[T / E], evt[L, T], evt[L, T / E]
     Limited {
         base: Box<FolType>,
         limits: Vec<AstNode>,
     },
     None,
 
-    // Function types
+    // Function types. `env_lifetime` carries the `[bor=L]` environment
+    // lifetime of an escaping-closure routine type (V3_MEM section 5.3).
     Function {
         params: Vec<FolType>,
         return_type: Box<FolType>,
+        env_lifetime: Option<String>,
     },
 
     // Generic and module types
@@ -366,6 +399,13 @@ pub struct RoutineCapture {
     pub name: String,
     pub syntax_id: Option<SyntaxNodeId>,
     pub endpoint: Option<ChannelEndpoint>,
+    /// The ownership operation on a value capture (`data[mov]`), if any. A
+    /// channel-endpoint capture (`c[tx]`) leaves this `None` and uses
+    /// `endpoint` instead; the two are mutually exclusive.
+    pub operation: Option<OwnershipOption>,
+    /// True for the composite `[mut, bor]` capture: a mutable loan of the
+    /// outer binding. Only legal together with `operation == Borrow`.
+    pub mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

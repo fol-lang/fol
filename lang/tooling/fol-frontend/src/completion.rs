@@ -34,12 +34,42 @@ static COMMAND_TREE: &[CmdEntry] = &[
         aliases: &["w"],
         hidden: false,
         subcommands: &[
-            CmdEntry { name: "init", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "new", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "info", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "list", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "deps", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "status", aliases: &[], hidden: false, subcommands: &[] },
+            CmdEntry {
+                name: "init",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "new",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "info",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "list",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "deps",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "status",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
         ],
     },
     CmdEntry {
@@ -47,8 +77,18 @@ static COMMAND_TREE: &[CmdEntry] = &[
         aliases: &["p"],
         hidden: false,
         subcommands: &[
-            CmdEntry { name: "fetch", aliases: &["f", "sync"], hidden: false, subcommands: &[] },
-            CmdEntry { name: "update", aliases: &["u", "upgrade"], hidden: false, subcommands: &[] },
+            CmdEntry {
+                name: "fetch",
+                aliases: &["f", "sync"],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "update",
+                aliases: &["u", "upgrade"],
+                hidden: false,
+                subcommands: &[],
+            },
         ],
     },
     CmdEntry {
@@ -56,20 +96,55 @@ static COMMAND_TREE: &[CmdEntry] = &[
         aliases: &["c"],
         hidden: false,
         subcommands: &[
-            CmdEntry { name: "build", aliases: &["b", "make"], hidden: false, subcommands: &[] },
-            CmdEntry { name: "run", aliases: &["r"], hidden: false, subcommands: &[] },
-            CmdEntry { name: "test", aliases: &["t"], hidden: false, subcommands: &[] },
-            CmdEntry { name: "check", aliases: &["c", "verify"], hidden: false, subcommands: &[] },
+            CmdEntry {
+                name: "build",
+                aliases: &["b", "make"],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "run",
+                aliases: &["r"],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "test",
+                aliases: &["t"],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "check",
+                aliases: &["c", "verify"],
+                hidden: false,
+                subcommands: &[],
+            },
             CmdEntry {
                 name: "emit",
                 aliases: &["e", "gen"],
                 hidden: false,
                 subcommands: &[
-                    CmdEntry { name: "rust", aliases: &[], hidden: false, subcommands: &[] },
-                    CmdEntry { name: "lowered", aliases: &[], hidden: false, subcommands: &[] },
+                    CmdEntry {
+                        name: "rust",
+                        aliases: &[],
+                        hidden: false,
+                        subcommands: &[],
+                    },
+                    CmdEntry {
+                        name: "lowered",
+                        aliases: &[],
+                        hidden: false,
+                        subcommands: &[],
+                    },
                 ],
             },
-            CmdEntry { name: "explain", aliases: &[], hidden: false, subcommands: &[] },
+            CmdEntry {
+                name: "explain",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
         ],
     },
     CmdEntry {
@@ -77,25 +152,83 @@ static COMMAND_TREE: &[CmdEntry] = &[
         aliases: &["t"],
         hidden: false,
         subcommands: &[
-            CmdEntry { name: "lsp", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "format", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "parse", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "highlight", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "symbols", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "references", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "rename", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "complete", aliases: &[], hidden: false, subcommands: &[] },
-            CmdEntry { name: "semantic-tokens", aliases: &[], hidden: false, subcommands: &[] },
+            CmdEntry {
+                name: "lsp",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "format",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "parse",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "highlight",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "symbols",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "references",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "rename",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "complete",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "semantic-tokens",
+                aliases: &[],
+                hidden: false,
+                subcommands: &[],
+            },
             CmdEntry {
                 name: "tree",
                 aliases: &[],
                 hidden: false,
-                subcommands: &[
-                    CmdEntry { name: "generate", aliases: &[], hidden: false, subcommands: &[] },
-                ],
+                subcommands: &[CmdEntry {
+                    name: "generate",
+                    aliases: &[],
+                    hidden: false,
+                    subcommands: &[],
+                }],
             },
-            CmdEntry { name: "clean", aliases: &["cl", "purge"], hidden: false, subcommands: &[] },
-            CmdEntry { name: "completion", aliases: &["completions", "comp"], hidden: false, subcommands: &[] },
+            CmdEntry {
+                name: "clean",
+                aliases: &["cl", "purge"],
+                hidden: false,
+                subcommands: &[],
+            },
+            CmdEntry {
+                name: "completion",
+                aliases: &["completions", "comp"],
+                hidden: false,
+                subcommands: &[],
+            },
         ],
     },
 ];
@@ -210,17 +343,18 @@ _fol "$@"
 }
 
 fn generate_fish_script() -> String {
-    let mut lines = Vec::new();
-    lines.push("# Fish completions for fol".to_string());
-    lines.push("function __fish_fol_no_subcommand".to_string());
-    lines.push("    set -l cmd (commandline -opc)".to_string());
-    lines.push("    test (count $cmd) -eq 1".to_string());
-    lines.push("end".to_string());
-    lines.push("function __fish_fol_using_subcommand".to_string());
-    lines.push("    set -l cmd (commandline -opc)".to_string());
-    lines.push("    test (count $cmd) -ge 2; and contains -- $argv[1] $cmd[2]".to_string());
-    lines.push("end".to_string());
-    lines.push(String::new());
+    let mut lines = vec![
+        "# Fish completions for fol".to_string(),
+        "function __fish_fol_no_subcommand".to_string(),
+        "    set -l cmd (commandline -opc)".to_string(),
+        "    test (count $cmd) -eq 1".to_string(),
+        "end".to_string(),
+        "function __fish_fol_using_subcommand".to_string(),
+        "    set -l cmd (commandline -opc)".to_string(),
+        "    test (count $cmd) -ge 2; and contains -- $argv[1] $cmd[2]".to_string(),
+        "end".to_string(),
+        String::new(),
+    ];
 
     // Top-level
     for &(name, desc) in &[
@@ -268,8 +402,18 @@ fn generate_fish_script() -> String {
     }
     // Tool subcommands
     for name in &[
-        "lsp", "format", "parse", "highlight", "symbols", "references", "rename",
-        "complete", "semantic-tokens", "tree", "clean", "completion",
+        "lsp",
+        "format",
+        "parse",
+        "highlight",
+        "symbols",
+        "references",
+        "rename",
+        "complete",
+        "semantic-tokens",
+        "tree",
+        "clean",
+        "completion",
     ] {
         lines.push(format!(
             "complete -c fol -f -n '__fish_fol_using_subcommand tool' -a {name}"
@@ -324,19 +468,14 @@ pub fn internal_complete_matches(tokens: &[String]) -> Vec<String> {
     matches
 }
 
-fn collect_matches(
-    entries: &[CmdEntry],
-    path: &[String],
-    prefix: &str,
-    matches: &mut Vec<String>,
-) {
+fn collect_matches(entries: &[CmdEntry], path: &[String], prefix: &str, matches: &mut Vec<String>) {
     if let Some((head, tail)) = path.split_first() {
         for entry in entries {
             if entry.hidden {
                 continue;
             }
             let name_match = entry.name == head;
-            let alias_match = entry.aliases.iter().any(|&a| a == head.as_str());
+            let alias_match = entry.aliases.contains(&head.as_str());
             if name_match || alias_match {
                 collect_matches(entry.subcommands, tail, prefix, matches);
                 return;
@@ -414,8 +553,7 @@ mod tests {
         let top_level = internal_complete_matches(&["e".to_string()]);
         assert!(!top_level.contains(&"explain".to_string()));
 
-        let code_context =
-            internal_complete_matches(&["code".to_string(), "e".to_string()]);
+        let code_context = internal_complete_matches(&["code".to_string(), "e".to_string()]);
         assert!(code_context.contains(&"explain".to_string()));
 
         let bash = generate_bash_completion_script().unwrap();

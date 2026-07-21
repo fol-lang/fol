@@ -5,7 +5,7 @@ typ Node: rec = {
 
 fun[] main(): int = {
     var tail: Node = { value = 2, next = nil };
-    var tail_ptr: ptr[shared, Node] = &tail;
+    var tail_ptr: ptr[shared, Node] = [ref]tail;
     var head: Node = { value = 1, next = tail_ptr };
-    return (*(head.next!)).value;
+    return ([drf](head.next[])).value;
 };

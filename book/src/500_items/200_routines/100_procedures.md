@@ -16,7 +16,7 @@ Current milestone note:
 - recoverable procedure errors (`Result / Error`) are part of `V1`
 - ownership-aware transfers, unique heap moves, and explicit `[bor]` parameters
   are part of the shipped `V3` memory contract
-- `[mux]` parameters and the direct named-routine task boundary are part of the
+- `mux[T]` parameters and the direct named-routine task boundary are part of the
   shipped `V3` processor contract
 
 Pointer and borrowing examples in this chapter therefore describe current V3
@@ -37,7 +37,7 @@ The first `:` declares the result type, and `/` declares the routine error type.
 Current `V1` note:
 
 - a procedure declared as `pro[] write(...): T / E` does not produce an
-  `err[E]` shell value that can be unwrapped with `!`
+  `err[E]` shell value that can be unwrapped with `[uwp]`
 - it produces a recoverable routine result with a success path and an error path
 - use `check(...)` or `expr || fallback` at the call site
 - keep postfix `!` for `opt[...]` and `err[...]` shell values only

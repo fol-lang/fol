@@ -1,0 +1,17 @@
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+// An `evt[T]` is a scope-bound one-shot handle that cannot outlive its parent
+// scope (V3_MEM §8.1), so — like a full `chn[T]` — it cannot be embedded in an
+// aggregate type; keep it as a direct routine-local binding.
+typ Holder: rec = {
+    pending: evt[int],
+};
+
+fun[] main(): int = {
+    var held: Holder = { pending = work(41) | async };
+    return 0;
+};

@@ -1,6 +1,6 @@
 [package]
 name = "fol-backend"
-version = "0.1.4"
+version.workspace = true
 edition = "2021"
 authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 description = "Backend code generation for executable FOL programs"
@@ -15,6 +15,7 @@ fol-lower = { path = "../../compiler/fol-lower" }
 fol-parser = { path = "../../compiler/fol-parser" }
 fol-resolver = { path = "../../compiler/fol-resolver" }
 fol-runtime = { path = "../fol-runtime" }
+fol-types = { path = "../../compiler/fol-types" }
 
 [dev-dependencies]
 fol-lexer = { path = "../../compiler/fol-lexer" }

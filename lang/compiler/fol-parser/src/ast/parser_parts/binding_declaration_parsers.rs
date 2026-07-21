@@ -7,9 +7,8 @@ impl AstParser {
         token: &fol_lexer::lexer::stage3::element::Element,
     ) -> Result<AstNode, ParseError> {
         let raw = token.con().trim();
-        let wrap_err = |error: ParseError| -> ParseError {
-            ParseError::from_token(token, error.to_string())
-        };
+        let wrap_err =
+            |error: ParseError| -> ParseError { ParseError::from_token(token, error.to_string()) };
 
         match token.key() {
             fol_lexer::token::KEYWORD::Literal(LITERAL::CookedQuoted)
@@ -164,7 +163,9 @@ impl AstParser {
                             } else {
                                 ParseError {
                                     kind: ParseErrorKind::Unsupported,
-                                    message: format!("Unsupported plain binding pattern: {other:?}"),
+                                    message: format!(
+                                        "Unsupported plain binding pattern: {other:?}"
+                                    ),
                                     file: None,
                                     line: 0,
                                     column: 0,
@@ -320,8 +321,35 @@ impl AstParser {
         values: Vec<AstNode>,
         tokens: &fol_lexer::lexer::stage3::Elements,
     ) -> Result<Vec<AstNode>, ParseError> {
+        self.build_binding_nodes_with_form(options, names, type_hint, values, tokens, false)
+    }
+
+    /// `grouped` marks a segment inside a grouped declaration
+    /// (`var (a, b: int = 3, ...)`), where one value is a deliberate shared
+    /// initializer for every name in the segment.
+    pub(super) fn build_binding_nodes_with_form(
+        &self,
+        options: Vec<VarOption>,
+        names: Vec<(String, Option<SyntaxNodeId>)>,
+        type_hint: Option<FolType>,
+        values: Vec<AstNode>,
+        tokens: &fol_lexer::lexer::stage3::Elements,
+        grouped: bool,
+    ) -> Result<Vec<AstNode>, ParseError> {
         let assigned_values = match values.len() {
             0 => vec![None; names.len()],
+            // In the flat comma form, one source expression with several names
+            // is positional destructuring (book 700_sugar/600_unpacking),
+            // never a broadcast of the same value into every binding.
+            1 if names.len() > 1 && !grouped => {
+                let patterns = names
+                    .into_iter()
+                    .map(|(name, syntax_id)| BindingPattern::Name(name, syntax_id))
+                    .collect();
+                return self
+                    .build_destructure_binding_node(options, patterns, type_hint, values, tokens)
+                    .map(|node| vec![node]);
+            }
             1 => vec![Some(values[0].clone()); names.len()],
             n if n == names.len() => values.into_iter().map(Some).collect(),
             _ => {

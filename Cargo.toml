@@ -1,4 +1,5 @@
 [workspace]
+package.version = "0.2.1"
 members = [
     "lang/compiler/fol-types",
     "lang/compiler/fol-stream",
@@ -15,16 +16,18 @@ members = [
     "lang/execution/fol-backend",
     "lang/tooling/fol-frontend",
     "lang/tooling/fol-editor",
+    "lang/tooling/fol-interop",
+    "lang/tooling/fol-self",
 ]
 
 [package]
 name = "fol"
-version = "0.2.0"
+version.workspace = true
 authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 edition = "2021"
 
 [[bin]]
-name = "fol"
+name = "folc"
 path = "lang/tooling/fol-frontend/src/main.rs"
 
 [dependencies]

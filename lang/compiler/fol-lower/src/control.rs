@@ -109,6 +109,9 @@ pub enum LoweredInstrKind {
     SpawnCall {
         callee: LoweredRoutineId,
         args: Vec<LoweredLocalId>,
+        /// True for a `[spn, det]` detached task: the backend spawns it without
+        /// registering a join handle, so it is not joined at scope/process exit.
+        detached: bool,
     },
     AsyncCall {
         callee: LoweredRoutineId,
@@ -122,12 +125,13 @@ pub enum LoweredInstrKind {
     ChannelSender {
         channel: LoweredLocalId,
     },
+    /// Transfer a channel's unique receiver as a first-class `chn[rx, T]` value.
+    ChannelReceiver {
+        channel: LoweredLocalId,
+    },
     ChannelSend {
         channel: LoweredLocalId,
         value: LoweredLocalId,
-    },
-    ChannelReceive {
-        channel: LoweredLocalId,
     },
     ChannelReceiveOptional {
         channel: LoweredLocalId,
@@ -205,6 +209,18 @@ pub enum LoweredInstrKind {
         value: LoweredLocalId,
         shared: bool,
     },
+    /// `[weak]shared`: downgrade a shared pointer to a weak handle
+    /// (`std::rc::Rc::downgrade`).
+    WeakDowngrade {
+        type_id: LoweredTypeId,
+        pointer: LoweredLocalId,
+    },
+    /// `[upg]weak`: upgrade a weak handle to an optional shared pointer
+    /// (`std::rc::Weak::upgrade`).
+    WeakUpgrade {
+        type_id: LoweredTypeId,
+        pointer: LoweredLocalId,
+    },
     DerefPointer {
         pointer: LoweredLocalId,
         /// True when dereferencing transfers a move-only pointee out of its
@@ -253,6 +269,14 @@ pub enum LoweredInstrKind {
     },
     RoutineRef {
         routine: LoweredRoutineId,
+    },
+    /// A first-class routine value with a captured environment: wraps
+    /// `routine` (whose leading parameters are the captures) together with the
+    /// materialized `env` values into a callable that re-supplies them on
+    /// every invocation.
+    ClosureRef {
+        routine: LoweredRoutineId,
+        env: Vec<LoweredLocalId>,
     },
     CallIndirect {
         callee: LoweredLocalId,

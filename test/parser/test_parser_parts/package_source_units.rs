@@ -45,19 +45,21 @@ fn source_unit_has_decl_family(
     source_unit: &ParsedSourceUnit,
     family: SourceUnitDeclFamily,
 ) -> bool {
-    source_unit.items.iter().any(|item| match (&item.node, family) {
-        (AstNode::UseDecl { .. }, SourceUnitDeclFamily::Use)
-        | (AstNode::DefDecl { .. }, SourceUnitDeclFamily::Def)
-        | (AstNode::SegDecl { .. }, SourceUnitDeclFamily::Seg)
-        | (AstNode::VarDecl { .. }, SourceUnitDeclFamily::Var)
-        | (AstNode::LabDecl { .. }, SourceUnitDeclFamily::Lab)
-        | (AstNode::FunDecl { .. }, SourceUnitDeclFamily::Fun)
-        | (AstNode::ProDecl { .. }, SourceUnitDeclFamily::Pro)
-        | (AstNode::LogDecl { .. }, SourceUnitDeclFamily::Log)
-        | (AstNode::TypeDecl { .. }, SourceUnitDeclFamily::Type)
-        | (AstNode::AliasDecl { .. }, SourceUnitDeclFamily::Alias)
-        | (AstNode::StdDecl { .. }, SourceUnitDeclFamily::Standard) => true,
-        _ => false,
+    source_unit.items.iter().any(|item| {
+        matches!(
+            (&item.node, family),
+            (AstNode::UseDecl { .. }, SourceUnitDeclFamily::Use)
+                | (AstNode::DefDecl { .. }, SourceUnitDeclFamily::Def)
+                | (AstNode::SegDecl { .. }, SourceUnitDeclFamily::Seg)
+                | (AstNode::VarDecl { .. }, SourceUnitDeclFamily::Var)
+                | (AstNode::LabDecl { .. }, SourceUnitDeclFamily::Lab)
+                | (AstNode::FunDecl { .. }, SourceUnitDeclFamily::Fun)
+                | (AstNode::ProDecl { .. }, SourceUnitDeclFamily::Pro)
+                | (AstNode::LogDecl { .. }, SourceUnitDeclFamily::Log)
+                | (AstNode::TypeDecl { .. }, SourceUnitDeclFamily::Type)
+                | (AstNode::AliasDecl { .. }, SourceUnitDeclFamily::Alias)
+                | (AstNode::StdDecl { .. }, SourceUnitDeclFamily::Standard)
+        )
     })
 }
 
@@ -66,7 +68,10 @@ fn test_parse_package_groups_top_level_items_by_source_unit() {
     let temp_root = unique_temp_root("grouping");
     write_folder_fixture(
         &temp_root,
-        &[("00_alpha.fol", "var alpha = 1;\n"), ("10_beta.fol", "var beta = 2;\n")],
+        &[
+            ("00_alpha.fol", "var alpha = 1;\n"),
+            ("10_beta.fol", "var beta = 2;\n"),
+        ],
     );
 
     let parsed = parse_package_from_folder(
@@ -156,8 +161,8 @@ fn test_parse_package_source_unit_order_matches_stream_traversal_order() {
             .expect("Temporary parser ordering fixture path should be UTF-8"),
     );
 
-    let canonical_root = std::fs::canonicalize(&temp_root)
-        .expect("Ordering fixture root should canonicalize");
+    let canonical_root =
+        std::fs::canonicalize(&temp_root).expect("Ordering fixture root should canonicalize");
 
     fs::remove_dir_all(&temp_root).ok();
 
@@ -204,10 +209,7 @@ fn test_decl_package_keeps_root_comments_as_source_unit_items() {
                 "00_alpha.fol",
                 "`[doc] alpha docs`\n`alpha note`\nvar alpha = 1;\n",
             ),
-            (
-                "10_beta.fol",
-                "`[doc] beta docs`\nvar beta = 2;\n",
-            ),
+            ("10_beta.fol", "`[doc] beta docs`\nvar beta = 2;\n"),
         ],
     );
 
@@ -307,21 +309,41 @@ fn test_parse_package_assigns_all_supported_root_decl_families_to_matching_sourc
             "test/parser/simple_seg_module.fol",
             SourceUnitDeclFamily::Seg,
         ),
-        ("04_var.fol", "test/parser/simple_var.fol", SourceUnitDeclFamily::Var),
+        (
+            "04_var.fol",
+            "test/parser/simple_var.fol",
+            SourceUnitDeclFamily::Var,
+        ),
         (
             "05_lab.fol",
             "test/parser/simple_lab_decl.fol",
             SourceUnitDeclFamily::Lab,
         ),
-        ("06_fun.fol", "test/parser/simple_fun.fol", SourceUnitDeclFamily::Fun),
-        ("07_pro.fol", "test/parser/simple_pro.fol", SourceUnitDeclFamily::Pro),
-        ("08_log.fol", "test/parser/simple_log.fol", SourceUnitDeclFamily::Log),
+        (
+            "06_fun.fol",
+            "test/parser/simple_fun.fol",
+            SourceUnitDeclFamily::Fun,
+        ),
+        (
+            "07_pro.fol",
+            "test/parser/simple_pro.fol",
+            SourceUnitDeclFamily::Pro,
+        ),
+        (
+            "08_log.fol",
+            "test/parser/simple_log.fol",
+            SourceUnitDeclFamily::Log,
+        ),
         (
             "09_typ.fol",
             "test/parser/simple_typ_object_marker.fol",
             SourceUnitDeclFamily::Type,
         ),
-        ("10_ali.fol", "test/parser/simple_ali.fol", SourceUnitDeclFamily::Alias),
+        (
+            "10_ali.fol",
+            "test/parser/simple_ali.fol",
+            SourceUnitDeclFamily::Alias,
+        ),
         (
             "11_std.fol",
             "test/parser/simple_std_protocol.fol",

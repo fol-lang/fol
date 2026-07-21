@@ -3,8 +3,7 @@ use crate::testing::package_identity;
 use fol_intrinsics::intrinsic_by_canonical_name;
 use fol_lower::{
     LoweredBlockId, LoweredBuiltinType, LoweredInstr, LoweredInstrId, LoweredInstrKind,
-    LoweredLocal, LoweredLocalId, LoweredRoutine, LoweredRoutineId, LoweredType,
-    LoweredTypeTable,
+    LoweredLocal, LoweredLocalId, LoweredRoutine, LoweredRoutineId, LoweredType, LoweredTypeTable,
 };
 use fol_resolver::PackageSourceKind;
 
@@ -30,8 +29,8 @@ fn runtime_shaped_instruction_rendering_emits_length_via_runtime_prelude() {
         kind: LoweredInstrKind::LengthOf { operand: source },
     };
 
-    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
-        .expect("length");
+    let rendered =
+        render_core_instruction(&package_identity, &table, &routine, &instruction).expect("length");
 
     assert_eq!(
         rendered,
@@ -133,8 +132,8 @@ fn runtime_shaped_instruction_rendering_emits_echo_via_runtime_hook() {
         },
     };
 
-    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
-        .expect("echo");
+    let rendered =
+        render_core_instruction(&package_identity, &table, &routine, &instruction).expect("echo");
 
     assert_eq!(
         rendered,
@@ -150,6 +149,8 @@ fn runtime_shaped_echo_moves_a_unique_value() {
     let pointer_id = table.intern(fol_lower::LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(81), "main", LoweredBlockId(0));
     let pointer = routine.locals.push(LoweredLocal {
@@ -202,8 +203,8 @@ fn runtime_shaped_instruction_rendering_emits_check_recoverable_via_runtime_help
         kind: LoweredInstrKind::CheckRecoverable { operand: source },
     };
 
-    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
-        .expect("check");
+    let rendered =
+        render_core_instruction(&package_identity, &table, &routine, &instruction).expect("check");
 
     assert_eq!(
         rendered,
@@ -233,8 +234,8 @@ fn runtime_shaped_instruction_rendering_emits_unwrap_recoverable_success_lane() 
         kind: LoweredInstrKind::UnwrapRecoverable { operand: source },
     };
 
-    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
-        .expect("unwrap");
+    let rendered =
+        render_core_instruction(&package_identity, &table, &routine, &instruction).expect("unwrap");
 
     assert_eq!(
         rendered,
@@ -312,8 +313,7 @@ fn runtime_shaped_instruction_rendering_emits_optional_shell_construction() {
     };
 
     let some_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &some_instr)
-            .expect("some");
+        render_core_instruction(&package_identity, &table, &routine, &some_instr).expect("some");
     let nil_rendered =
         render_core_instruction(&package_identity, &table, &routine, &nil_instr).expect("nil");
 
@@ -372,6 +372,8 @@ fn runtime_shaped_error_shell_moves_a_unique_payload() {
     let pointer_id = table.intern(fol_lower::LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
     let error_id = table.intern(fol_lower::LoweredType::Error {
         inner: Some(pointer_id),
@@ -417,10 +419,10 @@ fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_err
     let pointer_id = table.intern(fol_lower::LoweredType::Pointer {
         target: int_id,
         shared: false,
+        weak: false,
+        sync: false,
     });
-    let unique_optional_id = table.intern(fol_lower::LoweredType::Optional {
-        inner: pointer_id,
-    });
+    let unique_optional_id = table.intern(fol_lower::LoweredType::Optional { inner: pointer_id });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(14), "main", LoweredBlockId(0));
     let maybe = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -473,20 +475,15 @@ fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_err
     let optional_rendered =
         render_core_instruction(&package_identity, &table, &routine, &optional_instr)
             .expect("optional unwrap");
-    let error_rendered =
-        render_core_instruction(&package_identity, &table, &routine, &error_instr)
-            .expect("error unwrap");
-    let unique_optional_rendered = render_core_instruction(
-        &package_identity,
-        &table,
-        &routine,
-        &unique_optional_instr,
-    )
-    .expect("unique optional unwrap");
+    let error_rendered = render_core_instruction(&package_identity, &table, &routine, &error_instr)
+        .expect("error unwrap");
+    let unique_optional_rendered =
+        render_core_instruction(&package_identity, &table, &routine, &unique_optional_instr)
+            .expect("unique optional unwrap");
 
     assert_eq!(
         optional_rendered,
-        "l__pkg__entry__app__r14__l2__a = rt::unwrap_optional_shell(l__pkg__entry__app__r14__l0__maybe.clone()).unwrap();"
+        "l__pkg__entry__app__r14__l2__a = rt::require(rt::unwrap_optional_shell(l__pkg__entry__app__r14__l0__maybe.clone()));"
     );
     assert_eq!(
         error_rendered,
@@ -494,7 +491,7 @@ fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_err
     );
     assert_eq!(
         unique_optional_rendered,
-        "l__pkg__entry__app__r14__l5__pointer = rt::unwrap_optional_shell(l__pkg__entry__app__r14__l4__unique_maybe).unwrap();"
+        "l__pkg__entry__app__r14__l5__pointer = rt::require(rt::unwrap_optional_shell(l__pkg__entry__app__r14__l4__unique_maybe));"
     );
 }
 
@@ -607,9 +604,7 @@ fn runtime_shaped_instruction_snapshot_stays_stable() {
         },
     ]
     .iter()
-    .map(|instruction| {
-        render_core_instruction(&package_identity, &table, &routine, instruction)
-    })
+    .map(|instruction| render_core_instruction(&package_identity, &table, &routine, instruction))
     .collect::<Result<Vec<_>, _>>()
     .expect("runtime snapshot should render")
     .join("\n");
@@ -624,7 +619,7 @@ fn runtime_shaped_instruction_snapshot_stays_stable() {
             "l__pkg__entry__app__r15__l8__bad = std::mem::take(&mut l__pkg__entry__app__r15__l1__recover).into_error().expect(\"extract of recoverable error failed: result contains a value\");\n",
             "l__pkg__entry__app__r15__l2__maybe = rt::FolOption::some(l__pkg__entry__app__r15__l0__value.clone());\n",
             "l__pkg__entry__app__r15__l3__err = rt::FolError::new(l__pkg__entry__app__r15__l0__value.clone());\n",
-            "l__pkg__entry__app__r15__l7__ok = rt::unwrap_optional_shell(l__pkg__entry__app__r15__l2__maybe.clone()).unwrap();"
+            "l__pkg__entry__app__r15__l7__ok = rt::require(rt::unwrap_optional_shell(l__pkg__entry__app__r15__l2__maybe.clone()));"
         )
     );
 }

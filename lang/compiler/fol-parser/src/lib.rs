@@ -6,6 +6,9 @@ pub mod ast;
 pub use ast::*;
 use fol_stream::{FileStream, Source};
 
+// Keep the public parser API's concrete diagnostic type; boxing it would be a
+// source-breaking signature change for callers.
+#[allow(clippy::result_large_err)]
 pub fn parse_type_reference_text(
     source: &str,
 ) -> Result<ast::FolType, fol_diagnostics::Diagnostic> {
@@ -77,6 +80,15 @@ fn strip_type_syntax_ids(typ: ast::FolType) -> ast::FolType {
         ast::FolType::Channel { element_type } => ast::FolType::Channel {
             element_type: Box::new(strip_type_syntax_ids(*element_type)),
         },
+        ast::FolType::ChannelSender { element_type } => ast::FolType::ChannelSender {
+            element_type: Box::new(strip_type_syntax_ids(*element_type)),
+        },
+        ast::FolType::ChannelReceiver { element_type } => ast::FolType::ChannelReceiver {
+            element_type: Box::new(strip_type_syntax_ids(*element_type)),
+        },
+        ast::FolType::Mutex { inner } => ast::FolType::Mutex {
+            inner: Box::new(strip_type_syntax_ids(*inner)),
+        },
         ast::FolType::Record { fields } => ast::FolType::Record {
             fields: fields
                 .into_iter()
@@ -95,6 +107,15 @@ fn strip_type_syntax_ids(typ: ast::FolType) -> ast::FolType {
         ast::FolType::Owned { inner } => ast::FolType::Owned {
             inner: Box::new(strip_type_syntax_ids(*inner)),
         },
+        ast::FolType::Borrowed {
+            inner,
+            lifetime,
+            mutable,
+        } => ast::FolType::Borrowed {
+            inner: Box::new(strip_type_syntax_ids(*inner)),
+            lifetime,
+            mutable,
+        },
         ast::FolType::Multiple { types } => ast::FolType::Multiple {
             types: types.into_iter().map(strip_type_syntax_ids).collect(),
         },
@@ -108,6 +129,15 @@ fn strip_type_syntax_ids(typ: ast::FolType) -> ast::FolType {
         ast::FolType::Error { inner } => ast::FolType::Error {
             inner: inner.map(|inner| Box::new(strip_type_syntax_ids(*inner))),
         },
+        ast::FolType::Eventual {
+            value_type,
+            error_type,
+            lifetime,
+        } => ast::FolType::Eventual {
+            value_type: Box::new(strip_type_syntax_ids(*value_type)),
+            error_type: error_type.map(|error_type| Box::new(strip_type_syntax_ids(*error_type))),
+            lifetime,
+        },
         ast::FolType::Limited { base, limits } => ast::FolType::Limited {
             base: Box::new(strip_type_syntax_ids(*base)),
             limits,
@@ -115,9 +145,11 @@ fn strip_type_syntax_ids(typ: ast::FolType) -> ast::FolType {
         ast::FolType::Function {
             params,
             return_type,
+            env_lifetime,
         } => ast::FolType::Function {
             params: params.into_iter().map(strip_type_syntax_ids).collect(),
             return_type: Box::new(strip_type_syntax_ids(*return_type)),
+            env_lifetime,
         },
         ast::FolType::Generic { name, constraints } => ast::FolType::Generic {
             name,
@@ -142,3 +174,113 @@ pub const CONTAINER_TYPE_NAMES: &[&str] = &["arr", "vec", "seq", "set", "map"];
 
 /// Shell type names used by syntax and tree-sitter.
 pub const SHELL_TYPE_NAMES: &[&str] = &["opt", "err"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ast::FolType;
+
+    #[test]
+    fn borrow_type_options_parse_to_borrowed_types() {
+        assert!(matches!(
+            parse_type_reference_text("int[bor]"),
+            Ok(FolType::Borrowed {
+                mutable: false,
+                lifetime: None,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse_type_reference_text("int[mut, bor]"),
+            Ok(FolType::Borrowed { mutable: true, .. })
+        ));
+        match parse_type_reference_text("int[bor=L]") {
+            Ok(FolType::Borrowed { lifetime, .. }) => {
+                assert_eq!(lifetime.as_deref(), Some("L"));
+            }
+            other => panic!("expected a borrowed type with a lifetime, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn eventual_types_parse_with_and_without_an_error_channel() {
+        match parse_type_reference_text("evt[int]") {
+            Ok(FolType::Eventual {
+                value_type,
+                error_type,
+                ..
+            }) => {
+                assert!(matches!(*value_type, FolType::Int { .. }));
+                assert!(error_type.is_none());
+            }
+            other => panic!("expected an infallible eventual type, got {other:?}"),
+        }
+        match parse_type_reference_text("evt[int / str]") {
+            Ok(FolType::Eventual {
+                value_type,
+                error_type,
+                ..
+            }) => {
+                assert!(matches!(*value_type, FolType::Int { .. }));
+                assert!(error_type.is_some_and(|error| error.is_builtin_str()));
+            }
+            other => panic!("expected a recoverable eventual type, got {other:?}"),
+        }
+        // Public spelling with a named parent-scope lifetime (V3_MEM §8.1).
+        match parse_type_reference_text("evt[L, int]") {
+            Ok(FolType::Eventual {
+                value_type,
+                error_type,
+                lifetime,
+            }) => {
+                assert_eq!(lifetime.as_deref(), Some("L"));
+                assert!(matches!(*value_type, FolType::Int { .. }));
+                assert!(error_type.is_none());
+            }
+            other => panic!("expected a lifetime-carrying eventual type, got {other:?}"),
+        }
+        match parse_type_reference_text("evt[L, int / str]") {
+            Ok(FolType::Eventual {
+                value_type,
+                error_type,
+                lifetime,
+            }) => {
+                assert_eq!(lifetime.as_deref(), Some("L"));
+                assert!(matches!(*value_type, FolType::Int { .. }));
+                assert!(error_type.is_some_and(|error| error.is_builtin_str()));
+            }
+            other => panic!("expected a recoverable lifetime-carrying eventual, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn channel_endpoint_types_parse_the_tx_marker() {
+        match parse_type_reference_text("chn[int]") {
+            Ok(FolType::Channel { element_type }) => {
+                assert!(matches!(*element_type, FolType::Int { .. }));
+            }
+            other => panic!("expected a full channel type, got {other:?}"),
+        }
+        match parse_type_reference_text("chn[tx, int]") {
+            Ok(FolType::ChannelSender { element_type }) => {
+                assert!(matches!(*element_type, FolType::Int { .. }));
+            }
+            other => panic!("expected a sender endpoint type, got {other:?}"),
+        }
+        match parse_type_reference_text("chn[rx, int]") {
+            Ok(FolType::ChannelReceiver { element_type }) => {
+                assert!(matches!(*element_type, FolType::Int { .. }));
+            }
+            other => panic!("expected a receiver endpoint type, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_borrow_type_options_are_unaffected() {
+        // A sized integer option must still parse as an integer, not a borrow.
+        assert!(matches!(
+            parse_type_reference_text("int[64]"),
+            Ok(FolType::Int { .. })
+        ));
+    }
+}

@@ -1,0 +1,13 @@
+// Place-borrow through an accessor (V3_MEM Slice C): `[bor]obj.field` borrows an
+// inner place and locks the whole aggregate for the loan's lifetime. After the
+// borrow's last use it is released (non-lexical), so the owner is usable again.
+
+typ Inner: rec = { n: int };
+typ Outer: rec = { inner: Inner, tag: int };
+
+fun[] main(): int = {
+    var[mut] o: Outer = { inner = { n = 5 }, tag = 9 };
+    var[bor] part: Inner = [bor]o.inner;
+    var seen: int = part.n;
+    return seen + o.tag;
+};

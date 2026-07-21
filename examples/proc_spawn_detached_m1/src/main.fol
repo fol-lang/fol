@@ -1,0 +1,17 @@
+// Detached spawn (V3_PROC): `[spn, det]call` starts a task that is NOT joined at
+// scope or process exit, unlike the scoped `[spn]`/`[>]` forms. The detached
+// task does side-effect-free work here, so the program's output comes only from
+// `main` and stays deterministic even though the task is never awaited.
+
+use std: pkg = {"std"};
+
+fun[] worker(value: int): int = {
+    return value;
+};
+
+fun[] main(): int = {
+    var value: int = 41;
+    [spn, det]worker(value);
+    std::io::echo_int(value);
+    return 0;
+};

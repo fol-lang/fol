@@ -157,7 +157,7 @@ Corpus fixtures live in `tree-sitter/test/corpus/` and cover syntax families:
 | `v3_ownership.txt` | owned allocation, borrow options, `~var`, and give-back |
 | `v3_pointers.txt` | nested `ptr[...]` / `chn[...]` types, `@` types, address-of, and dereference |
 | `v3_deferred.txt` | `dfr` and error-only `edf` blocks |
-| `v3_channels_select_mutex.txt` | spawn, channel endpoints, multi-arm `select`, and `[mux]` parameters |
+| `v3_channels_select_mutex.txt` | spawn, channel endpoints, multi-arm `select`, and `mux[T]` parameters |
 | `v3_eventuals.txt` | spawn plus `\| async` and `\| await` stages |
 | `v3_lexical_boundaries.txt` | multiline backtick/slash-block comments, exact `[doc]`, and raw single-quoted character/string boundaries |
 
@@ -191,7 +191,7 @@ families that should each have at least one corpus example:
 - Error handling (`report`, pipe-or, `check`)
 - V3 ownership and pointer sigils in both expression and nested type positions
 - V3 deferred blocks (`dfr` / `edf`)
-- V3 processor syntax (`[>]`, `chn[...]`, channel endpoints, `select`, `[mux]`,
+- V3 processor syntax (`[>]`, `chn[...]`, channel endpoints, `select`, `mux[T]`,
   `\| async`, and `\| await`)
 - compiler-recognized lexical protection boundaries, especially multiline
   comments and raw single-quoted literals containing V3 sigils or braces

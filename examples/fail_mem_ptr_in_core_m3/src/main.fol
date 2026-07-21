@@ -1,5 +1,5 @@
 fun[] main(): int = {
     var value: int = 7;
-    var pointer: ptr[int] = &value;
+    var pointer: ptr[int] = [ref]value;
     return 0;
 };

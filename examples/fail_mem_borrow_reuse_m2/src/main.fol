@@ -4,7 +4,7 @@ typ Item: rec = {
 
 fun[] main(): int = {
     var owner: Item = { value = 7 };
-    var[bor] view: Item = #owner;
-    !view;
+    var[bor] view: Item = [bor]owner;
+    [end]view;
     return view.value;
 };

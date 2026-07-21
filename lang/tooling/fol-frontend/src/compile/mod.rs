@@ -33,6 +33,29 @@ pub(crate) struct FrontendArtifactExecutionSelection {
     pub capability_model: fol_backend::BackendFolModel,
     pub fol_model: fol_backend::BackendFolModel,
     pub has_bundled_std: bool,
+    pub target: fol_types::ResolvedTarget,
+    pub optimize: fol_package::BuildOptimizeMode,
+    pub c_imports: Vec<fol_package::BuildCImportAttachment>,
+    pub graph_binding: Option<FrontendArtifactGraphBinding>,
+}
+
+impl FrontendArtifactExecutionSelection {
+    pub(crate) fn backend_build_profile(&self) -> fol_backend::BackendBuildProfile {
+        backend_build_profile_for_optimize(self.optimize)
+    }
+
+    fn output_profile(&self) -> FrontendProfile {
+        match self.backend_build_profile() {
+            fol_backend::BackendBuildProfile::Debug => FrontendProfile::Debug,
+            fol_backend::BackendBuildProfile::Release => FrontendProfile::Release,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FrontendArtifactGraphBinding {
+    pub graph: fol_package::BuildGraph,
+    pub artifact_id: fol_package::BuildArtifactId,
 }
 
 pub(crate) fn effective_runtime_model_for_package_with_bundled_std(
@@ -65,24 +88,6 @@ pub(crate) struct DeclaredArtifactCapability {
     pub model: fol_backend::BackendFolModel,
 }
 
-fn parse_frontend_build_target(raw: &str) -> Option<fol_package::BuildTargetTriple> {
-    fol_package::BuildTargetTriple::parse(raw).or_else(|| {
-        let canonical = match raw {
-            "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
-            "x86_64-unknown-linux-musl" => "x86_64-linux-musl",
-            "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu",
-            "aarch64-unknown-linux-musl" => "aarch64-linux-musl",
-            "x86_64-pc-windows-gnu" => "x86_64-windows-gnu",
-            "x86_64-pc-windows-msvc" => "x86_64-windows-msvc",
-            "aarch64-pc-windows-msvc" => "aarch64-windows-msvc",
-            "x86_64-apple-darwin" => "x86_64-macos-gnu",
-            "aarch64-apple-darwin" => "aarch64-macos-gnu",
-            _ => return None,
-        };
-        fol_package::BuildTargetTriple::parse(canonical)
-    })
-}
-
 pub(crate) fn build_evaluation_inputs(
     root: &Path,
     config: &FrontendConfig,
@@ -98,27 +103,12 @@ pub(crate) fn build_evaluation_inputs(
     };
     if let Some(target) = &config.build_target_override {
         let target = target.trim();
-        if !matches!(target, "" | "host" | "native") {
-            inputs.target = Some(parse_frontend_build_target(target).ok_or_else(|| {
-                FrontendError::new(
-                    FrontendErrorKind::InvalidInput,
-                    format!(
-                        "invalid build target '{target}'; expected a supported arch-os-env or Rust target triple"
-                    ),
-                )
-            })?);
-        }
+        inputs.target = Some(fol_types::ResolvedTarget::resolve(target).map_err(|error| {
+            FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string())
+        })?);
     }
     if let Some(optimize) = &config.build_optimize_override {
-        let optimize = optimize.trim();
-        inputs.optimize = Some(fol_package::BuildOptimizeMode::parse(optimize).ok_or_else(|| {
-            FrontendError::new(
-                FrontendErrorKind::InvalidInput,
-                format!(
-                    "invalid build optimize mode '{optimize}'; expected debug, release-safe, release-fast, or release-small"
-                ),
-            )
-        })?);
+        inputs.optimize = Some(parse_build_optimize(optimize)?);
     }
     for override_value in &config.build_option_overrides {
         let Some((key, value)) = override_value.split_once('=') else {
@@ -576,7 +566,12 @@ fn produced_artifact_count(result: &FrontendCommandResult) -> usize {
     result
         .artifacts
         .iter()
-        .filter(|artifact| artifact.kind != FrontendArtifactKind::BuildRoot)
+        .filter(|artifact| {
+            !matches!(
+                artifact.kind,
+                FrontendArtifactKind::BuildRoot | FrontendArtifactKind::InteropEvidence
+            )
+        })
         .count()
 }
 
@@ -631,6 +626,7 @@ pub fn build_workspace_for_profile_with_config(
     config: &FrontendConfig,
     profile: FrontendProfile,
 ) -> FrontendResult<FrontendCommandResult> {
+    let optimize = optimize_for_profile(config, profile)?;
     let selections = workspace
         .members
         .iter()
@@ -650,10 +646,41 @@ pub fn build_workspace_for_profile_with_config(
                 capability_model: contract.capability_model,
                 fol_model: contract.fol_model,
                 has_bundled_std: contract.has_bundled_std,
+                target: config.backend_machine_target().map_err(|error| {
+                    FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string())
+                })?,
+                optimize,
+                c_imports: Vec::new(),
+                graph_binding: None,
             })
         })
         .collect::<FrontendResult<Vec<_>>>()?;
     build_selected_artifacts_for_profile_with_config(workspace, config, profile, &selections)
+}
+
+fn parse_build_optimize(raw: &str) -> FrontendResult<fol_package::BuildOptimizeMode> {
+    let optimize = raw.trim();
+    fol_package::BuildOptimizeMode::parse(optimize).ok_or_else(|| {
+        FrontendError::new(
+            FrontendErrorKind::InvalidInput,
+            format!(
+                "invalid build optimize mode '{optimize}'; expected debug, release-safe, release-fast, or release-small"
+            ),
+        )
+    })
+}
+
+fn optimize_for_profile(
+    config: &FrontendConfig,
+    profile: FrontendProfile,
+) -> FrontendResult<fol_package::BuildOptimizeMode> {
+    match config.build_optimize_override.as_deref() {
+        Some(optimize) => parse_build_optimize(optimize),
+        None => Ok(match profile {
+            FrontendProfile::Debug => fol_package::BuildOptimizeMode::Debug,
+            FrontendProfile::Release => fol_package::BuildOptimizeMode::ReleaseSafe,
+        }),
+    }
 }
 
 pub(crate) fn build_selected_artifacts_for_profile_with_config(
@@ -662,6 +689,7 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
     profile: FrontendProfile,
     selections: &[FrontendArtifactExecutionSelection],
 ) -> FrontendResult<FrontendCommandResult> {
+    let profile = effective_output_profile(profile, selections)?;
     if config.locked_fetch {
         crate::fetch_workspace_with_config(workspace, config)?;
     }
@@ -685,10 +713,21 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
         if lowered.entry_candidates().is_empty() {
             continue;
         }
+        let prepared_interop =
+            crate::interop::prepare_h7_interop_for_selection(selection, config, &output_root)?;
+        let interop_report = prepared_interop.as_ref().map(|prepared| prepared.report);
+        let mut selected_backend_config = backend_config(
+            config,
+            selection.fol_model,
+            selection.target.clone(),
+            selection.optimize,
+        );
+        selected_backend_config.auxiliary_rust_plan =
+            prepared_interop.map(|prepared| prepared.backend_plan);
         let backend_session = fol_backend::BackendSession::new(lowered);
         let artifact = fol_backend::emit_backend_artifact(
             &backend_session,
-            &backend_config(config, profile, selection.fol_model),
+            &selected_backend_config,
             &output_root,
         )
         .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
@@ -713,8 +752,58 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
         result.artifacts.push(FrontendArtifactSummary::new(
             FrontendArtifactKind::Binary,
             selection.label.clone(),
-            Some(std::path::PathBuf::from(binary_path)),
+            Some(std::path::PathBuf::from(binary_path.clone())),
         ));
+        // Materialize `graph.install(...)` for this artifact: copy the built
+        // binary to its projected destination (`<install_prefix>/bin/<name>`).
+        // Before this, the install step was projection-only — the summary
+        // advertised an install prefix nothing was ever copied into.
+        if let Some(binding) = &selection.graph_binding {
+            for install in binding.graph.installs() {
+                let Some(fol_package::BuildInstallTarget::Artifact(artifact_id)) = &install.target
+                else {
+                    continue;
+                };
+                if *artifact_id != binding.artifact_id {
+                    continue;
+                }
+                let destination = std::path::PathBuf::from(&install.projected_destination);
+                if let Some(parent) = destination.parent() {
+                    std::fs::create_dir_all(parent).map_err(|error| {
+                        FrontendError::new(
+                            FrontendErrorKind::CommandFailed,
+                            format!(
+                                "install step '{}' could not create '{}': {error}",
+                                install.name,
+                                parent.display()
+                            ),
+                        )
+                    })?;
+                }
+                std::fs::copy(&binary_path, &destination).map_err(|error| {
+                    FrontendError::new(
+                        FrontendErrorKind::CommandFailed,
+                        format!(
+                            "install step '{}' could not copy the binary to '{}': {error}",
+                            install.name,
+                            destination.display()
+                        ),
+                    )
+                })?;
+                result.artifacts.push(FrontendArtifactSummary::new(
+                    FrontendArtifactKind::Installed,
+                    install.name.clone(),
+                    Some(destination),
+                ));
+            }
+        }
+        if let Some(report) = interop_report {
+            result.artifacts.push(FrontendArtifactSummary::new(
+                FrontendArtifactKind::InteropEvidence,
+                report.summary(),
+                None,
+            ));
+        }
     }
 
     if result.artifacts.is_empty() {
@@ -778,6 +867,12 @@ pub fn run_workspace_with_args_and_config(
         .iter()
         .filter(|artifact| artifact.kind == FrontendArtifactKind::Binary)
         .collect::<Vec<_>>();
+    let interop_evidence = built
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == FrontendArtifactKind::InteropEvidence)
+        .cloned()
+        .collect::<Vec<_>>();
     if binaries.len() != 1 {
         return Err(FrontendError::new(
             FrontendErrorKind::InvalidInput,
@@ -836,6 +931,7 @@ pub fn run_workspace_with_args_and_config(
         "binary",
         Some(binary),
     ));
+    result.artifacts.extend(interop_evidence);
     Ok(result)
 }
 
@@ -846,7 +942,7 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
     selection: &FrontendArtifactExecutionSelection,
     args: &[String],
 ) -> FrontendResult<FrontendCommandResult> {
-    ensure_host_runnable_target(config, "run")?;
+    ensure_resolved_target_runs_on_host(&selection.target, "run")?;
     let built = build_selected_artifacts_for_profile_with_config(
         workspace,
         config,
@@ -857,6 +953,12 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
         .artifacts
         .iter()
         .filter(|artifact| artifact.kind == FrontendArtifactKind::Binary)
+        .collect::<Vec<_>>();
+    let interop_evidence = built
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == FrontendArtifactKind::InteropEvidence)
+        .cloned()
         .collect::<Vec<_>>();
     if binaries.len() != 1 {
         return Err(FrontendError::new(
@@ -912,6 +1014,7 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
         selection.label.clone(),
         Some(binary),
     ));
+    result.artifacts.extend(interop_evidence);
     Ok(result)
 }
 
@@ -935,13 +1038,21 @@ pub(crate) fn test_selected_artifacts_with_config(
     profile: FrontendProfile,
     selections: &[FrontendArtifactExecutionSelection],
 ) -> FrontendResult<FrontendCommandResult> {
-    ensure_host_runnable_target(config, "test")?;
+    for selection in selections {
+        ensure_resolved_target_runs_on_host(&selection.target, "test")?;
+    }
     let built =
         build_selected_artifacts_for_profile_with_config(workspace, config, profile, selections)?;
     let binaries = built
         .artifacts
         .iter()
         .filter(|artifact| artifact.kind == FrontendArtifactKind::Binary)
+        .collect::<Vec<_>>();
+    let interop_evidence = built
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == FrontendArtifactKind::InteropEvidence)
+        .cloned()
         .collect::<Vec<_>>();
     if binaries.is_empty() {
         return Err(FrontendError::new(
@@ -991,6 +1102,7 @@ pub(crate) fn test_selected_artifacts_with_config(
             binary.path.clone(),
         ));
     }
+    result.artifacts.extend(interop_evidence);
     Ok(result)
 }
 
@@ -1038,7 +1150,14 @@ pub fn emit_rust_with_config(
             &fol_backend::BackendConfig {
                 mode: fol_backend::BackendMode::EmitSource,
                 keep_build_dir: true,
-                ..backend_config(config, FrontendProfile::Release, fol_model)
+                ..backend_config(
+                    config,
+                    fol_model,
+                    config.backend_machine_target().map_err(|error| {
+                        FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string())
+                    })?,
+                    fol_package::BuildOptimizeMode::ReleaseSafe,
+                )
             },
             &output_root,
         )
@@ -1224,11 +1343,14 @@ fn validate_build_dependency_queries(
 
     let metadata =
         fol_package::parse_package_metadata_from_build(&build_path).map_err(FrontendError::from)?;
+    let local_store = workspace.root.root.join(".fol").join("pkg");
     let package_store_root = config
         .package_store_root_override
         .clone()
         .or_else(|| workspace.package_store_root_override.clone())
-        .unwrap_or_else(|| workspace.root.root.join(".fol").join("pkg"));
+        .or_else(|| local_store.is_dir().then_some(local_store.clone()))
+        .or_else(fol_package::available_bundled_store_root)
+        .unwrap_or(local_store);
     let std_root = workspace
         .std_root_override
         .clone()
@@ -1443,11 +1565,16 @@ fn resolver_config(
     workspace: &FrontendWorkspace,
     config: &FrontendConfig,
 ) -> fol_resolver::ResolverConfig {
+    // A fetched local store wins; otherwise fall back to the store bundled
+    // with the toolchain so `use std: pkg = {"std"}` works out of the box.
+    let local_store = workspace.root.root.join(".fol/pkg");
     let package_store_root = config
         .package_store_root_override
         .clone()
         .or_else(|| workspace.package_store_root_override.clone())
-        .unwrap_or_else(|| workspace.root.root.join(".fol/pkg"));
+        .or_else(|| local_store.is_dir().then_some(local_store.clone()))
+        .or_else(fol_package::available_bundled_store_root)
+        .unwrap_or(local_store);
 
     fol_resolver::ResolverConfig {
         std_root: config
@@ -1457,13 +1584,6 @@ fn resolver_config(
             .or_else(fol_package::available_bundled_std_root)
             .map(|path| path.to_string_lossy().to_string()),
         package_store_root: Some(package_store_root.to_string_lossy().to_string()),
-    }
-}
-
-fn backend_profile(profile: FrontendProfile) -> fol_backend::BackendBuildProfile {
-    match profile {
-        FrontendProfile::Debug => fol_backend::BackendBuildProfile::Debug,
-        FrontendProfile::Release => fol_backend::BackendBuildProfile::Release,
     }
 }
 
@@ -1479,26 +1599,71 @@ pub(crate) fn typecheck_capability_model(
 
 fn backend_config(
     config: &FrontendConfig,
-    profile: FrontendProfile,
     fol_model: fol_backend::BackendFolModel,
+    target: fol_types::ResolvedTarget,
+    optimize: fol_package::BuildOptimizeMode,
 ) -> fol_backend::BackendConfig {
     fol_backend::BackendConfig {
         fol_model,
-        machine_target: config.backend_machine_target(),
-        build_profile: backend_profile(profile),
+        machine_target: target,
+        build_profile: backend_build_profile_for_optimize(optimize),
         keep_build_dir: config.keep_build_dir,
         ..fol_backend::BackendConfig::default()
     }
 }
 
+pub(crate) fn backend_build_profile_for_optimize(
+    optimize: fol_package::BuildOptimizeMode,
+) -> fol_backend::BackendBuildProfile {
+    match optimize {
+        fol_package::BuildOptimizeMode::Debug => fol_backend::BackendBuildProfile::Debug,
+        fol_package::BuildOptimizeMode::ReleaseSafe
+        | fol_package::BuildOptimizeMode::ReleaseFast
+        | fol_package::BuildOptimizeMode::ReleaseSmall => fol_backend::BackendBuildProfile::Release,
+    }
+}
+
+fn effective_output_profile(
+    requested: FrontendProfile,
+    selections: &[FrontendArtifactExecutionSelection],
+) -> FrontendResult<FrontendProfile> {
+    let Some(first) = selections.first() else {
+        return Ok(requested);
+    };
+    // Evaluated artifact optimization is authoritative after graph planning,
+    // so an explicit optimize override cannot leave rustc output under the
+    // opposite frontend profile directory.
+    let effective = first.output_profile();
+    if selections
+        .iter()
+        .any(|selection| selection.output_profile() != effective)
+    {
+        return Err(FrontendError::new(
+            FrontendErrorKind::InvalidInput,
+            "selected artifacts mix debug and release build profiles and cannot share one output identity",
+        ));
+    }
+    Ok(effective)
+}
+
 fn ensure_host_runnable_target(config: &FrontendConfig, command: &str) -> FrontendResult<()> {
-    if config.machine_target_runs_on_host() {
+    let target = config
+        .backend_machine_target()
+        .map_err(|error| FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string()))?;
+    ensure_resolved_target_runs_on_host(&target, command)
+}
+
+fn ensure_resolved_target_runs_on_host(
+    target: &fol_types::ResolvedTarget,
+    command: &str,
+) -> FrontendResult<()> {
+    if target
+        .runs_on_host()
+        .map_err(|error| FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string()))?
+    {
         return Ok(());
     }
-    let machine_target = config.backend_machine_target();
-    let selected = machine_target
-        .rust_target_triple()
-        .unwrap_or_else(|| machine_target.display_name().to_string());
+    let selected = target.as_str();
     let host = FrontendConfig::host_rust_target_triple().unwrap_or("unknown-host");
     Err(FrontendError::new(
         FrontendErrorKind::InvalidInput,

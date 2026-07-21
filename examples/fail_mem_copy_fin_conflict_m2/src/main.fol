@@ -1,0 +1,8 @@
+typ Descriptor()(copy, fin): rec = {
+    handle: int,
+};
+
+fun[] main(): int = {
+    var d: Descriptor = { handle = 3 };
+    return d.handle;
+};

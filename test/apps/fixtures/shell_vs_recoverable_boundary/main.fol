@@ -15,6 +15,6 @@ fun[] load(flag: bol): int / str = {
 };
 
 fun[] main(flag: bol): int = {
-    var shell_value: int = maybe(true)!;
+    var shell_value: int = [uwp]maybe(true);
     return load(flag) || shell_value;
 };

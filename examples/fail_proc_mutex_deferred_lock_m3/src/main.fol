@@ -4,7 +4,7 @@ typ Counter: rec = {
     value: int,
 };
 
-fun[] inspect(counter[mux]: Counter): int = {
+fun[] inspect(counter: mux[Counter]): int = {
     dfr {
         counter.lock();
     };
@@ -13,5 +13,5 @@ fun[] inspect(counter[mux]: Counter): int = {
 
 fun[] main(): int = {
     var counter: Counter = { value = 1 };
-    return inspect(counter);
+    return inspect([mov]counter);
 };

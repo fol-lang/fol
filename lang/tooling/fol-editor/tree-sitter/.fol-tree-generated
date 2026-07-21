@@ -13,10 +13,12 @@ test/corpus/declarations.txt
 test/corpus/expressions.txt
 test/corpus/recoverable.txt
 test/corpus/v3_channels_select_mutex.txt
+test/corpus/v3_closures.txt
 test/corpus/v3_deferred.txt
 test/corpus/v3_eventuals.txt
 test/corpus/v3_lexical_boundaries.txt
 test/corpus/v3_ownership.txt
 test/corpus/v3_pointers.txt
+test/corpus/v3_when_arms.txt
 test/fixtures/showcase.fol
 tree-sitter.json

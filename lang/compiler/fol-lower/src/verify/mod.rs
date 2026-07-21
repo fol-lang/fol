@@ -354,45 +354,42 @@ fn verify_routine_blocks(
                     *else_block,
                 );
             }
-            Some(LoweredTerminator::Return { value }) => {
-                if let Some(local) = value {
-                    if routine.locals.get(*local).is_none() {
-                        errors.push(LoweringError::with_kind(
-                            LoweringErrorKind::InvalidInput,
-                            format!(
-                                "lowered routine '{}' return uses missing local {}",
-                                routine.name, local.0
-                            ),
-                        ));
-                    }
+            Some(LoweredTerminator::Return { value: Some(local) }) => {
+                if routine.locals.get(*local).is_none() {
+                    errors.push(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!(
+                            "lowered routine '{}' return uses missing local {}",
+                            routine.name, local.0
+                        ),
+                    ));
                 }
             }
-            Some(LoweredTerminator::Report { value }) => {
-                if let Some(local) = value {
-                    if routine.locals.get(*local).is_none() {
-                        errors.push(LoweringError::with_kind(
-                            LoweringErrorKind::InvalidInput,
-                            format!(
-                                "lowered routine '{}' report uses missing local {}",
-                                routine.name, local.0
-                            ),
-                        ));
-                    }
+            Some(LoweredTerminator::Return { value: None }) => {}
+            Some(LoweredTerminator::Report { value: Some(local) }) => {
+                if routine.locals.get(*local).is_none() {
+                    errors.push(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!(
+                            "lowered routine '{}' report uses missing local {}",
+                            routine.name, local.0
+                        ),
+                    ));
                 }
             }
-            Some(LoweredTerminator::Panic { value }) => {
-                if let Some(local) = value {
-                    if routine.locals.get(*local).is_none() {
-                        errors.push(LoweringError::with_kind(
-                            LoweringErrorKind::InvalidInput,
-                            format!(
-                                "lowered routine '{}' panic uses missing local {}",
-                                routine.name, local.0
-                            ),
-                        ));
-                    }
+            Some(LoweredTerminator::Report { value: None }) => {}
+            Some(LoweredTerminator::Panic { value: Some(local) }) => {
+                if routine.locals.get(*local).is_none() {
+                    errors.push(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!(
+                            "lowered routine '{}' panic uses missing local {}",
+                            routine.name, local.0
+                        ),
+                    ));
                 }
             }
+            Some(LoweredTerminator::Panic { value: None }) => {}
             Some(LoweredTerminator::Unreachable) => {}
             None => {}
         }

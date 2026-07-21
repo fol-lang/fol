@@ -4,8 +4,8 @@ use crate::{
     FrontendWorkspace,
 };
 use fol_build::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
-use fol_package::build_artifact::BuildArtifactFolModel;
 use fol_package::available_bundled_std_root;
+use fol_package::build_artifact::BuildArtifactFolModel;
 pub fn work_info(workspace: &FrontendWorkspace) -> FrontendCommandResult {
     let mut summary = workspace.info_summary_lines();
     if let Some(distribution) = artifact_model_distribution_line(workspace) {
@@ -52,8 +52,9 @@ pub fn work_deps(workspace: &FrontendWorkspace) -> FrontendResult<FrontendComman
     let mut result = FrontendCommandResult::new("work deps", "");
 
     for member in &workspace.members {
-        let metadata = fol_package::parse_package_metadata_from_build(&member.root.join("build.fol"))
-            .map_err(FrontendError::from)?;
+        let metadata =
+            fol_package::parse_package_metadata_from_build(&member.root.join("build.fol"))
+                .map_err(FrontendError::from)?;
         if metadata.dependencies.is_empty() {
             lines.push(format!("{}:", metadata.name));
             lines.push("  (no dependencies)".to_string());
@@ -264,7 +265,10 @@ mod tests {
 
     #[test]
     fn work_info_surfaces_artifact_model_distribution_for_valid_members() {
-        let root = std::env::temp_dir().join(format!("fol_frontend_work_info_models_{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "fol_frontend_work_info_models_{}",
+            std::process::id()
+        ));
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(

@@ -1,0 +1,14 @@
+// Uniform inner-place access (V3_MEM Slice D §3.3): `container[]` reads the inner
+// place of a pointer (a deref) or of an `opt[T]` (its present payload, panicking
+// if nil). The same `[]` spelling works across the pointer and shell families.
+
+fun[] first(): opt[int] = {
+    return 3;
+};
+
+fun[] main(): int = {
+    var value: int = 4;
+    var slot: ptr[shared, int] = [ref]value;
+    var maybe: opt[int] = first();
+    return slot[] + maybe[];
+};

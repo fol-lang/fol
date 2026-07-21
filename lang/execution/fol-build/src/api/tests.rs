@@ -1,12 +1,13 @@
 #[cfg(test)]
 mod tests {
     use super::super::{
-        validate_build_name, BuildApi, BuildApiError, BuildApiNameError, BuildOptionValue,
-        CopyFileRequest, DependencyArgValue, DependencyRequest, ExecutableRequest,
-        InstallArtifactRequest, InstallDirRequest, InstallFileRequest, OutputHandle,
-        OutputHandleKind, OutputHandleLocator, PathHandleClass, PathHandleProvenance, RunRequest,
-        SharedLibraryRequest, StandardOptimizeRequest, StandardTargetRequest, StaticLibraryRequest,
-        StepRequest, TestArtifactRequest, UserOptionRequest, WriteFileRequest,
+        validate_build_name, BuildApi, BuildApiError, BuildApiNameError, BuildCImportRequest,
+        BuildOptionValue, CopyFileRequest, DependencyArgValue, DependencyRequest,
+        ExecutableRequest, InstallArtifactRequest, InstallDirRequest, InstallFileRequest,
+        OutputHandle, OutputHandleKind, OutputHandleLocator, PathHandleClass, PathHandleProvenance,
+        RunRequest, SharedLibraryRequest, SourceFileHandle, StandardOptimizeRequest,
+        StandardTargetRequest, StaticLibraryRequest, StepRequest, TestArtifactRequest,
+        UserOptionRequest, WriteFileRequest,
     };
     use crate::codegen::{
         CodegenKind, CodegenRequest, GeneratedFileInstallProjection, SystemToolRequest,
@@ -17,8 +18,9 @@ mod tests {
     };
     use crate::graph::BuildGraph;
     use crate::graph::{
-        BuildArtifactInput, BuildArtifactKind, BuildGeneratedFileKind, BuildInstallKind,
-        BuildInstallTarget, BuildModuleKind, BuildOptionKind, BuildStepKind,
+        BuildArtifactId, BuildArtifactInput, BuildArtifactKind, BuildCImportProviderKind,
+        BuildGeneratedFileKind, BuildInstallKind, BuildInstallTarget, BuildModuleKind,
+        BuildOptionKind, BuildStepKind,
     };
 
     #[test]
@@ -176,25 +178,29 @@ mod tests {
     fn structured_artifact_requests_keep_name_and_root_module_fields() {
         let exe = ExecutableRequest {
             name: "app".to_string(),
-            root_module: "src/app.fol".to_string(),
+            root_module: "src/app.fol".into(),
+            ..ExecutableRequest::default()
         };
         let static_lib = StaticLibraryRequest {
             name: "support".to_string(),
-            root_module: "src/support.fol".to_string(),
+            root_module: "src/support.fol".into(),
+            ..StaticLibraryRequest::default()
         };
         let shared_lib = SharedLibraryRequest {
             name: "plugin".to_string(),
-            root_module: "src/plugin.fol".to_string(),
+            root_module: "src/plugin.fol".into(),
+            ..SharedLibraryRequest::default()
         };
         let tests = TestArtifactRequest {
             name: "app-tests".to_string(),
-            root_module: "test/app.fol".to_string(),
+            root_module: "test/app.fol".into(),
+            ..TestArtifactRequest::default()
         };
 
-        assert_eq!(exe.root_module, "src/app.fol");
+        assert_eq!(exe.root_module.placeholder_string(), "src/app.fol");
         assert_eq!(static_lib.name, "support");
         assert_eq!(shared_lib.name, "plugin");
-        assert_eq!(tests.root_module, "test/app.fol");
+        assert_eq!(tests.root_module.placeholder_string(), "test/app.fol");
     }
 
     #[test]
@@ -205,19 +211,22 @@ mod tests {
         let exe = api
             .add_exe(ExecutableRequest {
                 name: "app".to_string(),
-                root_module: "src/app.fol".to_string(),
+                root_module: "src/app.fol".into(),
+                ..ExecutableRequest::default()
             })
             .expect("valid executable request should succeed");
         let static_lib = api
             .add_static_lib(StaticLibraryRequest {
                 name: "support".to_string(),
-                root_module: "src/support.fol".to_string(),
+                root_module: "src/support.fol".into(),
+                ..StaticLibraryRequest::default()
             })
             .expect("valid static library request should succeed");
         let shared_lib = api
             .add_shared_lib(SharedLibraryRequest {
                 name: "plugin".to_string(),
-                root_module: "src/plugin.fol".to_string(),
+                root_module: "src/plugin.fol".into(),
+                ..SharedLibraryRequest::default()
             })
             .expect("valid shared library request should succeed");
 
@@ -245,22 +254,20 @@ mod tests {
     }
 
     #[test]
-    fn build_api_add_test_uses_the_executable_artifact_shape() {
+    fn build_api_add_test_preserves_distinct_test_artifact_identity() {
         let mut graph = BuildGraph::new();
         let mut api = BuildApi::new(&mut graph);
 
         let tests = api
             .add_test(TestArtifactRequest {
                 name: "app-tests".to_string(),
-                root_module: "test/app.fol".to_string(),
+                root_module: "test/app.fol".into(),
+                ..TestArtifactRequest::default()
             })
             .expect("valid test artifact request should succeed");
 
         assert_eq!(api.graph().artifacts()[0].id, tests.artifact_id);
-        assert_eq!(
-            api.graph().artifacts()[0].kind,
-            BuildArtifactKind::Executable
-        );
+        assert_eq!(api.graph().artifacts()[0].kind, BuildArtifactKind::Test);
     }
 
     #[test]
@@ -271,7 +278,8 @@ mod tests {
         let error = api
             .add_exe(ExecutableRequest {
                 name: "App".to_string(),
-                root_module: "src/app.fol".to_string(),
+                root_module: "src/app.fol".into(),
+                ..ExecutableRequest::default()
             })
             .expect_err("mixed-case names should be rejected");
 
@@ -279,6 +287,194 @@ mod tests {
             error,
             BuildApiError::InvalidName(BuildApiNameError::InvalidCharacter('A'))
         );
+    }
+
+    #[test]
+    fn build_api_artifact_methods_reject_empty_roots_before_graph_construction() {
+        let mut graph = BuildGraph::new();
+        let mut api = BuildApi::new(&mut graph);
+
+        let error = api
+            .add_exe(ExecutableRequest {
+                name: "app".to_string(),
+                ..ExecutableRequest::default()
+            })
+            .expect_err("empty artifact roots should be rejected");
+
+        assert_eq!(
+            error,
+            BuildApiError::InvalidArtifactConfig("artifact root must not be empty".to_string())
+        );
+        assert!(api.graph().artifacts().is_empty());
+        assert!(api.graph().modules().is_empty());
+    }
+
+    #[test]
+    fn build_api_add_c_import_records_an_authoritative_typed_graph_attachment() {
+        let mut graph = BuildGraph::new();
+        let mut api = BuildApi::new(&mut graph);
+        let app = api
+            .add_exe(ExecutableRequest {
+                name: "app".to_string(),
+                root_module: "src/main.fol".into(),
+                ..ExecutableRequest::default()
+            })
+            .expect("executable should be created");
+
+        let attachment = api
+            .add_c_import(
+                app.artifact_id,
+                BuildCImportRequest {
+                    header: SourceFileHandle {
+                        relative_path: "native/widget.h".to_string(),
+                    },
+                    provider: SourceFileHandle {
+                        relative_path: "native/widget.o".to_string(),
+                    },
+                    provider_kind: BuildCImportProviderKind::Object,
+                },
+            )
+            .expect("local package-relative files should attach");
+
+        assert_eq!(attachment.artifact_id, app.artifact_id);
+        assert_eq!(attachment.header, "native/widget.h");
+        assert_eq!(attachment.provider, "native/widget.o");
+        assert_eq!(
+            api.graph()
+                .c_imports_for(app.artifact_id)
+                .collect::<Vec<_>>(),
+            vec![&attachment]
+        );
+    }
+
+    #[test]
+    fn build_api_add_c_import_rejects_unsafe_or_dependency_paths_without_mutation() {
+        let mut graph = BuildGraph::new();
+        let mut api = BuildApi::new(&mut graph);
+        let app = api
+            .add_exe(ExecutableRequest {
+                name: "app".to_string(),
+                root_module: "src/main.fol".into(),
+                ..ExecutableRequest::default()
+            })
+            .expect("executable should be created");
+
+        for (field, header, provider, expected) in [
+            (
+                "header",
+                "../native/widget.h",
+                "native/widget.o",
+                "C import header path '../native/widget.h' must not traverse outside the package root",
+            ),
+            (
+                "header",
+                "/native/widget.h",
+                "native/widget.o",
+                "C import header path '/native/widget.h' must be relative to the package root",
+            ),
+            (
+                "provider",
+                "native/widget.h",
+                r"C:\native\widget.o",
+                r"C import provider path 'C:\native\widget.o' must be relative to the package root",
+            ),
+            (
+                "provider",
+                "native/widget.h",
+                "$dep/native/widget.o",
+                "C import provider must be a local source-file path, not a dependency path",
+            ),
+        ] {
+            let error = api
+                .add_c_import(
+                    app.artifact_id,
+                    BuildCImportRequest {
+                        header: SourceFileHandle {
+                            relative_path: header.to_string(),
+                        },
+                        provider: SourceFileHandle {
+                            relative_path: provider.to_string(),
+                        },
+                        provider_kind: BuildCImportProviderKind::Object,
+                    },
+                )
+                .expect_err("invalid C import paths must fail closed");
+            assert_eq!(
+                error,
+                BuildApiError::InvalidArtifactConfig(expected.to_string()),
+                "unexpected diagnostic for invalid {field}"
+            );
+            assert!(api.graph().c_imports().is_empty());
+        }
+    }
+
+    #[test]
+    fn build_api_add_c_import_rejects_duplicate_and_unknown_artifact_attachments() {
+        let mut graph = BuildGraph::new();
+        let mut api = BuildApi::new(&mut graph);
+        let app = api
+            .add_exe(ExecutableRequest {
+                name: "app".to_string(),
+                root_module: "src/main.fol".into(),
+                ..ExecutableRequest::default()
+            })
+            .expect("executable should be created");
+        let request = BuildCImportRequest {
+            header: SourceFileHandle {
+                relative_path: "native/widget.h".to_string(),
+            },
+            provider: SourceFileHandle {
+                relative_path: "native/widget.o".to_string(),
+            },
+            provider_kind: BuildCImportProviderKind::Object,
+        };
+        api.add_c_import(app.artifact_id, request.clone())
+            .expect("first attachment should succeed");
+
+        let duplicate = api
+            .add_c_import(app.artifact_id, request.clone())
+            .expect_err("duplicates must fail closed");
+        assert_eq!(
+            duplicate,
+            BuildApiError::InvalidArtifactConfig(
+                "artifact 'artifact:0' already has C import header 'native/widget.h' with provider 'native/widget.o'"
+                    .to_string()
+            )
+        );
+        assert_eq!(api.graph().c_imports().len(), 1);
+
+        let multiple = api
+            .add_c_import(
+                app.artifact_id,
+                BuildCImportRequest {
+                    header: SourceFileHandle {
+                        relative_path: "native/other.h".to_string(),
+                    },
+                    provider: SourceFileHandle {
+                        relative_path: "native/other.o".to_string(),
+                    },
+                    provider_kind: BuildCImportProviderKind::Object,
+                },
+            )
+            .expect_err("more than one C import per artifact must fail closed");
+        assert_eq!(
+            multiple,
+            BuildApiError::InvalidArtifactConfig(
+                "artifact 'artifact:0' cannot attach more than one C import".to_string()
+            )
+        );
+        assert_eq!(api.graph().c_imports().len(), 1);
+
+        let unknown = api
+            .add_c_import(BuildArtifactId(99), request)
+            .expect_err("unknown artifacts must fail closed");
+        assert_eq!(
+            unknown,
+            BuildApiError::InvalidArtifactConfig(
+                "cannot attach C import to unknown artifact 'artifact:99'".to_string()
+            )
+        );
+        assert_eq!(api.graph().c_imports().len(), 1);
     }
 
     #[test]
@@ -328,7 +524,8 @@ mod tests {
         let exe = api
             .add_exe(ExecutableRequest {
                 name: "app".to_string(),
-                root_module: "src/app.fol".to_string(),
+                root_module: "src/app.fol".into(),
+                ..ExecutableRequest::default()
             })
             .expect("valid executable request should succeed");
 
@@ -357,7 +554,8 @@ mod tests {
         let exe = api
             .add_exe(ExecutableRequest {
                 name: "app".to_string(),
-                root_module: "src/app.fol".to_string(),
+                root_module: "src/app.fol".into(),
+                ..ExecutableRequest::default()
             })
             .expect("valid executable request should succeed");
 
@@ -626,7 +824,8 @@ mod tests {
         let app = api
             .add_exe(ExecutableRequest {
                 name: "demo".to_string(),
-                root_module: "src/main.fol".to_string(),
+                root_module: "src/main.fol".into(),
+                ..ExecutableRequest::default()
             })
             .expect("artifact should be created");
 
@@ -655,7 +854,8 @@ mod tests {
         let app = api
             .add_exe(ExecutableRequest {
                 name: "app".to_string(),
-                root_module: "src/app.fol".to_string(),
+                root_module: "src/app.fol".into(),
+                ..ExecutableRequest::default()
             })
             .expect("executable should succeed");
         let run = api

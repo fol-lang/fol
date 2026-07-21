@@ -17,9 +17,9 @@ impl TreeSitterCorpusCase {
             .source
             .splitn(3, "==================")
             .nth(2)?
-            .trim_start_matches(|character| character == '\r' || character == '\n');
+            .trim_start_matches(['\r', '\n']);
         let (program, _) = body.split_once("\n---\n")?;
-        Some(program.trim_end_matches(|character| character == '\r' || character == '\n'))
+        Some(program.trim_end_matches(['\r', '\n']))
     }
 
     #[cfg(test)]
@@ -107,6 +107,8 @@ const CORPUS_V3_EVENTUALS: &str = include_str!("../tree-sitter/test/corpus/v3_ev
 const CORPUS_V3_DEFERRED: &str = include_str!("../tree-sitter/test/corpus/v3_deferred.txt");
 const CORPUS_V3_LEXICAL_BOUNDARIES: &str =
     include_str!("../tree-sitter/test/corpus/v3_lexical_boundaries.txt");
+const CORPUS_V3_WHEN_ARMS: &str = include_str!("../tree-sitter/test/corpus/v3_when_arms.txt");
+const CORPUS_V3_CLOSURES: &str = include_str!("../tree-sitter/test/corpus/v3_closures.txt");
 const SHOWCASE_FIXTURE: &str =
     include_str!("../../../../test/apps/showcases/full_v1_showcase/app/main.fol");
 static GENERATED_HIGHLIGHTS_QUERY: OnceLock<String> = OnceLock::new();
@@ -175,6 +177,14 @@ pub fn fol_tree_sitter_corpus() -> &'static [TreeSitterCorpusCase] {
         TreeSitterCorpusCase {
             name: "v3_lexical_boundaries",
             source: CORPUS_V3_LEXICAL_BOUNDARIES,
+        },
+        TreeSitterCorpusCase {
+            name: "v3_when_arms",
+            source: CORPUS_V3_WHEN_ARMS,
+        },
+        TreeSitterCorpusCase {
+            name: "v3_closures",
+            source: CORPUS_V3_CLOSURES,
         },
     ]
 }
@@ -412,11 +422,10 @@ mod tests {
     }
 
     fn assert_quoted_import_targets(label: &str, source: &str) {
-        let result = execute_fol_tree_sitter_query(
-            source,
-            "(use_decl target: (_) @import_target)",
-        )
-        .unwrap_or_else(|error| panic!("failed to inspect import targets in '{label}': {error}"));
+        let result = execute_fol_tree_sitter_query(source, "(use_decl target: (_) @import_target)")
+            .unwrap_or_else(|error| {
+                panic!("failed to inspect import targets in '{label}': {error}")
+            });
         assert!(
             !result.parse.has_error(),
             "'{label}' should parse before its import targets are audited:\nerrors={:?}\nmissing={:?}\n{source}",
@@ -615,7 +624,6 @@ mod tests {
             "container_type",
             "shell_type",
             "nil_literal",
-            "unwrap_expr",
             "this_expr",
             "self_expr",
             "where_expr",
@@ -827,7 +835,6 @@ mod tests {
             "(use_decl \"use\" @keyword.import)",
             "(var_decl \"var\" @keyword)",
             "(var_decl \"@var\" @keyword)",
-            "(var_decl \"~var\" @keyword)",
             "(con_decl \"con\" @keyword)",
             "(lab_decl \"lab\" @keyword)",
             "(fun_decl \"fun\" @keyword.function)",
@@ -918,7 +925,6 @@ mod tests {
             "(dot_intrinsic \".\" @operator)",
             "(routine_capture_list \"[\" @punctuation.bracket \"]\" @punctuation.bracket)",
             "(routine_capture_list \",\" @punctuation.delimiter)",
-            "(unwrap_expr \"!\" @operator)",
             "(nil_literal) @constant.builtin",
             "(boolean_literal) @boolean",
         ] {
@@ -1167,7 +1173,7 @@ mod tests {
     #[test]
     fn corpus_smoke_cases_cover_real_language_surfaces() {
         let corpus = fol_tree_sitter_corpus();
-        assert_eq!(corpus.len(), 9);
+        assert_eq!(corpus.len(), 11);
         for case in corpus {
             assert!(
                 case.source.contains("\n---\n"),
@@ -1199,7 +1205,7 @@ mod tests {
             .any(|case| case.source.contains("ali IntBox: Box[int]")));
         assert!(corpus.iter().any(|case| {
             case.name == "v3_ownership"
-                && case.source.contains("~var replacement")
+                && case.source.contains("var[mut] replacement")
                 && case.source.matches("inspect(view)").count() == 2
         }));
         assert!(corpus.iter().any(|case| {
@@ -1208,13 +1214,13 @@ mod tests {
                 && case.source.contains("@arr[models::Node, 1]")
                 && case.source.contains("ptr[ptr[int]]")
                 && case.source.contains("pointer[bor]: ptr[int]")
-                && case.source.contains("*outer")
+                && case.source.contains("[drf]outer")
         }));
         assert!(corpus.iter().any(|case| {
             case.name == "v3_channels_select_mutex"
                 && case.source.contains("select {")
                 && case.source.contains("select {};")
-                && case.source.contains("counter[mux]")
+                && case.source.contains("counter: mux[Counter]")
         }));
         assert!(corpus.iter().any(|case| {
             case.name == "v3_eventuals"
@@ -1227,7 +1233,7 @@ mod tests {
         assert!(corpus.iter().any(|case| {
             case.name == "v3_deferred"
                 && case.source.contains("dfr {")
-                && case.source.contains("edf {")
+                && case.source.contains("edf[seen[bor]] {")
         }));
         assert!(corpus.iter().any(|case| {
             case.name == "v3_lexical_boundaries"
@@ -1344,7 +1350,7 @@ mod tests {
         let output = run_tree_sitter_query(
             &root,
             &root.join("queries/fol/highlights.scm"),
-            &repo_root().join("xtra/logtiny/src/log.fol"),
+            &repo_root().join("test/fixtures/logtiny/src/log.fol"),
         );
 
         assert!(
@@ -1391,7 +1397,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_bundle_highlights_nested_v3_type_operands_and_tilde_var() {
+    fn generated_bundle_highlights_nested_v3_type_operands() {
         let root = build_bundle_root("nested_v3_type_operands");
         let query = root.join("queries/fol/highlights.scm");
         let cases = [
@@ -1410,10 +1416,6 @@ mod tests {
             (
                 "examples/mem_linked_list_m1/src/main.fol",
                 "- type, start: (2, 15), end: (2, 19), text: `Node`",
-            ),
-            (
-                "test/parser/simple_fun_tilde_var.fol",
-                "- keyword, start: (1, 4), end: (1, 8), text: `~var`",
             ),
         ];
 
@@ -1849,7 +1851,7 @@ mod tests {
         let output = run_tree_sitter_query(
             &root,
             &query_path,
-            &repo_root().join("xtra/logtiny/src/log.fol"),
+            &repo_root().join("test/fixtures/logtiny/src/log.fol"),
         );
 
         assert!(
@@ -1875,7 +1877,7 @@ mod tests {
         let logtiny_output = run_tree_sitter_query(
             &root,
             &root.join("queries/fol/highlights.scm"),
-            &repo_root().join("xtra/logtiny/src/log.fol"),
+            &repo_root().join("test/fixtures/logtiny/src/log.fol"),
         );
         assert!(logtiny_output.status.success());
         let logtiny = String::from_utf8_lossy(&logtiny_output.stdout);
@@ -2051,7 +2053,7 @@ mod tests {
         let logtiny_output = run_tree_sitter_query(
             &root,
             &root.join("queries/fol/highlights.scm"),
-            &repo_root().join("xtra/logtiny/src/log.fol"),
+            &repo_root().join("test/fixtures/logtiny/src/log.fol"),
         );
         assert!(logtiny_output.status.success());
         let logtiny = String::from_utf8_lossy(&logtiny_output.stdout);
@@ -2362,11 +2364,11 @@ mod tests {
             ),
             (
                 repo_root().join("examples/proc_mutex_m3/src/main.fol"),
-                ["attribute", "function", "property"].as_slice(),
+                ["type.builtin", "function", "property"].as_slice(),
             ),
             (
                 repo_root().join("examples/proc_mutex_explicit_unlock_m3/src/main.fol"),
-                ["attribute", "function", "property"].as_slice(),
+                ["type.builtin", "function", "property"].as_slice(),
             ),
             (
                 repo_root().join("examples/proc_async_await_m4/src/main.fol"),
@@ -2505,7 +2507,7 @@ mod tests {
             "examples",
             "lang/library/std",
             "test/apps/showcases",
-            "xtra",
+            "test/fixtures",
         ] {
             collect_fol_sources(&repo.join(relative_root), &mut sources);
         }
@@ -2532,8 +2534,8 @@ mod tests {
             "lang/library/std/build.fol",
             "lang/library/std/io/lib.fol",
             "test/apps/showcases/full_v1_showcase/app/main.fol",
-            "xtra/logtiny/build.fol",
-            "xtra/logtiny/src/log.fol",
+            "test/fixtures/logtiny/build.fol",
+            "test/fixtures/logtiny/src/log.fol",
         ] {
             assert!(
                 sources.contains(&repo.join(required)),

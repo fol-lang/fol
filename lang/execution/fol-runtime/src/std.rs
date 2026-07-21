@@ -13,11 +13,12 @@ pub use crate::aggregate::{
     render_echo, render_entry, render_entry_debug, render_record, render_record_debug,
     FolEchoFormat, FolEntry, FolNamedValue, FolRecord,
 };
-pub use crate::builtins::{len, pow, pow_float, FolLength};
+pub use crate::builtins::{div_int, len, mod_int, pow, pow_float, FolLength};
 pub use crate::containers::{
     index_array, index_seq, index_set, index_vec, lookup_map, render_array, render_map, render_seq,
     render_set, render_vec, slice_seq, slice_vec, FolArray,
 };
+pub use crate::error::require;
 pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};
 pub use crate::shell::{
     unwrap_error_shell, unwrap_error_shell_ref, unwrap_optional_shell, unwrap_optional_shell_ref,
@@ -43,6 +44,15 @@ where
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .push(std::thread::spawn(task));
+}
+
+/// Spawn a detached task (`[spn, det]`): the join handle is dropped, so the task
+/// is never registered for join and is not awaited at scope or process exit.
+pub fn spawn_detached<F>(task: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    drop(std::thread::spawn(task));
 }
 
 pub fn join_all_tasks() {
@@ -109,7 +119,6 @@ impl<T> FolEventual<T> {
         self.receiver
             .into_inner()
             .unwrap_or_else(|error| error.into_inner())
-            .take()
             .expect("eventual can only be awaited once")
             .recv()
             .expect("eventual producer ended without a value")
@@ -137,7 +146,7 @@ where
 #[derive(Debug)]
 pub struct FolChannel<T> {
     sender: Mutex<Option<mpsc::Sender<T>>>,
-    receiver: Mutex<mpsc::Receiver<T>>,
+    receiver: Mutex<Option<mpsc::Receiver<T>>>,
     receiver_closed: AtomicBool,
 }
 
@@ -146,7 +155,7 @@ impl<T> Default for FolChannel<T> {
         let (sender, receiver) = mpsc::channel();
         Self {
             sender: Mutex::new(Some(sender)),
-            receiver: Mutex::new(receiver),
+            receiver: Mutex::new(Some(receiver)),
             receiver_closed: AtomicBool::new(false),
         }
     }
@@ -160,6 +169,17 @@ impl<T> FolChannel<T> {
             .as_ref()
             .cloned()
             .map(FolSender)
+    }
+
+    /// Transfer the channel's unique receiver as a first-class `chn[rx, T]`
+    /// value (V3_MEM §8.2). Receivers are unique, so this takes the receiver
+    /// out: the owning channel binding can no longer receive afterward.
+    pub fn acquire_receiver(&self) -> Option<FolReceiver<T>> {
+        self.receiver
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+            .map(FolReceiver::new)
     }
 
     pub fn send(&self, value: T) -> Result<(), T> {
@@ -176,33 +196,32 @@ impl<T> FolChannel<T> {
             .take();
     }
 
-    pub fn receive(&self) -> T {
-        self.close_local_sender();
-        self.receiver
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .recv()
-            .expect("receive from a closed channel")
-    }
-
     pub fn receive_optional(&self) -> FolOption<T> {
         self.close_local_sender();
-        self.receiver
+        let guard = self
+            .receiver
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .recv()
-            .ok()
-            .into()
+            .unwrap_or_else(|error| error.into_inner());
+        // A receiver moved out as a `chn[rx, T]` value leaves the owning
+        // binding unable to receive: report closure rather than blocking.
+        let Some(receiver) = guard.as_ref() else {
+            self.receiver_closed.store(true, Ordering::Release);
+            return None.into();
+        };
+        receiver.recv().ok().into()
     }
 
     pub fn try_receive(&self) -> FolOption<T> {
         self.close_local_sender();
-        match self
+        let guard = self
             .receiver
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .try_recv()
-        {
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(receiver) = guard.as_ref() else {
+            self.receiver_closed.store(true, Ordering::Release);
+            return None.into();
+        };
+        match receiver.try_recv() {
             Ok(value) => Some(value).into(),
             Err(mpsc::TryRecvError::Empty) => None.into(),
             Err(mpsc::TryRecvError::Disconnected) => {
@@ -241,6 +260,37 @@ impl<T> Default for FolSender<T> {
 impl<T> FolSender<T> {
     pub fn send(&self, value: T) -> Result<(), T> {
         self.0.send(value).map_err(|error| error.0)
+    }
+}
+
+/// A first-class `chn[rx, T]` receiver endpoint value (V3_MEM §8.2). Receivers
+/// are unique: unlike `FolSender`, this handle is move-only and never `Clone`.
+#[derive(Debug)]
+pub struct FolReceiver<T>(mpsc::Receiver<T>);
+
+impl<T> Default for FolReceiver<T> {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        drop(sender);
+        Self(receiver)
+    }
+}
+
+impl<T> FolReceiver<T> {
+    fn new(receiver: mpsc::Receiver<T>) -> Self {
+        Self(receiver)
+    }
+
+    pub fn receive_optional(&self) -> FolOption<T> {
+        self.0.recv().ok().into()
+    }
+
+    pub fn try_receive(&self) -> FolOption<T> {
+        match self.0.try_recv() {
+            Ok(value) => Some(value).into(),
+            Err(mpsc::TryRecvError::Empty) => None.into(),
+            Err(mpsc::TryRecvError::Disconnected) => None.into(),
+        }
     }
 }
 
@@ -290,6 +340,171 @@ impl<T> FolMutex<T> {
 pub fn echo<T: FolEchoFormat>(value: T) -> T {
     println!("{}", value.fol_echo_format());
     value
+}
+
+/// Write a string to stdout without a trailing newline and flush it — the
+/// frame-rendering primitive for terminal programs.
+pub fn write(value: FolStr) -> FolStr {
+    use std::io::Write as _;
+    print!("{}", value.as_str());
+    let _ = std::io::stdout().flush();
+    value
+}
+
+/// The shared stdin byte feed: one reader thread owns stdin so blocking and
+/// timed reads can coexist without competing for the handle.
+fn key_feed() -> &'static std::sync::Mutex<std::sync::mpsc::Receiver<u8>> {
+    static FEED: std::sync::OnceLock<std::sync::Mutex<std::sync::mpsc::Receiver<u8>>> =
+        std::sync::OnceLock::new();
+    FEED.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::Read as _;
+            let mut stdin = std::io::stdin();
+            let mut buffer = [0u8; 1];
+            while let Ok(1) = stdin.read(&mut buffer) {
+                if sender.send(buffer[0]).is_err() {
+                    break;
+                }
+            }
+        });
+        std::sync::Mutex::new(receiver)
+    })
+}
+
+/// Block for one byte of standard input. Yields -1 at end of input so callers
+/// can end their read loop without a recoverable shell.
+pub fn read_key() -> crate::value::FolInt {
+    let feed = key_feed()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match feed.recv() {
+        Ok(byte) => byte as crate::value::FolInt,
+        Err(_) => -1,
+    }
+}
+
+/// One byte of standard input within a timeout: the byte value, -2 when the
+/// timeout elapses first, or -1 at end of input. The escape-sequence
+/// disambiguator for key decoders.
+pub fn read_key_ms(timeout_ms: crate::value::FolInt) -> crate::value::FolInt {
+    let feed = key_feed()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match feed.recv_timeout(std::time::Duration::from_millis(timeout_ms.max(0) as u64)) {
+        Ok(byte) => byte as crate::value::FolInt,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => -2,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => -1,
+    }
+}
+
+/// The substring at a byte offset and length, clamped to the string and
+/// snapped outward to UTF-8 boundaries so it never panics.
+pub fn str_sub(text: FolStr, start: crate::value::FolInt, len: crate::value::FolInt) -> FolStr {
+    let bytes = text.as_str().as_bytes();
+    let total = bytes.len();
+    let from = start.clamp(0, total as i64) as usize;
+    let until = (start.max(0) as usize)
+        .saturating_add(len.max(0) as usize)
+        .min(total);
+    let mut from = from.min(until);
+    let mut until = until;
+    while from < total && !text.as_str().is_char_boundary(from) {
+        from += 1;
+    }
+    while until > from && !text.as_str().is_char_boundary(until) {
+        until -= 1;
+    }
+    FolStr::new(&text.as_str()[from..until])
+}
+
+/// The byte value at an index, or -1 outside the string.
+pub fn str_byte(text: FolStr, index: crate::value::FolInt) -> crate::value::FolInt {
+    if index < 0 {
+        return -1;
+    }
+    text.as_str()
+        .as_bytes()
+        .get(index as usize)
+        .map(|byte| *byte as crate::value::FolInt)
+        .unwrap_or(-1)
+}
+
+/// A one-byte string from a byte value (empty outside 0-255).
+pub fn byte_to_str(value: crate::value::FolInt) -> FolStr {
+    if !(0..=255).contains(&value) {
+        return FolStr::new("");
+    }
+    let byte = value as u8;
+    if byte.is_ascii() {
+        FolStr::new((byte as char).to_string())
+    } else {
+        FolStr::new(String::from_utf8_lossy(&[byte]).to_string())
+    }
+}
+
+/// Enable or disable terminal raw mode via `stty` on the controlling
+/// terminal; forwards the requested state (a no-op when stdin is not a tty or
+/// `stty` is unavailable).
+pub fn raw_mode(enable: bool) -> bool {
+    let mut command = std::process::Command::new("stty");
+    if enable {
+        command.args(["raw", "-echo"]);
+    } else {
+        command.arg("sane");
+    }
+    let _ = command
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    enable
+}
+
+/// Sleep the current thread for the given milliseconds; negative values are
+/// treated as zero. Forwards the requested duration.
+pub fn sleep_ms(ms: crate::value::FolInt) -> crate::value::FolInt {
+    std::thread::sleep(std::time::Duration::from_millis(ms.max(0) as u64));
+    ms
+}
+
+/// Milliseconds since the unix epoch.
+pub fn now_ms() -> crate::value::FolInt {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as crate::value::FolInt)
+        .unwrap_or(0)
+}
+
+fn term_size() -> (crate::value::FolInt, crate::value::FolInt) {
+    let probed = std::process::Command::new("stty")
+        .arg("size")
+        .stdin(std::process::Stdio::inherit())
+        .output()
+        .ok()
+        .and_then(|output| {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let mut parts = text.split_whitespace();
+            let rows = parts.next()?.parse::<i64>().ok()?;
+            let cols = parts.next()?.parse::<i64>().ok()?;
+            Some((rows, cols))
+        });
+    probed.unwrap_or((24, 80))
+}
+
+/// The terminal width in columns (80 when it cannot be determined).
+pub fn term_cols() -> crate::value::FolInt {
+    term_size().1
+}
+
+/// The terminal height in rows (24 when it cannot be determined).
+pub fn term_rows() -> crate::value::FolInt {
+    term_size().0
+}
+
+/// Render an integer as its decimal string.
+pub fn int_to_str(value: crate::value::FolInt) -> FolStr {
+    FolStr::new(value.to_string())
 }
 
 pub fn module_name() -> &'static str {
@@ -377,8 +592,14 @@ mod tests {
         spawn_task(move || first.send(19).expect("receiver remains open"));
         spawn_task(move || second.send(23).expect("receiver remains open"));
 
-        let left = channel.receive();
-        let right = channel.receive();
+        let left = channel
+            .receive_optional()
+            .into_option()
+            .expect("first payload present");
+        let right = channel
+            .receive_optional()
+            .into_option()
+            .expect("second payload present");
         join_all_tasks();
 
         assert_eq!(left + right, 42);
@@ -392,11 +613,11 @@ mod tests {
             .expect("sender acquired before receiver use");
         sender.send(19).expect("receiver remains open");
 
-        assert_eq!(channel.receive(), 19);
+        assert_eq!(channel.receive_optional().into_option(), Some(19));
         assert!(channel.acquire_sender().is_none());
 
         sender.send(23).expect("pre-acquired sender remains valid");
-        assert_eq!(channel.receive(), 23);
+        assert_eq!(channel.receive_optional().into_option(), Some(23));
     }
 
     #[test]
@@ -564,4 +785,48 @@ mod tests {
             "map{left: set{1, 2, 3}, right: set{4, 5}}"
         );
     }
+}
+
+/// The value of an environment variable, or the empty string when unset.
+pub fn env_var(name: FolStr) -> FolStr {
+    std::env::var(name.as_str())
+        .map(FolStr::new)
+        .unwrap_or_else(|_| FolStr::new(""))
+}
+
+/// Run a shell command attached to the terminal and yield its exit code
+/// (-1 when it cannot start). The TUI suspend/exec primitive.
+pub fn shell(command: FolStr) -> crate::value::FolInt {
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command.as_str())
+        .status()
+        .map(|status| status.code().unwrap_or(-1) as crate::value::FolInt)
+        .unwrap_or(-1)
+}
+
+/// Sorted directory entries joined by newlines, directories suffixed with a
+/// slash; empty when the path cannot be read.
+pub fn dir_list(path: FolStr) -> FolStr {
+    let mut entries: Vec<String> = std::fs::read_dir(path.as_str())
+        .map(|reader| {
+            reader
+                .filter_map(|entry| entry.ok())
+                .map(|entry| {
+                    let mut name = entry.file_name().to_string_lossy().to_string();
+                    if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                        name.push('/');
+                    }
+                    name
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    entries.sort();
+    FolStr::new(entries.join("\n"))
+}
+
+/// The text contents of a file, or the empty string when unreadable.
+pub fn read_file(path: FolStr) -> FolStr {
+    FolStr::new(std::fs::read_to_string(path.as_str()).unwrap_or_default())
 }

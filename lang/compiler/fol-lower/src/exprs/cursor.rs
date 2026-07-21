@@ -47,11 +47,23 @@ pub(crate) struct DeferredBody {
     pub error_only: bool,
 }
 
+/// A `fin` local that must run its custom finalizer at scope exit (V3_MEM §6),
+/// unless the value has been moved out of its declaring scope (then its new
+/// owner finalizes it). `symbol` lets scope-exit lowering consult the typed
+/// move state to skip a moved-out local.
+#[derive(Debug, Clone)]
+pub(crate) struct FinalizeEntry {
+    pub local: LoweredLocalId,
+    pub symbol: SymbolId,
+    pub callee: LoweredRoutineId,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveDeferScope {
     pub kind: DeferScopeKind,
     pub entries: Vec<DeferredBody>,
     pub mutex_guards: Vec<LoweredLocalId>,
+    pub finalizations: Vec<FinalizeEntry>,
     pub lexical_drops: Vec<LoweredLocalId>,
 }
 
@@ -62,8 +74,7 @@ pub(crate) struct WorkspaceDeclIndex {
     routines: BTreeMap<(PackageIdentity, SymbolId), LoweredRoutineId>,
     routine_params: BTreeMap<(PackageIdentity, LoweredRoutineId), Vec<LoweredTypeId>>,
     routine_param_names: BTreeMap<(PackageIdentity, LoweredRoutineId), Vec<String>>,
-    routine_param_defaults:
-        BTreeMap<(PackageIdentity, LoweredRoutineId), RoutineDefaultLowering>,
+    routine_param_defaults: BTreeMap<(PackageIdentity, LoweredRoutineId), RoutineDefaultLowering>,
     routine_has_receiver: BTreeMap<(PackageIdentity, LoweredRoutineId), bool>,
     entry_variants: BTreeMap<(PackageIdentity, SymbolId, String), EntryVariantLowering>,
     record_fields: BTreeMap<(PackageIdentity, SymbolId, String), LoweredTypeId>,
@@ -120,7 +131,9 @@ impl WorkspaceDeclIndex {
                     .collect::<Vec<_>>();
                 let routine_key = (package.identity.clone(), routine.id);
                 index.routine_params.insert(routine_key.clone(), params);
-                index.routine_param_names.insert(routine_key.clone(), param_names);
+                index
+                    .routine_param_names
+                    .insert(routine_key.clone(), param_names);
                 index
                     .routine_has_receiver
                     .insert(routine_key, routine.receiver_type.is_some());
@@ -143,28 +156,26 @@ impl WorkspaceDeclIndex {
                 self.routines
                     .insert((package.identity.clone(), symbol_id), routine.id);
                 if let Some(typed_symbol) = typed_package.program.typed_symbol(symbol_id) {
-                    if let Some(signature_type) = typed_symbol
+                    if let Some(fol_typecheck::CheckedType::Routine(signature)) = typed_symbol
                         .declared_type
                         .and_then(|type_id| typed_package.program.type_table().get(type_id))
                     {
-                        if let fol_typecheck::CheckedType::Routine(signature) = signature_type {
-                            let mut defaults = typed_symbol.param_defaults.clone();
-                            let mut variadic_index = signature.variadic_index;
-                            if typed_symbol.receiver_type.is_some() {
-                                defaults.insert(0, None);
-                                variadic_index = variadic_index.map(|index| index + 1);
-                            }
-                            self.routine_param_defaults.insert(
-                                (package.identity.clone(), routine.id),
-                                RoutineDefaultLowering {
-                                    package_identity: package.identity.clone(),
-                                    source_unit_id: typed_symbol.source_unit_id,
-                                    scope_id: typed_symbol.scope_id,
-                                    defaults,
-                                    variadic_index,
-                                },
-                            );
+                        let mut defaults = typed_symbol.param_defaults.clone();
+                        let mut variadic_index = signature.variadic_index;
+                        if typed_symbol.receiver_type.is_some() {
+                            defaults.insert(0, None);
+                            variadic_index = variadic_index.map(|index| index + 1);
                         }
+                        self.routine_param_defaults.insert(
+                            (package.identity.clone(), routine.id),
+                            RoutineDefaultLowering {
+                                package_identity: package.identity.clone(),
+                                source_unit_id: typed_symbol.source_unit_id,
+                                scope_id: typed_symbol.scope_id,
+                                defaults,
+                                variadic_index,
+                            },
+                        );
                     }
                 }
             }
@@ -440,6 +451,7 @@ impl<'a> RoutineCursor<'a> {
             kind,
             entries: Vec::new(),
             mutex_guards: Vec::new(),
+            finalizations: Vec::new(),
             lexical_drops: Vec::new(),
         });
     }
@@ -495,6 +507,20 @@ impl<'a> RoutineCursor<'a> {
             ));
         };
         scope.lexical_drops.push(local);
+        Ok(())
+    }
+
+    pub(crate) fn register_finalization(
+        &mut self,
+        entry: FinalizeEntry,
+    ) -> Result<(), LoweringError> {
+        let Some(scope) = self.defer_scopes.last_mut() else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "fin local registration requires an active lexical scope",
+            ));
+        };
+        scope.finalizations.push(entry);
         Ok(())
     }
 

@@ -1,0 +1,11 @@
+fun[exp] sub(text: str, start: int, count: int): str = {
+    return .str_sub(text, start, count);
+};
+
+fun[exp] byte_at(text: str, index: int): int = {
+    return .str_byte(text, index);
+};
+
+fun[exp] from_byte(value: int): str = {
+    return .byte_to_str(value);
+};

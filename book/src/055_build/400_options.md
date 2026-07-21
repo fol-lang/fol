@@ -35,14 +35,23 @@ Format: `arch-os-env` triple. Examples:
 | `x86_64-linux-gnu`    | x86-64 Linux with glibc        |
 | `x86_64-linux-musl`   | x86-64 Linux with musl libc    |
 | `aarch64-linux-gnu`   | ARM64 Linux with glibc         |
-| `x86_64-macos`        | x86-64 macOS                   |
+| `aarch64-linux-musl`  | ARM64 Linux with musl libc     |
+| `x86_64-macos-gnu`    | x86-64 macOS                   |
+| `aarch64-macos-gnu`   | ARM64 macOS                    |
+| `x86_64-windows-gnu`  | x86-64 Windows with MinGW      |
 | `x86_64-windows-msvc` | x86-64 Windows with MSVC       |
+| `aarch64-windows-msvc` | ARM64 Windows with MSVC       |
 
 Supported architectures: `x86_64`, `aarch64`.
 Supported operating systems: `linux`, `macos`, `windows`.
 Supported environments: `gnu`, `musl`, `msvc`.
 
 If not set, the host target is used.
+
+`standard_target()` always exposes the compact FOL spelling shown above, so
+`when` and `case` comparisons are stable even when the CLI accepted a canonical
+Rust triple. Artifact identity and the backend separately retain the matching
+canonical Rust triple (for example, `x86_64-unknown-linux-gnu`).
 
 To pass the resolved value to an artifact:
 
@@ -72,7 +81,11 @@ Valid modes:
 | `release-fast`  | Maximum speed, no safety checks      |
 | `release-small` | Minimize binary size                 |
 
-Default: `debug`.
+Default: `debug`. A `fol code ... --release` request supplies
+`release-safe` when no explicit optimize value is present. An explicit
+`-Doptimize=...` or `--optimize ...` value takes precedence and also determines
+whether the artifact uses the debug or release output/rustc profile, so the
+directory identity cannot disagree with the compiler profile.
 
 To pass the resolved value to an artifact:
 

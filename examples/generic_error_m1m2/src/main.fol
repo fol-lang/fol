@@ -8,7 +8,7 @@ fun echo(T)(value: T, fail: bol): T / T = {
 };
 
 fun[] main(): int = {
-    if(check(echo(42, false))) => std::io::echo_int(42)
-    else => std::io::echo_int(99)
+    if(check(echo(42, false))) => std::io::echo_int(99)
+    else => std::io::echo_int(42)
     return 0;
 };

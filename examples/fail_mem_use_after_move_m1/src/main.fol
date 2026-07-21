@@ -1,5 +1,5 @@
 fun[] main(): int = {
     @var owner: int = 3;
-    @var moved: int = owner;
+    @var moved: int = [mov]owner;
     return owner;
 };

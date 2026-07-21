@@ -92,7 +92,7 @@ impl Element {
 
     //checking
     pub fn slash_comment(&mut self, code: &mut stage0::Elements) -> Vod {
-        self.con.push_str(&code.curr()?.0.to_string());
+        self.con.push(code.curr()?.0);
         self.bump(code)?;
         if code.curr()?.0 == '/' {
             self.bump(code)?;
@@ -470,14 +470,14 @@ impl Element {
     }
 
     pub fn push(&mut self, code: &mut stage0::Elements) -> Vod {
-        self.con.push_str(&code.curr()?.0.to_string());
+        self.con.push(code.curr()?.0);
         Ok(())
     }
 
     pub fn bump(&mut self, code: &mut stage0::Elements) -> Vod {
         code.bump();
         self.loc.set_len(self.loc.len() + 1);
-        self.con.push_str(&code.curr()?.0.to_string());
+        self.con.push(code.curr()?.0);
         Ok(())
     }
 }

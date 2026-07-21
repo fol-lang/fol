@@ -6,8 +6,8 @@ use super::helpers::{
     apparent_type_id, ensure_assignable, expected_nil_shell_type, merge_recoverable_effects,
     node_origin, plain_value_expr, strip_comments, with_node_origin,
 };
-use super::{TypeContext, TypedExpr};
 use super::type_node_with_expectation;
+use super::{TypeContext, TypedExpr};
 
 pub(crate) fn type_literal(
     typed: &mut TypedProgram,
@@ -127,7 +127,10 @@ pub(crate) fn type_container_literal(
     // record initializers, which the parser routes to `RecordInit`.
     if let Some(expected) = expected_type {
         let apparent = apparent_type_id(typed, expected)?;
-        if matches!(typed.type_table().get(apparent), Some(CheckedType::Record { .. })) {
+        if matches!(
+            typed.type_table().get(apparent),
+            Some(CheckedType::Record { .. })
+        ) {
             return type_positional_record_init(
                 typed, resolved, context, elements, expected, apparent,
             );
@@ -268,13 +271,14 @@ fn type_positional_record_init(
             format!("record field '{}'", field.name),
             field_origin,
         )?;
-        super::bindings::track_value_transfer(
+        super::bindings::reject_untagged_owned_transfer(
             typed,
             resolved,
-            context,
-            Some(element),
+            element,
             actual,
+            "inserted into a container",
         )?;
+        super::bindings::track_value_transfer(typed, resolved, context, Some(element), actual)?;
     }
 
     // Fields not covered by a positional value must have a default.
@@ -308,8 +312,7 @@ fn type_positional_record_init(
         ));
     }
 
-    let merged =
-        merge_recoverable_effects(typed, origin, "record initializer", field_effects)?;
+    let merged = merge_recoverable_effects(typed, origin, "record initializer", field_effects)?;
     Ok(TypedExpr::value(expected_type).with_optional_effect(merged))
 }
 
@@ -349,14 +352,20 @@ fn reject_heap_backed_container_kind_in_core(
         ContainerType::Map => "map[...] literals",
     };
     let message = format!("{label} require heap support and are unavailable in 'fol_model = core'");
-    if let Some(origin) = elements.first().and_then(|node| node_origin(resolved, node)) {
+    if let Some(origin) = elements
+        .first()
+        .and_then(|node| node_origin(resolved, node))
+    {
         Err(TypecheckError::with_origin(
             TypecheckErrorKind::Unsupported,
             message,
             origin,
         ))
     } else {
-        Err(TypecheckError::new(TypecheckErrorKind::Unsupported, message))
+        Err(TypecheckError::new(
+            TypecheckErrorKind::Unsupported,
+            message,
+        ))
     }
 }
 
@@ -440,13 +449,14 @@ pub(crate) fn type_linear_container_literal(
         } else {
             inferred_element = Some(actual);
         }
-        super::bindings::track_value_transfer(
+        super::bindings::reject_untagged_owned_transfer(
             typed,
             resolved,
-            context,
-            Some(element),
+            element,
             actual,
+            "inserted into a container",
         )?;
+        super::bindings::track_value_transfer(typed, resolved, context, Some(element), actual)?;
     }
 
     let element_type = inferred_element.ok_or_else(|| {
@@ -540,13 +550,14 @@ pub(crate) fn type_set_literal(
         } else {
             member_types.push(actual);
         }
-        super::bindings::track_value_transfer(
+        super::bindings::reject_untagged_owned_transfer(
             typed,
             resolved,
-            context,
-            Some(element),
+            element,
             actual,
+            "inserted into a container",
         )?;
+        super::bindings::track_value_transfer(typed, resolved, context, Some(element), actual)?;
     }
 
     Ok(Some(
@@ -640,20 +651,22 @@ pub(crate) fn type_map_literal(
         } else {
             inferred_value_type = Some(actual_value);
         }
-        super::bindings::track_value_transfer(
+        super::bindings::reject_untagged_owned_transfer(
             typed,
             resolved,
-            context,
-            Some(key),
+            key,
             actual_key,
+            "used as a container key",
         )?;
-        super::bindings::track_value_transfer(
+        super::bindings::reject_untagged_owned_transfer(
             typed,
             resolved,
-            context,
-            Some(value),
+            value,
             actual_value,
+            "inserted into a container",
         )?;
+        super::bindings::track_value_transfer(typed, resolved, context, Some(key), actual_key)?;
+        super::bindings::track_value_transfer(typed, resolved, context, Some(value), actual_value)?;
     }
 
     Ok(Some(typed.type_table_mut().intern(CheckedType::Map {

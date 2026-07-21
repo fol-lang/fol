@@ -1,0 +1,19 @@
+// A detached task (`[spn, det]`) is not joined at scope or process exit, so it
+// may outlive any borrow it captures. Passing a borrowed value across the spawn
+// boundary is therefore rejected (V3_PROC completion gate: detached tasks accept
+// no borrows).
+
+use std: pkg = {"std"};
+
+typ Item: rec = { value: int };
+
+fun[] observe(it: Item[bor]): int = {
+    return it.value;
+};
+
+fun[] main(): int = {
+    var owner: Item = { value = 5 };
+    var[bor] view: Item = [bor]owner;
+    [spn, det]observe(view);
+    return 0;
+};

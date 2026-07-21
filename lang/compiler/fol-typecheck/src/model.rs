@@ -45,6 +45,10 @@ pub struct TypedSymbol {
     /// Drives field-assignment legality.
     pub is_mutable: bool,
     pub is_mutex: bool,
+    /// A `var[mut, bor] guard = ([bor]mux).lock()` binding. The lifetime-scoped
+    /// guard value cannot be moved, copied, or cloned as a whole (V3_MEM §8.3);
+    /// field reads (`guard.value`) remain the way to snapshot protected data.
+    pub is_mutex_guard: bool,
     /// A channel capture written as `c[tx]` exposes only the sender endpoint
     /// inside its anonymous routine, even though lowering still carries the
     /// enclosing channel handle.
@@ -150,12 +154,45 @@ pub struct ActiveBorrow {
 pub struct ActiveMutexGuard {
     pub scope: ScopeId,
     pub origin: SyntaxOrigin,
+    /// True when the lock was bound to a lifetime-scoped guard value
+    /// (`var[mut, bor] guard = ([bor]mux).lock()`), as opposed to the older
+    /// handle-lock statement form (`mux.lock(); ...; mux.unlock();`). Only the
+    /// guard-VALUE form is forbidden from crossing spawn/await/blocking-receive/
+    /// blocking-select boundaries (V3_MEM §8.3); handle-lock crossing stays
+    /// allowed for concurrent access.
+    pub bound: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeferredBindingUse {
     pub(crate) scope: ScopeId,
     pub(crate) origin: SyntaxOrigin,
+}
+
+/// A shared loan held on an outer binding by a spawned scoped task
+/// (`[>]fun()[state[bor]] = ...`) or by a local closure value
+/// (`var f = fun()[state[bor]] ...`). The owner stays readable but cannot be
+/// mutated or moved until the registering scope exits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskBorrow {
+    pub(crate) scope: ScopeId,
+    pub(crate) origin: SyntaxOrigin,
+    pub(crate) kind: TaskBorrowKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskBorrowKind {
+    SpawnTask,
+    LocalClosure,
+}
+
+impl TaskBorrowKind {
+    pub(crate) fn describe(self) -> &'static str {
+        match self {
+            Self::SpawnTask => "a spawned task",
+            Self::LocalClosure => "a local closure",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +207,18 @@ pub(crate) struct OwnershipFlowState {
     moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
     eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
     recoverable_eventual_obligations: BTreeMap<SymbolId, RecoverableEventualObligation>,
+    // Loan state is flow-sensitive. It must be snapshotted, restored, and merged
+    // at branch boundaries exactly like the move set; otherwise a borrow ended on
+    // one branch leaks that give-back onto the other branch, making conditional
+    // giveback path-unsound (Slice A soundness repair).
+    active_borrows: BTreeMap<SymbolId, Vec<ActiveBorrow>>,
+    borrow_bindings: BTreeMap<SymbolId, ActiveBorrow>,
+    returned_borrows: BTreeMap<SymbolId, SyntaxOrigin>,
+    // Static-place move tracking (Slice C §3.1). Moving a single named field of
+    // an owned aggregate invalidates only that field, not the whole binding, so
+    // the surviving fields stay readable. Keyed by binding then field name; a
+    // whole-binding move (moved_bindings) subsumes every field.
+    moved_fields: BTreeMap<SymbolId, BTreeMap<String, SyntaxOrigin>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,6 +272,7 @@ pub struct TypedProgram {
     /// finite-layout diagnostic. Transient — empty outside active lowering.
     active_instantiations: std::collections::BTreeSet<CheckedTypeId>,
     moved_bindings: BTreeMap<SymbolId, SyntaxOrigin>,
+    moved_fields: BTreeMap<SymbolId, BTreeMap<String, SyntaxOrigin>>,
     eventual_moves: BTreeMap<SymbolId, EventualMoveKind>,
     recoverable_eventual_obligations: BTreeMap<SymbolId, RecoverableEventualObligation>,
     ownership_history: BTreeMap<SymbolId, Vec<OwnershipEvent>>,
@@ -233,7 +283,21 @@ pub struct TypedProgram {
     returned_borrows: BTreeMap<SymbolId, SyntaxOrigin>,
     active_mutex_guards: BTreeMap<SymbolId, ActiveMutexGuard>,
     deferred_binding_uses: BTreeMap<SymbolId, Vec<DeferredBindingUse>>,
+    task_borrowed_bindings: BTreeMap<SymbolId, Vec<TaskBorrow>>,
+    bor_env_closures: BTreeSet<SymbolId>,
     deferred_transfer_conflict: Option<DeferredTransferConflict>,
+    /// Compiler-owned capability standards (`copy`/`clone`/`fin`/`send`/`share`)
+    /// claimed by each type declaration via its conformance list. Structural
+    /// verification of these claims is a later slice.
+    capability_claims: BTreeMap<SymbolId, std::collections::BTreeSet<String>>,
+    /// Compiler-owned capability bounds on each generic parameter symbol (from
+    /// `fun f(T: copy)(...)`). Verified against the actual type at every call
+    /// site (V3_MEM §4.1).
+    generic_capability_constraints: BTreeMap<SymbolId, std::collections::BTreeSet<String>>,
+    /// Record/entry type ids whose declaration claims custom finalization
+    /// (`fin`). Kept keyed by CheckedTypeId so containment checks (e.g. rejecting
+    /// a top-level `fin` value) do not need to reverse a type back to its symbol.
+    fin_types: std::collections::BTreeSet<CheckedTypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -325,16 +389,24 @@ impl TypedProgram {
     pub(crate) fn ownership_flow_state(&self) -> OwnershipFlowState {
         OwnershipFlowState {
             moved_bindings: self.moved_bindings.clone(),
+            moved_fields: self.moved_fields.clone(),
             eventual_moves: self.eventual_moves.clone(),
             recoverable_eventual_obligations: self.recoverable_eventual_obligations.clone(),
+            active_borrows: self.active_borrows.clone(),
+            borrow_bindings: self.borrow_bindings.clone(),
+            returned_borrows: self.returned_borrows.clone(),
         }
     }
 
     pub(crate) fn restore_ownership_flow(&mut self, state: &OwnershipFlowState) {
         self.moved_bindings.clone_from(&state.moved_bindings);
+        self.moved_fields.clone_from(&state.moved_fields);
         self.eventual_moves.clone_from(&state.eventual_moves);
         self.recoverable_eventual_obligations
             .clone_from(&state.recoverable_eventual_obligations);
+        self.active_borrows.clone_from(&state.active_borrows);
+        self.borrow_bindings.clone_from(&state.borrow_bindings);
+        self.returned_borrows.clone_from(&state.returned_borrows);
     }
 
     pub(crate) fn merge_ownership_flows(
@@ -347,13 +419,26 @@ impl TypedProgram {
             return;
         }
         self.moved_bindings.clear();
+        self.moved_fields.clear();
         self.eventual_moves.clear();
         self.recoverable_eventual_obligations.clear();
+        self.active_borrows.clear();
+        self.borrow_bindings.clear();
+        self.returned_borrows.clear();
         for branch in branches {
             for (symbol, origin) in &branch.moved_bindings {
                 self.moved_bindings
                     .entry(*symbol)
                     .or_insert_with(|| origin.clone());
+            }
+            // A field moved on any branch is treated as moved after the merge,
+            // matching whole-binding move semantics: a later use must be
+            // rejected because a runtime path could have consumed the field.
+            for (symbol, fields) in &branch.moved_fields {
+                let entry = self.moved_fields.entry(*symbol).or_default();
+                for (field, origin) in fields {
+                    entry.entry(field.clone()).or_insert_with(|| origin.clone());
+                }
             }
             for (symbol, kind) in &branch.eventual_moves {
                 self.eventual_moves.entry(*symbol).or_insert(*kind);
@@ -366,6 +451,56 @@ impl TypedProgram {
                 self.recoverable_eventual_obligations
                     .entry(*symbol)
                     .or_insert_with(|| obligation.clone());
+            }
+            // A give-back on this path is the authoritative "loan ended"
+            // signal. Union it: if any branch returned the borrow, a later
+            // reuse or a second give-back must be rejected, which prevents the
+            // emitted double-drop when giveback is conditional.
+            for (binding, origin) in &branch.returned_borrows {
+                self.returned_borrows
+                    .entry(*binding)
+                    .or_insert_with(|| origin.clone());
+            }
+        }
+        // Loan liveness is anchored on the baseline set of loans entering the
+        // branch (the loans live before the split), not on each branch's
+        // active_borrows: a branch body may collapse to the enclosing routine
+        // scope and prematurely drop an outer loan from its own table, which
+        // would otherwise make the merge unsound. A give-back inside a branch is
+        // recorded in returned_borrows, so we use that as the reliable
+        // per-branch signal.
+        //
+        // Rule: a loan created before the branch is still active after the merge
+        // unless it was given back on *every* branch. Giving it back on only some
+        // branches leaves it live on the others, so the owner stays inaccessible
+        // (sound: matches the runtime path that never ran the give-back).
+        let returned_on_every_branch = |binding: SymbolId| -> bool {
+            branches
+                .iter()
+                .all(|branch| branch.returned_borrows.contains_key(&binding))
+        };
+        let returned_on_any_branch = |binding: SymbolId| -> bool {
+            branches
+                .iter()
+                .any(|branch| branch.returned_borrows.contains_key(&binding))
+        };
+        for (owner, borrows) in &baseline.active_borrows {
+            for borrow in borrows {
+                if returned_on_every_branch(borrow.binding) {
+                    continue;
+                }
+                self.active_borrows
+                    .entry(*owner)
+                    .or_default()
+                    .push(borrow.clone());
+            }
+        }
+        // A borrower binding stays usable after the merge only if it was live at
+        // the baseline and was not given back on any branch: a give-back on even
+        // one path leaves the borrower gone on that path.
+        for (binding, borrow) in &baseline.borrow_bindings {
+            if !returned_on_any_branch(*binding) {
+                self.borrow_bindings.insert(*binding, borrow.clone());
             }
         }
     }
@@ -387,7 +522,39 @@ impl TypedProgram {
             self.record_ownership_event(symbol, OwnershipEventKind::Reinitialize, origin);
         }
         self.moved_bindings.remove(&symbol);
+        self.moved_fields.remove(&symbol);
         self.eventual_moves.remove(&symbol);
+    }
+
+    /// Mark a single static field of an owned aggregate as moved (Slice C
+    /// §3.1). Only that field becomes inaccessible; the surviving fields of the
+    /// binding stay readable. A subsequent whole-binding move or reinitialize
+    /// subsumes the per-field state.
+    pub(crate) fn mark_field_moved(&mut self, symbol: SymbolId, field: &str, origin: SyntaxOrigin) {
+        if self.record_deferred_transfer_conflict(symbol, origin.clone()) {
+            return;
+        }
+        self.record_ownership_event(symbol, OwnershipEventKind::Move, origin.clone());
+        self.moved_fields
+            .entry(symbol)
+            .or_default()
+            .entry(field.to_string())
+            .or_insert(origin);
+    }
+
+    /// Origin at which `symbol.field` was moved, if it is currently moved.
+    pub fn moved_field_origin(&self, symbol: SymbolId, field: &str) -> Option<&SyntaxOrigin> {
+        self.moved_fields
+            .get(&symbol)
+            .and_then(|fields| fields.get(field))
+    }
+
+    /// The first (by field name) moved field of `symbol`, if the binding is
+    /// partially moved. Used to reject reading the aggregate as a whole value.
+    pub fn first_moved_field(&self, symbol: SymbolId) -> Option<(&String, &SyntaxOrigin)> {
+        self.moved_fields
+            .get(&symbol)
+            .and_then(|fields| fields.iter().next())
     }
 
     pub(crate) fn mark_eventual_transferred(&mut self, symbol: SymbolId, origin: SyntaxOrigin) {
@@ -498,14 +665,131 @@ impl TypedProgram {
         }
     }
 
+    pub(crate) fn register_task_borrow(&mut self, symbol: SymbolId, task_borrow: TaskBorrow) {
+        let borrows = self.task_borrowed_bindings.entry(symbol).or_default();
+        if !borrows.contains(&task_borrow) {
+            borrows.push(task_borrow);
+        }
+    }
+
+    /// Mark `symbol` as a closure value holding borrowed captures; such a
+    /// value cannot escape the scope its loans are tied to (V3_MEM section
+    /// 5.3 local nonescaping closures).
+    pub(crate) fn mark_bor_env_closure(&mut self, symbol: SymbolId) {
+        self.bor_env_closures.insert(symbol);
+    }
+
+    pub(crate) fn is_bor_env_closure(&self, symbol: SymbolId) -> bool {
+        self.bor_env_closures.contains(&symbol)
+    }
+
+    pub(crate) fn first_task_borrow(&self, symbol: SymbolId) -> Option<&TaskBorrow> {
+        self.task_borrowed_bindings
+            .get(&symbol)
+            .and_then(|borrows| borrows.first())
+    }
+
     pub(crate) fn take_deferred_transfer_conflict(&mut self) -> Option<DeferredTransferConflict> {
         self.deferred_transfer_conflict.take()
+    }
+
+    /// Record a compiler-owned capability standard claimed by a type.
+    pub(crate) fn record_capability_claim(&mut self, type_symbol: SymbolId, capability: String) {
+        self.capability_claims
+            .entry(type_symbol)
+            .or_default()
+            .insert(capability);
+    }
+
+    /// The compiler-owned capability standards a type declaration claims.
+    pub fn capability_claims(
+        &self,
+        type_symbol: SymbolId,
+    ) -> Option<&std::collections::BTreeSet<String>> {
+        self.capability_claims.get(&type_symbol)
+    }
+
+    pub(crate) fn record_generic_capability_constraint(
+        &mut self,
+        generic_symbol: SymbolId,
+        capability: String,
+    ) {
+        self.generic_capability_constraints
+            .entry(generic_symbol)
+            .or_default()
+            .insert(capability);
+    }
+
+    /// The compiler-owned capability bounds on a generic parameter symbol.
+    pub fn generic_capability_constraints(
+        &self,
+        generic_symbol: SymbolId,
+    ) -> Option<&std::collections::BTreeSet<String>> {
+        self.generic_capability_constraints.get(&generic_symbol)
+    }
+
+    /// Record that a type (by its checked id) claims custom finalization.
+    pub(crate) fn record_fin_type(&mut self, type_id: CheckedTypeId) {
+        self.fin_types.insert(type_id);
+    }
+
+    /// Whether the type's own declaration claims `fin` (non-transitive, exact id).
+    pub fn type_claims_fin(&self, type_id: CheckedTypeId) -> bool {
+        self.fin_types.contains(&type_id)
+    }
+
+    /// Whether `type_id` resolves to a `fin`-claiming type after peeling
+    /// owned/borrowed shells and following `Declared` references to the
+    /// underlying declaration. A binding or receiver type is often a `Declared`
+    /// reference rather than the interned record id recorded at declaration.
+    pub fn type_resolves_to_fin(&self, type_id: CheckedTypeId) -> bool {
+        fn resolve(program: &TypedProgram, type_id: CheckedTypeId, depth: u8) -> bool {
+            if depth > 8 {
+                return false;
+            }
+            if program.type_claims_fin(type_id) {
+                return true;
+            }
+            match program.type_table().get(type_id) {
+                Some(crate::CheckedType::Owned { inner })
+                | Some(crate::CheckedType::Borrowed { inner, .. }) => {
+                    resolve(program, *inner, depth + 1)
+                }
+                Some(crate::CheckedType::Declared { symbol, .. }) => program
+                    .typed_symbol(*symbol)
+                    .and_then(|declared| declared.declared_type)
+                    .is_some_and(|declared| {
+                        declared != type_id && resolve(program, declared, depth + 1)
+                    }),
+                _ => false,
+            }
+        }
+        resolve(self, type_id, 0)
+    }
+
+    /// A deferred (`dfr`/`edf`) block that reads a binding pins that binding's
+    /// lifetime to the scope exit where the block runs. Used to reject an early
+    /// give-back of a borrow the deferred block still needs.
+    pub(crate) fn first_deferred_binding_use(
+        &self,
+        symbol: SymbolId,
+    ) -> Option<&DeferredBindingUse> {
+        self.deferred_binding_uses
+            .get(&symbol)
+            .and_then(|uses| uses.first())
     }
 
     pub(crate) fn release_deferred_binding_uses_in_scope(&mut self, scope: ScopeId) {
         self.deferred_binding_uses.retain(|_, uses| {
             uses.retain(|deferred_use| deferred_use.scope != scope);
             !uses.is_empty()
+        });
+    }
+
+    pub(crate) fn release_task_borrows_in_scope(&mut self, scope: ScopeId) {
+        self.task_borrowed_bindings.retain(|_, borrows| {
+            borrows.retain(|task_borrow| task_borrow.scope != scope);
+            !borrows.is_empty()
         });
     }
 
@@ -589,18 +873,64 @@ impl TypedProgram {
         None
     }
 
-    pub(crate) fn give_back_borrow(&mut self, binding: SymbolId, origin: SyntaxOrigin) -> bool {
-        let Some(borrow) = self.borrow_bindings.remove(&binding) else {
-            return false;
-        };
-        if let Some(active) = self.active_borrows.get_mut(&borrow.owner) {
-            active.retain(|entry| entry.binding != binding);
-            if active.is_empty() {
-                self.active_borrows.remove(&borrow.owner);
+    /// Remove every active loan created by `binding` across all owners it
+    /// borrows. A single borrow binding may borrow more than one owner — for
+    /// example a borrow-returning call `pick(#a, #b)` locks both `a` and `b`
+    /// (Slice C multi-owner borrows) — so release must sweep every owner, not
+    /// just the representative recorded in `borrow_bindings`.
+    fn sweep_active_borrows_for_binding(&mut self, binding: SymbolId) {
+        let owners = self
+            .active_borrows
+            .iter()
+            .filter(|(_, borrows)| borrows.iter().any(|entry| entry.binding == binding))
+            .map(|(owner, _)| *owner)
+            .collect::<Vec<_>>();
+        for owner in owners {
+            if let Some(active) = self.active_borrows.get_mut(&owner) {
+                active.retain(|entry| entry.binding != binding);
+                if active.is_empty() {
+                    self.active_borrows.remove(&owner);
+                }
             }
         }
+    }
+
+    pub(crate) fn give_back_borrow(&mut self, binding: SymbolId, origin: SyntaxOrigin) -> bool {
+        if self.borrow_bindings.remove(&binding).is_none() {
+            return false;
+        }
+        self.sweep_active_borrows_for_binding(binding);
         self.returned_borrows.insert(binding, origin);
         true
+    }
+
+    /// Non-lexical borrow release (Slice C): a borrow binding declared in
+    /// `scope` whose last use is at or before the just-completed statement
+    /// index is dead, so it is released early and its owner becomes accessible
+    /// again — rather than staying locked until the lexical scope ends. A
+    /// binding with no recorded later use (absent from `last_use`) is released
+    /// as soon as it is active. This only ends loans; it does not mark them as
+    /// explicitly given back, so it never interferes with give-back diagnostics.
+    pub(crate) fn release_scope_borrows_dead_after(
+        &mut self,
+        scope: ScopeId,
+        stmt_index: usize,
+        last_use: &BTreeMap<SymbolId, usize>,
+    ) {
+        let dead = self
+            .borrow_bindings
+            .iter()
+            .filter(|(binding, borrow)| {
+                borrow.scope == scope
+                    && last_use.get(binding).is_none_or(|last| *last <= stmt_index)
+            })
+            .map(|(binding, _)| *binding)
+            .collect::<Vec<_>>();
+        for binding in dead {
+            if self.borrow_bindings.remove(&binding).is_some() {
+                self.sweep_active_borrows_for_binding(binding);
+            }
+        }
     }
 
     pub(crate) fn release_borrows_in_scope(&mut self, scope: ScopeId) {
@@ -610,19 +940,28 @@ impl TypedProgram {
             .filter_map(|(binding, borrow)| (borrow.scope == scope).then_some(*binding))
             .collect::<Vec<_>>();
         for binding in bindings {
-            if let Some(borrow) = self.borrow_bindings.remove(&binding) {
-                if let Some(active) = self.active_borrows.get_mut(&borrow.owner) {
-                    active.retain(|entry| entry.binding != binding);
-                    if active.is_empty() {
-                        self.active_borrows.remove(&borrow.owner);
-                    }
-                }
+            if self.borrow_bindings.remove(&binding).is_some() {
+                self.sweep_active_borrows_for_binding(binding);
             }
         }
     }
 
     pub fn active_mutex_guard(&self, mutex: SymbolId) -> Option<&ActiveMutexGuard> {
         self.active_mutex_guards.get(&mutex)
+    }
+
+    /// Promote the active lock for `mutex` to a lifetime-scoped guard value.
+    /// Called when a `.lock()` result is bound with `var[mut, bor]` (V3_MEM §8.3).
+    pub(crate) fn mark_guard_bound(&mut self, mutex: SymbolId) {
+        if let Some(guard) = self.active_mutex_guards.get_mut(&mutex) {
+            guard.bound = true;
+        }
+    }
+
+    /// The first active guard held as a lifetime-scoped guard value, if any.
+    /// Used to reject crossing a processor boundary while such a guard is live.
+    pub(crate) fn active_bound_guard(&self) -> Option<&ActiveMutexGuard> {
+        self.active_mutex_guards.values().find(|guard| guard.bound)
     }
 
     pub(crate) fn register_mutex_guard(
@@ -695,6 +1034,7 @@ impl TypedProgram {
                         generic_constraints: BTreeMap::new(),
                         is_mutable: symbol.is_mutable,
                         is_mutex: false,
+                        is_mutex_guard: false,
                         is_channel_sender_capture: false,
                         channel_receiver_params: BTreeSet::new(),
                     },
@@ -753,6 +1093,7 @@ impl TypedProgram {
             constraint_call_sites: std::collections::BTreeSet::new(),
             record_layouts: BTreeMap::new(),
             moved_bindings: BTreeMap::new(),
+            moved_fields: BTreeMap::new(),
             eventual_moves: BTreeMap::new(),
             recoverable_eventual_obligations: BTreeMap::new(),
             ownership_history: BTreeMap::new(),
@@ -763,7 +1104,12 @@ impl TypedProgram {
             returned_borrows: BTreeMap::new(),
             active_mutex_guards: BTreeMap::new(),
             deferred_binding_uses: BTreeMap::new(),
+            task_borrowed_bindings: BTreeMap::new(),
+            bor_env_closures: BTreeSet::new(),
             deferred_transfer_conflict: None,
+            capability_claims: BTreeMap::new(),
+            generic_capability_constraints: BTreeMap::new(),
+            fin_types: std::collections::BTreeSet::new(),
         }
     }
 

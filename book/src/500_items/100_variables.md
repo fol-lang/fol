@@ -79,7 +79,7 @@ The `!borrow` prefix may give it back earlier.
 fun[] main(): int = {
     var value: int = 55;
     {
-        var[bor] view: int = #value;
+        var[bor] view: int = [bor]value;
         var seen: int = view;
     };
     return value;
@@ -277,7 +277,7 @@ var oneVar, twoVar: int[8] = 2;
 However, each of them gets a copy of the variable on a new memory address:
 
 ```
-.assert(&oneVar == &twoVar)           // this will return false
+.assert([ref]oneVar == [ref]twoVar)           // this will return false
 ```
 
 ### One to many

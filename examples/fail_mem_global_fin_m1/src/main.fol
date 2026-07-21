@@ -1,0 +1,15 @@
+// A value of a 'fin' type cannot be stored in top-level/global storage (V3_MEM
+// Slice D). A finalized value must be owned by a routine scope; a global value
+// is outside every scope, so its finalizer could never run.
+
+typ Handle()(fin): rec = { id: int };
+
+fun (Handle) fin(): non = {
+    return;
+};
+
+con GLOBAL: Handle = { id = 1 };
+
+fun[] main(): int = {
+    return GLOBAL.id;
+};

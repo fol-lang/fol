@@ -1,0 +1,21 @@
+// A `fun` may take a shared `[bor]` receiver and read through the loan (V3_MEM
+// §4.2). The `.total()` call auto-borrows the owned record read-only; the
+// binding stays fully usable afterward (a shared receiver cannot mutate it —
+// that requires a `pro` with a `[mut, bor]` receiver).
+
+use std: pkg = {"std"};
+
+typ Point: rec = {
+    x: int,
+    y: int,
+};
+
+fun (Point[bor])total(): int = {
+    return self.x + self.y;
+};
+
+fun[] main(): int = {
+    var origin: Point = { x = 3, y = 4 };
+    var sum: int = origin.total();
+    return std::io::echo_int(sum + origin.x);
+};

@@ -159,6 +159,9 @@ pub(crate) fn type_dot_intrinsic_call(
                     syntax_id,
                     expected_type,
                 )?,
+                None if terminal_intrinsic_signature(typed, entry.name).is_some() => {
+                    type_terminal_intrinsic(typed, resolved, context, entry, args, syntax_id)?
+                }
                 None => {
                     let message = if entry.availability != fol_intrinsics::IntrinsicAvailability::V1
                     {
@@ -496,6 +499,103 @@ fn type_echo_intrinsic(
     Ok(TypedExpr::value(operand_type).with_optional_effect(operand_expr.recoverable_effect))
 }
 
+/// Fixed (params, result) signature for a terminal/OS runtime hook, or None
+/// when the name is not one. These are the primitive layer for interactive
+/// terminal programs and are hosted-std-only like `echo`.
+fn terminal_intrinsic_signature(
+    typed: &TypedProgram,
+    name: &str,
+) -> Option<(Vec<crate::CheckedTypeId>, crate::CheckedTypeId)> {
+    let builtins = typed.builtin_types();
+    match name {
+        "write" => Some((vec![builtins.str_], builtins.str_)),
+        "read_key" => Some((Vec::new(), builtins.int)),
+        "raw_mode" => Some((vec![builtins.bool_], builtins.bool_)),
+        "sleep_ms" => Some((vec![builtins.int], builtins.int)),
+        "now_ms" => Some((Vec::new(), builtins.int)),
+        "term_cols" | "term_rows" => Some((Vec::new(), builtins.int)),
+        "int_to_str" => Some((vec![builtins.int], builtins.str_)),
+        "str_sub" => Some((
+            vec![builtins.str_, builtins.int, builtins.int],
+            builtins.str_,
+        )),
+        "str_byte" => Some((vec![builtins.str_, builtins.int], builtins.int)),
+        "byte_to_str" => Some((vec![builtins.int], builtins.str_)),
+        "read_key_ms" => Some((vec![builtins.int], builtins.int)),
+        "env_var" => Some((vec![builtins.str_], builtins.str_)),
+        "shell" => Some((vec![builtins.str_], builtins.int)),
+        "dir_list" => Some((vec![builtins.str_], builtins.str_)),
+        "read_file" => Some((vec![builtins.str_], builtins.str_)),
+        _ => None,
+    }
+}
+
+fn type_terminal_intrinsic(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    entry: &fol_intrinsics::IntrinsicEntry,
+    args: &[AstNode],
+    syntax_id: SyntaxNodeId,
+) -> Result<TypedExpr, TypecheckError> {
+    let origin = origin_for(resolved, syntax_id);
+    let (params, result) = terminal_intrinsic_signature(typed, entry.name)
+        .expect("terminal intrinsic dispatch already matched the name");
+    if typed.capability_model() != crate::TypecheckCapabilityModel::Std {
+        let message = format!(
+            "'.{}(...)' requires hosted std support; declare build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }}) and use 'fol_model = memo' (current artifact model is '{}')",
+            entry.name,
+            typed.capability_model().as_str()
+        );
+        return Err(match origin {
+            Some(origin) => {
+                TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+            }
+            None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+        });
+    }
+    if args.len() != params.len() {
+        return Err(match origin {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                wrong_arity_message(entry, args.len()),
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                wrong_arity_message(entry, args.len()),
+            ),
+        });
+    }
+    let mut effect = None;
+    for (arg, expected) in args.iter().zip(params.iter()) {
+        let raw = type_node(typed, resolved, context, arg)?;
+        let expr = plain_value_expr(
+            typed,
+            context,
+            raw,
+            node_origin(resolved, arg),
+            "plain use of an errorful intrinsic operand",
+        )?;
+        let actual = expr.required_value("intrinsic operand does not have a type")?;
+        ensure_assignable(
+            typed,
+            *expected,
+            apparent_type_id(typed, actual)?,
+            format!("'.{}(...)'", entry.name),
+            origin.clone().or_else(|| node_origin(resolved, arg)),
+        )?;
+        effect = super::helpers::merge_recoverable_effects(
+            typed,
+            origin.clone(),
+            entry.name,
+            [effect, expr.recoverable_effect],
+        )?;
+    }
+    typed.record_node_type(syntax_id, context.source_unit_id, result)?;
+    Ok(TypedExpr::value(result).with_optional_effect(effect))
+}
+
 pub(crate) fn type_report_call(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -760,10 +860,28 @@ pub(crate) fn type_method_call(
 ) -> Result<TypedExpr, TypecheckError> {
     let mutex_receiver = (method == "lock" || method == "unlock")
         .then(|| {
+            // The lock receiver may be a bare mutex identifier (`state.lock()`,
+            // the historical handle-lock) or the canonical borrowed form
+            // (`([bor]state).lock()`, V3_MEM §8.3 guard-VALUE surface); unwrap a
+            // single `[bor]` operation to reach the mutex identifier and record
+            // which surface was used.
+            let (identifier, borrowed) = match strip_comments(object) {
+                bare @ AstNode::Identifier { .. } => (bare, false),
+                AstNode::OwnershipOp {
+                    options, operand, ..
+                } if matches!(
+                    options.as_slice(),
+                    [fol_parser::ast::options::OwnershipOption::Borrow]
+                ) =>
+                {
+                    (strip_comments(operand), true)
+                }
+                _ => return None,
+            };
             let AstNode::Identifier {
                 name,
                 syntax_id: Some(syntax_id),
-            } = strip_comments(object)
+            } = identifier
             else {
                 return None;
             };
@@ -778,10 +896,10 @@ pub(crate) fn type_method_call(
             typed
                 .typed_symbol(mutex_symbol)
                 .is_some_and(|symbol| symbol.is_mutex)
-                .then_some((name.as_str(), mutex_symbol))
+                .then_some((name.as_str(), mutex_symbol, borrowed))
         })
         .flatten();
-    if let Some((name, mutex_symbol)) = mutex_receiver {
+    if let Some((name, mutex_symbol, borrowed)) = mutex_receiver {
         if context.inside_deferred_block {
             return Err(unsupported_node_surface(
                 resolved,
@@ -820,6 +938,9 @@ pub(crate) fn type_method_call(
             let guard = crate::ActiveMutexGuard {
                 scope: context.scope_id,
                 origin: origin.clone(),
+                // Handle-lock by default; promoted to a bound guard value when
+                // the `.lock()` result is captured by a `var[mut, bor]` binding.
+                bound: false,
             };
             if let Some(active) = typed.register_mutex_guard(mutex_symbol, guard) {
                 return Err(TypecheckError::with_origin(
@@ -845,6 +966,23 @@ pub(crate) fn type_method_call(
                 message,
                 origin,
             ));
+        }
+        // Guard-VALUE surface (V3_MEM §8.3): `([bor]state).lock()` yields a
+        // lifetime-bound mutable guard over the mutex's inner `T`, bindable as
+        // `var[mut, bor] guard: T = ...`. Returning it as a mutable borrow (not
+        // by value) keeps the guarded value inside the mutex. The historical
+        // handle-lock `state.lock()` stays a scope-marker statement (no value).
+        if method == "lock" && borrowed {
+            if let Some(inner) = typed
+                .typed_symbol(mutex_symbol)
+                .and_then(|symbol| symbol.declared_type)
+            {
+                let guard = typed.type_table_mut().intern(CheckedType::Borrowed {
+                    inner,
+                    mutable: true,
+                });
+                return Ok(TypedExpr::value(guard));
+            }
         }
         return Ok(TypedExpr::none());
     }
@@ -958,8 +1096,38 @@ fn routine_signature_for_symbol(
 ) -> Result<RoutineType, TypecheckError> {
     use crate::CheckedType;
     let type_id = symbol_type(typed, resolved, symbol_id, origin.clone())?;
+    // Peel alias/apparent wrappers so a routine value declared through a type
+    // alias (`ali Cb: {fun (n: int): int}`) stays callable.
+    let type_id = super::helpers::apparent_type_id(typed, type_id)?;
     match typed.type_table().get(type_id) {
         Some(CheckedType::Routine(signature)) => {
+            // Imported signatures are translated without their generic
+            // parameter list, so a generic routine crossing the package
+            // boundary cannot be instantiated here; without this guard the
+            // call types as a bare 'T' and the caller gets a baffling
+            // mismatch instead of the boundary.
+            if resolved
+                .symbol(symbol_id)
+                .is_some_and(|symbol| symbol.mounted_from.is_some())
+                && signature_mentions_generic_param(typed, signature)
+            {
+                let name = resolved
+                    .symbol(symbol_id)
+                    .map(|symbol| symbol.name.clone())
+                    .unwrap_or_else(|| format!("symbol {}", symbol_id.0));
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "imported routine '{name}' is generic; cross-package generic instantiation is not supported yet — export a non-generic wrapper and call that instead"
+                    ),
+                    origin.unwrap_or(SyntaxOrigin {
+                        file: None,
+                        line: 1,
+                        column: 1,
+                        length: 1,
+                    }),
+                ));
+            }
             let mut signature = signature.clone();
             signature.param_defaults = typed
                 .typed_symbol(symbol_id)
@@ -1034,6 +1202,26 @@ fn routine_signature_for_method(
             ));
             continue;
         }
+        // An ownership-annotated receiver (`fun (Type[bor])m()` /
+        // `pro (Type[mut, bor])m()`) auto-borrows the object: a call `obj.m()`
+        // on an owned `obj: Type` matches when the receiver's borrowed inner
+        // type equals the object type (V3_MEM §4.2/§8.3).
+        if let Some(crate::CheckedType::Borrowed { inner, .. }) =
+            typed.type_table().get(receiver_type)
+        {
+            if *inner == object_type {
+                matches.push((
+                    symbol_id,
+                    routine_signature_for_symbol(
+                        typed,
+                        typed.resolved(),
+                        symbol_id,
+                        origin.clone(),
+                    )?,
+                ));
+                continue;
+            }
+        }
         // Try to unify the routine's generic receiver template against the
         // concrete object type. If it unifies, bind the routine generics and
         // monomorphize the signature here so downstream argument checking
@@ -1062,11 +1250,17 @@ fn routine_signature_for_method(
     // is only known after monomorphization, so record the call site as a
     // deferred constraint call and type it from the requirement signature.
     if matches.is_empty() {
+        // A borrow parameter (`item[bor]: T`) still dispatches through T's
+        // constraints; the loan wrapper is transparent for method lookup.
+        let constraint_subject = match typed.type_table().get(object_type) {
+            Some(CheckedType::Borrowed { inner, .. }) => *inner,
+            _ => object_type,
+        };
         if let Some(CheckedType::Declared {
             kind: crate::DeclaredTypeKind::GenericParameter,
             symbol: param_symbol,
             ..
-        }) = typed.type_table().get(object_type).cloned()
+        }) = typed.type_table().get(constraint_subject).cloned()
         {
             // A generic parameter's bound can be recorded on more than one
             // typed symbol (the declaring routine/type and the parameter's own
@@ -1142,6 +1336,7 @@ fn routine_signature_for_method(
                         params,
                         return_type,
                         error_type,
+                        env_lifetime: false,
                     };
                     if let Some(syntax_id) = call_syntax_id {
                         typed.record_constraint_call_site(syntax_id);
@@ -1186,6 +1381,7 @@ fn routine_signature_for_method(
                             params: requirement.params.clone(),
                             return_type: requirement.return_type,
                             error_type: requirement.error_type,
+                            env_lifetime: false,
                         };
                         matches.push((requirement.symbol_id, signature));
                     }
@@ -1230,6 +1426,9 @@ fn routine_signature_for_method(
     }
 }
 
+// Call checking combines a routine signature with surface-specific binding
+// policy; a second request type would only mirror these local inputs.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn check_call_arguments(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -1287,6 +1486,9 @@ pub(crate) fn check_call_arguments(
                     crate::decls::checked_type_contains_generic_param(typed, *expected);
                 let forwards_mutex_handle = signature.mutex_params.contains(&param_index)
                     && argument_is_direct_mutex_handle(typed, resolved, arg);
+                if signature.mutex_params.contains(&param_index) && !forwards_mutex_handle {
+                    validate_mutex_owner_wrap_argument(resolved, arg, callee, origin.clone())?;
+                }
                 let argument_context = TypeContext {
                     allow_mutex_handle: forwards_mutex_handle,
                     ..context
@@ -1378,7 +1580,27 @@ pub(crate) fn check_call_arguments(
                         Some(CheckedType::Borrowed { .. }),
                     )
                 );
-                if !extracts_sender && !forwards_mutex_handle && !preserves_borrow {
+                // §5.3: a formal parameter carrying a `[bor=L]` environment
+                // lifetime may receive a borrowed-environment closure; the
+                // callee-side nonescaping rules take over from there.
+                let env_lifetime_param = matches!(
+                    typed.type_table().get(*expected),
+                    Some(CheckedType::Routine(signature)) if signature.env_lifetime
+                );
+                if !extracts_sender
+                    && !forwards_mutex_handle
+                    && !preserves_borrow
+                    && !env_lifetime_param
+                {
+                    // §2.2: passing an existing owned value as an argument is a
+                    // transfer boundary and must state its operation explicitly.
+                    super::bindings::reject_untagged_owned_transfer(
+                        typed,
+                        resolved,
+                        arg,
+                        actual,
+                        &format!("passed to '{callee}'"),
+                    )?;
                     super::bindings::track_value_transfer(
                         typed,
                         resolved,
@@ -1565,12 +1787,16 @@ fn validate_call_site_borrows(
         if argument_is_borrow_binding(typed, resolved, arg) {
             continue;
         }
+        // A borrow of a temporary is valid for the duration of this call.
+        if is_borrow_of_temporary(arg) {
+            continue;
+        }
         return Err(node_origin(resolved, arg).or(call_origin.clone()).map_or_else(
             || {
                 TypecheckError::new(
                     TypecheckErrorKind::BorrowConflict,
                     format!(
-                        "call to '{callee}' must pass '#owner' or an existing borrow binding to a [bor] parameter"
+                        "call to '{callee}' must pass '[bor]owner' or an existing borrow binding to a [bor] parameter"
                     ),
                 )
             },
@@ -1578,7 +1804,7 @@ fn validate_call_site_borrows(
                 TypecheckError::with_origin(
                     TypecheckErrorKind::BorrowConflict,
                     format!(
-                        "call to '{callee}' must pass '#owner' or an existing borrow binding to a [bor] parameter"
+                        "call to '{callee}' must pass '[bor]owner' or an existing borrow binding to a [bor] parameter"
                     ),
                     origin,
                 )
@@ -1637,7 +1863,7 @@ fn validate_deferred_mutex_argument_forwarding(
                 resolved,
                 arg,
                 format!(
-                    "mutex handles cannot be forwarded to [mux] parameter {param_index} of '{callee}' inside dfr/edf in V3; delayed mutex guard effects are not modeled"
+                    "mutex handles cannot be forwarded to mux[T] parameter {param_index} of '{callee}' inside dfr/edf in V3; delayed mutex guard effects are not modeled"
                 ),
             ));
         }
@@ -1677,14 +1903,13 @@ fn validate_mutex_argument_forwarding(
                 length: 1,
             });
 
-        if let Some((first_param, first_origin)) = forwarded.insert(
-            symbol,
-            (*param_index, argument_origin.clone()),
-        ) {
+        if let Some((first_param, first_origin)) =
+            forwarded.insert(symbol, (*param_index, argument_origin.clone()))
+        {
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::InvalidInput,
                 format!(
-                    "call to '{callee}' cannot forward mutex handle '{name}' to both [mux] parameter {first_param} and [mux] parameter {param_index}; aliased mutex parameters can self-deadlock"
+                    "call to '{callee}' cannot forward mutex handle '{name}' to both mux[T] parameter {first_param} and mux[T] parameter {param_index}; aliased mutex parameters can self-deadlock"
                 ),
                 argument_origin,
             )
@@ -1715,15 +1940,42 @@ fn explicit_bound_arg<'a>(arg: &'a BoundCallArg<'a>) -> Option<&'a AstNode> {
     }
 }
 
+/// Whether `arg` is an explicit borrow (`#x` / `[bor]x`) of a temporary value —
+/// an operand that is not an addressable place (a call result, literal, etc.).
+/// A temporary may be borrowed for the full enclosing expression (Slice C), so
+/// passing it to a `[bor]` parameter is legal; it just cannot be stored in a
+/// longer-lived borrow binding (rejected separately at the binding site).
+pub(crate) fn is_borrow_of_temporary(arg: &AstNode) -> bool {
+    let operand = match strip_comments(arg) {
+        AstNode::UnaryOp {
+            op: fol_parser::ast::UnaryOperator::BorrowFrom,
+            operand,
+        } => operand.as_ref(),
+        AstNode::OwnershipOp {
+            options, operand, ..
+        } if options.contains(&fol_parser::ast::OwnershipOption::Borrow) => operand.as_ref(),
+        _ => return false,
+    };
+    !matches!(
+        strip_comments(operand),
+        AstNode::Identifier { .. } | AstNode::FieldAccess { .. } | AstNode::IndexAccess { .. }
+    )
+}
+
 fn borrow_from_owner(resolved: &ResolvedProgram, arg: &AstNode) -> Option<SymbolId> {
-    matches!(
-        strip_comments(arg),
+    let stripped = strip_comments(arg);
+    let is_borrow = matches!(
+        stripped,
         AstNode::UnaryOp {
             op: fol_parser::ast::UnaryOperator::BorrowFrom,
             ..
         }
-    )
-    .then(|| super::bindings::borrow_source_symbol(resolved, strip_comments(arg)))?
+    ) || matches!(
+        stripped,
+        AstNode::OwnershipOp { options, .. }
+            if options.contains(&fol_parser::ast::OwnershipOption::Borrow)
+    );
+    is_borrow.then(|| super::bindings::borrow_source_symbol(resolved, stripped))?
 }
 
 fn argument_is_borrow_binding(
@@ -1757,6 +2009,53 @@ fn argument_is_direct_mutex_handle(
     arg: &AstNode,
 ) -> bool {
     direct_mutex_handle_symbol(typed, resolved, arg).is_some()
+}
+
+/// Wrapping an existing owner into a `mux[T]` parameter transfers it into the
+/// mutex (V3_MEM §8.3): the mutex owns its state uniquely, so an implicit copy
+/// at the boundary would silently fork the state between the caller's binding
+/// and the guarded value. A place argument must therefore state `[mov]`; fresh
+/// rvalues (literals, call results) have no surviving source to fork and pass
+/// through unchanged.
+fn validate_mutex_owner_wrap_argument(
+    resolved: &ResolvedProgram,
+    arg: &AstNode,
+    callee: &str,
+    call_origin: Option<SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let stripped = strip_comments(arg);
+    if let AstNode::OwnershipOp { options, .. } = stripped {
+        if options.contains(&fol_parser::ast::OwnershipOption::Move) {
+            return Ok(());
+        }
+        let message = format!(
+            "a mux[T] parameter of '{callee}' takes ownership of the wrapped state; use '[mov]' — a copied, cloned, or borrowed owner would fork the guarded value"
+        );
+        return Err(node_origin(resolved, arg).or(call_origin).map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+            },
+        ));
+    }
+    if matches!(
+        stripped,
+        AstNode::Identifier { .. }
+            | AstNode::QualifiedIdentifier { .. }
+            | AstNode::FieldAccess { .. }
+            | AstNode::IndexAccess { .. }
+    ) {
+        let message = format!(
+            "wrapping an owner into the mux[T] parameter of '{callee}' transfers it into the mutex; state the transfer with '[mov]'"
+        );
+        return Err(node_origin(resolved, arg).or(call_origin).map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+            },
+        ));
+    }
+    Ok(())
 }
 
 fn direct_mutex_handle_symbol(
@@ -1868,6 +2167,33 @@ fn infer_generic_bindings_from_argument(
             }
             return Ok(());
         }
+    }
+
+    // A borrow parameter (`item[bor]: T`) meets a borrowed argument
+    // (`[bor]owner`): peel both wrappers together so the generic binds the
+    // OWNER type, not the loan. Binding `bor[Boxy]` would demand conformance
+    // from the loan and break constraint dispatch inside the body.
+    if let (
+        Some(CheckedType::Borrowed {
+            inner: expected_inner,
+            ..
+        }),
+        Some(CheckedType::Borrowed {
+            inner: actual_inner,
+            ..
+        }),
+    ) = (
+        typed.type_table().get(expected).cloned(),
+        typed.type_table().get(actual).cloned(),
+    ) {
+        return infer_generic_bindings_from_argument(
+            typed,
+            expected_inner,
+            actual_inner,
+            bindings,
+            surface,
+            origin,
+        );
     }
 
     let expected = apparent_type_id(typed, expected)?;
@@ -2168,6 +2494,7 @@ fn instantiate_generic_signature(
         params,
         return_type,
         error_type,
+        env_lifetime: signature.env_lifetime,
     })
 }
 
@@ -2623,7 +2950,7 @@ pub(crate) fn type_for_reference(
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::Unsupported,
                 format!(
-                    "routine '{symbol_name}' with [mux] parameters cannot be used as a plain routine value in V3; call it directly instead"
+                    "routine '{symbol_name}' with mux[T] parameters cannot be used as a plain routine value in V3; call it directly instead"
                 ),
                 origin.clone().unwrap_or(SyntaxOrigin {
                     file: None,
@@ -2703,4 +3030,18 @@ pub(crate) fn symbol_type(
         ),
         fallback_origin,
     ))
+}
+
+/// Whether any part of a routine signature still names a generic parameter.
+/// Used to fence off imported generic routines, whose translated signatures
+/// carry the parameter types but not the generic parameter list needed to
+/// instantiate them.
+fn signature_mentions_generic_param(typed: &TypedProgram, signature: &RoutineType) -> bool {
+    signature
+        .params
+        .iter()
+        .copied()
+        .chain(signature.return_type)
+        .chain(signature.error_type)
+        .any(|type_id| crate::decls::checked_type_contains_generic_param(typed, type_id))
 }

@@ -40,6 +40,11 @@ pub enum LoweredType {
     Pointer {
         target: LoweredTypeId,
         shared: bool,
+        /// A `ptr[weak, T]` weak handle, rendered as `std::rc::Weak<T>`.
+        weak: bool,
+        /// A `ptr[shared, sync, T]` uses `std::sync::Arc` (thread-safe) instead
+        /// of `std::rc::Rc`, so it may cross task boundaries (V3_MEM §8.3).
+        sync: bool,
     },
     Array {
         element_type: LoweredTypeId,
@@ -55,6 +60,9 @@ pub enum LoweredType {
         element_type: LoweredTypeId,
     },
     ChannelSender {
+        element_type: LoweredTypeId,
+    },
+    ChannelReceiver {
         element_type: LoweredTypeId,
     },
     Eventual {
@@ -76,6 +84,11 @@ pub enum LoweredType {
     },
     Record {
         fields: BTreeMap<String, LoweredTypeId>,
+        /// True when the record's type claims `fin` custom finalization. This is
+        /// part of the interning key so a `fin` record is a distinct move-only
+        /// type from a structurally identical non-`fin` record (fin is nominal;
+        /// the record layout is otherwise structural).
+        finalized: bool,
     },
     Entry {
         variants: BTreeMap<String, Option<LoweredTypeId>>,
@@ -145,9 +158,15 @@ impl LoweredTypeTable {
                 // move across the boundary.
                 Some(LoweredType::GenericParameter { .. })
                 | Some(LoweredType::Owned { .. })
-                | Some(LoweredType::Pointer { shared: false, .. })
+                | Some(LoweredType::Pointer {
+                    shared: false,
+                    weak: false,
+                    ..
+                })
                 | Some(LoweredType::Eventual { .. })
-                | Some(LoweredType::Channel { .. }) => true,
+                | Some(LoweredType::Channel { .. })
+                // A `chn[rx, T]` receiver is unique: move-only, never cloned.
+                | Some(LoweredType::ChannelReceiver { .. }) => true,
                 Some(LoweredType::Array { element_type, .. })
                 | Some(LoweredType::Vector { element_type })
                 | Some(LoweredType::Sequence { element_type })
@@ -167,9 +186,11 @@ impl LoweredTypeTable {
                     moves(table, *key_type, visiting)
                         || moves(table, *value_type, visiting)
                 }
-                Some(LoweredType::Record { fields }) => fields
-                    .values()
-                    .any(|field| moves(table, *field, visiting)),
+                // A `fin` record is affine: it owns a finalizable resource and
+                // must move (never copy) so finalization runs exactly once.
+                Some(LoweredType::Record { fields, finalized }) => {
+                    *finalized || fields.values().any(|field| moves(table, *field, visiting))
+                }
                 Some(LoweredType::Entry { variants }) => variants
                     .values()
                     .flatten()
@@ -178,6 +199,8 @@ impl LoweredTypeTable {
                 | Some(LoweredType::Named { .. })
                 | Some(LoweredType::Borrowed { .. })
                 | Some(LoweredType::Pointer { shared: true, .. })
+                // A weak handle (`Weak<T>`) is clonable, not move-only.
+                | Some(LoweredType::Pointer { weak: true, .. })
                 | Some(LoweredType::ChannelSender { .. })
                 | Some(LoweredType::Routine(_))
                 | None => false,
@@ -223,6 +246,7 @@ impl LoweredTypeTable {
                 | Some(LoweredType::Sequence { element_type })
                 | Some(LoweredType::Channel { element_type })
                 | Some(LoweredType::ChannelSender { element_type })
+                | Some(LoweredType::ChannelReceiver { element_type })
                 | Some(LoweredType::Owned {
                     inner: element_type,
                 })
@@ -237,16 +261,16 @@ impl LoweredTypeTable {
                 | Some(LoweredType::Optional {
                     inner: element_type,
                 }) => contains(table, *element_type, predicate, visiting),
-                Some(LoweredType::Error { inner }) => inner
-                    .is_some_and(|inner| contains(table, inner, predicate, visiting)),
+                Some(LoweredType::Error { inner }) => {
+                    inner.is_some_and(|inner| contains(table, inner, predicate, visiting))
+                }
                 Some(LoweredType::Eventual {
                     value_type,
                     error_type,
                 }) => {
                     contains(table, *value_type, predicate, visiting)
-                        || error_type.is_some_and(|error| {
-                            contains(table, error, predicate, visiting)
-                        })
+                        || error_type
+                            .is_some_and(|error| contains(table, error, predicate, visiting))
                 }
                 Some(LoweredType::Set { member_types }) => member_types
                     .iter()
@@ -258,7 +282,7 @@ impl LoweredTypeTable {
                     contains(table, *key_type, predicate, visiting)
                         || contains(table, *value_type, predicate, visiting)
                 }
-                Some(LoweredType::Record { fields }) => fields
+                Some(LoweredType::Record { fields, .. }) => fields
                     .values()
                     .any(|field| contains(table, *field, predicate, visiting)),
                 Some(LoweredType::Entry { variants }) => variants
@@ -293,6 +317,7 @@ impl LoweredTypeTable {
             | LoweredType::Sequence { element_type }
             | LoweredType::Channel { element_type }
             | LoweredType::ChannelSender { element_type }
+            | LoweredType::ChannelReceiver { element_type }
             | LoweredType::Owned {
                 inner: element_type,
             }
@@ -328,7 +353,7 @@ impl LoweredTypeTable {
                 self.contains_generic_parameter(*key_type)
                     || self.contains_generic_parameter(*value_type)
             }
-            LoweredType::Record { fields } => fields
+            LoweredType::Record { fields, .. } => fields
                 .values()
                 .any(|field_type| self.contains_generic_parameter(*field_type)),
             LoweredType::Entry { variants } => variants
@@ -372,6 +397,7 @@ impl LoweredTypeTable {
             | LoweredType::Sequence { element_type }
             | LoweredType::Channel { element_type }
             | LoweredType::ChannelSender { element_type }
+            | LoweredType::ChannelReceiver { element_type }
             | LoweredType::Owned {
                 inner: element_type,
             }
@@ -394,9 +420,8 @@ impl LoweredTypeTable {
                 error_type,
             } => {
                 self.contains_generic_structural_type(*value_type)
-                    || error_type.is_some_and(|error_type| {
-                        self.contains_generic_structural_type(error_type)
-                    })
+                    || error_type
+                        .is_some_and(|error_type| self.contains_generic_structural_type(error_type))
             }
             LoweredType::Set { member_types } => member_types
                 .iter()
@@ -445,6 +470,7 @@ impl LoweredTypeTable {
             | LoweredType::Sequence { element_type }
             | LoweredType::Channel { element_type }
             | LoweredType::ChannelSender { element_type }
+            | LoweredType::ChannelReceiver { element_type }
             | LoweredType::Owned {
                 inner: element_type,
             }
@@ -485,7 +511,7 @@ impl LoweredTypeTable {
                 self.collect_generic_parameter_names(*key_type, out);
                 self.collect_generic_parameter_names(*value_type, out);
             }
-            LoweredType::Record { fields } => {
+            LoweredType::Record { fields, .. } => {
                 for field_type in fields.values() {
                     self.collect_generic_parameter_names(*field_type, out);
                 }
@@ -540,8 +566,12 @@ mod tests {
 
         let record_first = table.intern(LoweredType::Record {
             fields: fields.clone(),
+            finalized: false,
         });
-        let record_second = table.intern(LoweredType::Record { fields });
+        let record_second = table.intern(LoweredType::Record {
+            fields,
+            finalized: false,
+        });
         let routine = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![record_first],
             return_type: Some(record_first),
@@ -554,6 +584,7 @@ mod tests {
             table.get(record_first),
             Some(&LoweredType::Record {
                 fields: BTreeMap::from([("x".to_string(), int_id), ("y".to_string(), int_id),]),
+                finalized: false,
             })
         );
     }
@@ -565,16 +596,22 @@ mod tests {
         let unique = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: false,
+            weak: false,
+            sync: false,
         });
         let shared = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: true,
+            weak: false,
+            sync: false,
         });
         let unique_record = table.intern(LoweredType::Record {
             fields: BTreeMap::from([("value".to_string(), unique)]),
+            finalized: false,
         });
         let shared_record = table.intern(LoweredType::Record {
             fields: BTreeMap::from([("value".to_string(), shared)]),
+            finalized: false,
         });
         let unique_array = table.intern(LoweredType::Array {
             element_type: unique_record,
@@ -611,12 +648,15 @@ mod tests {
         let shared = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: true,
+            weak: false,
+            sync: false,
         });
         let nested = table.intern(LoweredType::Record {
             fields: BTreeMap::from([
                 ("view".to_string(), borrowed),
                 ("shared".to_string(), shared),
             ]),
+            finalized: false,
         });
 
         assert!(table.contains_borrowed(nested));

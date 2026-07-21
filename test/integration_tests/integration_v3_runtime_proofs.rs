@@ -55,7 +55,7 @@ fn write_hosted_app(name: &str, source: &str) -> std::path::PathBuf {
 }
 
 fn build_hosted_app(root: &std::path::Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_fol"))
+    Command::new(env!("CARGO_BIN_EXE_folc"))
         .args(["--package-store-root"])
         .arg(repo_root().join("lang/library"))
         .args(["code", "build", "--keep-build-dir"])
@@ -245,8 +245,8 @@ fn simultaneously_ready_select_arms_prefer_source_order() {
              fun[] main(): int = {\n\
              \x20   var first: chn[int];\n\
              \x20   var second: chn[int];\n\
-             \x20   19 | first[tx];\n\
-             \x20   23 | second[tx];\n\
+             \x20   var sent_first: err[int] = 19 | first[tx];\n\
+             \x20   var sent_second: err[int] = 23 | second[tx];\n\
              \x20   var[mut] selected: int = 0;\n\
              \x20   select {\n\
              \x20       when first as value { selected = value; }\n\
@@ -266,11 +266,11 @@ fn move_only_pointer_payload_crosses_a_channel() {
         "use std: pkg = {\"std\"};\n\
              fun[] main(): int = {\n\
              \x20   var seed: int = 42;\n\
-             \x20   var pointer: ptr[int] = &seed;\n\
+             \x20   var pointer: ptr[int] = [ref]seed;\n\
              \x20   var channel: chn[ptr[int]];\n\
-             \x20   pointer | channel[tx];\n\
-             \x20   var received: ptr[int] = channel[rx];\n\
-             \x20   return std::io::echo_int(*received);\n\
+             \x20   var sent: err[ptr[int]] = [mov]pointer | channel[tx];\n\
+             \x20   var received: opt[ptr[int]] = channel[rx];\n\
+             \x20   return std::io::echo_int([drf]received[]);\n\
              };\n",
     );
     assert_successful_stdout(&root, "42\n");
@@ -284,15 +284,453 @@ fn move_only_pointer_result_crosses_an_eventual() {
         "use std: pkg = {\"std\"};\n\
              fun[] make_pointer(value: int): ptr[int] = {\n\
              \x20   var copy: int = value;\n\
-             \x20   var pointer: ptr[int] = &copy;\n\
-             \x20   return pointer;\n\
+             \x20   var pointer: ptr[int] = [ref]copy;\n\
+             \x20   return [mov]pointer;\n\
              };\n\
              fun[] main(): int = {\n\
              \x20   var pending = make_pointer(42) | async;\n\
              \x20   var received: ptr[int] = pending | await;\n\
-             \x20   return std::io::echo_int(*received);\n\
+             \x20   return std::io::echo_int([drf]received);\n\
              };\n",
     );
     assert_successful_stdout(&root, "42\n");
     std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn global_constants_read_their_declared_initializers() {
+    // Globals lazily materialized through their DECLARED initializer; the
+    // pre-fix OnceLock initialized from the type default, so `con LIMIT: int
+    // = 9` silently read 0 and `con` globals rendered as mutable.
+    let root = write_hosted_app(
+        "v3_global_initializers",
+        "use std: pkg = {\"std\"};\n\
+             typ Counter: rec = { total: int };\n\
+             con LIMIT: int = 4;\n\
+             con BASE: Counter = { total = 9 };\n\
+             fun[] main(): int = {\n\
+             \x20   std::io::echo_int(LIMIT);\n\
+             \x20   return std::io::echo_int([cpy]BASE.total);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "4\n9\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn destructuring_binds_positional_elements() {
+    // `var a, b = { x, y }` destructures positionally (book unpacking); the
+    // pre-fix parser broadcast the whole container into every binding.
+    let root = write_hosted_app(
+        "v3_destructuring",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var first, second = { 7, 8 };\n\
+             \x20   std::io::echo_int(first * 10 + second);\n\
+             \x20   var xs: vec[int] = { 5, 6, 7 };\n\
+             \x20   var a, b, c = xs;\n\
+             \x20   return std::io::echo_int(a * 100 + b * 10 + c);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "78\n567\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn entry_members_resolve_through_dot_access() {
+    // Entries are groups of named constants accessed as `Type.MEMBER`
+    // (`::` stays a namespace path). A bare member access types as the entry
+    // itself and coerces to its payload only under an explicit expectation.
+    // No prior example exercised entries at runtime, so pin both reads.
+    let root = write_hosted_app(
+        "v3_entry_members",
+        "use std: pkg = {\"std\"};\n\
+             typ Color: ent = {\n\
+             \x20   con RED: int = 2,\n\
+             \x20   con BLUE: int = 5,\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   std::io::echo_int(Color.RED);\n\
+             \x20   var red: int = Color.RED;\n\
+             \x20   var blue: int = Color.BLUE;\n\
+             \x20   return std::io::echo_int(blue + red);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "2\n7\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn whole_reassignment_restores_a_partially_moved_binding() {
+    // §3.2: moving one field invalidates only that field, and whole-binding
+    // reassignment of the (reassignable) root restores every field. The
+    // restored aggregate is fully readable afterwards.
+    let root = write_hosted_app(
+        "v3_partial_move_restore",
+        "use std: pkg = {\"std\"};\n\
+             typ Pair: rec = { a: str, b: int };\n\
+             fun[] main(): int = {\n\
+             \x20   var pair: Pair = { a = \"x\", b = 1 };\n\
+             \x20   var taken: str = [mov]pair.a;\n\
+             \x20   std::io::echo_int(pair.b);\n\
+             \x20   pair = { a = \"y\", b = 2 };\n\
+             \x20   std::io::echo_int(pair.b);\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "1\n2\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn if_statements_branch_on_the_condition_value() {
+    // `if` desugars to `when (cond) { case (true) ... * ... }`; the case value
+    // must be the literal `true`, never a re-evaluation of the condition (a
+    // self-comparison always matched, so every `if` took its then-branch).
+    // Pins: false condition takes else, true condition takes then, an
+    // else-less false `if` skips, and a following block/`if` statement is
+    // independent — never silently absorbed as an else-branch.
+    let root = write_hosted_app(
+        "v3_if_branching",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var x: int = 1;\n\
+             \x20   if (x > 3) {\n\
+             \x20       std::io::echo_int(99);\n\
+             \x20   } else {\n\
+             \x20       std::io::echo_int(7);\n\
+             \x20   };\n\
+             \x20   if (x < 3) {\n\
+             \x20       std::io::echo_int(11);\n\
+             \x20   }\n\
+             \x20   {\n\
+             \x20       std::io::echo_int(12);\n\
+             \x20   };\n\
+             \x20   if (x > 100) {\n\
+             \x20       std::io::echo_int(88);\n\
+             \x20   }\n\
+             \x20   if (x < 100) {\n\
+             \x20       std::io::echo_int(13);\n\
+             \x20   };\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "7\n11\n12\n13\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn move_capture_carries_an_owned_pointer_into_a_spawned_task() {
+    // A spawned task captures an owned `ptr[int]` by `[mov]` (V3_MEM §2.3 value
+    // capture / V3_PROC owned spawn capture): the pointer moves whole into the
+    // task environment, is dereferenced there, and its value is sent back over a
+    // captured sender endpoint.
+    let root = write_hosted_app(
+        "v3_spawn_move_capture",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var seed: int = 7;\n\
+             \x20   var pointer: ptr[int] = [ref]seed;\n\
+             \x20   var channel: chn[int];\n\
+             \x20   [>]fun()[pointer[mov], channel[tx]] = {\n\
+             \x20       var sent: err[int] = [drf]pointer | channel[tx];\n\
+             \x20   };\n\
+             \x20   var received: opt[int] = channel[rx];\n\
+             \x20   return std::io::echo_int(received[]);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "7\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn copy_capture_duplicates_a_value_into_a_task_and_keeps_the_source_live() {
+    // A spawned task captures a `copy` value by `[cpy]`: an independent copy
+    // crosses the spawn boundary (sent back as 9) while the outer binding stays
+    // usable (9), so the program echoes 18. Contrasts with `[mov]`, which would
+    // consume the source.
+    let root = write_hosted_app(
+        "v3_spawn_copy_capture",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var amount: int = 9;\n\
+             \x20   var channel: chn[int];\n\
+             \x20   [>]fun()[amount[cpy], channel[tx]] = {\n\
+             \x20       var sent: err[int] = amount | channel[tx];\n\
+             \x20   };\n\
+             \x20   var received: opt[int] = channel[rx];\n\
+             \x20   var still_here: int = amount;\n\
+             \x20   return std::io::echo_int(still_here + received[]);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "18\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn clone_capture_duplicates_a_clonable_record_and_keeps_the_source_live() {
+    // A spawned task captures a clonable (non-copy) record by `[cln]`: an
+    // independent clone crosses the spawn boundary (its `value` sent back as 9)
+    // while the outer binding stays usable (9), so the program echoes 18. The
+    // `str` field makes the record genuinely clone-not-copy.
+    let root = write_hosted_app(
+        "v3_spawn_clone_capture",
+        "use std: pkg = {\"std\"};\n\
+             typ Item: rec = {\n\
+             \x20   value: int,\n\
+             \x20   tag: str\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var item: Item = { value = 9, tag = \"hi\" };\n\
+             \x20   var channel: chn[int];\n\
+             \x20   [>]fun()[item[cln], channel[tx]] = {\n\
+             \x20       var sent: err[int] = item.value | channel[tx];\n\
+             \x20   };\n\
+             \x20   var received: opt[int] = channel[rx];\n\
+             \x20   var still: int = item.value;\n\
+             \x20   return std::io::echo_int(still + received[]);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "18\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn mux_wrap_transfers_the_owner_into_one_mutex() {
+    // Wrapping an owner into a mux[T] parameter requires `[mov]` and hands the
+    // state to exactly one mutex. The pre-fix implicit wrap copied the owner
+    // per boundary, so increments made under one wrap were silently lost when
+    // the same binding was wrapped again.
+    let root = write_hosted_app(
+        "v3_mux_wrap_transfer",
+        "use std: pkg = {\"std\"};\n\
+             typ Counter: rec = { value: int };\n\
+             fun[] coordinate(counter: mux[Counter]): int = {\n\
+             \x20   [>]bump(counter);\n\
+             \x20   [>]bump(counter);\n\
+             \x20   return 0;\n\
+             };\n\
+             fun[] bump(counter: mux[Counter]): int = {\n\
+             \x20   counter.lock();\n\
+             \x20   counter.value = counter.value + 1;\n\
+             \x20   return std::io::echo_int(counter.value);\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var counter: Counter = { value = 0 };\n\
+             \x20   coordinate([mov]counter);\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    // Increments serialize under one lock: the second task must observe the
+    // first task's increment, whatever the scheduling order.
+    assert_successful_stdout(&root, "1\n2\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn captured_closures_are_callable_inside_closure_bodies() {
+    // A closure may capture another closure by `[mov]` and call it: the call
+    // resolves to the capture binding, not the (frozen) outer local. The
+    // pre-fix call path skipped Capture symbols entirely and misreported the
+    // explicit capture as an unsupported implicit one.
+    let root = write_hosted_app(
+        "v3_closure_captures_closure",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var base: int = 3;\n\
+             \x20   var inner: {fun (): int} = fun()[base[cpy]]: int = { return base; };\n\
+             \x20   var outer: {fun (): int} = fun()[inner[mov]]: int = { return inner() + 1; };\n\
+             \x20   return std::io::echo_int(outer());\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "4\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn else_less_if_guards_fall_through_and_terminate() {
+    // A bare `if` guard desugars to a `when` with an EMPTY synthesized
+    // default arm; that arm yields no value, so the when must lower as a
+    // statement. The pre-fix router classified it as value-producing and
+    // lowering died with L1002 on every else-less early-return/report guard.
+    let root = write_hosted_app(
+        "v3_if_guard_fallthrough",
+        "use std: pkg = {\"std\"};\n\
+             fun[] pick(flag: int): int = {\n\
+             \x20   if (flag > 0) {\n\
+             \x20       return 1;\n\
+             \x20   }\n\
+             \x20   return 7;\n\
+             };\n\
+             fun[] risky(flag: int): int / int = {\n\
+             \x20   if (flag > 0) {\n\
+             \x20       report 99;\n\
+             \x20   }\n\
+             \x20   return 8;\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   std::io::echo_int(pick(1));\n\
+             \x20   std::io::echo_int(pick(0));\n\
+             \x20   std::io::echo_int(risky(1) || 3);\n\
+             \x20   return std::io::echo_int(risky(0) || 3);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "1\n7\n3\n8\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn integer_division_faults_present_as_fol_runtime_faults() {
+    // Division/modulo by zero panic per the arithmetics chapter, but the
+    // message must be a fol runtime fault, not a raw Rust panic pointing
+    // into generated code paths.
+    let root = write_hosted_app(
+        "v3_div_zero_fault",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var a: int = 10;\n\
+             \x20   var b: int = 0;\n\
+             \x20   return std::io::echo_int(a / b);\n\
+             };\n",
+    );
+    let build = assert_build_succeeds(&root);
+    let run = run_with_timeout(&built_binary_path(&build), Duration::from_secs(5));
+    assert!(!run.timed_out, "the faulting division should not hang");
+    assert!(!run.output.status.success());
+    assert!(
+        String::from_utf8_lossy(&run.output.stderr).contains("fol runtime fault: division by zero"),
+        "stderr should carry the branded fault: {}",
+        String::from_utf8_lossy(&run.output.stderr)
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lifetime_spelled_eventuals_flow_through_signatures_and_await() {
+    // §8.1 conservative region model: with all storage escapes rejected, an
+    // eventual travels only through `evt[L, T]`-spelled signatures and local
+    // moves. Pin the full legal journey: spawn, pass down, forward back up,
+    // await in a callee.
+    let root = write_hosted_app(
+        "v3_evt_lifetime_roundtrip",
+        "use std: pkg = {\"std\"};\n\
+             fun[] work(value: int): int = {\n\
+             \x20   return value + 1;\n\
+             };\n\
+             fun forward(L: lif)(pending: evt[L, int]): evt[L, int] = {\n\
+             \x20   return [mov]pending;\n\
+             };\n\
+             fun consume(L: lif)(pending: evt[L, int]): int = {\n\
+             \x20   return pending | await;\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var pending: evt[int] = work(40) | async;\n\
+             \x20   var routed: evt[int] = forward([mov]pending);\n\
+             \x20   return std::io::echo_int(consume([mov]routed) + 1);\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "42\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn terminal_primitives_write_convert_and_keep_time() {
+    // The TUI primitive layer: `.write` emits without a newline (two writes
+    // land on one line), `int_to_str` renders decimals, `sleep_ms` forwards
+    // its duration, and `now_ms` yields a positive epoch stamp.
+    let root = write_hosted_app(
+        "v3_terminal_primitives",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var left: str = std::io::write(\"4\");\n\
+             \x20   var right: str = std::io::write(\"2\\n\");\n\
+             \x20   var rendered: str = std::fmt::int_to_str(-137);\n\
+             \x20   var echoed: str = std::io::echo_str(rendered);\n\
+             \x20   std::io::echo_int(std::time::sleep_ms(1));\n\
+             \x20   var stamp: int = std::time::now_ms();\n\
+             \x20   if (stamp > 0) {\n\
+             \x20       std::io::echo_int(1);\n\
+             \x20   }\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "42\n-137\n1\n1\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn string_primitives_slice_index_and_absorb_chars() {
+    // The text-shaping primitive layer: byte-range substrings, byte reads,
+    // byte-to-string conversion, and `+` absorbing one-character literals
+    // (which type as `chr`) on either side of a string.
+    let root = write_hosted_app(
+        "v3_string_primitives",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var text: str = \"hello world\";\n\
+             \x20   var head: str = std::strn::sub(text, 0, 5);\n\
+             \x20   var echoed: str = std::io::echo_str(head + \"!\");\n\
+             \x20   std::io::echo_int(std::strn::byte_at(text, 0));\n\
+             \x20   std::io::echo_int(std::strn::byte_at(text, 99));\n\
+             \x20   var q: str = std::strn::from_byte(113);\n\
+             \x20   var wrapped: str = std::io::echo_str(\"<\" + q + \">\");\n\
+             \x20   var padded: str = \"0\" + std::fmt::int_to_str(7);\n\
+             \x20   var shown: str = std::io::echo_str(padded);\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "hello!\n104\n-1\n<q>\n07\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn env_and_shell_hooks_read_the_host() {
+    // `std::env` yields the variable or an empty string; `std::shell` runs a
+    // command and forwards its exit code.
+    let root = write_hosted_app(
+        "v3_env_shell",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var missing: str = std::env(\"FOL_DEFINITELY_UNSET_VAR\");\n\
+             \x20   std::io::echo_int(.len(missing));\n\
+             \x20   var home: str = std::env(\"HOME\");\n\
+             \x20   if (.len(home) > 0) {\n\
+             \x20       std::io::echo_int(1);\n\
+             \x20   }\n\
+             \x20   std::io::echo_int(std::shell(\"exit 3\"));\n\
+             \x20   std::io::echo_int(std::shell(\"true\"));\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "0\n1\n3\n0\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn filesystem_hooks_list_and_read() {
+    // `std::dir_list` yields sorted entries (dirs slash-suffixed);
+    // `std::read_file` yields contents or an empty string.
+    let staging = unique_temp_root("v3_fs_hooks_data");
+    std::fs::create_dir_all(staging.join("inner")).expect("fs hook staging dir");
+    std::fs::write(staging.join("note.txt"), "steep").expect("fs hook staging file");
+    let root = write_hosted_app(
+        "v3_fs_hooks",
+        &("use std: pkg = {\"std\"};\n".to_string()
+            + &format!(
+                "fun[] main(): int = {{\n\
+             \x20   var entries: str = std::dir_list(\"{dir}\");\n\
+             \x20   var shown: str = std::io::echo_str(entries);\n\
+             \x20   var source: str = std::read_file(\"{dir}/note.txt\");\n\
+             \x20   if (source == \"steep\") {{\n\
+             \x20       std::io::echo_int(1);\n\
+             \x20   }}\n\
+             \x20   std::io::echo_int(.len(std::read_file(\"no/such/file\")));\n\
+             \x20   return 0;\n\
+             }};\n",
+                dir = staging.display()
+            )),
+    );
+    assert_successful_stdout(&root, "inner/\nnote.txt\n1\n0\n");
+    std::fs::remove_dir_all(root).ok();
+    std::fs::remove_dir_all(staging).ok();
 }

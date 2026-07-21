@@ -8,11 +8,12 @@ pub use crate::aggregate::{
     render_echo, render_entry, render_entry_debug, render_record, render_record_debug,
     FolEchoFormat, FolEntry, FolNamedValue, FolRecord,
 };
-pub use crate::builtins::{len, pow, pow_float, FolLength};
+pub use crate::builtins::{div_int, len, mod_int, pow, pow_float, FolLength};
 pub use crate::containers::{
     index_array, index_seq, index_set, index_vec, lookup_map, render_array, render_map, render_seq,
     render_set, render_vec, slice_seq, slice_vec, FolArray,
 };
+pub use crate::error::require;
 pub use crate::shell::{
     unwrap_error_shell, unwrap_error_shell_ref, unwrap_optional_shell, unwrap_optional_shell_ref,
     FolError, FolOption,
@@ -117,6 +118,26 @@ impl Add for FolStr {
 
     fn add(self, rhs: FolStr) -> FolStr {
         FolStr(self.0 + &rhs.0)
+    }
+}
+
+impl Add<char> for FolStr {
+    type Output = FolStr;
+
+    fn add(mut self, rhs: char) -> FolStr {
+        self.0.push(rhs);
+        self
+    }
+}
+
+impl Add<FolStr> for char {
+    type Output = FolStr;
+
+    fn add(self, rhs: FolStr) -> FolStr {
+        let mut built = String::with_capacity(rhs.0.len() + self.len_utf8());
+        built.push(self);
+        built.push_str(&rhs.0);
+        FolStr(built)
     }
 }
 

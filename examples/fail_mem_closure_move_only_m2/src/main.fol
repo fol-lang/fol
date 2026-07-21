@@ -1,0 +1,10 @@
+// A routine value may run more than once, so its environment re-materializes
+// on every call (V3_MEM section 2.3). Moving a move-only value into a
+// first-class closure is rejected; spawn the routine directly instead.
+
+fun[] main(): int = {
+    var seed: int = 7;
+    var owned: ptr[int] = [ref]seed;
+    var reader: {fun (): int} = fun()[owned[mov]]: int = { return [drf]owned; };
+    return reader();
+};

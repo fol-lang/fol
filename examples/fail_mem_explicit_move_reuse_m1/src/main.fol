@@ -1,0 +1,16 @@
+// An explicit `[mov]` transfers ownership and invalidates the source even when
+// the type is copy-safe: the compiler must not silently treat `[mov]` as a copy
+// (V3_MEM §2.1). Reading `slot` after it has been moved is a use-after-move,
+// rejected with O1001 rather than quietly duplicating the value.
+
+typ Item: rec = { value: int };
+
+fun[] take(item: Item): int = {
+    return item.value;
+};
+
+fun[] main(): int = {
+    var[mut] slot: Item = { value = 1 };
+    var first: int = take([mov]slot);
+    return first + take([mov]slot);
+};

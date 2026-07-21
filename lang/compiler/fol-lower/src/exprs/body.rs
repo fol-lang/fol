@@ -6,7 +6,7 @@ use super::calls::{
 use super::cursor::{DeferScopeKind, LoweredValue, RoutineCursor, WorkspaceDeclIndex};
 use super::expressions::{
     direct_local_identifier_value, lower_channel_send, lower_expression, lower_expression_expected,
-    lower_invoke,
+    lower_invoke, method_receiver_place,
 };
 use super::flow::{
     lower_loop_statement, lower_when_statement, when_always_terminates, when_has_statement_branch,
@@ -166,6 +166,7 @@ pub(crate) fn lower_routine_bodies(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_body_nodes(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -199,6 +200,7 @@ fn lower_body_nodes(
     Ok(cursor.anonymous_routines)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_body_sequence(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -213,6 +215,20 @@ pub(crate) fn lower_body_sequence(
 ) -> Result<Option<super::cursor::LoweredValue>, LoweringError> {
     let entry_depth = cursor.defer_scope_depth();
     cursor.push_defer_scope(defer_scope_kind);
+    // At the routine's outermost scope, a `fin` value received by value is owned
+    // by this routine, so this routine finalizes it when the scope exits (unless
+    // it is moved onward). Register each fin parameter for finalization here
+    // (V3_MEM §6.1 move-with-finalization).
+    if entry_depth == 0 {
+        register_fin_params(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+        )?;
+    }
     let mut final_value = None;
 
     for node in nodes {
@@ -253,6 +269,7 @@ pub(crate) fn lower_body_sequence(
                 false,
             )?;
             lower_mutex_unlocks(cursor, deferred.mutex_guards)?;
+            lower_finalizations(typed_package, cursor, deferred.finalizations)?;
             lower_lexical_drops(cursor, deferred.lexical_drops)?;
         }
     }
@@ -286,6 +303,107 @@ fn lower_mutex_unlocks(
     Ok(())
 }
 
+/// Register every `fin`-typed parameter of the current routine for finalization
+/// at its outermost scope exit. A fin value received by value is owned by the
+/// callee, which must finalize it (V3_MEM §6.1). Moved-onward params are skipped
+/// at emission via the same move-state check as locals.
+fn register_fin_params(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+) -> Result<(), LoweringError> {
+    // The receiver of a method (param 0 when the routine has a receiver) is not
+    // auto-finalized: it is owned by the caller, and for the `finalize` method
+    // itself finalizing the receiver would recurse infinitely.
+    let param_start = if cursor.routine.receiver_type.is_some() {
+        1
+    } else {
+        0
+    };
+    let fin_params: Vec<(
+        crate::ids::LoweredLocalId,
+        LoweredTypeId,
+        fol_resolver::SymbolId,
+    )> = cursor
+        .routine
+        .params
+        .iter()
+        .skip(param_start)
+        .filter_map(|param| {
+            let type_id = cursor.routine.locals.get(*param)?.type_id?;
+            if !matches!(
+                type_table.get(type_id),
+                Some(crate::LoweredType::Record {
+                    finalized: true,
+                    ..
+                })
+            ) {
+                return None;
+            }
+            let symbol = cursor
+                .routine
+                .local_symbols
+                .iter()
+                .find_map(|(symbol, local)| (*local == *param).then_some(*symbol))?;
+            Some((*param, type_id, symbol))
+        })
+        .collect();
+    for (param, type_id, symbol) in fin_params {
+        let (_callee_identity, callee) = super::calls::resolve_method_target(
+            typed_package,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            "finalize",
+            type_id,
+            None,
+        )?;
+        cursor.register_finalization(super::cursor::FinalizeEntry {
+            local: param,
+            symbol,
+            callee,
+        })?;
+    }
+    Ok(())
+}
+
+/// Emit each `fin` local's custom finalizer at scope exit, in reverse
+/// initialization order (V3_MEM §6.2), before the structural drops. A local that
+/// has been moved out of its declaring scope is skipped: its new owner is
+/// responsible for finalizing it, so finalizing the moved-from sentinel here
+/// would run the finalizer on a stale value.
+fn lower_finalizations(
+    typed_package: &fol_typecheck::TypedPackage,
+    cursor: &mut RoutineCursor<'_>,
+    finalizations: Vec<super::cursor::FinalizeEntry>,
+) -> Result<(), LoweringError> {
+    for entry in finalizations.into_iter().rev() {
+        if cursor.current_block_terminated()? {
+            break;
+        }
+        if typed_package
+            .program
+            .moved_binding_origin(entry.symbol)
+            .is_some()
+        {
+            continue;
+        }
+        cursor.push_instr(
+            None,
+            crate::LoweredInstrKind::Call {
+                callee: entry.callee,
+                args: vec![entry.local],
+                error_type: None,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn lower_deferred_entries(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -380,6 +498,7 @@ fn lower_all_active_defers(
             break;
         }
         lower_mutex_unlocks(cursor, scope.mutex_guards)?;
+        lower_finalizations(typed_package, cursor, scope.finalizations)?;
         lower_lexical_drops(cursor, scope.lexical_drops)?;
     }
     Ok(())
@@ -412,6 +531,7 @@ fn lower_defers_until_loop_exit(
             return Ok(());
         }
         lower_mutex_unlocks(cursor, scope.mutex_guards)?;
+        lower_finalizations(typed_package, cursor, scope.finalizations)?;
         lower_lexical_drops(cursor, scope.lexical_drops)?;
     }
     Ok(())
@@ -461,6 +581,7 @@ pub(crate) fn lower_panic_terminator(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_body_node(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -505,6 +626,81 @@ pub(crate) fn lower_body_node(
                 SymbolKind::ValueBinding,
                 value.as_deref(),
             )?;
+            Ok(None)
+        }
+        AstNode::DestructureDecl { pattern, value, .. } => {
+            // Fixed-name destructuring: lower the initializer once, then bind
+            // each name to a positional index read (rest patterns are staged
+            // and rejected at typecheck).
+            let container = lower_expression(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                value,
+            )?;
+            let parts: Vec<&fol_parser::ast::BindingPattern> = match pattern {
+                fol_parser::ast::BindingPattern::Sequence(parts) => parts.iter().collect(),
+                single => vec![single],
+            };
+            let int_type = type_table
+                .find(&crate::LoweredType::Builtin(crate::LoweredBuiltinType::Int))
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "destructuring lost the lowered int index type",
+                    )
+                })?;
+            for (position, part) in parts.iter().enumerate() {
+                let fol_parser::ast::BindingPattern::Name(name, _) = part else {
+                    return Err(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        "rest patterns in destructuring are not yet supported",
+                    ));
+                };
+                let symbol = crate::decls::find_symbol_in_scope_or_descendants(
+                    &typed_package.program,
+                    source_unit_id,
+                    scope_id,
+                    SymbolKind::DestructureBinding,
+                    name,
+                )
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("destructured binding '{name}' lost its lowering symbol"),
+                    )
+                })?;
+                let binding_type = typed_package
+                    .program
+                    .typed_symbol(symbol)
+                    .and_then(|symbol| symbol.declared_type)
+                    .and_then(|checked| checked_type_map.get(&checked).copied())
+                    .ok_or_else(|| {
+                        LoweringError::with_kind(
+                            LoweringErrorKind::InvalidInput,
+                            format!("destructured binding '{name}' lost its lowered type"),
+                        )
+                    })?;
+                let index_local = cursor.allocate_local(int_type, None);
+                cursor.push_instr(
+                    Some(index_local),
+                    crate::LoweredInstrKind::Const(crate::LoweredOperand::Int(position as i64)),
+                )?;
+                let element_local = cursor.allocate_local(binding_type, Some(name.clone()));
+                cursor.push_instr(
+                    Some(element_local),
+                    crate::LoweredInstrKind::IndexAccess {
+                        container: container.local_id,
+                        index: index_local,
+                    },
+                )?;
+                cursor.routine.local_symbols.insert(symbol, element_local);
+            }
             Ok(None)
         }
         AstNode::LabDecl {
@@ -599,7 +795,16 @@ pub(crate) fn lower_body_node(
                         format!("give-back target '{name}' is not a lowered local"),
                     )
                 })?;
-            cursor.push_instr(None, crate::LoweredInstrKind::GiveBackBorrow { borrow })?;
+            // A guard-VALUE binding aliases its mutex local (see
+            // `exprs/bindings.rs`). Ending it early drops the Rust guard now via
+            // an explicit unlock, releasing the lock before scope exit (V3_MEM
+            // §8.3: "'[end]guard' or NLL unlocks it"). Releasing it here also
+            // removes it from the scope's unlock set so it is not dropped twice.
+            if cursor.release_mutex_guard(borrow) {
+                cursor.push_instr(None, crate::LoweredInstrKind::MutexUnlock { mutex: borrow })?;
+            } else {
+                cursor.push_instr(None, crate::LoweredInstrKind::GiveBackBorrow { borrow })?;
+            }
             Ok(None)
         }
         AstNode::Return { value } => match value.as_deref() {
@@ -699,7 +904,7 @@ pub(crate) fn lower_body_node(
             )?;
             Ok(None)
         }
-        AstNode::Spawn { task } => {
+        AstNode::Spawn { task, detached } => {
             lower_spawn_call(
                 typed_package,
                 type_table,
@@ -710,6 +915,7 @@ pub(crate) fn lower_body_node(
                 source_unit_id,
                 scope_id,
                 task,
+                *detached,
             )?;
             Ok(None)
         }
@@ -874,7 +1080,16 @@ pub(crate) fn lower_body_node(
         // Routine-local imports bind an alias during resolution; they have
         // no runtime effect, so lowering skips them.
         AstNode::UseDecl { .. } => Ok(None),
-        AstNode::Dfr { syntax_id, body } | AstNode::Edf { syntax_id, body } => {
+        AstNode::Dfr {
+            syntax_id,
+            body,
+            captures: _,
+        }
+        | AstNode::Edf {
+            syntax_id,
+            body,
+            captures: _,
+        } => {
             let error_only = matches!(node, AstNode::Edf { .. });
             let construct = if error_only { "edf block" } else { "dfr block" };
             let deferred_scope_id =
@@ -1016,7 +1231,6 @@ pub(crate) fn lower_body_node(
             let error_type = typed_node
                 .and_then(|node| node.recoverable_effect)
                 .and_then(|effect| checked_type_map.get(&effect.error_type).copied());
-            let mut lowered_args = vec![receiver.local_id];
             let param_types = decl_index
                 .routine_param_types(&callee_identity, callee)
                 .ok_or_else(|| {
@@ -1026,6 +1240,38 @@ pub(crate) fn lower_body_node(
                     )
                 })?
                 .to_vec();
+            // An ownership-annotated receiver (`fun (Type[bor])m()` /
+            // `pro (Type[mut, bor])m()`) auto-borrows the object (V3_MEM §4.2/
+            // §8.3). Borrow the object's PLACE (binding local), not a value copy,
+            // so a `[mut, bor]` receiver's mutations reach the original binding.
+            let receiver_arg = match param_types
+                .first()
+                .and_then(|type_id| type_table.get(*type_id))
+            {
+                Some(crate::LoweredType::Borrowed { mutable, .. }) => {
+                    let borrow_type = param_types[0];
+                    let mutable = *mutable;
+                    let owner = direct_local_identifier_value(
+                        typed_package,
+                        cursor,
+                        method_receiver_place(object),
+                    )
+                    .map(|value| value.local_id)
+                    .unwrap_or(receiver.local_id);
+                    let borrow_local = cursor.allocate_local(borrow_type, None);
+                    cursor.push_instr(
+                        Some(borrow_local),
+                        crate::LoweredInstrKind::ConstructBorrow {
+                            type_id: borrow_type,
+                            owner,
+                            mutable,
+                        },
+                    )?;
+                    borrow_local
+                }
+                _ => receiver.local_id,
+            };
+            let mut lowered_args = vec![receiver_arg];
             let param_names = decl_index
                 .routine_param_names(&callee_identity, callee)
                 .ok_or_else(|| {

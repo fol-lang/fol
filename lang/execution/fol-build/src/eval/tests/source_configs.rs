@@ -350,9 +350,15 @@ fn build_source_evaluator_supports_object_style_system_tool_configs() {
     assert_eq!(system_tool.args, vec!["--fol".to_string()]);
     assert_eq!(
         system_tool.file_args,
-        vec!["schema/api.yaml".to_string(), "gen/defaults.txt".to_string()]
+        vec![
+            "schema/api.yaml".to_string(),
+            "gen/defaults.txt".to_string()
+        ]
     );
-    assert_eq!(system_tool.env.get("MODE").map(String::as_str), Some("strict"));
+    assert_eq!(
+        system_tool.env.get("MODE").map(String::as_str),
+        Some("strict")
+    );
 }
 
 #[test]
@@ -925,8 +931,8 @@ fn build_source_evaluator_resolves_deferred_artifact_option_values_into_runtime_
         .expect("artifact should exist");
 
     assert_eq!(artifact.root_module, "src/demo.fol");
-    assert_eq!(artifact.target.as_deref(), Some("x86_64-linux-gnu"));
-    assert_eq!(artifact.optimize.as_deref(), Some("release-fast"));
+    assert_eq!(artifact.target.as_str(), "x86_64-unknown-linux-gnu");
+    assert_eq!(artifact.optimize, BuildOptimizeMode::ReleaseFast);
 }
 
 #[test]
@@ -970,8 +976,234 @@ fn build_source_evaluator_applies_build_inputs_and_option_overrides_to_artifact_
         .expect("artifact should exist");
 
     assert_eq!(artifact.root_module, "src/cli-selected.fol");
-    assert_eq!(artifact.target.as_deref(), Some("aarch64-macos-gnu"));
-    assert_eq!(artifact.optimize.as_deref(), Some("release-small"));
+    assert_eq!(artifact.target.as_str(), "aarch64-apple-darwin");
+    assert_eq!(artifact.optimize, BuildOptimizeMode::ReleaseSmall);
+}
+
+#[test]
+fn build_source_evaluator_preserves_independent_artifact_configs_from_the_final_graph() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    graph.add_exe({ name = \"app\", root = \"src/app.fol\", fol_model = \"core\", target = \"aarch64-linux-gnu\", optimize = \"release-fast\" });\n",
+        "    graph.add_test({ name = \"tests\", root = \"test/app.fol\", fol_model = \"memo\", target = \"x86_64-linux-musl\", optimize = \"release-small\" });\n",
+        "    graph.add_static_lib({ name = \"support\", root = \"src/support.fol\" });\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let evaluated = evaluate_build_source(&request, &build_path, source)
+        .expect("mixed artifact configs should evaluate")
+        .expect("build body should produce a graph");
+    let graph_artifacts = evaluated.result.graph.artifacts();
+    let runtime_artifacts = &evaluated.evaluated.artifacts;
+    let host = fol_types::ResolvedTarget::host().unwrap();
+
+    assert_eq!(graph_artifacts.len(), 3);
+    assert_eq!(runtime_artifacts.len(), 3);
+    assert_eq!(graph_artifacts[0].root_module, "src/app.fol");
+    assert_eq!(graph_artifacts[0].fol_model, BuildArtifactFolModel::Core);
+    assert_eq!(
+        graph_artifacts[0].target.as_str(),
+        "aarch64-unknown-linux-gnu"
+    );
+    assert_eq!(graph_artifacts[0].optimize, BuildOptimizeMode::ReleaseFast);
+    assert_eq!(
+        graph_artifacts[1].kind,
+        crate::graph::BuildArtifactKind::Test
+    );
+    assert_eq!(
+        runtime_artifacts[1].kind,
+        crate::runtime::BuildRuntimeArtifactKind::Test
+    );
+    assert_eq!(runtime_artifacts[1].root_module, "test/app.fol");
+    assert_eq!(
+        runtime_artifacts[1].target.as_str(),
+        "x86_64-unknown-linux-musl"
+    );
+    assert_eq!(
+        runtime_artifacts[1].optimize,
+        BuildOptimizeMode::ReleaseSmall
+    );
+    assert_eq!(graph_artifacts[2].target, host);
+    assert_eq!(runtime_artifacts[2].target, host);
+    assert_eq!(graph_artifacts[2].optimize, BuildOptimizeMode::Debug);
+    assert_eq!(runtime_artifacts[2].optimize, BuildOptimizeMode::Debug);
+}
+
+#[test]
+fn explicit_cli_target_and_optimize_override_literal_artifact_values() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    graph.add_exe({ name = \"app\", root = \"src/app.fol\", target = \"aarch64-linux-gnu\", optimize = \"release-fast\" });\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            target: BuildTargetTriple::parse("x86_64-linux-musl"),
+            optimize: Some(BuildOptimizeMode::ReleaseSmall),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let evaluated = evaluate_build_source(&request, &build_path, source)
+        .expect("CLI artifact overrides should evaluate")
+        .expect("build body should produce a graph");
+    let graph_artifact = &evaluated.result.graph.artifacts()[0];
+    let runtime_artifact = &evaluated.evaluated.artifacts[0];
+
+    assert_eq!(graph_artifact.target.as_str(), "x86_64-unknown-linux-musl");
+    assert_eq!(runtime_artifact.target, graph_artifact.target);
+    assert_eq!(graph_artifact.optimize, BuildOptimizeMode::ReleaseSmall);
+    assert_eq!(runtime_artifact.optimize, graph_artifact.optimize);
+}
+
+#[test]
+fn build_source_evaluator_uses_resolved_bool_defaults_and_overrides_on_the_second_pass() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var enabled = graph.option({ name = \"enabled\", kind = \"bool\", default = true });\n",
+        "    when(enabled) {\n",
+        "        {\n",
+        "            graph.add_exe({ name = \"app\", root = \"src/app.fol\" });\n",
+        "        }\n",
+        "    };\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let default_request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+    let mut disabled_request = default_request.clone();
+    disabled_request
+        .inputs
+        .options
+        .insert("enabled".to_string(), "false".to_string());
+
+    let default_evaluated = evaluate_build_source(&default_request, &build_path, source)
+        .expect("bool default should evaluate")
+        .expect("option declaration should produce a graph");
+    let disabled_evaluated = evaluate_build_source(&disabled_request, &build_path, source)
+        .expect("bool override should evaluate")
+        .expect("option declaration should produce a graph");
+
+    assert_eq!(default_evaluated.result.graph.artifacts().len(), 1);
+    assert!(disabled_evaluated.result.graph.artifacts().is_empty());
+}
+
+#[test]
+fn build_source_evaluator_rejects_unknown_and_wrong_kind_artifact_targets() {
+    for (target_setup, target_value, expected) in [
+        (
+            "",
+            "\"mystery-vendor-os\"",
+            "unsupported explicit machine target 'mystery-vendor-os'",
+        ),
+        (
+            "var target = graph.option({ name = \"target_name\", kind = \"str\", default = \"x86_64-linux-gnu\" });",
+            "target",
+            "artifact target cannot use option 'target_name' of kind String",
+        ),
+    ] {
+        let source = format!(
+            "pro[] build(): non = {{\n    var graph = .build().graph();\n    {target_setup}\n    graph.add_exe({{ name = \"app\", root = \"src/app.fol\", target = {target_value} }});\n    return;\n}};\n"
+        );
+        let (package_root, build_path) = temp_build_package(&source);
+        let request = BuildEvaluationRequest {
+            package_root: package_root.display().to_string(),
+            inputs: BuildEvaluationInputs {
+                working_directory: package_root.display().to_string(),
+                ..BuildEvaluationInputs::default()
+            },
+            operations: Vec::new(),
+        };
+
+        let error = evaluate_build_source(&request, &build_path, &source)
+            .expect_err("invalid artifact targets must fail closed");
+        assert_eq!(error.kind(), BuildEvaluationErrorKind::InvalidInput);
+        assert_eq!(error.message(), expected);
+    }
+}
+
+#[test]
+fn build_source_evaluator_rejects_unresolved_artifact_config_without_fallback() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var root = graph.option({ name = \"root\", kind = \"path\" });\n",
+        "    graph.add_exe({ name = \"app\", root = root });\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let error = evaluate_build_source(&request, &build_path, source)
+        .expect_err("unresolved artifact config must not acquire a guessed default");
+
+    assert_eq!(error.kind(), BuildEvaluationErrorKind::InvalidInput);
+    assert_eq!(
+        error.message(),
+        "artifact root requires resolved option 'root'"
+    );
+}
+
+#[test]
+fn build_source_evaluator_rejects_defaults_that_do_not_match_option_kinds() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    graph.option({ name = \"enabled\", kind = \"bool\", default = \"yes\" });\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let error = evaluate_build_source(&request, &build_path, source)
+        .expect_err("wrong-kind defaults must fail closed");
+
+    assert_eq!(error.kind(), BuildEvaluationErrorKind::InvalidInput);
+    assert_eq!(
+        error.message(),
+        "option 'enabled' has an invalid default for declared kind 'bool'"
+    );
 }
 
 #[test]

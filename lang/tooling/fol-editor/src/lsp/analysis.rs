@@ -138,7 +138,7 @@ pub(super) fn analyze_document_semantics(
         let parser_lsp_diags = parser_diags
             .iter()
             .filter(|diagnostic| diagnostic_targets_path(diagnostic, overlay.document_path()))
-            .map(|diagnostic| diagnostic_to_lsp(&diagnostic))
+            .map(diagnostic_to_lsp)
             .collect::<Vec<_>>();
         if !parser_lsp_diags.is_empty() {
             return Ok(SemanticSnapshot {

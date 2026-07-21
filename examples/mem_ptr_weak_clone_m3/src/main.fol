@@ -1,0 +1,13 @@
+// Weak handles support explicit `[cln]` (V3_MEM Slice D, §7.1): cloning a
+// `ptr[weak, T]` produces an independent weak observer that does not keep the
+// allocation alive. Each clone upgrades on its own through `[upg]`, which
+// yields `opt[ptr[shared, T]]` while the shared owner is still live.
+
+fun[] main(): int = {
+    var value: int = 7;
+    var strong: ptr[shared, int] = [ref]value;
+    var handle: ptr[weak, int] = [weak]strong;
+    var mirror: ptr[weak, int] = [cln]handle;
+    var revived: opt[ptr[shared, int]] = [upg]mirror;
+    return [drf]strong;
+};

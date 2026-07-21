@@ -1,6 +1,6 @@
 [package]
 name = "fol-frontend"
-version = "0.1.4"
+version.workspace = true
 edition = "2021"
 authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 description = "User-facing frontend crate for the FOL toolchain"
@@ -22,3 +22,5 @@ fol-backend = { path = "../../execution/fol-backend" }
 fol-build = { path = "../../execution/fol-build" }
 fol-editor = { path = "../fol-editor" }
 fol-diagnostics = { path = "../../compiler/fol-diagnostics" }
+fol-types = { path = "../../compiler/fol-types" }
+fol-interop = { path = "../fol-interop" }

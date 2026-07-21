@@ -1,0 +1,14 @@
+// The composite `[mut, bor]` capture takes a mutable loan of an outer binding
+// (V3_MEM section 2.3): the deferred block may assign through it when it runs
+// at scope exit, while a plain `[bor]` capture stays a read-only loan.
+
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var[mut] total: int = 5;
+    {
+        dfr[total[mut, bor]] { total = total + 37; };
+        std::io::echo_int(total);
+    };
+    return std::io::echo_int(total);
+};

@@ -105,7 +105,8 @@ impl AstParser {
             return false;
         }
 
-        matches!(
+        // `[>]` shorthand marker.
+        if matches!(
             (
                 tokens.peek(0, false).map(|token| token.key()),
                 tokens.peek(1, false).map(|token| token.key()),
@@ -114,7 +115,230 @@ impl AstParser {
                 Ok(KEYWORD::Symbol(SYMBOL::AngleC)),
                 Ok(KEYWORD::Symbol(SYMBOL::SquarC)),
             )
+        ) {
+            return true;
+        }
+
+        // `[spn]` canonical scoped-spawn marker (`[>]` is its shorthand), and
+        // `[spn, det]` detached-spawn marker (V3_PROC).
+        let Ok(first) = tokens.peek(0, true) else {
+            return false;
+        };
+        if first.con().trim() != "spn" {
+            return false;
+        }
+        matches!(
+            tokens.peek(1, true).map(|token| token.key()),
+            Ok(KEYWORD::Symbol(SYMBOL::SquarC | SYMBOL::Comma))
         )
+    }
+
+    /// A prefix ownership operation is `[opt, ...]operand` where the bracket
+    /// holds only canonical ownership options (`mov`, `cpy`, `cln`, `bor`,
+    /// `mut`, `new`, `weak`, `upg`, `fin`). It is distinguished from a container
+    /// literal by the first inner token being an option keyword followed by `]`,
+    /// `,`, or `;`, which no plain container literal element produces.
+    pub(super) fn lookahead_is_ownership_operation(
+        &self,
+        tokens: &fol_lexer::lexer::stage3::Elements,
+    ) -> bool {
+        let Ok(current) = tokens.curr(false) else {
+            return false;
+        };
+        if !matches!(current.key(), KEYWORD::Symbol(SYMBOL::SquarO)) {
+            return false;
+        }
+        let Ok(first) = tokens.peek(0, true) else {
+            return false;
+        };
+        if crate::ast::options::OwnershipOption::from_keyword(first.con().trim()).is_none()
+            && Self::unary_bracket_operator(first.con().trim()).is_none()
+        {
+            return false;
+        }
+        let Ok(second) = tokens.peek(1, true) else {
+            return false;
+        };
+        matches!(
+            second.key(),
+            KEYWORD::Symbol(SYMBOL::SquarC | SYMBOL::Comma | SYMBOL::Semi)
+        )
+    }
+
+    /// Bracket unary operations (V3: no raw symbols on values). Each is a
+    /// standalone single-option bracket that maps to an ordinary unary operator:
+    /// `[uwp]x` shell unwrap, `[drf]x` dereference, `[ref]x` reference, `[end]x`
+    /// give-back a borrow. They are NOT composable with ownership options.
+    fn unary_bracket_operator(keyword: &str) -> Option<UnaryOperator> {
+        match keyword {
+            "uwp" => Some(UnaryOperator::Unwrap),
+            "drf" => Some(UnaryOperator::Deref),
+            "ref" => Some(UnaryOperator::Ref),
+            "end" => Some(UnaryOperator::GiveBack),
+            _ => None,
+        }
+    }
+
+    pub(super) fn parse_ownership_operation(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+    ) -> Result<AstNode, ParseError> {
+        let open = tokens.curr(false)?;
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+        // A standalone bracket unary op `[uwp|drf|ref|end]operand` parses to a
+        // plain unary operation rather than an ownership operation.
+        let first = tokens.curr(false)?;
+        if let Some(unary_op) = Self::unary_bracket_operator(first.con().trim()) {
+            if matches!(
+                self.next_significant_key_from_window(tokens),
+                Some(KEYWORD::Symbol(SYMBOL::SquarC))
+            ) {
+                let _ = tokens.bump();
+                self.skip_ignorable(tokens)?;
+                let _ = tokens.bump();
+                self.skip_layout(tokens)?;
+                let operand = self.parse_primary_expression(tokens)?;
+                return Ok(Self::rebase_unary_over_method_receiver(unary_op, operand));
+            }
+        }
+        let mut options: Vec<crate::ast::options::OwnershipOption> = Vec::new();
+        for _ in 0..12 {
+            self.skip_ignorable(tokens)?;
+            let option = tokens.curr(false)?;
+            if matches!(option.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+                return Err(ParseError::from_token(
+                    &option,
+                    "empty ownership operation '[]'; expected an option like 'mov'".to_string(),
+                ));
+            }
+            let Some(op) = crate::ast::options::OwnershipOption::from_keyword(option.con().trim())
+            else {
+                return Err(ParseError::from_token(
+                    &option,
+                    format!(
+                        "Unknown ownership option '{}'; expected mov, cpy, cln, bor, mut, new, weak, upg, or fin",
+                        option.con().trim()
+                    ),
+                ));
+            };
+            if options.contains(&op) {
+                return Err(ParseError::from_token(
+                    &option,
+                    format!("Duplicate ownership option '{}'", op.canonical()),
+                ));
+            }
+            options.push(op);
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let separator = tokens.curr(false)?;
+            if matches!(separator.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+                let _ = tokens.bump();
+                self.skip_layout(tokens)?;
+                let operand = self.parse_primary_expression(tokens)?;
+                return Ok(Self::rebase_ownership_over_method_receiver(
+                    options, operand,
+                ));
+            }
+            if matches!(
+                separator.key(),
+                KEYWORD::Symbol(SYMBOL::Comma) | KEYWORD::Symbol(SYMBOL::Semi)
+            ) {
+                let _ = tokens.bump();
+                continue;
+            }
+            return Err(ParseError::from_token(
+                &separator,
+                "Expected ',', ';', or ']' in ownership operation".to_string(),
+            ));
+        }
+        Err(ParseError::from_token(
+            &open,
+            "ownership operation exceeded parser limit".to_string(),
+        ))
+    }
+
+    /// The unary-bracket sibling of [`Self::rebase_ownership_over_method_receiver`]:
+    /// `[drf]`/`[uwp]`/`[ref]`/`[end]` bind the same way. A trailing method call
+    /// rebases onto the receiver — `[drf]ptr.method()` groups as
+    /// `([drf]ptr).method()` — while a pure place chain keeps the op over the
+    /// place, so `[drf]holder.link` still dereferences the pointer *field*
+    /// `holder.link` (not the record `holder`). Recurses through `Commented`.
+    fn rebase_unary_over_method_receiver(op: UnaryOperator, operand: AstNode) -> AstNode {
+        match operand {
+            AstNode::MethodCall {
+                syntax_id,
+                object,
+                method,
+                args,
+            } => AstNode::MethodCall {
+                syntax_id,
+                object: Box::new(AstNode::UnaryOp {
+                    op,
+                    operand: object,
+                }),
+                method,
+                args,
+            },
+            AstNode::Commented {
+                leading_comments,
+                node,
+                trailing_comments,
+            } => AstNode::Commented {
+                leading_comments,
+                node: Box::new(Self::rebase_unary_over_method_receiver(op, *node)),
+                trailing_comments,
+            },
+            other => AstNode::UnaryOp {
+                op,
+                operand: Box::new(other),
+            },
+        }
+    }
+
+    /// An ownership op annotates a *place*; a trailing method call consumes that
+    /// place as its receiver. So `[op]recv.method(args)` groups as
+    /// `([op]recv).method(args)`, not `[op](recv.method(args))` (which would
+    /// borrow/move the call's return value). Pure place chains (`.field`, `[i]`)
+    /// and non-method operands keep the op wrapping the whole operand, so
+    /// partial moves like `[mov]bundle.held` and element moves like `[mov]arr[i]`
+    /// are unchanged. Recurses through `Commented` wrappers so a comment between
+    /// the op and its operand does not defeat the rebase.
+    fn rebase_ownership_over_method_receiver(
+        options: Vec<crate::ast::options::OwnershipOption>,
+        operand: AstNode,
+    ) -> AstNode {
+        match operand {
+            AstNode::MethodCall {
+                syntax_id,
+                object,
+                method,
+                args,
+            } => AstNode::MethodCall {
+                syntax_id,
+                object: Box::new(AstNode::OwnershipOp {
+                    syntax_id: None,
+                    options,
+                    operand: object,
+                }),
+                method,
+                args,
+            },
+            AstNode::Commented {
+                leading_comments,
+                node,
+                trailing_comments,
+            } => AstNode::Commented {
+                leading_comments,
+                node: Box::new(Self::rebase_ownership_over_method_receiver(options, *node)),
+                trailing_comments,
+            },
+            other => AstNode::OwnershipOp {
+                syntax_id: None,
+                options,
+                operand: Box::new(other),
+            },
+        }
     }
 
     pub(super) fn parse_primary_expression(
@@ -133,15 +357,48 @@ impl AstParser {
 
         if self.lookahead_is_spawn_expression(tokens) {
             self.consume_significant_token(tokens);
+            self.skip_ignorable(tokens)?;
 
-            let angle = tokens.curr(false)?;
-            if !matches!(angle.key(), KEYWORD::Symbol(SYMBOL::AngleC)) {
+            // The marker is `>` (shorthand) or `spn` (canonical scoped spawn).
+            let marker = tokens.curr(false)?;
+            let is_spn = if matches!(marker.key(), KEYWORD::Symbol(SYMBOL::AngleC)) {
+                self.consume_significant_token(tokens);
+                false
+            } else if marker.con().trim() == "spn" {
+                self.consume_significant_token(tokens);
+                true
+            } else {
                 return Err(ParseError::from_token(
-                    &angle,
-                    "Expected '>' in spawn marker".to_string(),
+                    &marker,
+                    "Expected '>' or 'spn' in spawn marker".to_string(),
                 ));
+            };
+            self.skip_ignorable(tokens)?;
+
+            // `[spn, det]` marks a detached task (not exit-joined). `det` is only
+            // valid after the canonical `spn` marker, never the `[>]` shorthand.
+            let mut detached = false;
+            if matches!(tokens.curr(false)?.key(), KEYWORD::Symbol(SYMBOL::Comma)) {
+                if !is_spn {
+                    return Err(ParseError::from_token(
+                        &tokens.curr(false)?,
+                        "detached spawn requires the canonical marker: write '[spn, det]'"
+                            .to_string(),
+                    ));
+                }
+                self.consume_significant_token(tokens);
+                self.skip_ignorable(tokens)?;
+                let det = tokens.curr(false)?;
+                if det.con().trim() != "det" {
+                    return Err(ParseError::from_token(
+                        &det,
+                        "Expected 'det' after 'spn,' in a detached spawn marker".to_string(),
+                    ));
+                }
+                self.consume_significant_token(tokens);
+                self.skip_ignorable(tokens)?;
+                detached = true;
             }
-            self.consume_significant_token(tokens);
 
             let close = tokens.curr(false)?;
             if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
@@ -157,9 +414,15 @@ impl AstParser {
             return Ok(self.attach_leading_comments(
                 AstNode::Spawn {
                     task: Box::new(task),
+                    detached,
                 },
                 leading_comments,
             ));
+        }
+
+        if self.lookahead_is_ownership_operation(tokens) {
+            let node = self.parse_ownership_operation(tokens)?;
+            return Ok(self.attach_leading_comments(node, leading_comments));
         }
 
         if let Some((message, unary_op)) = self.unary_prefix_info(&token) {

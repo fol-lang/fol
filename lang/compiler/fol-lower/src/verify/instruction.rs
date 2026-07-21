@@ -128,7 +128,7 @@ pub(super) fn verify_instruction(
                 );
             }
         }
-        crate::LoweredInstrKind::SpawnCall { callee, args } => {
+        crate::LoweredInstrKind::SpawnCall { callee, args, .. } => {
             if !valid_routine_ids.contains(callee) {
                 errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
@@ -189,7 +189,7 @@ pub(super) fn verify_instruction(
             }
         }
         crate::LoweredInstrKind::ChannelSender { channel }
-        | crate::LoweredInstrKind::ChannelReceive { channel }
+        | crate::LoweredInstrKind::ChannelReceiver { channel }
         | crate::LoweredInstrKind::ChannelReceiveOptional { channel }
         | crate::LoweredInstrKind::ChannelTryReceive { channel }
         | crate::LoweredInstrKind::ChannelIsClosed { channel } => {
@@ -268,14 +268,29 @@ pub(super) fn verify_instruction(
                     ),
                 ));
             }
-            if let Some(result) = instr.result {
-                errors.push(LoweringError::with_kind(
+            // Forwarding hooks (`echo`/`write`) return their operand and must
+            // not write a result local; the value-producing terminal hooks
+            // must write one.
+            let forwards_operand = matches!(
+                fol_intrinsics::intrinsic_by_id(*intrinsic).map(|entry| entry.name),
+                Some("echo" | "write")
+            );
+            match (forwards_operand, instr.result) {
+                (true, Some(result)) => errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,
                     format!(
                         "lowered routine '{}' runtime hook instruction {} must not write result local {}",
                         routine.name, instr.id.0, result.0
                     ),
-                ));
+                )),
+                (false, None) => errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' value-producing runtime hook instruction {} must write a result local",
+                        routine.name, instr.id.0
+                    ),
+                )),
+                _ => {}
             }
             for arg in args {
                 verify_local_reference(routine, instr.id.0, "runtime hook arg", *arg, errors);
@@ -441,6 +456,18 @@ pub(super) fn verify_instruction(
                 )),
             }
         }
+        crate::LoweredInstrKind::WeakDowngrade { type_id, .. }
+        | crate::LoweredInstrKind::WeakUpgrade { type_id, .. } => {
+            verify_type_reference(
+                workspace,
+                package,
+                routine,
+                instr.id.0,
+                "managed pointer operation type",
+                *type_id,
+                errors,
+            );
+        }
         crate::LoweredInstrKind::ConstructPointer { type_id, value, .. } => {
             verify_type_reference(
                 workspace,
@@ -455,10 +482,7 @@ pub(super) fn verify_instruction(
         }
         crate::LoweredInstrKind::DerefPointer { pointer, consuming } => {
             verify_local_reference(routine, instr.id.0, "pointer operand", *pointer, errors);
-            let mut pointer_type_id = routine
-                .locals
-                .get(*pointer)
-                .and_then(|local| local.type_id);
+            let mut pointer_type_id = routine.locals.get(*pointer).and_then(|local| local.type_id);
             let mut borrowed_pointer = false;
             while let Some(type_id) = pointer_type_id {
                 match workspace.type_table().get(type_id) {
@@ -473,7 +497,7 @@ pub(super) fn verify_instruction(
             let pointer_type =
                 pointer_type_id.and_then(|type_id| workspace.type_table().get(type_id));
             match pointer_type {
-                Some(crate::LoweredType::Pointer { target, shared }) => {
+                Some(crate::LoweredType::Pointer { target, shared, .. }) => {
                     let result_type = instr
                         .result
                         .and_then(|result| routine.locals.get(result))
@@ -584,6 +608,29 @@ pub(super) fn verify_instruction(
                         routine.name, callee.0
                     ),
                 ));
+            }
+        }
+        crate::LoweredInstrKind::ClosureRef {
+            routine: callee,
+            env,
+        } => {
+            if !valid_routine_ids.contains(callee) {
+                errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' references missing closure routine {}",
+                        routine.name, callee.0
+                    ),
+                ));
+            }
+            for (index, local) in env.iter().enumerate() {
+                verify_local_reference(
+                    routine,
+                    instr.id.0,
+                    &format!("closure env {index}"),
+                    *local,
+                    errors,
+                );
             }
         }
         crate::LoweredInstrKind::CallIndirect {

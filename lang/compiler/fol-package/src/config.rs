@@ -12,17 +12,34 @@ pub fn bundled_std_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../library/std")
 }
 
+/// An installed toolchain places `std/` next to the running binary
+/// (`$FOL_HOME/toolchains/vX.X.X/{folc, std/}`), so the binary's own std wins
+/// over the source-tree path compiled into dev builds.
+fn toolchain_std_root() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let root = exe.parent()?.join("std");
+    root.is_dir().then_some(root)
+}
+
 pub fn available_bundled_std_root() -> Option<PathBuf> {
+    if let Some(root) = toolchain_std_root() {
+        return Some(root);
+    }
     let root = bundled_std_root();
     root.is_dir().then_some(root)
+}
+
+/// The package store shipped with the toolchain (the directory holding the
+/// bundled `std` package), when it exists. Lets `use x: pkg = {...}` imports
+/// resolve without `fol pack fetch` or an explicit `--package-store-root`.
+pub fn available_bundled_store_root() -> Option<PathBuf> {
+    available_bundled_std_root().and_then(|std_root| std_root.parent().map(PathBuf::from))
 }
 
 pub fn effective_std_root(explicit: Option<&str>) -> Option<String> {
     explicit
         .map(str::to_string)
-        .or_else(|| {
-            available_bundled_std_root().map(|path| path.to_string_lossy().to_string())
-        })
+        .or_else(|| available_bundled_std_root().map(|path| path.to_string_lossy().to_string()))
 }
 
 impl PackageConfig {

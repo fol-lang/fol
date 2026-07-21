@@ -3,14 +3,11 @@
 </p>
 
 
-<a href="https://follang.github.io/" style="color: rgb(179, 128, 255)"></a><h2><p align="center" style="color: rgb(179, 128, 255)">https://follang.github.io/</p></h2></a>
+<a href="https://fol-lang.github.io/fol/" style="color: rgb(179, 128, 255)"></a><h2><p align="center" style="color: rgb(179, 128, 255)">https://fol-lang.github.io/fol/</p></h2></a>
 
 <p align="center">
-  <a href="https://github.com/follang/fol/blob/develop/LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://travis-ci.org/follang/fol"><img alt="Travis (.org)" src="https://img.shields.io/travis/follang/fol"></a>
-  <a href="https://codecov.io/github/follang/fol"><img alt="Codecov" src="https://img.shields.io/codecov/c/github/follang/fol"></a>
-  <a href="https://gitter.im/follang/community"><img alt="Gitter" src="https://img.shields.io/gitter/room/bresilla/follang"></a>
-  <a href="https://github.com/follang/fol/blob/develop/.all-contributorsrc"><img src="https://img.shields.io/badge/all_contributors-1-orange.svg" alt="Contributors"></a>
+  <a href="https://github.com/fol-lang/fol/blob/develop/LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://github.com/fol-lang/fol/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/fol-lang/fol/actions/workflows/tests.yml/badge.svg?branch=develop"></a>
 </p>
 
 <p align="center">general-purpose and systems programming language</p>
@@ -20,6 +17,71 @@
 FOL is a general-purpose, systems programming language designed for robustness, efficiency, portability, expressiveness and most importantly elegance. Heavily inspired (and shamelessly copying) from languages: rust, zig, nim, c, go, and cpp. In Albanian language "fol" means "to speak".
 
 <p align="center">  ** FOL IS IN ACTIVE DEVELOPMENT **  </p>
+
+## Installation & Toolchain
+
+FOL ships as two binaries: **`fol`**, the toolchain manager — the only binary
+on your `PATH` and the only thing a distribution packages — and **`folc`**,
+the engine (compiler, build graph, package system, LSP), which lives inside
+versioned toolchain directories that `fol` installs and selects for you. You
+always type `fol`; it forwards `code`/`work`/`pack`/`tool` commands to the
+right engine and handles `fol self …` itself.
+
+```console
+$ curl -fL -o ~/.local/bin/fol \
+    https://github.com/fol-lang/fol/releases/download/v0.2.1/fol-v0.2.1-x86_64-linux
+$ chmod +x ~/.local/bin/fol
+$ export FOL_HOME="$HOME/.fol"     # add to your shell profile
+```
+
+Toolchains, packages, and configuration live under `FOL_HOME`. Without the
+variable, `fol` falls back to `<project>/.fol/toolchain`, keeping everything
+next to the project's build artifacts; with neither, it errors with setup
+instructions.
+
+```
+$FOL_HOME/
+├── toolchains/v0.2.1/{folc, std/, runtime/}   ← immutable, self-contained units
+├── toolchains/dev.toml                        ← a linked source checkout
+├── pkg/                                       ← packages, shared by all versions
+└── config                                     ← default toolchain
+```
+
+A project pins its language version on the first comment line of `build.fol`:
+
+```fol
+//fol 0.2.1
+```
+
+Selection order is `+<toolchain>` argument → `FOL_TOOLCHAIN` env → the
+`//fol` pin → the configured default. A pinned version that is not installed
+is **fetched automatically** from the GitHub release
+(`fol-compiler-and-lib-v<version>-<target>.tar.gz`, containing exactly
+`folc` + `std/` + `runtime/`; Linux-only: `x86_64-linux`, `aarch64-linux`):
+
+```console
+$ fol code run
+toolchain 0.2.1 not installed, fetching...
+fetched fol 0.2.1 -> ~/.fol/toolchains/v0.2.1
+42
+```
+
+Managing toolchains:
+
+```console
+fol self install 0.2.1              # fetch a released toolchain
+fol self install 0.2.1 --from .     # copy one out of a built source tree
+fol self link dev ~/code/fol        # use a source checkout, always fresh
+fol self default 0.2.1              # set the default
+fol self list                       # what's installed, default marked
+fol self which                      # which folc this directory resolves to
+fol self remove 0.2.1               # delete a toolchain or link
+```
+
+Full details — dispatch mechanics, per-project versions, the release asset
+contract — are in the book's
+[Toolchain Management](https://fol-lang.github.io/fol/025_toolchain/_index.html)
+chapter.
 
 ## Architecture
 

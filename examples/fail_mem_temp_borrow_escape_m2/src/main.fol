@@ -1,0 +1,17 @@
+// A borrow of a temporary cannot escape the routine (O1001). The value produced
+// by `make_job()` is dropped when the enclosing expression ends, so returning a
+// borrow of it would dangle.
+
+typ Job: rec = { value: int };
+
+fun[] make_job(): Job = {
+    return { value = 5 };
+};
+
+fun[] dangle(): Job[bor] = {
+    return [bor]make_job();
+};
+
+fun[] main(): int = {
+    return 0;
+};

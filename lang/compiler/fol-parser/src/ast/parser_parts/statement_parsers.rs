@@ -499,27 +499,28 @@ impl AstParser {
                         "Expected 'if', '{', or '=>' after else".to_string(),
                     ));
                 }
-            } else if matches!(token.key(), KEYWORD::Keyword(BUILDIN::If)) {
-                Some(vec![self.parse_if_stmt(tokens)?])
-            } else if matches!(
-                token.key(),
-                KEYWORD::Symbol(SYMBOL::CurlyO) | KEYWORD::Operator(OPERATOR::Flow)
-            ) {
-                Some(self.parse_branch_body(tokens)?)
             } else {
+                // Without the `else` keyword nothing is absorbed: a following
+                // `if`, block, or `=>` body is an independent statement, never
+                // a silent else-branch.
                 None
             }
         } else {
             None
         };
 
+        // `if (cond) A else B` desugars to `when (cond) { case (true) A * B }`.
+        // The case value must be the literal `true`: a when-case matches on
+        // subject == value, so repeating the condition would compare it to
+        // itself and always take the then-branch. A missing else desugars to
+        // an empty default branch so statement-position `if` needs no `else`.
         Ok(AstNode::When {
-            expr: Box::new(condition.clone()),
+            expr: Box::new(condition),
             cases: vec![WhenCase::Case {
-                condition,
+                condition: AstNode::Literal(Literal::Boolean(true)),
                 body: then_body,
             }],
-            default: else_body,
+            default: Some(else_body.unwrap_or_default()),
         })
     }
 
@@ -802,11 +803,21 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<AstNode, ParseError> {
-        let dereference = tokens
+        let star = tokens
             .curr(false)
             .ok()
             .is_some_and(|token| matches!(token.key(), KEYWORD::Symbol(SYMBOL::Star)));
-        if dereference {
+        let bracket = self.peek_is_deref_bracket(tokens);
+        let dereference = star || bracket;
+        if star {
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+        } else if bracket {
+            // Consume the `[drf]` deref bracket op (`[`, `drf`, `]`).
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
             let _ = tokens.bump();
             self.skip_ignorable(tokens)?;
         }

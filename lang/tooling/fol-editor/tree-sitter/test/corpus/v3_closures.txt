@@ -1,0 +1,189 @@
+==================
+V3 Closure Captures And Environment Lifetimes
+==================
+
+fun run(L: lif)(callback: {fun (): int}[bor=L]): int = {
+    return callback();
+};
+
+fun[] main(): int = {
+    var base: int = 30;
+    var adder: {fun (n: int): int} = fun(n: int)[base[cpy]]: int = { return n + base; };
+    var reader: {fun (): int} = fun()[base[bor]]: int = { return base + 12; };
+    var first: int = adder(12);
+    var viaenv: int = run(reader);
+    dfr[base[bor]] {
+        var last: int = base;
+    };
+    return first + viaenv;
+};
+
+---
+
+(source_file
+  (fun_decl
+    (plain_fun_decl
+      (identifier)
+      (generic_params
+        (generic_param
+          (identifier)
+          (type_expr
+            (identifier))))
+      (params
+        (param
+          (identifier)
+          (type_expr
+            (function_type
+              (params)
+              (return_type
+                (type_expr
+                  (identifier)))
+              (identifier)))))
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (return_stmt
+            (expr
+              (expr_atom
+                (call_expr
+                  (identifier)))))))))
+  (fun_decl
+    (decl_modifiers)
+    (plain_fun_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (integer_literal)))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (function_type
+                  (params
+                    (param
+                      (identifier)
+                      (type_expr
+                        (identifier))))
+                  (return_type
+                    (type_expr
+                      (identifier))))))
+            (expr
+              (anonymous_fun_expr
+                (params
+                  (param
+                    (identifier)
+                    (type_expr
+                      (identifier))))
+                (routine_capture_list
+                  (routine_capture
+                    (identifier)))
+                (return_type
+                  (type_expr
+                    (identifier)))
+                (routine_body_expr
+                  (block
+                    (stmt
+                      (return_stmt
+                        (expr
+                          (binary_expr
+                            (expr_atom
+                              (identifier))
+                            (expr
+                              (expr_atom
+                                (identifier)))))))))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (function_type
+                  (params)
+                  (return_type
+                    (type_expr
+                      (identifier))))))
+            (expr
+              (anonymous_fun_expr
+                (params)
+                (routine_capture_list
+                  (routine_capture
+                    (identifier)))
+                (return_type
+                  (type_expr
+                    (identifier)))
+                (routine_body_expr
+                  (block
+                    (stmt
+                      (return_stmt
+                        (expr
+                          (binary_expr
+                            (expr_atom
+                              (identifier))
+                            (expr
+                              (expr_atom
+                                (integer_literal)))))))))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (call_expr
+                  (identifier)
+                  (call_arg
+                    (expr
+                      (expr_atom
+                        (integer_literal)))))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (call_expr
+                  (identifier)
+                  (call_arg
+                    (expr
+                      (expr_atom
+                        (identifier)))))))))
+        (stmt
+          (dfr_stmt
+            (routine_capture_list
+              (routine_capture
+                (identifier)))
+            (block
+              (stmt
+                (var_decl
+                  (typed_binding
+                    (identifier)
+                    (type_expr
+                      (identifier)))
+                  (expr
+                    (expr_atom
+                      (identifier))))))))
+        (stmt
+          (return_stmt
+            (expr
+              (binary_expr
+                (expr_atom
+                  (identifier))
+                (expr
+                  (expr_atom
+                    (identifier)))))))))))

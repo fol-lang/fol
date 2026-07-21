@@ -1,12 +1,14 @@
 use super::*;
 
+type ParameterNameGroupEntry = (String, Option<SyntaxNodeId>, bool, bool);
+
 impl AstParser {
     fn parse_parameter_name_group(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         missing_name_error: &str,
         missing_group_name_error: &str,
-    ) -> Result<Vec<(String, Option<SyntaxNodeId>, bool, bool)>, ParseError> {
+    ) -> Result<Vec<ParameterNameGroupEntry>, ParseError> {
         let token = tokens.curr(false)?;
 
         let first_name = Self::expect_named_label(&token, missing_name_error)?;
@@ -54,46 +56,33 @@ impl AstParser {
         let _ = tokens.bump();
 
         let mut is_borrowable = false;
-        let mut is_mutex = false;
+        let is_mutex = false;
         for _ in 0..8 {
             self.skip_ignorable(tokens)?;
             let option = tokens.curr(false)?;
             if matches!(option.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
                 return Err(ParseError::from_token(
                     &option,
-                    "Expected 'bor' or 'mux' in parameter options".to_string(),
+                    "Expected 'bor' in parameter options".to_string(),
                 ));
             }
             match option.con().trim() {
                 "bor" | "borrow" | "borrowing" if !is_borrowable => is_borrowable = true,
-                "mux" | "mutex" if !is_mutex => is_mutex = true,
                 "bor" | "borrow" | "borrowing" => {
                     return Err(ParseError::from_token(
                         &option,
                         "Duplicate 'bor' parameter option".to_string(),
                     ));
                 }
-                "mux" | "mutex" => {
-                    return Err(ParseError::from_token(
-                        &option,
-                        "Duplicate 'mux' parameter option".to_string(),
-                    ));
-                }
                 _ => {
                     return Err(ParseError::from_token(
                         &option,
                         format!(
-                            "Unknown parameter option '{}'; expected 'bor' or 'mux'",
+                            "Unknown parameter option '{}'; expected 'bor'",
                             option.con().trim()
                         ),
                     ));
                 }
-            }
-            if is_borrowable && is_mutex {
-                return Err(ParseError::from_token(
-                    &option,
-                    "Parameter options 'bor' and 'mux' cannot be combined".to_string(),
-                ));
             }
             let _ = tokens.bump();
             self.skip_ignorable(tokens)?;
@@ -258,13 +247,20 @@ impl AstParser {
                 ));
             }
 
+            // A `mux[T]` parameter type marks a mutex parameter and lowers to a
+            // guard over the inner `T` (V3_MEM §8.3). This replaces the removed
+            // `name[mux]: T` parameter option; the two never coexist.
+            let (effective_type, type_is_mutex) = match &param_type {
+                FolType::Mutex { inner } => ((**inner).clone(), true),
+                other => (other.clone(), false),
+            };
             for (name, name_syntax_id, is_borrowable, is_mutex) in names {
                 params.push(Parameter {
                     name: name.clone(),
-                    param_type: param_type.clone(),
+                    param_type: effective_type.clone(),
                     is_variadic,
                     is_borrowable,
-                    is_mutex,
+                    is_mutex: is_mutex || type_is_mutex,
                     default: default.clone(),
                     syntax_id: name_syntax_id,
                 });

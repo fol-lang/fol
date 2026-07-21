@@ -7,17 +7,17 @@ fun[] inspect(item[bor]: Item): int = {
 };
 
 fun[] read(pointer[bor]: ptr[int]): int = {
-    return *pointer;
+    return [drf]pointer;
 };
 
 fun[] main(): int = {
     var owner: Item = { value = 7 };
-    var seen: int = inspect(#owner);
+    var seen: int = inspect([bor]owner);
     var value: int = 11;
-    var pointer: ptr[int] = &value;
+    var pointer: ptr[int] = [ref]value;
     var[bor] view: ptr[int] = pointer;
     var first: int = read(view);
     var second: int = read(view);
-    !view;
+    [end]view;
     return owner.value + seen + first + second;
 };

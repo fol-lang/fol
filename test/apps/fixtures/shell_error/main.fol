@@ -1,7 +1,7 @@
 ali Failure: err[str];
 
 fun[] unwrap(value: Failure): str = {
-    return value!;
+    return value[];
 };
 
 fun[] main(): int = {

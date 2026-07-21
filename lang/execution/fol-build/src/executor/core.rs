@@ -276,12 +276,17 @@ impl BuildBodyExecutor {
         }
 
         // When case sub-clauses are present, the outer expr is the match subject.
-        // Each `case(condition)` is evaluated; the first match wins.
+        // Each `case(value)` is compared with that subject; the first match wins.
+        let subject = self.eval_when_value(expr)?;
         let mut matched = false;
         for case in cases {
             match case {
                 WhenCase::Case { condition, body } => {
-                    if self.eval_condition(condition)? {
+                    let case_value = self.eval_when_value(condition)?;
+                    if matches!(
+                        (&subject, &case_value),
+                        (Some(subject), Some(case_value)) if subject == case_value
+                    ) {
                         self.exec_body(body)?;
                         matched = true;
                         break;
@@ -628,7 +633,7 @@ fn validate_node_public_surface(
         }
         AstNode::NamedArgument { value, .. }
         | AstNode::Unpack { value }
-        | AstNode::Spawn { task: value }
+        | AstNode::Spawn { task: value, .. }
         | AstNode::Yield { value }
         | AstNode::Return { value: Some(value) } => validate_node_public_surface(package, value)?,
         AstNode::Assignment { target, value } => {
@@ -791,6 +796,9 @@ fn validate_node_public_surface(
         AstNode::Commented { node, .. } => {
             validate_node_public_surface(package, node)?;
         }
+        AstNode::OwnershipOp { operand, .. } => {
+            validate_node_public_surface(package, operand)?;
+        }
     }
     Ok(())
 }
@@ -830,11 +838,20 @@ fn validate_type_public_surface(
         | FolType::Sequence { element_type }
         | FolType::Matrix { element_type, .. }
         | FolType::Channel { element_type }
+        | FolType::ChannelSender { element_type }
+        | FolType::ChannelReceiver { element_type }
+        | FolType::Mutex {
+            inner: element_type,
+        }
         | FolType::Optional {
             inner: element_type,
         }
         | FolType::Owned {
             inner: element_type,
+        }
+        | FolType::Borrowed {
+            inner: element_type,
+            ..
         }
         | FolType::Pointer {
             target: element_type,
@@ -867,6 +884,16 @@ fn validate_type_public_surface(
                 validate_type_public_surface(package, inner)?;
             }
         }
+        FolType::Eventual {
+            value_type,
+            error_type,
+            ..
+        } => {
+            validate_type_public_surface(package, value_type)?;
+            if let Some(error_type) = error_type {
+                validate_type_public_surface(package, error_type)?;
+            }
+        }
         FolType::Limited { base, limits } => {
             validate_type_public_surface(package, base)?;
             for limit in limits {
@@ -876,6 +903,7 @@ fn validate_type_public_surface(
         FolType::Function {
             params,
             return_type,
+            env_lifetime: _,
         } => {
             for param in params {
                 validate_type_public_surface(package, param)?;

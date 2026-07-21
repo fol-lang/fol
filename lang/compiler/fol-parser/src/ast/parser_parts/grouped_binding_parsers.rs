@@ -72,7 +72,9 @@ impl AstParser {
                             } else {
                                 ParseError {
                                     kind: ParseErrorKind::Unsupported,
-                                    message: format!("Unsupported grouped binding pattern: {other:?}"),
+                                    message: format!(
+                                        "Unsupported grouped binding pattern: {other:?}"
+                                    ),
                                     file: None,
                                     line: 0,
                                     column: 0,
@@ -83,12 +85,13 @@ impl AstParser {
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                nodes.extend(self.build_binding_nodes(
+                nodes.extend(self.build_binding_nodes_with_form(
                     options.clone(),
                     names,
                     type_hint,
                     values,
                     tokens,
+                    true,
                 )?);
             }
 
@@ -110,10 +113,7 @@ impl AstParser {
         }
 
         let error = if let Ok(token) = tokens.curr(false) {
-            ParseError::from_token(
-                &token,
-                "Grouped bindings exceeded parser limit".to_string(),
-            )
+            ParseError::from_token(&token, "Grouped bindings exceeded parser limit".to_string())
         } else {
             ParseError {
                 kind: ParseErrorKind::Syntax,

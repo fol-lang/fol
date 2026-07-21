@@ -1,0 +1,17 @@
+use std: pkg = {"std"};
+
+fun[] work(value: int): int = {
+    return value + 1;
+};
+
+// A public API names its eventual's parent-scope lifetime with the `evt[L, T]`
+// spelling (V3_MEM §8.1). A local declaration may elide it as `evt[T]`.
+fun schedule(L: lif)(value: int): evt[L, int] = {
+    return work(value) | async;
+};
+
+fun[] main(): int = {
+    var pending: evt[int] = schedule(41);
+    var value: int = pending | await;
+    return std::io::echo_int(value);
+};

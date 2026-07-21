@@ -1,0 +1,16 @@
+// Anonymous-routine value captures (V3_MEM section 2.3): a first-class
+// routine value carries its captured environment. `[cpy]` duplicates the
+// outer value into the environment, so the source stays live, and the
+// closure re-supplies its environment on every call.
+
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var base: int = 30;
+    var adder: {fun (n: int): int} = fun(n: int)[base[cpy]]: int = { return n + base; };
+    var first: int = adder(12);
+    var second: int = adder(0);
+    std::io::echo_int(first);
+    std::io::echo_int(second);
+    return std::io::echo_int(base);
+};

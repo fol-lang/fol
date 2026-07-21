@@ -50,6 +50,9 @@ struct FrontendMemberPlannedStep {
     execution: Option<FrontendStepExecutionKind>,
     selection: Option<crate::compile::FrontendArtifactExecutionSelection>,
     ambiguous_selection: bool,
+    /// For the default `build` step over several executables: build them
+    /// all instead of demanding a named step.
+    fan_out_selections: Vec<crate::compile::FrontendArtifactExecutionSelection>,
     available_models: Vec<fol_backend::BackendFolModel>,
 }
 
@@ -158,11 +161,12 @@ pub fn execute_workspace_build_route(
     config: &crate::FrontendConfig,
     request: &FrontendWorkspaceBuildRequest,
 ) -> FrontendResult<crate::FrontendCommandResult> {
+    let effective_config = execution_config_for_profile(config, request.profile);
     let route = plan_workspace_build_route(workspace, request.requested_step.clone())?;
     let member_plans = route
         .members
         .iter()
-        .map(|member| plan_member_execution(workspace, member, config))
+        .map(|member| plan_member_execution(workspace, member, &effective_config))
         .collect::<FrontendResult<Vec<_>>>()?;
     let requested_step = request.requested_step.as_str();
     if !member_plans
@@ -181,22 +185,32 @@ pub fn execute_workspace_build_route(
     match resolved.execution {
         FrontendStepExecutionKind::Build => {
             if resolved.selections.is_empty() {
-                crate::build_workspace_for_profile_with_config(workspace, config, request.profile)
+                crate::build_workspace_for_profile_with_config(
+                    workspace,
+                    &effective_config,
+                    request.profile,
+                )
             } else {
                 crate::compile::build_selected_artifacts_for_profile_with_config(
                     workspace,
-                    config,
+                    &effective_config,
                     request.profile,
                     &resolved.selections,
                 )
             }
         }
-        FrontendStepExecutionKind::Check => crate::check_workspace_with_config(workspace, config),
+        FrontendStepExecutionKind::Check => {
+            crate::check_workspace_with_config(workspace, &effective_config)
+        }
         FrontendStepExecutionKind::Run => match resolved.selections.as_slice() {
-            [] => crate::run_workspace_with_args_and_config(workspace, config, &request.run_args),
+            [] => crate::run_workspace_with_args_and_config(
+                workspace,
+                &effective_config,
+                &request.run_args,
+            ),
             [selection] => crate::compile::run_selected_artifact_with_args_and_config(
                 workspace,
-                config,
+                &effective_config,
                 request.profile,
                 selection,
                 &request.run_args,
@@ -212,17 +226,37 @@ pub fn execute_workspace_build_route(
         },
         FrontendStepExecutionKind::Test => {
             if resolved.selections.is_empty() {
-                crate::test_workspace_with_config(workspace, config)
+                crate::test_workspace_with_config(workspace, &effective_config)
             } else {
                 crate::compile::test_selected_artifacts_with_config(
                     workspace,
-                    config,
+                    &effective_config,
                     request.profile,
                     &resolved.selections,
                 )
             }
         }
     }
+}
+
+fn execution_config_for_profile(
+    config: &crate::FrontendConfig,
+    profile: FrontendProfile,
+) -> crate::FrontendConfig {
+    let mut effective = config.clone();
+    // The frontend profile supplies the standard optimization default. An
+    // explicit --optimize/-Doptimize value remains authoritative.
+    if effective.build_optimize_override.is_none() {
+        effective.build_optimize_override = Some(
+            match profile {
+                FrontendProfile::Debug => fol_package::BuildOptimizeMode::Debug,
+                FrontendProfile::Release => fol_package::BuildOptimizeMode::ReleaseSafe,
+            }
+            .as_str()
+            .to_owned(),
+        );
+    }
+    effective
 }
 
 pub(crate) fn plan_member_execution(
@@ -435,16 +469,32 @@ pub(crate) fn plan_member_execution_from_graph(
     let mut steps = fol_package::project_graph_steps(graph)
         .into_iter()
         .map(|step| {
-            let selection = selection_for_step(member, evaluated, &step.name, step.default_kind);
+            let selection =
+                selection_for_step(member, graph, evaluated, &step.name, step.default_kind);
             // A step whose artifact binding already resolved (explicit
             // graph binding or exact artifact name) is never ambiguous;
             // the multi-artifact heuristic only applies to unresolved
             // default selections.
             let ambiguous_selection = selection.is_none()
                 && step_has_ambiguous_default_selection(evaluated, step.default_kind);
+            // The default `build` step over several executables builds all
+            // of them; only `run`/`test` genuinely need a single target.
+            let fan_out_selections = if ambiguous_selection
+                && step.default_kind == Some(fol_package::BuildDefaultStepKind::Build)
+            {
+                all_selections(
+                    member,
+                    graph,
+                    evaluated,
+                    fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
+                )
+            } else {
+                Vec::new()
+            };
             FrontendMemberPlannedStep {
                 selection,
                 ambiguous_selection,
+                fan_out_selections,
                 available_models: models_for_step(evaluated, &step.name, step.default_kind),
                 description: step.description,
                 default_kind: step.default_kind,
@@ -454,7 +504,7 @@ pub(crate) fn plan_member_execution_from_graph(
         })
         .collect::<Vec<_>>();
     if synthesize_defaults {
-        for step in synthesized_default_steps(member, evaluated) {
+        for step in synthesized_default_steps(member, graph, evaluated) {
             if !steps.iter().any(|existing| existing.name == step.name) {
                 steps.push(step);
             }
@@ -462,6 +512,7 @@ pub(crate) fn plan_member_execution_from_graph(
     }
     if !steps.iter().any(|step| step.name == "check") {
         steps.push(FrontendMemberPlannedStep {
+            fan_out_selections: Vec::new(),
             name: "check".to_string(),
             description: Some("Typecheck the workspace graph".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Check),
@@ -491,6 +542,7 @@ pub(crate) fn plan_member_execution_from_graph(
 
 fn selection_for_step(
     member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
     step_name: &str,
     default_kind: Option<fol_package::BuildDefaultStepKind>,
@@ -505,7 +557,7 @@ fn selection_for_step(
                 .artifacts
                 .iter()
                 .find(|artifact| artifact.name == *artifact_name)
-                .map(|artifact| artifact_selection(member, evaluated, artifact));
+                .map(|artifact| artifact_selection(member, graph, evaluated, artifact));
         }
     }
     if let Some(artifact) = evaluated
@@ -513,17 +565,19 @@ fn selection_for_step(
         .iter()
         .find(|artifact| artifact.name == step_name)
     {
-        return Some(artifact_selection(member, evaluated, artifact));
+        return Some(artifact_selection(member, graph, evaluated, artifact));
     }
     match default_kind {
         Some(fol_package::BuildDefaultStepKind::Build)
         | Some(fol_package::BuildDefaultStepKind::Run) => single_selection(
             member,
+            graph,
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
         ),
         Some(fol_package::BuildDefaultStepKind::Test) => single_selection(
             member,
+            graph,
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Test,
         ),
@@ -533,6 +587,7 @@ fn selection_for_step(
 
 fn synthesized_default_steps(
     member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
 ) -> Vec<FrontendMemberPlannedStep> {
     let mut steps = Vec::new();
@@ -543,10 +598,24 @@ fn synthesized_default_steps(
     if executable_count > 0 {
         let selection = single_selection(
             member,
+            graph,
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
         );
+        // Several executables: the default `build` step fans out over all
+        // of them instead of demanding a named step.
+        let fan_out_selections = if executable_count > 1 {
+            all_selections(
+                member,
+                graph,
+                evaluated,
+                fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
+            )
+        } else {
+            Vec::new()
+        };
         steps.push(FrontendMemberPlannedStep {
+            fan_out_selections,
             name: "build".to_string(),
             description: Some("Build default executable artifacts".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Build),
@@ -559,6 +628,7 @@ fn synthesized_default_steps(
             ),
         });
         steps.push(FrontendMemberPlannedStep {
+            fan_out_selections: Vec::new(),
             name: "run".to_string(),
             description: Some("Run the default executable artifact".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Run),
@@ -578,10 +648,12 @@ fn synthesized_default_steps(
     if test_count > 0 {
         let selection = single_selection(
             member,
+            graph,
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Test,
         );
         steps.push(FrontendMemberPlannedStep {
+            fan_out_selections: Vec::new(),
             name: "test".to_string(),
             description: Some("Run the default test artifact".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Test),
@@ -689,8 +761,26 @@ fn models_for_step(
     }
 }
 
+/// Every artifact of the given kind as an execution selection, in
+/// declaration order. The default `build` step uses this to fan out over
+/// all executables.
+fn all_selections(
+    member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
+    evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
+    kind: fol_package::build_runtime::BuildRuntimeArtifactKind,
+) -> Vec<crate::compile::FrontendArtifactExecutionSelection> {
+    evaluated
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == kind)
+        .map(|artifact| artifact_selection(member, graph, evaluated, artifact))
+        .collect()
+}
+
 fn single_selection(
     member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
     kind: fol_package::build_runtime::BuildRuntimeArtifactKind,
 ) -> Option<crate::compile::FrontendArtifactExecutionSelection> {
@@ -699,11 +789,12 @@ fn single_selection(
         .iter()
         .filter(|artifact| artifact.kind == kind)
         .collect::<Vec<_>>();
-    (artifacts.len() == 1).then(|| artifact_selection(member, evaluated, artifacts[0]))
+    (artifacts.len() == 1).then(|| artifact_selection(member, graph, evaluated, artifacts[0]))
 }
 
 fn artifact_selection(
     member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
     artifact: &fol_package::build_runtime::BuildRuntimeArtifact,
 ) -> crate::compile::FrontendArtifactExecutionSelection {
@@ -734,6 +825,13 @@ fn artifact_selection(
             has_bundled_std,
         ),
         has_bundled_std,
+        target: artifact.target.clone(),
+        optimize: artifact.optimize,
+        c_imports: artifact.c_imports.clone(),
+        graph_binding: Some(crate::compile::FrontendArtifactGraphBinding {
+            graph: graph.clone(),
+            artifact_id: artifact.artifact_id,
+        }),
     }
 }
 
@@ -777,6 +875,36 @@ fn resolve_requested_step_execution(
         let Some(execution_kind) = step.execution else {
             continue;
         };
+        if step.ambiguous_selection && !step.fan_out_selections.is_empty() {
+            if saw_untargeted {
+                return Err(FrontendError::new(
+                    FrontendErrorKind::InvalidInput,
+                    format!(
+                        "workspace build execution step '{}' mixes targeted and untargeted members",
+                        requested_step
+                    ),
+                ));
+            }
+            for selection in &step.fan_out_selections {
+                if !selections.contains(selection) {
+                    selections.push(selection.clone());
+                }
+            }
+            match resolved {
+                None => resolved = Some(execution_kind),
+                Some(current) if current == execution_kind => {}
+                Some(current) => {
+                    return Err(FrontendError::new(
+                        FrontendErrorKind::InvalidInput,
+                        format!(
+                            "workspace build execution step '{}' resolves to incompatible execution kinds: {:?} and {:?}",
+                            requested_step, current, execution_kind
+                        ),
+                    ));
+                }
+            }
+            continue;
+        }
         if step.ambiguous_selection {
             let resolved = if step.available_models.is_empty() {
                 "unknown".to_string()

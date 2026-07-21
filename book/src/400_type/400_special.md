@@ -2,10 +2,10 @@
 
 Current boundary:
 
-- the `opt[...]` optional shell and the `err[...]` error shell are the current
-  compiler surface
-- `uni[...]` (union), `any`, and `nev` (never) are not implemented; the compiler
-  rejects them with a "not yet supported" diagnostic
+- the `opt[...]` optional shell, the `err[...]` error shell, and the `nev`
+  never type are the current compiler surface
+- `uni[...]` (union) and `any` are not implemented; the compiler rejects them
+  with a "not yet supported" diagnostic
 - those sections describe later design work, not current behavior
 
 ## Optional
@@ -54,7 +54,7 @@ Plain inference from `nil` alone is not supported.
 Current `V1` shell note:
 
 - `opt[...]` and `err[...]` are shell values.
-- postfix unwrap `value!` applies to those shell values.
+- Unwrap `[uwp]value` applies to those shell values.
 - routine calls declared with `ResultType / ErrorType` are not `err[...]`
   shells.
 - use `check(...)` or `expr || fallback` for those routine calls instead of

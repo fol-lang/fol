@@ -2,7 +2,7 @@ use std: pkg = {"std"};
 
 fun[] main(): int = {
     var channel: chn[int];
-    41 | channel[tx];
-    var value: int = channel[rx];
-    return std::io::echo_int(value);
+    var sent: err[int] = 41 | channel[tx];
+    var received: opt[int] = channel[rx];
+    return std::io::echo_int(received[]);
 };

@@ -159,6 +159,26 @@ pub struct LoweredGlobal {
     pub name: String,
     pub type_id: LoweredTypeId,
     pub mutable: bool,
+    /// The declared literal initializer. Global reads materialize through it,
+    /// so a `con LIMIT: int = 9` reads 9 rather than the type default.
+    pub initializer: Option<LoweredGlobalInit>,
+}
+
+/// A global's compile-time initializer: a scalar literal, or a record literal
+/// whose fields are scalar literals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoweredGlobalInit {
+    Operand(crate::control::LoweredOperand),
+    Record {
+        fields: Vec<(String, crate::control::LoweredOperand)>,
+    },
+    /// Initialized from another global constant (possibly cross-package).
+    /// Rendering chains the referenced global's lazy load; constant cycles
+    /// are pathological and deadlock the OnceLock at startup.
+    GlobalRef {
+        package: fol_resolver::PackageIdentity,
+        symbol: SymbolId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

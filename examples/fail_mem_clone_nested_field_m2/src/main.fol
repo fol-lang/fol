@@ -1,0 +1,25 @@
+// `clone` is verified recursively (V3_MEM §4.1): the structural clone default
+// applies only when EVERY field supports clone. `File` claims `fin` (custom
+// finalization), which has no structural clone, so an aggregate that
+// transitively holds a `File` cannot claim `clone` — `Outer` is rejected even
+// though the `File` is nested one level down inside `Inner`.
+
+typ File()(fin): rec = {
+    descriptor: int,
+};
+
+pro (File)finalize(): non = {
+    return;
+};
+
+typ Inner: rec = {
+    handle: File,
+};
+
+typ Outer()(clone): rec = {
+    inner: Inner,
+};
+
+fun[] main(): int = {
+    return 0;
+};

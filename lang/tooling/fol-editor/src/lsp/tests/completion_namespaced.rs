@@ -1,8 +1,8 @@
-use super::helpers::{hosted_sample_package_root, open_document, sample_package_root, temp_root};
 use super::super::{
     EditorLspServer, JsonRpcId, JsonRpcRequest, LspCompletionContext, LspCompletionList,
     LspCompletionParams, LspPosition, LspTextDocumentIdentifier,
 };
+use super::helpers::{hosted_sample_package_root, open_document, sample_package_root, temp_root};
 use crate::EditorConfig;
 use std::fs;
 
@@ -57,8 +57,7 @@ fn lsp_server_returns_supported_v1_dot_intrinsics() {
         .unwrap()
         .unwrap();
 
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     let labels = completion
         .items
         .iter()
@@ -104,8 +103,7 @@ fn lsp_server_uses_conservative_dot_fallback_for_incomplete_contexts() {
         .unwrap()
         .unwrap();
 
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     let labels = completion
         .items
         .iter()
@@ -203,8 +201,7 @@ fn lsp_server_locks_dot_intrinsic_completion_matrix() {
         .unwrap()
         .unwrap();
 
-    let completion: LspCompletionList =
-        serde_json::from_value(completion.result.unwrap()).unwrap();
+    let completion: LspCompletionList = serde_json::from_value(completion.result.unwrap()).unwrap();
     let labels = completion
         .items
         .iter()
@@ -421,13 +418,12 @@ fn lsp_server_keeps_model_completion_context_isolated_across_workspace_members()
         .into_iter()
         .map(|item| item.label)
         .collect::<Vec<_>>();
-    let tool_labels =
-        serde_json::from_value::<LspCompletionList>(tool_completion.result.unwrap())
-            .unwrap()
-            .items
-            .into_iter()
-            .map(|item| item.label)
-            .collect::<Vec<_>>();
+    let tool_labels = serde_json::from_value::<LspCompletionList>(tool_completion.result.unwrap())
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|item| item.label)
+        .collect::<Vec<_>>();
 
     assert!(!app_labels.contains(&"echo".to_string()));
     assert!(tool_labels.contains(&"echo".to_string()));

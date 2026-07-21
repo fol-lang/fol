@@ -10,7 +10,7 @@ fun[exp] build_report(flag: bol): Report = {
     var current: User = lead();
     var names_local: seq[str] = names();
     return {
-        title = pick_label(true)!,
+        title = [uwp]pick_label(true),
         owner = current.name,
         status = okay_status(flag),
         status_code = status_code(flag),

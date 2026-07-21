@@ -1,0 +1,11 @@
+// A weak managed pointer `ptr[weak, T]` does not keep its allocation alive, so it
+// cannot be dereferenced directly (V3_MEM Slice D). It must first be upgraded
+// with `[upg]` to `opt[ptr[shared, T]]`, which may be empty if the shared
+// allocation is already gone.
+
+fun[] main(): int = {
+    var value: int = 7;
+    var strong: ptr[shared, int] = [ref]value;
+    var handle: ptr[weak, int] = [weak]strong;
+    return [drf]handle;
+};

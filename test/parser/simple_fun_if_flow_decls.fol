@@ -1,4 +1,4 @@
 fun fallback(value: int): int = {
-    if(value) => var first, second: int = 0
+    if(value) => var first, second: int = 0, 0
     else => use warn, fail: mod = {"std/io"}
 };

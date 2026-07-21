@@ -1,0 +1,7 @@
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var channel: chn[int];
+    7 | channel[tx];
+    return 0;
+};

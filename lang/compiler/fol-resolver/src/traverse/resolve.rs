@@ -57,30 +57,12 @@ pub fn resolve_lexical_symbol_of_kinds(
                 ));
             }
 
-            if allowed_kinds.is_empty() {
-                return Err(ambiguity_error_with_optional_origin(
-                    lexical_ambiguity_message(name, missing_role, &matching_symbols),
-                    origin,
-                    &matching_symbols,
-                ));
-            }
-
-            return Err(with_unresolved_name_suggestion(
-                error_with_optional_origin(
-                    ResolverErrorKind::UnresolvedName,
-                    format!(
-                        "could not resolve {} '{}'",
-                        missing_role.unwrap_or("name"),
-                        name
-                    ),
-                    origin.clone(),
-                ),
-                program,
-                starting_scope,
-                name,
-                allowed_kinds,
-                origin.as_ref(),
-            ));
+            // This scope has a symbol with the same (case-folded) name but of a
+            // non-matching kind — e.g. a value binding `node` shadowing the type
+            // `Node`. Types and values occupy distinct namespaces, so a wrong-kind
+            // symbol must not halt the lookup: fall through to the enclosing
+            // scope, where a matching-kind symbol may live. If none is found in
+            // any scope, the post-loop error reports the unresolved name.
         }
 
         current_scope = program.scope(scope_id).and_then(|scope| scope.parent);
@@ -234,7 +216,7 @@ pub fn resolve_qualified_symbol(
         ));
     }
 
-    let (mut current_scope, mut current_namespace) = resolve_qualified_root(
+    let root = resolve_qualified_root(
         program,
         starting_scope,
         &path.segments[0],
@@ -242,7 +224,42 @@ pub fn resolve_qualified_symbol(
         missing_role,
         origin.clone(),
     )?;
+    match resolve_qualified_from_root(program, root, path, allowed_kinds, missing_role, &origin) {
+        Ok(symbol_id) => Ok(symbol_id),
+        Err(error) if error.kind() == ResolverErrorKind::UnresolvedName => {
+            // A package may import a library whose alias matches the
+            // package's own name (an `icetea` workspace importing its
+            // `icetea` library). The self-name root shadows the alias, so
+            // when nothing resolves under the package root, retry through
+            // the import alias before reporting.
+            let Some(alias_root) =
+                import_alias_root(program, starting_scope, &path.segments[0], &origin)
+            else {
+                return Err(error);
+            };
+            resolve_qualified_from_root(
+                program,
+                alias_root,
+                path,
+                allowed_kinds,
+                missing_role,
+                &origin,
+            )
+            .map_err(|_| error)
+        }
+        Err(error) => Err(error),
+    }
+}
 
+fn resolve_qualified_from_root(
+    program: &ResolvedProgram,
+    root: (ScopeId, String, bool),
+    path: &QualifiedPath,
+    allowed_kinds: &[SymbolKind],
+    missing_role: &str,
+    origin: &Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<SymbolId, ResolverError> {
+    let (mut current_scope, mut current_namespace, crosses_import) = root;
     for segment in &path.segments[1..path.segments.len() - 1] {
         current_namespace.push_str("::");
         current_namespace.push_str(segment);
@@ -266,8 +283,36 @@ pub fn resolve_qualified_symbol(
         allowed_kinds,
         &path.joined(),
         missing_role,
-        origin,
+        origin.clone(),
+        crosses_import,
     )
+}
+
+/// The import-alias root for a segment, if one is visible: the mounted scope
+/// the alias targets. Used as the fallback when the segment also names the
+/// current package.
+fn import_alias_root(
+    program: &ResolvedProgram,
+    starting_scope: ScopeId,
+    root_segment: &str,
+    origin: &Option<fol_parser::ast::SyntaxOrigin>,
+) -> Option<(ScopeId, String, bool)> {
+    let import_symbol = resolve_visible_symbol_of_kinds(
+        program,
+        starting_scope,
+        root_segment,
+        &[SymbolKind::ImportAlias],
+        Some("import alias"),
+        origin.clone(),
+    )
+    .ok()?;
+    let target_scope = program
+        .imports
+        .iter()
+        .find(|import| import.alias_symbol == import_symbol)
+        .and_then(|import| import.target_scope)?;
+    let namespace = scope_namespace(program, target_scope).ok()?;
+    Some((target_scope, namespace, true))
 }
 
 fn resolve_qualified_root(
@@ -277,9 +322,13 @@ fn resolve_qualified_root(
     full_path: &str,
     missing_role: &str,
     origin: Option<fol_parser::ast::SyntaxOrigin>,
-) -> Result<(ScopeId, String), ResolverError> {
+) -> Result<(ScopeId, String, bool), ResolverError> {
     if root_segment == program.package_name() {
-        return Ok((program.program_scope, program.package_name().to_string()));
+        return Ok((
+            program.program_scope,
+            program.package_name().to_string(),
+            false,
+        ));
     }
 
     if let Ok(import_symbol) = resolve_visible_symbol_of_kinds(
@@ -296,13 +345,13 @@ fn resolve_qualified_root(
             .find(|import| import.alias_symbol == import_symbol)
             .and_then(|import| import.target_scope);
         if let Some(target_scope) = import {
-            return Ok((target_scope, scope_namespace(program, target_scope)?));
+            return Ok((target_scope, scope_namespace(program, target_scope)?, true));
         }
     }
 
     let namespace = format!("{}::{}", program.package_name(), root_segment);
     if let Some(scope_id) = program.namespace_scope(&namespace) {
-        return Ok((scope_id, namespace));
+        return Ok((scope_id, namespace, false));
     }
 
     Err(error_with_optional_origin(
@@ -312,6 +361,7 @@ fn resolve_qualified_root(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_symbol_in_scope(
     program: &ResolvedProgram,
     scope_id: ScopeId,
@@ -320,6 +370,7 @@ fn resolve_symbol_in_scope(
     full_path: &str,
     missing_role: &str,
     origin: Option<fol_parser::ast::SyntaxOrigin>,
+    require_exported: bool,
 ) -> Result<SymbolId, ResolverError> {
     let canonical_name = fol_types::canonical_identifier_key(name);
     let symbols = program.symbols_named_in_scope(scope_id, &canonical_name);
@@ -331,6 +382,39 @@ fn resolve_symbol_in_scope(
             .filter(|symbol| allowed_kinds.contains(&symbol.kind))
             .collect::<Vec<_>>()
     };
+
+    // A qualified path that entered through an import alias may only land on
+    // exported declarations; the build/workspace path mounts nothing else, so
+    // resolving a private symbol here would greenlight code that cannot build.
+    if require_exported && !matching_symbols.is_empty() {
+        let exported = matching_symbols
+            .iter()
+            .copied()
+            .filter(import_visible_symbol)
+            .collect::<Vec<_>>();
+        if exported.is_empty() {
+            return Err(error_with_optional_origin(
+                ResolverErrorKind::UnresolvedName,
+                format!(
+                    "'{full_path}' names a declaration that is not exported; mark it '[exp]' in its package to import it"
+                ),
+                origin,
+            ));
+        }
+        return match exported.as_slice() {
+            [symbol] => Ok(symbol.id),
+            _ => Err(ambiguity_error_with_optional_origin(
+                format!(
+                    "{} '{}' is ambiguous; candidates: {}",
+                    missing_role,
+                    full_path,
+                    describe_symbol_candidates(&exported)
+                ),
+                origin,
+                &exported,
+            )),
+        };
+    }
 
     match matching_symbols.as_slice() {
         [symbol] => Ok(symbol.id),
@@ -521,7 +605,7 @@ fn closest_visible_symbol_name(
             for symbol in program
                 .symbols_in_scope(target_scope)
                 .into_iter()
-                .filter(|symbol| import_visible_symbol(symbol))
+                .filter(import_visible_symbol)
             {
                 if !allowed_kinds.is_empty() && !allowed_kinds.contains(&symbol.kind) {
                     continue;

@@ -62,7 +62,6 @@ fn test_routine_generic_headers_reject_duplicate_names() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -92,7 +91,6 @@ fn test_routine_generic_headers_reject_canonical_duplicate_names() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -122,7 +120,6 @@ fn test_routine_generic_headers_reject_default_values() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -248,7 +245,8 @@ fn test_routine_parameters_support_grouped_names_and_semicolon_separators() {
                                     [
                                         Parameter {
                                             name: op_name,
-                                            param_type: FolType::Function { params: fn_params, return_type },
+                                            param_type: FolType::Function { params: fn_params, return_type, env_lifetime: _,
+},
                                             ..
                                         },
                                         Parameter { name: left, param_type: FolType::Int { size: None, signed: true }, .. },
@@ -288,7 +286,6 @@ fn test_grouped_parameters_missing_colon_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -317,7 +314,6 @@ fn test_duplicate_routine_parameter_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -347,7 +343,6 @@ fn test_duplicate_routine_parameter_reports_canonical_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -377,7 +372,6 @@ fn test_duplicate_function_type_parameter_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -407,7 +401,6 @@ fn test_parameter_default_missing_value_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -436,7 +429,6 @@ fn test_unknown_routine_option_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -466,7 +458,6 @@ fn test_routine_generic_header_missing_separator_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -672,13 +663,15 @@ fn test_when_statement_supports_of_cases_with_complex_types() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let when_stmt = only_root_routine_body_nodes(&declarations).into_iter().find_map(|node| {
-                if let AstNode::When { cases, default, .. } = node {
-                    Some((cases.clone(), default.clone()))
-                } else {
-                    None
-                }
-            });
+            let when_stmt = only_root_routine_body_nodes(&declarations)
+                .into_iter()
+                .find_map(|node| {
+                    if let AstNode::When { cases, default, .. } = node {
+                        Some((cases.clone(), default.clone()))
+                    } else {
+                        None
+                    }
+                });
 
             let (cases, default) = when_stmt.expect("Program should include when statement");
             assert!(
@@ -733,13 +726,15 @@ fn test_when_statement_supports_is_in_and_has_cases() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let when_stmt = only_root_routine_body_nodes(&declarations).into_iter().find_map(|node| {
-                if let AstNode::When { cases, default, .. } = node {
-                    Some((cases.clone(), default.clone()))
-                } else {
-                    None
-                }
-            });
+            let when_stmt = only_root_routine_body_nodes(&declarations)
+                .into_iter()
+                .find_map(|node| {
+                    if let AstNode::When { cases, default, .. } = node {
+                        Some((cases.clone(), default.clone()))
+                    } else {
+                        None
+                    }
+                });
 
             let (cases, default) = when_stmt.expect("Program should include when statement");
             assert!(
@@ -800,13 +795,15 @@ fn test_when_statement_supports_on_cases() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let when_stmt = only_root_routine_body_nodes(&declarations).into_iter().find_map(|node| {
-                if let AstNode::When { cases, default, .. } = node {
-                    Some((cases.clone(), default.clone()))
-                } else {
-                    None
-                }
-            });
+            let when_stmt = only_root_routine_body_nodes(&declarations)
+                .into_iter()
+                .find_map(|node| {
+                    if let AstNode::When { cases, default, .. } = node {
+                        Some((cases.clone(), default.clone()))
+                    } else {
+                        None
+                    }
+                });
 
             let (cases, default) = when_stmt.expect("Program should include when statement");
             assert!(
@@ -843,13 +840,15 @@ fn test_when_statement_supports_star_default_case() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let when_stmt = only_root_routine_body_nodes(&declarations).into_iter().find_map(|node| {
-                if let AstNode::When { default, .. } = node {
-                    default.clone()
-                } else {
-                    None
-                }
-            });
+            let when_stmt = only_root_routine_body_nodes(&declarations)
+                .into_iter()
+                .find_map(|node| {
+                    if let AstNode::When { default, .. } = node {
+                        default.clone()
+                    } else {
+                        None
+                    }
+                });
 
             let default_body = when_stmt.expect("When statement should include default body");
             assert!(
@@ -877,7 +876,6 @@ fn test_when_of_case_missing_bracket_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -907,7 +905,6 @@ fn test_when_star_default_missing_body_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -936,7 +933,6 @@ fn test_when_on_case_missing_close_paren_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

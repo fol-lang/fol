@@ -9,12 +9,14 @@ fn generic_routine_signatures_keep_generic_parameter_facts() {
          };\n",
     )]);
 
-    let (_generic_id, generic_symbol) = find_typed_symbol(&typed, "T", SymbolKind::GenericParameter);
+    let (_generic_id, generic_symbol) =
+        find_typed_symbol(&typed, "T", SymbolKind::GenericParameter);
     let (_pick_id, pick_symbol) = find_typed_symbol(&typed, "pick", SymbolKind::Routine);
-    let signature = match typed
-        .type_table()
-        .get(pick_symbol.declared_type.expect("generic routine should keep a signature"))
-    {
+    let signature = match typed.type_table().get(
+        pick_symbol
+            .declared_type
+            .expect("generic routine should keep a signature"),
+    ) {
         Some(CheckedType::Routine(signature)) => signature,
         other => panic!("expected routine signature, got {other:?}"),
     };
@@ -73,7 +75,7 @@ fn generic_calls_consume_owned_and_unique_pointer_arguments() {
             "typ Item: rec = { value: int };\n\
              fun[] main(): int = {\n\
                  @var owned: Item = { value = 7 };\n\
-                 @var forwarded: Item = identity(owned);\n\
+                 @var forwarded: Item = identity([mov]owned);\n\
                  return owned.value;\n\
              };",
             "owned",
@@ -82,16 +84,14 @@ fn generic_calls_consume_owned_and_unique_pointer_arguments() {
             "unique pointer",
             "fun[] main(): int = {\n\
                  var seed: int = 7;\n\
-                 var pointer: ptr[int] = &seed;\n\
-                 var forwarded: ptr[int] = identity(pointer);\n\
-                 return *pointer;\n\
+                 var pointer: ptr[int] = [ref]seed;\n\
+                 var forwarded: ptr[int] = identity([mov]pointer);\n\
+                 return [drf]pointer;\n\
              };",
             "pointer",
         ),
     ] {
-        let source = format!(
-            "fun identity(T)(value: T): T = {{ return value; }};\n{body}\n"
-        );
+        let source = format!("fun identity(T)(value: T): T = {{ return value; }};\n{body}\n");
         let errors = typecheck_fixture_folder_errors(&[("main.fol", source.as_str())]);
 
         assert!(
@@ -326,8 +326,10 @@ fn generic_receiver_types_lower_cleanly() {
     )]);
 
     let (_unwrap_id, unwrap_symbol) = find_typed_symbol(&typed, "unwrap", SymbolKind::Routine);
-    assert!(unwrap_symbol.declared_type.is_some(),
-        "generic receiver routines must lower to a typed signature");
+    assert!(
+        unwrap_symbol.declared_type.is_some(),
+        "generic receiver routines must lower to a typed signature"
+    );
 }
 
 #[test]
@@ -565,9 +567,12 @@ fn generic_routine_calls_reject_alias_backed_mismatches() {
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::IncompatibleType
-    }), "Expected alias-backed mismatch to fail with an incompatible-type error, got: {errors:?}");
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.kind() == TypecheckErrorKind::IncompatibleType }),
+        "Expected alias-backed mismatch to fail with an incompatible-type error, got: {errors:?}"
+    );
 }
 
 #[test]
@@ -602,10 +607,13 @@ fn generic_routine_calls_reject_variadic_arguments_that_break_inferred_types() {
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::IncompatibleType
-            && error.message().contains("call to 'gather' expects")
-    }), "Expected variadic generic mismatches to fail locally, got: {errors:?}");
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error.message().contains("call to 'gather' expects")
+        }),
+        "Expected variadic generic mismatches to fail locally, got: {errors:?}"
+    );
 }
 
 #[test]
@@ -720,7 +728,7 @@ fn generic_routine_calls_reject_context_only_inference() {
 fn generic_routine_values_reject_returning_generic_routines() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-         "fun pick(T)(value: T): T = {\n\
+        "fun pick(T)(value: T): T = {\n\
              return value;\n\
          };\n\
          fun choose(): {fun (value: int): int} = {\n\
@@ -743,7 +751,7 @@ fn generic_routine_values_reject_returning_generic_routines() {
 fn generic_routine_values_reject_plain_callable_bindings() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-         "fun pick(T)(value: T): T = {\n\
+        "fun pick(T)(value: T): T = {\n\
              return value;\n\
          };\n\
          fun[] main(): int = {\n\
@@ -767,7 +775,7 @@ fn generic_routine_values_reject_plain_callable_bindings() {
 fn generic_routine_values_reject_storing_generic_routines_in_records() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-         "fun pick(T)(value: T): T = {\n\
+        "fun pick(T)(value: T): T = {\n\
              return value;\n\
          };\n\
          typ Holder: rec = {\n\
@@ -794,7 +802,7 @@ fn generic_routine_values_reject_storing_generic_routines_in_records() {
 fn generic_routine_values_reject_plain_callable_arguments() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
-         "fun pick(T)(value: T): T = {\n\
+        "fun pick(T)(value: T): T = {\n\
              return value;\n\
          };\n\
          fun call_once(action: {fun (value: int): int}): int = {\n\
@@ -828,7 +836,9 @@ fn generic_routines_reject_constraints_exhaustively() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains("must resolve to a standard declaration")
+                && error
+                    .message()
+                    .contains("must resolve to a standard declaration")
         }),
         "Expected non-standard generic constraints to be rejected, got: {errors:?}"
     );
@@ -883,8 +893,10 @@ fn generic_routines_accept_generic_error_shells() {
     )]);
 
     let (_echo_id, echo_symbol) = find_typed_symbol(&typed, "echo", SymbolKind::Routine);
-    assert!(echo_symbol.declared_type.is_some(),
-        "generic recoverable routine should lower to a typed signature");
+    assert!(
+        echo_symbol.declared_type.is_some(),
+        "generic recoverable routine should lower to a typed signature"
+    );
 }
 
 #[test]
@@ -976,7 +988,9 @@ fn imported_generic_routine_calls_keep_underconstrained_cases_behind_the_same_wo
     );
 
     let errors = typecheck_fixture_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect_err("imported underconstrained generic calls should fail at the same workspace boundary");
+        .expect_err(
+            "imported underconstrained generic calls should fail at the same workspace boundary",
+        );
 
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::Unsupported

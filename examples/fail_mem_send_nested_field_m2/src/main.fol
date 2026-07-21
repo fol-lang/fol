@@ -1,0 +1,16 @@
+// `send` is verified recursively (V3_MEM §4.1): a thread-safe claim is unsound
+// if a TRANSITIVELY nested field is not thread-safe. `Inner` holds an Rc-backed
+// `ptr[shared, int]` (not `Send`), so `Outer` cannot claim `send` even though
+// the Rc is nested one level down. (`ptr[shared, sync, int]` would be allowed.)
+
+typ Inner: rec = {
+    p: ptr[shared, int],
+};
+
+typ Outer()(send): rec = {
+    inner: Inner,
+};
+
+fun[] main(): int = {
+    return 0;
+};

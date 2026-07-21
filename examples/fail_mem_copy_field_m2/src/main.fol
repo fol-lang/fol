@@ -1,0 +1,7 @@
+typ Bad()(copy): rec = {
+    link: ptr[int],
+};
+
+fun[] main(): int = {
+    return 0;
+};

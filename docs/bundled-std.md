@@ -109,6 +109,23 @@ Import rule:
 
 An explicit `--std-root <DIR>` override may still exist for development and testing, but it is not the normal user path.
 
+## Where Bundled Std Physically Lives
+
+Resolution is binary-relative, in this order:
+
+1. an explicit `--std-root` / `--package-store-root` flag or the matching
+   `FOL_STD_ROOT` / `FOL_PACKAGE_STORE_ROOT` environment override
+2. the project-local fetched store `.fol/pkg`, when it exists
+3. **`std/` next to the running `folc` binary** — this is the installed
+   toolchain layout (`$FOL_HOME/toolchains/vX.X.X/{folc, std/, runtime/}`)
+   managed by `fol self`; a released toolchain is fully self-contained
+4. the source-tree path compiled into dev builds
+   (`lang/library/std` in the checkout)
+
+The same rule applies to the `runtime/` crate sources the backend compiles
+emitted Rust against. See the book's Toolchain Management chapter for the full
+`fol` / `folc` split, version pinning, and the release asset contract.
+
 ## Bootstrap Surface
 
 The bundled shipped std is intentionally small right now.

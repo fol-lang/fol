@@ -40,27 +40,6 @@ fn test_former_std_type_references_now_lower_as_pkg() {
 }
 
 #[test]
-fn test_url_source_kind_reports_pkg_migration_diagnostic() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_source_url_types.fol")
-        .expect("Should read url source-kind type fixture");
-
-    let mut lexer = Elements::init(&mut file_stream);
-    let mut parser = AstParser::new();
-    let errors = parser
-        .parse(&mut lexer)
-        .expect_err("Parser should reject legacy url source-kind syntax");
-
-    let message = errors
-        .first()
-        .expect("First parser error should exist")
-        .message.clone();
-    assert!(
-        message.contains("Legacy source kind 'url' was removed; use 'pkg' instead"),
-        "Parser should direct legacy url users to pkg, got: {message}",
-    );
-}
-
-#[test]
 fn test_loc_type_references_lower_structurally() {
     let mut file_stream = FileStream::from_file("test/parser/simple_source_loc_types.fol")
         .expect("Should read loc source-kind type fixture");

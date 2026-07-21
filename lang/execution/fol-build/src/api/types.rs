@@ -191,27 +191,86 @@ pub struct UserOption {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildArtifactConfigValue {
+    Literal(String),
+    OptionRef { name: String, kind: BuildOptionKind },
+}
+
+impl Default for BuildArtifactConfigValue {
+    fn default() -> Self {
+        Self::Literal(String::new())
+    }
+}
+
+impl BuildArtifactConfigValue {
+    pub fn placeholder_string(&self) -> String {
+        match self {
+            Self::Literal(value) => value.clone(),
+            Self::OptionRef { name, .. } => name.clone(),
+        }
+    }
+
+    pub fn resolve(&self, options: &crate::option::ResolvedBuildOptionSet) -> Option<String> {
+        match self {
+            Self::Literal(value) => Some(value.clone()),
+            Self::OptionRef { name, .. } => options.get(name).map(str::to_string),
+        }
+    }
+
+    pub fn option_kind(&self) -> Option<BuildOptionKind> {
+        match self {
+            Self::Literal(_) => None,
+            Self::OptionRef { kind, .. } => Some(*kind),
+        }
+    }
+}
+
+impl From<String> for BuildArtifactConfigValue {
+    fn from(value: String) -> Self {
+        Self::Literal(value)
+    }
+}
+
+impl From<&str> for BuildArtifactConfigValue {
+    fn from(value: &str) -> Self {
+        Self::Literal(value.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExecutableRequest {
     pub name: String,
-    pub root_module: String,
+    pub root_module: BuildArtifactConfigValue,
+    pub fol_model: crate::artifact::BuildArtifactFolModel,
+    pub target: Option<BuildArtifactConfigValue>,
+    pub optimize: Option<BuildArtifactConfigValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StaticLibraryRequest {
     pub name: String,
-    pub root_module: String,
+    pub root_module: BuildArtifactConfigValue,
+    pub fol_model: crate::artifact::BuildArtifactFolModel,
+    pub target: Option<BuildArtifactConfigValue>,
+    pub optimize: Option<BuildArtifactConfigValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SharedLibraryRequest {
     pub name: String,
-    pub root_module: String,
+    pub root_module: BuildArtifactConfigValue,
+    pub fol_model: crate::artifact::BuildArtifactFolModel,
+    pub target: Option<BuildArtifactConfigValue>,
+    pub optimize: Option<BuildArtifactConfigValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TestArtifactRequest {
     pub name: String,
-    pub root_module: String,
+    pub root_module: BuildArtifactConfigValue,
+    pub fol_model: crate::artifact::BuildArtifactFolModel,
+    pub target: Option<BuildArtifactConfigValue>,
+    pub optimize: Option<BuildArtifactConfigValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,6 +282,7 @@ pub enum BuildApiNameError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildApiError {
     InvalidName(BuildApiNameError),
+    InvalidArtifactConfig(String),
 }
 
 impl std::fmt::Display for BuildApiError {
@@ -234,6 +294,7 @@ impl std::fmt::Display for BuildApiError {
             Self::InvalidName(BuildApiNameError::InvalidCharacter(ch)) => {
                 write!(f, "build API names must not contain '{}'", ch)
             }
+            Self::InvalidArtifactConfig(message) => f.write_str(message),
         }
     }
 }
@@ -244,6 +305,13 @@ impl std::error::Error for BuildApiError {}
 pub struct BuildArtifactHandle {
     pub artifact_id: crate::graph::BuildArtifactId,
     pub root_module_id: crate::graph::BuildModuleId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildCImportRequest {
+    pub header: SourceFileHandle,
+    pub provider: SourceFileHandle,
+    pub provider_kind: crate::graph::BuildCImportProviderKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,6 +421,8 @@ pub enum PathHandleClass {
 pub enum PathHandleProvenance {
     Source,
     Generated,
+    DependencyFile,
+    DependencyDir,
     DependencyGenerated,
     DependencyPath,
 }

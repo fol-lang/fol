@@ -15,10 +15,10 @@ fun[] pointers(
     optional: ptr[opt[models::Node]]
 ): int = {
     var value: int = 1;
-    var[mut] unique: ptr[int] = &value;
+    var[mut] unique: ptr[int] = [ref]value;
     var shared: ptr[shared, int] = unique;
-    *unique = 2;
-    return *unique;
+    [drf]unique = 2;
+    return [drf]unique;
 };
 
 ---
@@ -110,7 +110,8 @@ fun[] pointers(
                   (type_expr
                     (identifier)))))
             (expr
-              (unary_expr
+              (ownership_op
+                (ownership_option)
                 (expr_atom
                   (identifier))))))
         (stmt
@@ -135,7 +136,8 @@ fun[] pointers(
         (stmt
           (return_stmt
             (expr
-              (unary_expr
+              (ownership_op
+                (ownership_option)
                 (expr_atom
                   (identifier))))))))))
 
@@ -144,14 +146,14 @@ V3 Consuming And Borrowed Pointer Dereference
 ==================
 
 fun[] read(pointer[bor]: ptr[int]): int = {
-    return *pointer;
+    return [drf]pointer;
 };
 
 fun[] main(): int = {
     var seed: int = 41;
-    var inner: ptr[int] = &seed;
-    var outer: ptr[ptr[int]] = &inner;
-    var extracted: ptr[int] = *outer;
+    var inner: ptr[int] = [ref]seed;
+    var outer: ptr[ptr[int]] = [ref]inner;
+    var extracted: ptr[int] = [drf]outer;
     var[bor] view: ptr[int] = extracted;
     return read(view);
 };
@@ -178,7 +180,8 @@ fun[] main(): int = {
         (stmt
           (return_stmt
             (expr
-              (unary_expr
+              (ownership_op
+                (ownership_option)
                 (expr_atom
                   (identifier)))))))))
   (fun_decl
@@ -208,7 +211,8 @@ fun[] main(): int = {
                   (type_expr
                     (identifier)))))
             (expr
-              (unary_expr
+              (ownership_op
+                (ownership_option)
                 (expr_atom
                   (identifier))))))
         (stmt
@@ -222,7 +226,8 @@ fun[] main(): int = {
                       (type_expr
                         (identifier)))))))
             (expr
-              (unary_expr
+              (ownership_op
+                (ownership_option)
                 (expr_atom
                   (identifier))))))
         (stmt
@@ -234,7 +239,8 @@ fun[] main(): int = {
                   (type_expr
                     (identifier)))))
             (expr
-              (unary_expr
+              (ownership_op
+                (ownership_option)
                 (expr_atom
                   (identifier))))))
         (stmt

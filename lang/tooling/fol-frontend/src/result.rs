@@ -7,8 +7,10 @@ pub enum FrontendArtifactKind {
     BuildRoot,
     CacheRoot,
     Binary,
+    Installed,
     EmittedRust,
     LoweredSnapshot,
+    InteropEvidence,
 }
 
 impl FrontendArtifactKind {
@@ -19,8 +21,10 @@ impl FrontendArtifactKind {
             Self::BuildRoot => "build-root",
             Self::CacheRoot => "cache-root",
             Self::Binary => "binary",
+            Self::Installed => "installed",
             Self::EmittedRust => "emitted-rust",
             Self::LoweredSnapshot => "lowered-snapshot",
+            Self::InteropEvidence => "interop-evidence",
         }
     }
 }

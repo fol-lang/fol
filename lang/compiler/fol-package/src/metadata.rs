@@ -162,7 +162,7 @@ fn parse_build_package_for_metadata(path: &Path) -> Result<ParsedPackage, Packag
     })
 }
 
-fn canonical_build_body<'a>(parsed: &'a ParsedPackage) -> Option<&'a [AstNode]> {
+fn canonical_build_body(parsed: &ParsedPackage) -> Option<&[AstNode]> {
     let mut found = None;
     for unit in &parsed.source_units {
         for item in &unit.items {
@@ -227,7 +227,12 @@ fn collect_metadata_fields(
                 if !is_build_receiver(object, build_aliases) {
                     continue;
                 }
-                let [AstNode::RecordInit { syntax_id, fields: record_fields, .. }] = &args[..] else {
+                let [AstNode::RecordInit {
+                    syntax_id,
+                    fields: record_fields,
+                    ..
+                }] = &args[..]
+                else {
                     continue;
                 };
                 let origin = syntax_id.and_then(|id| parsed.syntax_index.origin(id).cloned());
@@ -252,7 +257,13 @@ fn collect_metadata_fields(
                 if let Some(default_body) = default {
                     let mut aliases = build_aliases.clone();
                     let mut bindings = string_bindings.clone();
-                    collect_metadata_fields(default_body, parsed, &mut aliases, &mut bindings, fields);
+                    collect_metadata_fields(
+                        default_body,
+                        parsed,
+                        &mut aliases,
+                        &mut bindings,
+                        fields,
+                    );
                 }
             }
             AstNode::Loop { body, .. } | AstNode::Dfr { body, .. } => {
@@ -299,7 +310,12 @@ fn collect_dependency_decls(
                 if !is_build_receiver(object, build_aliases) {
                     continue;
                 }
-                let [AstNode::RecordInit { syntax_id, fields: record_fields, .. }] = &args[..] else {
+                let [AstNode::RecordInit {
+                    syntax_id,
+                    fields: record_fields,
+                    ..
+                }] = &args[..]
+                else {
                     continue;
                 };
                 let origin = syntax_id.and_then(|id| parsed.syntax_index.origin(id).cloned());
@@ -441,8 +457,9 @@ fn materialize_package_metadata_from_build(
                 ),
             };
             return Err(match first_origin {
-                Some(origin) => error
-                    .with_related_origin(origin, "first package metadata field declaration"),
+                Some(origin) => {
+                    error.with_related_origin(origin, "first package metadata field declaration")
+                }
                 None => error,
             });
         }
@@ -519,8 +536,9 @@ fn materialize_package_metadata_from_build(
                 ),
             };
             return Err(match first_origin {
-                Some(origin) => error
-                    .with_related_origin(origin, "first package dependency alias declaration"),
+                Some(origin) => {
+                    error.with_related_origin(origin, "first package dependency alias declaration")
+                }
                 None => error,
             });
         }
@@ -654,7 +672,10 @@ fn is_build_receiver(node: &AstNode, build_aliases: &BTreeSet<String>) -> bool {
         )
 }
 
-fn resolve_string_value(node: &AstNode, string_bindings: &BTreeMap<String, String>) -> Option<String> {
+fn resolve_string_value(
+    node: &AstNode,
+    string_bindings: &BTreeMap<String, String>,
+) -> Option<String> {
     match node {
         AstNode::Literal(fol_parser::ast::Literal::String(value)) => Some(value.clone()),
         // Single-element double-quoted literals width-classify as characters;
@@ -823,11 +844,15 @@ mod tests {
         let fields = extract_package_metadata_fields_from_build(&build_path)
             .expect("build metadata should extract from direct meta call");
 
-        assert!(fields.iter().any(|field| field.name == "name" && field.value == "demo"));
+        assert!(fields
+            .iter()
+            .any(|field| field.name == "name" && field.value == "demo"));
         assert!(fields
             .iter()
             .any(|field| field.name == "version" && field.value == "1.0.0"));
-        assert!(fields.iter().any(|field| field.name == "kind" && field.value == "exe"));
+        assert!(fields
+            .iter()
+            .any(|field| field.name == "kind" && field.value == "exe"));
 
         fs::remove_dir_all(build_path.parent().unwrap()).ok();
     }
@@ -853,7 +878,9 @@ mod tests {
             .expect("build metadata should extract through inferred build locals");
 
         assert_eq!(fields.len(), 2);
-        assert!(fields.iter().any(|field| field.name == "name" && field.value == "demo"));
+        assert!(fields
+            .iter()
+            .any(|field| field.name == "name" && field.value == "demo"));
         assert!(fields
             .iter()
             .any(|field| field.name == "version" && field.value == "1.0.0"));
@@ -878,9 +905,7 @@ mod tests {
         let error = parse_package_metadata_from_build(&build_path)
             .expect_err("missing required build metadata should be rejected");
 
-        assert!(error
-            .to_string()
-            .contains("missing required field 'name'"));
+        assert!(error.to_string().contains("missing required field 'name'"));
 
         fs::remove_dir_all(build_path.parent().unwrap()).ok();
     }
@@ -948,18 +973,14 @@ mod tests {
             .expect("build dependencies should extract from direct calls");
 
         assert_eq!(deps.len(), 2);
-        assert!(deps
-            .iter()
-            .any(|dep| dep.alias == "core"
-                && dep.source == "pkg"
-                && dep.target == "core/tools"
-                && dep.evaluation_mode == DependencyBuildEvaluationMode::Eager));
-        assert!(deps
-            .iter()
-            .any(|dep| dep.alias == "shared"
-                && dep.source == "loc"
-                && dep.target == "../shared"
-                && dep.evaluation_mode == DependencyBuildEvaluationMode::Eager));
+        assert!(deps.iter().any(|dep| dep.alias == "core"
+            && dep.source == "pkg"
+            && dep.target == "core/tools"
+            && dep.evaluation_mode == DependencyBuildEvaluationMode::Eager));
+        assert!(deps.iter().any(|dep| dep.alias == "shared"
+            && dep.source == "loc"
+            && dep.target == "../shared"
+            && dep.evaluation_mode == DependencyBuildEvaluationMode::Eager));
 
         fs::remove_dir_all(build_path.parent().unwrap()).ok();
     }
@@ -1087,5 +1108,4 @@ mod tests {
         let max_name = "a".repeat(256);
         assert!(is_valid_package_name(&max_name));
     }
-
 }

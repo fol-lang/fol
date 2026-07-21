@@ -172,7 +172,10 @@ impl BuildStepExecutionResult {
 pub fn compute_step_cache_keys(
     graph: &BuildGraph,
     resolved_options: &crate::option::ResolvedBuildOptionSet,
-    dependency_args: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    dependency_args: &std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, String>,
+    >,
 ) -> Vec<BuildStepCacheKey> {
     graph
         .steps()
@@ -259,12 +262,14 @@ fn project_step_output_names(graph: &BuildGraph, step: BuildStepId) -> Vec<Strin
         }
     }
     outputs.extend(
-        graph.step_attachments_for(step)
+        graph
+            .step_attachments_for(step)
             .filter_map(|generated_id| graph.generated_files().get(generated_id.index()))
             .map(|generated| generated.name.clone()),
     );
     outputs.extend(
-        graph.installs()
+        graph
+            .installs()
             .iter()
             .filter(|install| install.name == graph.steps()[step.index()].name)
             .filter_map(|install| match &install.target {
@@ -274,7 +279,8 @@ fn project_step_output_names(graph: &BuildGraph, step: BuildStepId) -> Vec<Strin
                     .find(|install_output| install_output.id == install.id)
                     .map(|install_output| install_output.projected_destination.clone())
                     .or_else(|| {
-                        graph.generated_files()
+                        graph
+                            .generated_files()
                             .get(generated_id.index())
                             .map(|generated| generated.name.clone())
                     }),
@@ -583,7 +589,8 @@ mod tests {
         let build = graph.add_step(BuildStepKind::Default, "build", None);
         let run = graph.add_step(BuildStepKind::Run, "run", None);
         graph.add_step_dependency(run, build);
-        let generated = graph.add_generated_file(BuildGeneratedFileKind::CaptureOutput, "run-stdout");
+        let generated =
+            graph.add_generated_file(BuildGeneratedFileKind::CaptureOutput, "run-stdout");
         graph.run_config_mut(run).capture_stdout = Some(generated);
         let mut options = crate::ResolvedBuildOptionSet::new();
         options.insert("target", "wasm32-freestanding");
@@ -599,13 +606,17 @@ mod tests {
         let keys = compute_step_cache_keys(&graph, &options, &dependency_args);
 
         assert_eq!(keys.len(), 2);
-        assert!(keys.iter().all(|key| key.boundaries.contains(&BuildStepCacheBoundary::ProducedOutputs)));
+        assert!(keys.iter().all(|key| key
+            .boundaries
+            .contains(&BuildStepCacheBoundary::ProducedOutputs)));
         let run_key = keys
             .iter()
             .find(|key| key.step_name == "run")
             .expect("run key should exist");
         assert!(run_key.fingerprint.contains("outputs=[run-stdout]"));
-        assert!(run_key.fingerprint.contains("options=[optimize=release-safe,target=wasm32-freestanding]"));
+        assert!(run_key
+            .fingerprint
+            .contains("options=[optimize=release-safe,target=wasm32-freestanding]"));
         assert!(run_key
             .fingerprint
             .contains("dep-args=[json[flavor=strict,target=wasm32-freestanding]]"));

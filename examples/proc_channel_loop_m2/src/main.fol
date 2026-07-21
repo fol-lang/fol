@@ -2,8 +2,8 @@ use std: pkg = {"std"};
 
 fun[] main(): int = {
     var channel: chn[int];
-    19 | channel[tx];
-    23 | channel[tx];
+    var sent_first: err[int] = 19 | channel[tx];
+    var sent_second: err[int] = 23 | channel[tx];
     var[mut] total: int = 0;
     for (value in channel[rx]) {
         total = total + value;

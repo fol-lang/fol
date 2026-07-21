@@ -301,9 +301,7 @@ fn source(
         SourceType::Folder => {
             let discovered_files = from_dir(&validated_path)?;
             if discovered_files.is_empty() {
-                return Err(StreamError::InvalidPath(
-                    "No .fol files found".to_string(),
-                ));
+                return Err(StreamError::InvalidPath("No .fol files found".to_string()));
             }
 
             for file_path in discovered_files {
@@ -331,9 +329,9 @@ fn from_dir(directory: &str) -> Result<Vec<String>, StreamError> {
     let paths = std::fs::read_dir(directory).map_err(|e| {
         StreamError::ReadFailed(format!("Cannot read directory {}: {}", directory, e))
     })?;
-    let mut entries = paths.collect::<Result<Vec<_>, _>>().map_err(|e| {
-        StreamError::ReadFailed(format!("Cannot read directory entry: {}", e))
-    })?;
+    let mut entries = paths
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| StreamError::ReadFailed(format!("Cannot read directory entry: {}", e)))?;
     entries.sort_by(|left, right| {
         left.file_name()
             .to_string_lossy()
@@ -381,9 +379,7 @@ fn check_validity(input: &str, source_type: SourceType) -> Result<String, Stream
     }
 
     let canonical_path = std::fs::canonicalize(path)
-        .map_err(|e| {
-            StreamError::InvalidPath(format!("Cannot resolve path {}: {}", input, e))
-        })?
+        .map_err(|e| StreamError::InvalidPath(format!("Cannot resolve path {}: {}", input, e)))?
         .to_string_lossy()
         .to_string();
 
@@ -395,10 +391,7 @@ fn check_validity(input: &str, source_type: SourceType) -> Result<String, Stream
             if let Some(parent) = path.parent() {
                 let parent_canonical = std::fs::canonicalize(parent)
                     .map_err(|e| {
-                        StreamError::InvalidPath(format!(
-                            "Cannot resolve parent path: {}",
-                            e
-                        ))
+                        StreamError::InvalidPath(format!("Cannot resolve parent path: {}", e))
                     })?
                     .to_string_lossy()
                     .to_string();
@@ -492,15 +485,11 @@ fn compute_namespace(
             let mut namespace_parts = vec![package_name.to_string()];
 
             for component in rel_path.components() {
-                let name = component
-                    .as_os_str()
-                    .to_str()
-                    .ok_or_else(|| {
-                        StreamError::InvalidNamespace(
-                            "Invalid namespace component: path segment is not valid UTF-8"
-                                .to_string(),
-                        )
-                    })?;
+                let name = component.as_os_str().to_str().ok_or_else(|| {
+                    StreamError::InvalidNamespace(
+                        "Invalid namespace component: path segment is not valid UTF-8".to_string(),
+                    )
+                })?;
 
                 // Skip .mod directories in namespace (they were already filtered out)
                 if name.ends_with(".mod") {
@@ -617,8 +606,11 @@ mod unit_tests {
         ));
         fs::create_dir_all(temp_root.join(".fol/cache"))
             .expect("Should create internal .fol directory");
-        fs::write(temp_root.join("src.fol"), "fun[] main(): int = {\n    return 7;\n};\n")
-            .expect("Should write visible source file");
+        fs::write(
+            temp_root.join("src.fol"),
+            "fun[] main(): int = {\n    return 7;\n};\n",
+        )
+        .expect("Should write visible source file");
         fs::write(
             temp_root.join(".fol/cache/generated.fol"),
             "fun[] ghost(): int = {\n    return 0;\n};\n",

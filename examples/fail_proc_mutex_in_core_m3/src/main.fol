@@ -1,4 +1,4 @@
-fun[] update(value[mux]: int): int = {
+fun[] update(value: mux[int]): int = {
     return value;
 };
 

@@ -1,8 +1,8 @@
 //! Runtime-owned builtin and intrinsic hook support.
 
 use crate::{
-    memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
     containers::FolArray,
+    memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
     value::FolInt,
 };
 
@@ -58,6 +58,26 @@ pub fn pow_float(base: f64, exponent: f64) -> f64 {
     base.powf(exponent)
 }
 
+/// Integer division with the documented fault semantics (arithmetics
+/// chapter): division by zero faults instead of surfacing a raw Rust panic
+/// that points into generated code.
+pub fn div_int(left: FolInt, right: FolInt) -> FolInt {
+    match left.checked_div(right) {
+        Some(value) => value,
+        None if right == 0 => panic!("fol runtime fault: division by zero"),
+        None => panic!("fol runtime fault: integer division overflowed"),
+    }
+}
+
+/// Integer remainder; same fault presentation as [`div_int`].
+pub fn mod_int(left: FolInt, right: FolInt) -> FolInt {
+    match left.checked_rem(right) {
+        Some(value) => value,
+        None if right == 0 => panic!("fol runtime fault: modulo by zero"),
+        None => panic!("fol runtime fault: integer remainder overflowed"),
+    }
+}
+
 pub fn module_name() -> &'static str {
     "builtins"
 }
@@ -66,8 +86,8 @@ pub fn module_name() -> &'static str {
 mod tests {
     use super::{len, FolLength};
     use crate::{
-        memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
         containers::FolArray,
+        memo::{FolMap, FolSeq, FolSet, FolStr, FolVec},
     };
     use std::collections::{BTreeMap, BTreeSet};
 

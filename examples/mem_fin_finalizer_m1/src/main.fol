@@ -1,0 +1,19 @@
+// A type that claims custom finalization (`fin`) implements the compiler-owned
+// receiver contract with a `pro (Type)finalize(): non` procedure (V3_MEM §6.1).
+// The finalizer is a `pro` because it performs foreign-resource cleanup effects.
+// The finalizer runs when the owning scope exits: `main` prints the descriptor
+// (3), then the finalizer runs at scope exit and prints its cleanup marker (7).
+
+use std: pkg = {"std"};
+
+typ File()(fin): rec = { descriptor: int };
+
+pro (File)finalize(): non = {
+    var cleaned: int = std::io::echo_int(7);
+    return;
+};
+
+fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    return std::io::echo_int(handle.descriptor);
+};

@@ -1,0 +1,13 @@
+// While a spawned task borrows a binding (V3_MEM section 8.1), the owner is
+// frozen: assigning to it before the scope joins its tasks is rejected.
+
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var[mut] state: int = 41;
+    [>]fun()[state[bor]] = {
+        std::io::echo_int(state + 1);
+    };
+    state = 50;
+    return state;
+};

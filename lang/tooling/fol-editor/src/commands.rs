@@ -1721,7 +1721,7 @@ mod tests {
     #[test]
     fn real_fixtures_keep_editor_command_summaries_stable() {
         let showcase = repo_root().join("test/apps/showcases/full_v1_showcase/app/main.fol");
-        let package = repo_root().join("xtra/logtiny/src/log.fol");
+        let package = repo_root().join("test/fixtures/logtiny/src/log.fol");
         let format_root = std::env::temp_dir().join(format!(
             "fol_editor_format_stable_{}_{}",
             std::process::id(),
@@ -2086,7 +2086,7 @@ mod tests {
         assert!(summary
             .details
             .iter()
-            .any(|detail| detail == "corpus_files=9"));
+            .any(|detail| detail == "corpus_files=11"));
         assert!(summary
             .details
             .iter()

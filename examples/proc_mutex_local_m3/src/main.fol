@@ -1,0 +1,18 @@
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+// A `mux[T]` is a first-class managed mutex value, so it can be declared as a
+// local with target-directed construction (V3_MEM §8.3), not only as a
+// parameter. `.lock()` acquires the guard; the guard auto-unlocks at scope end
+// (here released early with `.unlock()`).
+fun[] main(): int = {
+    var state: mux[Counter] = { value = 40 };
+    state.lock();
+    state.value = state.value + 2;
+    var total: int = state.value;
+    state.unlock();
+    return std::io::echo_int(total);
+};

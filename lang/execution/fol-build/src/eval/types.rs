@@ -1,8 +1,8 @@
 use super::capabilities::{BuildEvaluationBoundary, BuildRuntimeCapabilityModel};
 use crate::api::{
-    CopyFileRequest, DependencyRequest, ExecutableRequest, InstallDirRequest, InstallFileRequest,
-    SharedLibraryRequest, StandardOptimizeRequest, StandardTargetRequest, StaticLibraryRequest,
-    TestArtifactRequest, UserOptionRequest, WriteFileRequest,
+    BuildCImportRequest, CopyFileRequest, DependencyRequest, ExecutableRequest, InstallDirRequest,
+    InstallFileRequest, SharedLibraryRequest, StandardOptimizeRequest, StandardTargetRequest,
+    StaticLibraryRequest, TestArtifactRequest, UserOptionRequest, WriteFileRequest,
 };
 use crate::codegen::{CodegenRequest, SystemToolRequest};
 use crate::graph::BuildGraph;
@@ -58,7 +58,7 @@ impl BuildEvaluationInputEnvelope {
         let target = self
             .target
             .as_ref()
-            .map(BuildTargetTriple::render)
+            .map(|target| target.rust_target_triple().to_string())
             .unwrap_or_default();
         let optimize = self
             .optimize
@@ -157,6 +157,9 @@ pub struct BuildEvaluationOperation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+// Operation variants are part of the public evaluation API. Boxing only the
+// dependency request would be a source-breaking constructor/pattern change.
+#[allow(clippy::large_enum_variant)]
 pub enum BuildEvaluationOperationKind {
     StandardTarget(StandardTargetRequest),
     StandardOptimize(StandardOptimizeRequest),
@@ -201,6 +204,10 @@ pub enum BuildEvaluationOperationKind {
     ArtifactAddGenerated {
         artifact: String,
         generated_name: String,
+    },
+    ArtifactAddCImport {
+        artifact: String,
+        request: BuildCImportRequest,
     },
     RunAddArg {
         run_name: String,

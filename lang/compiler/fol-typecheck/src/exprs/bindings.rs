@@ -12,6 +12,9 @@ use super::helpers::{
 use super::type_node_with_expectation;
 use super::{TypeContext, TypedExpr};
 
+// Binding initialization needs the complete declaration mode in addition to
+// the shared type context; retaining explicit booleans keeps call sites clear.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn type_binding_initializer(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -71,6 +74,22 @@ pub(crate) fn type_binding_initializer(
             binding_origin.clone(),
         )?;
     }
+    // An anonymous routine that is the whole initializer becomes a local,
+    // nonescaping closure binding; only there may its captures borrow (§5.3).
+    let initializer_is_anonymous = value
+        .map(super::helpers::strip_comments)
+        .is_some_and(|node| {
+            matches!(
+                node,
+                AstNode::AnonymousFun { .. }
+                    | AstNode::AnonymousPro { .. }
+                    | AstNode::AnonymousLog { .. }
+            )
+        });
+    let initializer_context = TypeContext {
+        direct_binding_anonymous: initializer_is_anonymous,
+        ..context
+    };
     let initializer_expr = value
         .map(|value| {
             let typed_value = if borrowing {
@@ -80,7 +99,13 @@ pub(crate) fn type_binding_initializer(
             };
             typed_value
                 .unwrap_or_else(|| {
-                    type_node_with_expectation(typed, resolved, context, value, declared_type)
+                    type_node_with_expectation(
+                        typed,
+                        resolved,
+                        initializer_context,
+                        value,
+                        declared_type,
+                    )
                 })
                 .map_err(|error| {
                     binding_origin
@@ -90,6 +115,25 @@ pub(crate) fn type_binding_initializer(
                 })
         })
         .transpose()?;
+
+    // Remember which local bindings are closures holding borrowed captures;
+    // the transfer boundaries reject those symbols from escaping (§5.3).
+    if initializer_is_anonymous {
+        let holds_borrowed_capture =
+            value
+                .map(super::helpers::strip_comments)
+                .is_some_and(|node| match node {
+                    AstNode::AnonymousFun { captures, .. }
+                    | AstNode::AnonymousPro { captures, .. }
+                    | AstNode::AnonymousLog { captures, .. } => captures.iter().any(|capture| {
+                        capture.operation == Some(fol_parser::ast::OwnershipOption::Borrow)
+                    }),
+                    _ => false,
+                });
+        if holds_borrowed_capture {
+            typed.mark_bor_env_closure(symbol_id);
+        }
+    }
 
     match (declared_type, initializer_expr) {
         (Some(expected), Some(actual_expr)) => {
@@ -142,6 +186,17 @@ pub(crate) fn type_binding_initializer(
                 )?;
                 Ok(TypedExpr::value(borrowed))
             } else {
+                // §2.2: transferring an existing owned value into a binding must
+                // state the operation explicitly.
+                if let Some(v) = value {
+                    reject_untagged_owned_transfer(
+                        typed,
+                        resolved,
+                        v,
+                        actual,
+                        &format!("transferred into '{name}'"),
+                    )?;
+                }
                 track_value_transfer(typed, resolved, context, value, actual)?;
                 register_recoverable_eventual_binding(
                     typed,
@@ -251,9 +306,50 @@ pub(crate) fn type_binding_initializer(
             }
             Ok(TypedExpr::value(inferred))
         }
-        (Some(expected), None) => Ok(TypedExpr::value(expected)),
-        (None, None) => Ok(TypedExpr::none()),
+        (Some(expected), None) => {
+            reject_uninitialized_ownership_binding(name, borrowing, heap_owned, binding_origin)?;
+            Ok(TypedExpr::value(expected))
+        }
+        (None, None) => {
+            reject_uninitialized_ownership_binding(name, borrowing, heap_owned, binding_origin)?;
+            Ok(TypedExpr::none())
+        }
     }
+}
+
+/// A borrowed or heap-allocating declaration must identify its source at the
+/// declaration site. `var[bor] view: T;` and `@var owned: T;` without an
+/// initializer are rejected: a borrow has no owner to loan from, and a heap
+/// allocation has no value to move or clone in. Only a plain `var[mut] slot: T;`
+/// may be declared uninitialized, and definite-initialization then guards its
+/// first use. This closes the Slice A soundness gap where an uninitialized
+/// borrow binding silently became a default value in emitted Rust.
+fn reject_uninitialized_ownership_binding(
+    name: &str,
+    borrowing: bool,
+    heap_owned: bool,
+    binding_origin: Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<(), TypecheckError> {
+    let message = if borrowing {
+        Some(format!(
+            "borrow binding '{name}' requires an initializer; a 'var[bor]' declaration must identify the owner it loans from"
+        ))
+    } else if heap_owned {
+        Some(format!(
+            "heap-allocating binding '{name}' requires an initializer; '@var'/'[new]' must be given a value to move or clone into the allocation"
+        ))
+    } else {
+        None
+    };
+    let Some(message) = message else {
+        return Ok(());
+    };
+    Err(match binding_origin {
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::Uninitialized, message, origin)
+        }
+        None => TypecheckError::new(TypecheckErrorKind::Uninitialized, message),
+    })
 }
 
 pub(crate) fn register_recoverable_eventual_binding(
@@ -324,9 +420,7 @@ pub(crate) fn reject_unsupported_top_level_binding_type(
     }
     let apparent = super::helpers::apparent_type_id(typed, type_id)?;
     if matches!(
-        typed
-            .type_table()
-            .get(apparent),
+        typed.type_table().get(apparent),
         Some(CheckedType::Channel { .. })
     ) {
         let message =
@@ -336,7 +430,11 @@ pub(crate) fn reject_unsupported_top_level_binding_type(
             |origin| TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin),
         ));
     }
-    let message = if ownership_moves_on_transfer(typed, type_id) {
+    let message = if super::helpers::type_contains_fin(typed, type_id) {
+        Some(
+            "top-level bindings of a 'fin' type are forbidden in V3; a finalized value must be owned by a routine scope, not global storage",
+        )
+    } else if ownership_moves_on_transfer(typed, type_id) {
         Some(
             "top-level move-only bindings are not supported in V3; global loads cannot transfer unique ownership, so declare the value inside a routine",
         )
@@ -361,8 +459,12 @@ pub(crate) fn reject_unsupported_top_level_binding_type(
 }
 
 fn is_borrow_from_expression(node: &AstNode) -> bool {
+    let node = super::helpers::strip_comments(node);
+    if let AstNode::OwnershipOp { options, .. } = node {
+        return options.contains(&fol_parser::ast::OwnershipOption::Borrow);
+    }
     matches!(
-        super::helpers::strip_comments(node),
+        node,
         AstNode::UnaryOp {
             op: UnaryOperator::BorrowFrom,
             ..
@@ -376,15 +478,30 @@ fn borrow_source_identifier(node: &AstNode) -> Option<(&AstNode, fol_parser::ast
             op: UnaryOperator::BorrowFrom,
             operand,
         } => operand.as_ref(),
+        // The canonical borrow operation `[bor]owner` / `[mut, bor]owner` peels
+        // to its owner operand, exactly like the legacy `#owner`.
+        AstNode::OwnershipOp {
+            options, operand, ..
+        } if options.contains(&fol_parser::ast::OwnershipOption::Borrow) => operand.as_ref(),
         other => other,
     };
-    match node {
-        AstNode::Identifier {
-            syntax_id: Some(syntax_id),
-            ..
-        } => Some((node, *syntax_id)),
-        _ => None,
+    // A borrow of a place rooted in a binding is a place-borrow of the whole
+    // aggregate: `[bor]obj.field`, `[bor]slot[]`, and `[bor]arr[i]` all lock the
+    // root binding while the borrow is live (V3_MEM §3.3 inner-place borrows).
+    fn root_identifier(node: &AstNode) -> Option<(&AstNode, fol_parser::ast::SyntaxNodeId)> {
+        match node {
+            AstNode::Identifier {
+                syntax_id: Some(syntax_id),
+                ..
+            } => Some((node, *syntax_id)),
+            AstNode::FieldAccess { object, .. } => root_identifier(object),
+            AstNode::IndexAccess { container, .. } => root_identifier(container),
+            AstNode::PatternAccess { container, .. } => root_identifier(container),
+            AstNode::Commented { node, .. } => root_identifier(node),
+            _ => None,
+        }
     }
+    root_identifier(node)
 }
 
 pub(crate) fn borrow_source_symbol(resolved: &ResolvedProgram, node: &AstNode) -> Option<SymbolId> {
@@ -398,33 +515,20 @@ pub(crate) fn borrow_source_symbol(resolved: &ResolvedProgram, node: &AstNode) -
         .resolved
 }
 
+/// Reborrowing is permitted (Slice C §5.2): a borrowed place may be borrowed
+/// again, producing a child loan whose owner is the parent borrow binding. The
+/// existing scope-stack machinery enforces the reborrow rules — the parent is
+/// inaccessible while the child is active (owner-inaccessible check), a second
+/// conflicting loan is rejected (register_borrow conflict check), and a reborrow
+/// that ultimately roots in an owned local cannot escape the routine (the
+/// transitive escaping-borrow check at `return`). Kept as a named seam so the
+/// call sites read intentionally and future reborrow-specific rules have a home.
 pub(crate) fn reject_reborrow_source(
-    typed: &TypedProgram,
-    symbol: SymbolId,
-    origin: fol_parser::ast::SyntaxOrigin,
+    _typed: &TypedProgram,
+    _symbol: SymbolId,
+    _origin: fol_parser::ast::SyntaxOrigin,
 ) -> Result<(), TypecheckError> {
-    let borrowed = typed
-        .typed_symbol(symbol)
-        .and_then(|symbol| symbol.declared_type)
-        .and_then(|type_id| typed.type_table().get(type_id))
-        .is_some_and(|typ| matches!(typ, CheckedType::Borrowed { .. }));
-    if !borrowed {
-        return Ok(());
-    }
-
-    let error = TypecheckError::with_origin(
-        TypecheckErrorKind::BorrowConflict,
-        "reborrowing a borrow binding is not supported in V3; borrow from the original owner",
-        origin,
-    );
-    Err(typed
-        .borrow_for_binding(symbol)
-        .map(|borrow| {
-            error
-                .clone()
-                .with_related_origin(borrow.origin.clone(), "original borrow created here")
-        })
-        .unwrap_or(error))
+    Ok(())
 }
 
 pub(crate) fn owned_or_borrowed_inner(
@@ -458,7 +562,8 @@ pub(crate) fn type_contains_eventual(typed: &TypedProgram, type_id: crate::Check
                 | Some(CheckedType::Vector { element_type })
                 | Some(CheckedType::Sequence { element_type })
                 | Some(CheckedType::Channel { element_type })
-                | Some(CheckedType::ChannelSender { element_type }) => {
+                | Some(CheckedType::ChannelSender { element_type })
+                | Some(CheckedType::ChannelReceiver { element_type }) => {
                     contains(typed, *element_type, visiting)
                 }
                 Some(CheckedType::Optional { inner })
@@ -546,11 +651,78 @@ fn type_borrow_source(
     resolved: &ResolvedProgram,
     value: &AstNode,
 ) -> Option<Result<TypedExpr, TypecheckError>> {
+    // Only short-circuit a borrow of a bare identifier owner, whose borrowed type
+    // is the owner's value type. A borrow through an accessor (`[bor]slot[]`,
+    // `[bor]obj.field`) must be typed fully so the borrowed type is the accessed
+    // place's type, not the whole aggregate's type.
+    let operand = match super::helpers::strip_comments(value) {
+        AstNode::UnaryOp {
+            op: UnaryOperator::BorrowFrom,
+            operand,
+        } => operand.as_ref(),
+        AstNode::OwnershipOp {
+            options, operand, ..
+        } if options.contains(&fol_parser::ast::OwnershipOption::Borrow) => operand.as_ref(),
+        other => other,
+    };
+    if !matches!(
+        super::helpers::strip_comments(operand),
+        AstNode::Identifier { .. }
+    ) {
+        return None;
+    }
     let symbol = borrow_source_symbol(resolved, value)?;
     let type_id = typed.typed_symbol(symbol)?.declared_type?;
     Some(Ok(TypedExpr::value(owned_or_borrowed_inner(
         typed, type_id,
     ))))
+}
+
+/// Collect the owner symbols of every explicit borrow argument (`#x` / `[bor]x`)
+/// reachable inside a borrow-returning call initializer. A routine that returns
+/// `T[bor=L]` may alias any of its `[bor=L]` inputs, so binding its result must
+/// lock every owner the caller lent it (Slice C multi-owner borrows). Gated on
+/// explicit borrow syntax so plain by-value/by-move arguments are not locked;
+/// recurses through nested calls so a borrow threaded through an inner call is
+/// still captured.
+fn collect_call_borrow_owners(resolved: &ResolvedProgram, node: &AstNode, out: &mut Vec<SymbolId>) {
+    let node = super::helpers::strip_comments(node);
+    let is_explicit_borrow = matches!(
+        node,
+        AstNode::UnaryOp {
+            op: UnaryOperator::BorrowFrom,
+            ..
+        }
+    ) || matches!(
+        node,
+        AstNode::OwnershipOp { options, .. }
+            if options.contains(&fol_parser::ast::OwnershipOption::Borrow)
+    );
+    if is_explicit_borrow {
+        if let Some(owner) = borrow_source_symbol(resolved, node) {
+            if !out.contains(&owner) {
+                out.push(owner);
+            }
+        }
+        return;
+    }
+    match node {
+        AstNode::FunctionCall { args, .. } | AstNode::QualifiedFunctionCall { args, .. } => {
+            for arg in args {
+                collect_call_borrow_owners(resolved, arg, out);
+            }
+        }
+        AstNode::MethodCall { object, args, .. } => {
+            collect_call_borrow_owners(resolved, object, out);
+            for arg in args {
+                collect_call_borrow_owners(resolved, arg, out);
+            }
+        }
+        AstNode::NamedArgument { value, .. } => {
+            collect_call_borrow_owners(resolved, value, out);
+        }
+        _ => {}
+    }
 }
 
 fn register_borrow_binding(
@@ -568,12 +740,6 @@ fn register_borrow_binding(
             "borrow bindings require an owner initializer",
         )
     })?;
-    let owner = borrow_source_symbol(resolved, value).ok_or_else(|| {
-        TypecheckError::new(
-            TypecheckErrorKind::InvalidInput,
-            "borrow bindings require an identifier owner or '#owner'",
-        )
-    })?;
     let origin = node_origin(resolved, value)
         .or_else(|| {
             resolved
@@ -581,42 +747,83 @@ fn register_borrow_binding(
                 .and_then(|symbol| symbol.origin.clone())
         })
         .ok_or_else(|| internal_error("borrow binding lost its syntax origin", None))?;
-    if let Some(move_origin) = typed.moved_binding_origin(owner).cloned() {
-        return Err(TypecheckError::with_origin(
-            TypecheckErrorKind::Ownership,
-            "cannot borrow from an owner whose value was already moved",
-            origin,
-        )
-        .with_related_origin(move_origin, "ownership moved here"));
-    }
-    reject_reborrow_source(typed, owner, origin.clone())?;
 
-    if mutable
-        && !typed
-            .typed_symbol(owner)
-            .is_some_and(|symbol| symbol.is_mutable)
-    {
-        return Err(TypecheckError::with_origin(
-            TypecheckErrorKind::BorrowMutability,
-            "mutable borrow requires an owner declared with 'var[mut]'",
-            origin,
-        ));
-    }
-
-    let borrow = ActiveBorrow {
-        owner,
-        binding,
-        scope: context.scope_id,
-        mutable,
-        origin: origin.clone(),
+    // The initializer is either a direct owner (`#owner` / an identifier) or a
+    // borrow-returning call whose lent-in owners must all be locked.
+    let owners = match borrow_source_symbol(resolved, value) {
+        Some(owner) => vec![owner],
+        None => {
+            let mut owners = Vec::new();
+            collect_call_borrow_owners(resolved, value, &mut owners);
+            if owners.is_empty() {
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::InvalidInput,
+                    "borrow bindings require an identifier owner, '[bor]owner', or a borrow-returning call",
+                    origin,
+                ));
+            }
+            owners
+        }
     };
-    if let Some(conflict) = typed.register_borrow(borrow) {
-        return Err(TypecheckError::with_origin(
-            TypecheckErrorKind::BorrowConflict,
-            "borrow conflicts with an active mutable borrow of the same owner",
-            origin,
-        )
-        .with_related_origin(conflict.origin, "conflicting borrow created here"));
+
+    for owner in &owners {
+        if let Some(move_origin) = typed.moved_binding_origin(*owner).cloned() {
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::Ownership,
+                "cannot borrow from an owner whose value was already moved",
+                origin,
+            )
+            .with_related_origin(move_origin, "ownership moved here"));
+        }
+        reject_reborrow_source(typed, *owner, origin.clone())?;
+
+        // A `mux[T]` owner is interior-mutable: `([bor]state).lock()` yields a
+        // mutable guard over `T` without the handle being `var[mut]` (V3_MEM
+        // §8.3). Exempt mutex owners from the mutable-borrow `var[mut]` rule.
+        let owner_is_mutex = typed
+            .typed_symbol(*owner)
+            .is_some_and(|symbol| symbol.is_mutex);
+        if mutable
+            && !typed
+                .typed_symbol(*owner)
+                .is_some_and(|symbol| symbol.is_mutable || symbol.is_mutex)
+        {
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::BorrowMutability,
+                "mutable borrow requires an owner declared with 'var[mut]'",
+                origin,
+            ));
+        }
+        // Capturing a `mux[T]` lock into a `var[mut, bor]` binding is the
+        // lifetime-scoped guard-VALUE form: promote the active lock so it is
+        // rejected from crossing spawn/await/blocking-receive/blocking-select
+        // while live (V3_MEM §8.3). The handle-lock form stays unbound. The
+        // binding itself is also flagged so the whole guard cannot be moved,
+        // copied, or cloned as a value.
+        if mutable && owner_is_mutex {
+            typed.mark_guard_bound(*owner);
+            if let Some(guard_symbol) = typed.typed_symbol_mut(binding) {
+                guard_symbol.is_mutex_guard = true;
+            }
+        }
+    }
+
+    for owner in &owners {
+        let borrow = ActiveBorrow {
+            owner: *owner,
+            binding,
+            scope: context.scope_id,
+            mutable,
+            origin: origin.clone(),
+        };
+        if let Some(conflict) = typed.register_borrow(borrow) {
+            return Err(TypecheckError::with_origin(
+                TypecheckErrorKind::BorrowConflict,
+                "borrow conflicts with an active mutable borrow of the same owner",
+                origin,
+            )
+            .with_related_origin(conflict.origin, "conflicting borrow created here"));
+        }
     }
 
     let borrowed = typed
@@ -683,9 +890,8 @@ fn track_identifier_transfer(
 ) -> Result<(), TypecheckError> {
     if let Some(CheckedType::Borrowed { inner, .. }) = typed.type_table().get(actual_type) {
         if ownership_moves_on_transfer(typed, *inner) {
-            let message = format!(
-                "move-only value cannot be transferred out of borrow binding '{name}'"
-            );
+            let message =
+                format!("move-only value cannot be transferred out of borrow binding '{name}'");
             return Err(node_origin(resolved, value).map_or_else(
                 || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
                 |origin| {
@@ -775,21 +981,50 @@ fn track_move_only_field_transfer(
         ));
     }
 
-    // FOL does not expose a partially moved base in V3. Moving one field is
-    // supported by consuming the entire root binding, which maps directly to
-    // Rust field-move emission and keeps the remaining fields inaccessible.
-    track_identifier_transfer(
-        typed,
-        resolved,
-        context,
-        root,
-        syntax_id,
-        name,
-        actual_type,
-    )
+    // Static-place partial move (Slice C §3.1): transferring a single named
+    // field of a direct owned binding invalidates only that field. The rest of
+    // the aggregate stays readable, matching the Rust field-move emission.
+    let object_is_direct_identifier = matches!(
+        super::helpers::strip_comments(object),
+        AstNode::Identifier { .. }
+    );
+    if object_is_direct_identifier {
+        if let (Some(symbol), Some(origin)) = (symbol, node_origin(resolved, value)) {
+            reject_repeated_outer_move(resolved, context, value, symbol, name)?;
+            // A `fin` value must be moved whole-value; a partial field move is
+            // rejected because its finalizer requires the complete value (plan
+            // §3). The whole-value move path (below) remains allowed.
+            if root_binding_type_claims_fin(typed, symbol) {
+                let message = format!(
+                    "cannot partially move field '.{field}' out of the 'fin' value '{name}'; a finalized value must be moved whole so its finalizer sees the complete value"
+                );
+                return Err(TypecheckError::with_origin(
+                    TypecheckErrorKind::Ownership,
+                    message,
+                    origin,
+                ));
+            }
+            typed.mark_field_moved(symbol, field, origin);
+            return Ok(());
+        }
+    }
+    // A deeper projection (`base.inner.field`) has no single-level place we can
+    // track precisely; conservatively consume the entire root binding.
+    track_identifier_transfer(typed, resolved, context, root, syntax_id, name, actual_type)
 }
 
-fn projection_root_identifier(node: &AstNode) -> Option<(&AstNode, fol_parser::ast::SyntaxNodeId, &str)> {
+/// Whether the binding's declared type is (or peels/resolves to) a type that
+/// claims custom finalization, so a partial move out of it must be rejected.
+fn root_binding_type_claims_fin(typed: &TypedProgram, symbol: SymbolId) -> bool {
+    typed
+        .typed_symbol(symbol)
+        .and_then(|symbol| symbol.declared_type)
+        .is_some_and(|type_id| typed.type_resolves_to_fin(type_id))
+}
+
+fn projection_root_identifier(
+    node: &AstNode,
+) -> Option<(&AstNode, fol_parser::ast::SyntaxNodeId, &str)> {
     match super::helpers::strip_comments(node) {
         AstNode::Identifier {
             syntax_id: Some(syntax_id),
@@ -805,9 +1040,8 @@ fn reject_move_only_projection_transfer(
     value: &AstNode,
     surface: impl std::fmt::Display,
 ) -> Result<(), TypecheckError> {
-    let message = format!(
-        "move-only {surface} cannot be transferred in V3; partial moves are not supported"
-    );
+    let message =
+        format!("move-only {surface} cannot be transferred in V3; partial moves are not supported");
     Err(node_origin(resolved, value).map_or_else(
         || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
         |origin| {
@@ -827,7 +1061,10 @@ pub(crate) fn reject_repeated_outer_move(
         return Ok(());
     };
     let declaration = resolved.symbol(symbol).ok_or_else(|| {
-        internal_error("resolved move-only binding disappeared before move checking", None)
+        internal_error(
+            "resolved move-only binding disappeared before move checking",
+            None,
+        )
     })?;
     let declared_inside_loop = std::iter::successors(Some(declaration.scope), |scope_id| {
         resolved.scope(*scope_id).and_then(|scope| scope.parent)
@@ -851,15 +1088,80 @@ pub(crate) fn reject_repeated_outer_move(
     }))
 }
 
+/// §2.2: reject an untagged transfer of a CONCRETE move-only value at a transfer
+/// boundary (assignment, return, call argument, ...). Fires only for a bare
+/// identifier whose type moves on transfer and is not a generic parameter —
+/// generic-`T` transfers are conditional obligations tagged at the concrete call
+/// site. `describe` names the boundary in the diagnostic.
+pub(crate) fn reject_untagged_owned_transfer(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    value: &AstNode,
+    actual: crate::CheckedTypeId,
+    describe: &str,
+) -> Result<(), TypecheckError> {
+    // §5.3: a closure whose environment holds loans is a local, nonescaping
+    // value — it cannot be returned, passed, stored, or rebound. Every such
+    // egress boundary routes through this helper with a bare identifier.
+    if let AstNode::Identifier {
+        syntax_id: Some(syntax_id),
+        ..
+    } = super::helpers::strip_comments(value)
+    {
+        let escaping_closure = resolved
+            .references
+            .iter()
+            .find(|reference| {
+                reference.syntax_id == Some(*syntax_id)
+                    && reference.kind == fol_resolver::ReferenceKind::Identifier
+            })
+            .and_then(|reference| reference.resolved)
+            .filter(|symbol| typed.is_bor_env_closure(*symbol));
+        if let Some(symbol) = escaping_closure {
+            let name = resolved
+                .symbol(symbol)
+                .map(|symbol| symbol.name.as_str())
+                .unwrap_or("<unknown>");
+            let message = format!(
+                "closure '{name}' holds borrowed captures and cannot escape its scope; call it locally, or capture with '[cpy]' or '[cln]'"
+            );
+            return Err(node_origin(resolved, value).map_or_else(
+                || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::Ownership,
+                        message.clone(),
+                        origin,
+                    )
+                },
+            ));
+        }
+    }
+    if matches!(
+        super::helpers::strip_comments(value),
+        AstNode::Identifier { .. }
+    ) && ownership_moves_on_transfer(typed, actual)
+        && !crate::decls::checked_type_contains_generic_param(typed, actual)
+    {
+        let message = format!(
+            "an owned value {describe} must state its operation: use '[mov]', '[cpy]', or '[cln]'"
+        );
+        return Err(node_origin(resolved, value).map_or_else(
+            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+            |origin| {
+                TypecheckError::with_origin(TypecheckErrorKind::Ownership, message.clone(), origin)
+            },
+        ));
+    }
+    Ok(())
+}
+
 /// Whether transferring a checked value consumes its source.
 ///
 /// Lowering also uses this compiler-owned classification when an operation's
 /// value category cannot be recovered faithfully from structural lowered
 /// types alone (notably nominal pointer pointees).
-pub fn ownership_moves_on_transfer(
-    typed: &TypedProgram,
-    type_id: crate::CheckedTypeId,
-) -> bool {
+pub fn ownership_moves_on_transfer(typed: &TypedProgram, type_id: crate::CheckedTypeId) -> bool {
     ownership_moves_on_transfer_inner(typed, type_id, &mut BTreeSet::new())
 }
 
@@ -871,14 +1173,26 @@ fn ownership_moves_on_transfer_inner(
     if !visiting.insert(type_id) {
         return false;
     }
-    let moves = if let Some(apparent) = typed.apparent_type_override(type_id) {
+    let moves = if typed.type_claims_fin(type_id) {
+        // A `fin` value owns a finalizable resource; it is affine and must move
+        // on transfer, never duplicate — regardless of how copy-safe its fields
+        // look structurally (plan §4.1: `copy` and `fin` cannot coexist).
+        true
+    } else if let Some(apparent) = typed.apparent_type_override(type_id) {
         ownership_moves_on_transfer_inner(typed, apparent, visiting)
     } else {
         match typed.type_table().get(type_id) {
             Some(CheckedType::Owned { .. })
-            | Some(CheckedType::Pointer { shared: false, .. })
+            // A unique `ptr[T]` (`shared: false, weak: false`) is the sole,
+            // move-only owner. A `ptr[weak, T]` is clone-safe like the shared
+            // `Rc`/`Arc` it observes (`std::rc::Weak`/`sync::Weak` are `Clone`
+            // and never keep the pointee alive), so it is NOT affine here.
+            | Some(CheckedType::Pointer { shared: false, weak: false, .. })
             | Some(CheckedType::Eventual { .. })
-            | Some(CheckedType::Channel { .. }) => true,
+            | Some(CheckedType::Channel { .. })
+            // A `chn[rx, T]` receiver is unique: it is affine and always moves,
+            // never clones (unlike the clone-capable `chn[tx, T]` sender).
+            | Some(CheckedType::ChannelReceiver { .. }) => true,
             Some(CheckedType::Declared {
                 kind: crate::DeclaredTypeKind::GenericParameter,
                 ..
@@ -889,29 +1203,27 @@ fn ownership_moves_on_transfer_inner(
                 true
             }
             Some(CheckedType::Declared { symbol, args, .. }) => {
-                args.iter().any(|arg| {
-                    ownership_moves_on_transfer_inner(typed, *arg, visiting)
-                }) || typed
-                    .typed_symbol(*symbol)
-                    .and_then(|symbol| symbol.declared_type)
-                    .is_some_and(|declared| {
-                        ownership_moves_on_transfer_inner(typed, declared, visiting)
-                    })
+                args.iter()
+                    .any(|arg| ownership_moves_on_transfer_inner(typed, *arg, visiting))
+                    || typed
+                        .typed_symbol(*symbol)
+                        .and_then(|symbol| symbol.declared_type)
+                        .is_some_and(|declared| {
+                            ownership_moves_on_transfer_inner(typed, declared, visiting)
+                        })
             }
             Some(CheckedType::Array { element_type, .. })
             | Some(CheckedType::Vector { element_type })
-            | Some(CheckedType::Sequence { element_type }) => ownership_moves_on_transfer_inner(
-                typed,
-                *element_type,
-                visiting,
-            ),
+            | Some(CheckedType::Sequence { element_type }) => {
+                ownership_moves_on_transfer_inner(typed, *element_type, visiting)
+            }
             Some(CheckedType::Optional { inner })
             | Some(CheckedType::Error { inner: Some(inner) }) => {
                 ownership_moves_on_transfer_inner(typed, *inner, visiting)
             }
-            Some(CheckedType::Set { member_types }) => member_types.iter().any(|member| {
-                ownership_moves_on_transfer_inner(typed, *member, visiting)
-            }),
+            Some(CheckedType::Set { member_types }) => member_types
+                .iter()
+                .any(|member| ownership_moves_on_transfer_inner(typed, *member, visiting)),
             Some(CheckedType::Map {
                 key_type,
                 value_type,
@@ -919,15 +1231,19 @@ fn ownership_moves_on_transfer_inner(
                 ownership_moves_on_transfer_inner(typed, *key_type, visiting)
                     || ownership_moves_on_transfer_inner(typed, *value_type, visiting)
             }
-            Some(CheckedType::Record { fields }) => fields.values().any(|field| {
-                ownership_moves_on_transfer_inner(typed, *field, visiting)
-            }),
-            Some(CheckedType::Entry { variants }) => variants.values().flatten().any(|variant| {
-                ownership_moves_on_transfer_inner(typed, *variant, visiting)
-            }),
+            Some(CheckedType::Record { fields }) => fields
+                .values()
+                .any(|field| ownership_moves_on_transfer_inner(typed, *field, visiting)),
+            Some(CheckedType::Entry { variants }) => variants
+                .values()
+                .flatten()
+                .any(|variant| ownership_moves_on_transfer_inner(typed, *variant, visiting)),
             Some(CheckedType::Builtin(_))
             | Some(CheckedType::Borrowed { .. })
             | Some(CheckedType::Pointer { shared: true, .. })
+            // A `ptr[weak, T]` observer is clone-safe (never keeps the pointee
+            // alive), so it is not affine — like the shared pointer it observes.
+            | Some(CheckedType::Pointer { shared: false, weak: true, .. })
             | Some(CheckedType::ChannelSender { .. })
             | Some(CheckedType::Error { inner: None })
             | Some(CheckedType::Routine(_))
@@ -1097,6 +1413,15 @@ pub(crate) fn type_record_init(
             actual,
             format!("record field '{}'", field.name),
             field_origin.clone(),
+        )?;
+        // §2.2: initializing a record field from an existing owned value is a
+        // transfer boundary and must state its operation explicitly.
+        reject_untagged_owned_transfer(
+            typed,
+            resolved,
+            &field.value,
+            actual,
+            &format!("assigned to field '{}'", field.name),
         )?;
         track_value_transfer(typed, resolved, context, Some(&field.value), actual)?;
     }

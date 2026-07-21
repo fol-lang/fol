@@ -4,13 +4,13 @@ typ Counter: rec = {
     value: int,
 };
 
-fun[] worker(counter[mux]: Counter): int = {
+fun[] worker(counter: mux[Counter]): int = {
     counter.lock();
     counter.value = counter.value + 1;
     return std::io::echo_int(counter.value);
 };
 
-fun[] coordinate(counter[mux]: Counter): int = {
+fun[] coordinate(counter: mux[Counter]): int = {
     [>]worker(counter);
     [>]worker(counter);
     return 0;
@@ -18,5 +18,5 @@ fun[] coordinate(counter[mux]: Counter): int = {
 
 fun[] main(): int = {
     var counter: Counter = { value = 0 };
-    return coordinate(counter);
+    return coordinate([mov]counter);
 };

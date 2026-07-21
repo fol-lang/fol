@@ -9,6 +9,9 @@ pub enum FolOption<T> {
     Nil,
 }
 
+// Deliberately NOT `#[derive(Default)]`: the derive would add a spurious
+// `T: Default` bound, but `Nil` is a valid default for any `T`.
+#[allow(clippy::derivable_impls)]
 impl<T> Default for FolOption<T> {
     fn default() -> Self {
         Self::Nil
@@ -71,27 +74,62 @@ impl<T: fmt::Display> fmt::Display for FolOption<T> {
     }
 }
 
+/// The storable error shell `err[T]`. It is nil-able: `Nil` is the no-error
+/// (success) state and `Err(payload)` carries a stored error of type `T`. The
+/// recoverable `T / E` ABI wraps its error channel in the `Err` variant and
+/// never constructs `Nil`, so evolving this from a newtype to a nil-able enum
+/// leaves that ABI untouched (see `abi::FolRecover`).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct FolError<T>(T);
+pub enum FolError<T> {
+    Err(T),
+    Nil,
+}
 
-impl<T: Default> Default for FolError<T> {
+// Deliberately NOT `#[derive(Default)]`: the derive would add a spurious
+// `T: Default` bound, but `Nil` is a valid default for any `T`.
+#[allow(clippy::derivable_impls)]
+impl<T> Default for FolError<T> {
     fn default() -> Self {
-        Self(T::default())
+        Self::Nil
     }
 }
 
 impl<T> FolError<T> {
     pub fn new(value: T) -> Self {
-        Self(value)
+        Self::Err(value)
     }
 
+    pub fn nil() -> Self {
+        Self::Nil
+    }
+
+    pub fn is_err(&self) -> bool {
+        matches!(self, Self::Err(_))
+    }
+
+    pub fn is_nil(&self) -> bool {
+        matches!(self, Self::Nil)
+    }
+
+    #[allow(clippy::should_implement_trait)]
     pub fn as_ref(&self) -> &T {
-        &self.0
+        match self {
+            Self::Err(value) => value,
+            Self::Nil => panic!("attempted to unwrap nil error shell"),
+        }
     }
 
     pub fn into_inner(self) -> T {
-        self.0
+        match self {
+            Self::Err(value) => value,
+            Self::Nil => panic!("attempted to unwrap nil error shell"),
+        }
+    }
+}
+
+impl<T> AsRef<T> for FolError<T> {
+    fn as_ref(&self) -> &T {
+        FolError::as_ref(self)
     }
 }
 
@@ -103,7 +141,10 @@ impl<T> From<T> for FolError<T> {
 
 impl<T: fmt::Display> fmt::Display for FolError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "err({})", self.0)
+        match self {
+            Self::Err(value) => write!(f, "err({value})"),
+            Self::Nil => f.write_str("nil"),
+        }
     }
 }
 
@@ -200,11 +241,14 @@ mod tests {
         let some = FolOption::some("Ada");
         let nil = FolOption::<&str>::nil();
         let error = FolError::new("broken");
+        let nil_error = FolError::<&str>::nil();
 
         assert_eq!(format!("{some}"), "some(Ada)");
         assert_eq!(format!("{nil}"), "nil");
         assert_eq!(format!("{error}"), "err(broken)");
+        assert_eq!(format!("{nil_error}"), "nil");
         assert_eq!(format!("{some:?}"), "Some(\"Ada\")");
-        assert_eq!(format!("{error:?}"), "FolError(\"broken\")");
+        assert_eq!(format!("{error:?}"), "Err(\"broken\")");
+        assert!(error.is_err() && nil_error.is_nil());
     }
 }

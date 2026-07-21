@@ -29,6 +29,11 @@
 (select_default_arm "*" @keyword.conditional)
 (when_expr "when" @keyword.conditional)
 (case_clause "case" @keyword.conditional)
+(is_clause "is" @keyword.conditional)
+(in_clause "in" @keyword.conditional)
+(has_clause "has" @keyword.conditional)
+(of_clause "of" @keyword.conditional)
+(on_clause "on" @keyword.conditional)
 (default_clause "*" @keyword.conditional)
 (loop_expr "loop" @keyword.repeat)
 (while_stmt "while" @keyword.repeat)
@@ -49,6 +54,8 @@
 (check_expr "check" @keyword.exception)
 (break_stmt "break" @keyword.repeat)
 (spawn_expr "[>]" @keyword)
+(spawn_expr "spn" @keyword)
+(spawn_expr "det" @keyword)
 (use_decl source_kind: (source_kind "loc" @keyword.import))
 (use_decl source_kind: (source_kind "pkg" @keyword.import))
 (use_decl ":" @punctuation.delimiter)
@@ -71,7 +78,8 @@
 (typed_binding ":" @punctuation.delimiter)
 (param ":" @punctuation.delimiter)
 (parameter_options "[" @punctuation.bracket "]" @punctuation.bracket)
-(parameter_options ["bor" "mux"] @attribute)
+(parameter_options ["bor" "mut"] @attribute)
+(parameter_options "=" @operator)
 (return_type ":" @punctuation.delimiter)
 (ali_decl ":" @punctuation.delimiter)
 (typ_decl ":" @punctuation.delimiter)
@@ -92,6 +100,12 @@
 (container_type "set" @type.builtin)
 (container_type "map" @type.builtin)
 (channel_type "chn" @type.builtin)
+(channel_type endpoint: ["tx" "rx"] @attribute)
+(eventual_type "evt" @type.builtin)
+(eventual_type "[" @punctuation.bracket "]" @punctuation.bracket)
+(eventual_type "/" @operator)
+(mutex_type "mux" @type.builtin)
+(mutex_type "[" @punctuation.bracket "]" @punctuation.bracket)
 (channel_type "[" @punctuation.bracket "]" @punctuation.bracket)
 (channel_access "[" @punctuation.bracket "]" @punctuation.bracket)
 (channel_access endpoint: ["tx" "rx"] @attribute)
@@ -99,7 +113,8 @@
 (shell_type "err" @type.builtin)
 (owned_type "@" @operator)
 (pointer_type "ptr" @type.builtin)
-(pointer_type qualifier: ["shared" "raw"] @attribute)
+(pointer_type qualifier: ["shared" "weak" "raw"] @attribute)
+(pointer_type "sync" @attribute)
 (record_type) @type.builtin
 (entry_type) @type.builtin
 (generic_type_expr base: (identifier) @type.builtin
@@ -128,7 +143,7 @@
 (field_access field: (identifier) @property)
 (dot_intrinsic "." @operator)
 (dot_intrinsic name: (identifier) @function.builtin
-  (#match? @function.builtin "^(eq|nq|lt|gt|ge|le|not|len|echo)$"))
+  (#match? @function.builtin "^(eq|nq|lt|gt|ge|le|not|len|echo|write|read_key|raw_mode|sleep_ms|now_ms|term_cols|term_rows|int_to_str|str_sub|str_byte|byte_to_str|read_key_ms|env_var|shell|dir_list|read_file)$"))
 (binary_expr operator: "^" @operator)
 (range_expr ".." @operator)
 (range_expr "..." @operator)
@@ -146,11 +161,13 @@
 (binary_expr operator: "of" @operator)
 (binary_expr operator: "at" @operator)
 (unary_expr operator: "not" @operator)
-(unary_expr operator: ["&" "*" "#" "!"] @operator)
-(deref_target "*" @operator)
+(deref_target "drf" @operator)
+(deref_target "[" @punctuation.bracket "]" @punctuation.bracket)
+(ownership_op "[" @punctuation.bracket "]" @punctuation.bracket)
+(ownership_option) @keyword.operator
 (routine_capture_list "[" @punctuation.bracket "]" @punctuation.bracket)
 (routine_capture_list "," @punctuation.delimiter)
-(routine_capture endpoint: ["tx" "rx"] @attribute)
+(routine_capture endpoint: ["tx" "rx" "mov" "move" "cpy" "copy" "cln" "clone" "bor" "borrow"] @attribute)
 (pipe_expr "|" @operator)
 (this_expr) @variable.builtin
 (self_expr) @variable.builtin
@@ -161,7 +178,6 @@
 (do_expr) @keyword
 (qualified_path root: (identifier) @namespace)
 (qualified_path segment: (identifier) @namespace)
-(unwrap_expr "!" @operator)
 (nil_literal) @constant.builtin
 (boolean_literal) @boolean
 (string_literal) @string

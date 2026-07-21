@@ -1,0 +1,17 @@
+// A weak observer of an Rc-backed shared pointer (`ptr[weak, T]`) is not
+// thread-safe: like the `Rc` it observes, it cannot cross a spawn or async
+// boundary — even nested inside an otherwise thread-safe sync pointer.
+
+use std: pkg = {"std"};
+
+fun[] worker(w: ptr[weak, int]): int = {
+    return 1;
+};
+
+fun[] main(): int = {
+    var seed: int = 5;
+    var inner: ptr[shared, int] = [ref]seed;
+    var w: ptr[weak, int] = [weak]inner;
+    [>]worker(w);
+    return 0;
+};

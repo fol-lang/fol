@@ -1,1 +1,1 @@
-var 'left', 'right': int = 1;
+var 'left', 'right': int = 1, 2;

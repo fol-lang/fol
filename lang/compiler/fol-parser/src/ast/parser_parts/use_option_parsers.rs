@@ -115,10 +115,7 @@ impl AstParser {
         }
 
         let error = if let Ok(token) = tokens.curr(false) {
-            ParseError::from_token(
-                &token,
-                "Use options exceeded parser limit".to_string(),
-            )
+            ParseError::from_token(&token, "Use options exceeded parser limit".to_string())
         } else {
             ParseError {
                 kind: ParseErrorKind::Syntax,

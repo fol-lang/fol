@@ -1,16 +1,18 @@
 #[cfg(test)]
 mod tests {
     use super::super::build::{
-        configure_generated_crate_rustc_command, configure_runtime_rustc_command,
+        configure_auxiliary_crate_rustc_command, configure_generated_crate_rustc_command,
+        configure_generated_crate_rustc_command_with_args,
+        configure_generated_crate_rustc_command_with_auxiliary, configure_runtime_rustc_command,
     };
     use crate::emit::{
         backend_build_paths, backend_runtime_build_dir, backend_runtime_manifest_path,
         backend_runtime_manifest_path_with_override, backend_runtime_source_entry,
         backend_runtime_source_entry_with_override, backend_runtime_source_root,
-        backend_runtime_source_root_with_override, build_generated_crate_with_rustc,
-        build_runtime_rlib_with_rustc, emit_backend_artifact, emit_cargo_toml,
-        emit_generated_crate_skeleton, emit_generated_crate_skeleton_for_config, emit_main_rs,
-        emit_main_rs_for_config, emit_namespace_module_shells,
+        backend_runtime_source_root_with_override, build_generated_crate_with_auxiliary_plan,
+        build_generated_crate_with_rustc, build_runtime_rlib_with_rustc, emit_backend_artifact,
+        emit_cargo_toml, emit_generated_crate_skeleton, emit_generated_crate_skeleton_for_config,
+        emit_main_rs, emit_main_rs_for_config, emit_namespace_module_shells,
         emit_namespace_module_shells_for_config, emit_package_module_shells,
         prepare_backend_build_paths, prepare_backend_runtime_build_dir,
         prepare_generated_build_dir, summarize_emitted_artifact, write_generated_crate,
@@ -20,11 +22,14 @@ mod tests {
             lowered_workspace_from_entry_path, lowered_workspace_from_entry_path_with_config,
             sample_lowered_workspace,
         },
-        BackendArtifact, BackendBuildProfile, BackendConfig, BackendFolModel, BackendMachineTarget,
-        BackendMode, BackendSession,
+        BackendArtifact, BackendAuxiliaryRustCrate, BackendAuxiliaryRustPlan, BackendBuildProfile,
+        BackendConfig, BackendFolModel, BackendMachineTarget, BackendMainEntryCall,
+        BackendMainEntryResultObservation, BackendMode, BackendSession,
     };
     use fol_package::PackageConfig;
     use fol_resolver::ResolverConfig;
+    use std::collections::BTreeMap;
+    use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::{Command, Output};
@@ -43,6 +48,70 @@ mod tests {
         let fixture = root.join("main.fol");
         fs::write(&fixture, source).expect("backend fixture source");
         fixture
+    }
+
+    fn write_auxiliary_source(root: &Path, file_name: &str, source: &str) -> PathBuf {
+        fs::create_dir_all(root).expect("auxiliary source root");
+        let source_root = root.join(file_name);
+        fs::write(&source_root, source).expect("auxiliary Rust source");
+        source_root
+    }
+
+    fn test_auxiliary_plan(
+        root: &Path,
+        target: BackendMachineTarget,
+        profile: BackendBuildProfile,
+        final_rustc_argv: Vec<OsString>,
+    ) -> BackendAuxiliaryRustPlan {
+        test_auxiliary_plan_with_observation(
+            root,
+            target,
+            profile,
+            final_rustc_argv,
+            BackendMainEntryResultObservation::Discard,
+        )
+    }
+
+    fn test_auxiliary_plan_with_observation(
+        root: &Path,
+        target: BackendMachineTarget,
+        profile: BackendBuildProfile,
+        final_rustc_argv: Vec<OsString>,
+        result_observation: BackendMainEntryResultObservation,
+    ) -> BackendAuxiliaryRustPlan {
+        let raw = BackendAuxiliaryRustCrate::try_new(
+            "fol_test_raw",
+            write_auxiliary_source(
+                root,
+                "raw.rs",
+                "#![no_std]\n\npub fn measured_value() -> i32 { 41 }\n",
+            ),
+            vec![],
+        )
+        .expect("raw auxiliary crate");
+        let anchor = BackendAuxiliaryRustCrate::try_new(
+            "fol_test_anchor",
+            write_auxiliary_source(
+                root,
+                "anchor.rs",
+                "#![no_std]\n\npub fn invoke() -> i32 { fol_test_raw::measured_value() + 1 }\n",
+            ),
+            vec!["fol_test_raw".to_string()],
+        )
+        .expect("anchor auxiliary crate");
+        BackendAuxiliaryRustPlan::try_new(
+            target,
+            profile,
+            vec![raw, anchor],
+            BackendMainEntryCall::try_new_with_result_observation(
+                "fol_test_anchor",
+                vec!["invoke".to_string()],
+                result_observation,
+            )
+            .expect("safe auxiliary entry call"),
+            final_rustc_argv,
+        )
+        .expect("auxiliary Rust plan")
     }
 
     fn build_and_run_fixture(source: &str) -> std::process::Output {
@@ -145,7 +214,7 @@ mod tests {
         let binary = build_generated_crate_with_rustc(
             &crate_root,
             &paths,
-            &BackendMachineTarget::Host,
+            &BackendMachineTarget::host().unwrap(),
             BackendBuildProfile::Release,
         )
         .expect("rustc build");
@@ -312,9 +381,7 @@ mod tests {
                 .contents
                 .contains("fol_runtime::process::printable_outcome_message"));
             assert!(!emitted.contents.contains("rt::outcome_from_recoverable"));
-            assert!(!emitted
-                .contents
-                .contains("rt::printable_outcome_message"));
+            assert!(!emitted.contents.contains("rt::printable_outcome_message"));
         }
 
         let _ = fs::remove_dir_all(&fixture_root);
@@ -788,23 +855,26 @@ mod tests {
 
         let debug_dir = backend_runtime_build_dir(
             &paths,
-            &BackendMachineTarget::Host,
+            &BackendMachineTarget::host().unwrap(),
             BackendBuildProfile::Debug,
-        );
+        )
+        .expect("debug runtime dir");
         let release_dir = backend_runtime_build_dir(
             &paths,
-            &BackendMachineTarget::Host,
+            &BackendMachineTarget::host().unwrap(),
             BackendBuildProfile::Release,
-        );
+        )
+        .expect("release runtime dir");
         let prepared_release = prepare_backend_runtime_build_dir(
             &paths,
-            &BackendMachineTarget::Host,
+            &BackendMachineTarget::host().unwrap(),
             BackendBuildProfile::Release,
         )
         .expect("prepare runtime dir");
 
-        assert!(debug_dir.ends_with("fol-backend/runtime/host/debug"));
-        assert!(release_dir.ends_with("fol-backend/runtime/host/release"));
+        let host = BackendMachineTarget::host().unwrap();
+        assert!(debug_dir.ends_with(format!("fol-backend/runtime/{}/debug", host.as_str())));
+        assert!(release_dir.ends_with(format!("fol-backend/runtime/{}/release", host.as_str())));
         assert_eq!(prepared_release, release_dir);
         assert!(prepared_release.exists());
 
@@ -818,9 +888,10 @@ mod tests {
         let command = configure_runtime_rustc_command(
             &runtime_source,
             &runtime_build_dir,
-            &BackendMachineTarget::Triple("aarch64-macos-gnu".to_string()),
+            &BackendMachineTarget::resolve("aarch64-macos-gnu").unwrap(),
             BackendBuildProfile::Release,
-        );
+        )
+        .expect("cross-target runtime command");
         let args = command
             .get_args()
             .map(|arg: &std::ffi::OsStr| arg.to_string_lossy().to_string())
@@ -832,21 +903,25 @@ mod tests {
     }
 
     #[test]
-    fn runtime_rustc_command_skips_target_for_host_builds() {
+    fn runtime_rustc_command_uses_concrete_target_for_host_builds() {
         let runtime_source = PathBuf::from("/tmp/runtime/src/lib.rs");
         let runtime_build_dir = PathBuf::from("/tmp/runtime/out");
         let command = configure_runtime_rustc_command(
             &runtime_source,
             &runtime_build_dir,
-            &BackendMachineTarget::Host,
+            &BackendMachineTarget::host().unwrap(),
             BackendBuildProfile::Debug,
-        );
+        )
+        .expect("host runtime command");
         let args = command
             .get_args()
             .map(|arg: &std::ffi::OsStr| arg.to_string_lossy().to_string())
             .collect::<Vec<_>>();
 
-        assert!(!args.iter().any(|arg| arg == "--target"));
+        let host = BackendMachineTarget::host().unwrap();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--target", host.as_str()]));
     }
 
     #[test]
@@ -860,7 +935,7 @@ mod tests {
             &main_rs,
             &runtime_rlib,
             &binary_path,
-            &BackendMachineTarget::Triple("x86_64-linux-gnu".to_string()),
+            &BackendMachineTarget::resolve("x86_64-linux-gnu").unwrap(),
             BackendBuildProfile::Release,
         )
         .expect("generated rustc command");
@@ -875,7 +950,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_crate_rustc_command_skips_target_for_host_builds() {
+    fn generated_crate_rustc_command_uses_concrete_target_for_host_builds() {
         let crate_root = PathBuf::from("/tmp/generated/demo");
         let main_rs = crate_root.join("src/main.rs");
         let runtime_rlib = PathBuf::from("/tmp/runtime/libfol_runtime.rlib");
@@ -885,7 +960,7 @@ mod tests {
             &main_rs,
             &runtime_rlib,
             &binary_path,
-            &BackendMachineTarget::Host,
+            &BackendMachineTarget::host().unwrap(),
             BackendBuildProfile::Debug,
         )
         .expect("generated rustc command");
@@ -894,26 +969,336 @@ mod tests {
             .map(|arg: &std::ffi::OsStr| arg.to_string_lossy().to_string())
             .collect::<Vec<_>>();
 
-        assert!(!args.iter().any(|arg| arg == "--target"));
+        let host = BackendMachineTarget::host().unwrap();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--target", host.as_str()]));
+    }
+
+    #[test]
+    fn generated_crate_rustc_command_appends_typed_link_argv_without_reparsing() {
+        let crate_root = PathBuf::from("/tmp/generated/demo");
+        let main_rs = crate_root.join("src/main.rs");
+        let runtime_rlib = PathBuf::from("/tmp/runtime/libfol_runtime.rlib");
+        let binary_path = crate_root.join("target/app");
+        let link_args = vec![
+            std::ffi::OsString::from("-L"),
+            std::ffi::OsString::from("native=/tmp/provider dir"),
+            std::ffi::OsString::from("-C"),
+            std::ffi::OsString::from("link-arg=/tmp/provider dir/libone.a"),
+            std::ffi::OsString::from("-C"),
+            std::ffi::OsString::from("link-arg=/tmp/provider dir/libone.a"),
+        ];
+        let command = configure_generated_crate_rustc_command_with_args(
+            &crate_root,
+            &main_rs,
+            &runtime_rlib,
+            &binary_path,
+            &BackendMachineTarget::host().unwrap(),
+            BackendBuildProfile::Debug,
+            &link_args,
+        )
+        .expect("generated rustc command with typed native argv");
+        let actual = command
+            .get_args()
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+
+        assert_eq!(&actual[actual.len() - link_args.len()..], link_args);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_crate_rustc_command_preserves_non_utf8_native_argv_units() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let crate_root = PathBuf::from("/tmp/generated/demo");
+        let main_rs = crate_root.join("src/main.rs");
+        let runtime_rlib = PathBuf::from("/tmp/runtime/libfol_runtime.rlib");
+        let binary_path = crate_root.join("target/app");
+        let native = std::ffi::OsString::from_vec(b"link-arg=/tmp/provider-\xff.o".to_vec());
+        let link_args = vec![std::ffi::OsString::from("-C"), native];
+        let command = configure_generated_crate_rustc_command_with_args(
+            &crate_root,
+            &main_rs,
+            &runtime_rlib,
+            &binary_path,
+            &BackendMachineTarget::host().unwrap(),
+            BackendBuildProfile::Debug,
+            &link_args,
+        )
+        .expect("generated rustc command with non-UTF8 native argv");
+        let actual = command
+            .get_args()
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+
+        assert_eq!(&actual[actual.len() - link_args.len()..], link_args);
+    }
+
+    #[test]
+    fn auxiliary_rustc_command_uses_exact_target_profile_and_dependency_order() {
+        let root = temp_root("auxiliary_command");
+        let raw_rlib = root.join("out/libfol_test_raw.rlib");
+        let anchor = BackendAuxiliaryRustCrate::try_new(
+            "fol_test_anchor",
+            write_auxiliary_source(
+                &root,
+                "anchor.rs",
+                "#![no_std]\npub fn invoke() -> i32 { fol_test_raw::value() }\n",
+            ),
+            vec!["fol_test_raw".to_string()],
+        )
+        .expect("anchor crate");
+        let mut dependency_rlibs = BTreeMap::new();
+        dependency_rlibs.insert("fol_test_raw".to_string(), raw_rlib.clone());
+        let build_dir = root.join("out");
+        let target = BackendMachineTarget::host().unwrap();
+        let command = configure_auxiliary_crate_rustc_command(
+            &anchor,
+            &build_dir,
+            &target,
+            BackendBuildProfile::Release,
+            &dependency_rlibs,
+        )
+        .expect("auxiliary rustc command");
+        let args = command
+            .get_args()
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair == [OsString::from("--target"), OsString::from(target.as_str())] }));
+        assert!(args.windows(2).any(|pair| {
+            pair == [OsString::from("--extern"), {
+                let mut assignment = OsString::from("fol_test_raw=");
+                assignment.push(raw_rlib.as_os_str());
+                assignment
+            }]
+        }));
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair == [OsString::from("-C"), OsString::from("opt-level=3")] }));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn final_rustc_command_adds_exact_anchor_extern_before_opaque_argv() {
+        let crate_root = PathBuf::from("/tmp/generated/demo");
+        let main_rs = crate_root.join("src/main.rs");
+        let runtime_rlib = PathBuf::from("/tmp/runtime/libfol_runtime.rlib");
+        let binary_path = crate_root.join("target/app");
+        let auxiliary_dir = PathBuf::from("/tmp/auxiliary dir");
+        let anchor_rlib = auxiliary_dir.join("libfol_test_anchor.rlib");
+        let opaque_argv = vec![
+            OsString::from("-C"),
+            OsString::from("link-arg=/tmp/provider dir/provider.o"),
+            OsString::from("-C"),
+            OsString::from("link-arg=/tmp/provider dir/provider.o"),
+        ];
+        let command = configure_generated_crate_rustc_command_with_auxiliary(
+            &crate_root,
+            &main_rs,
+            &runtime_rlib,
+            &binary_path,
+            &BackendMachineTarget::host().unwrap(),
+            BackendBuildProfile::Debug,
+            "fol_test_anchor",
+            &anchor_rlib,
+            &auxiliary_dir,
+            &opaque_argv,
+        )
+        .expect("generated command with auxiliary entry");
+        let args = command
+            .get_args()
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        let mut anchor_assignment = OsString::from("fol_test_anchor=");
+        anchor_assignment.push(anchor_rlib.as_os_str());
+        let anchor_position = args
+            .windows(2)
+            .position(|pair| pair == [OsString::from("--extern"), anchor_assignment.clone()])
+            .expect("exact two-item anchor extern");
+
+        assert!(anchor_position + 2 <= args.len() - opaque_argv.len());
+        assert_eq!(&args[args.len() - opaque_argv.len()..], opaque_argv);
+    }
+
+    #[test]
+    fn emitted_main_calls_and_black_boxes_validated_auxiliary_entry() {
+        let root = temp_root("auxiliary_main");
+        let target = BackendMachineTarget::host().unwrap();
+        let plan = test_auxiliary_plan(&root, target.clone(), BackendBuildProfile::Debug, vec![]);
+        let session = BackendSession::new(sample_lowered_workspace());
+        let emitted = emit_main_rs_for_config(
+            &session,
+            &BackendConfig {
+                machine_target: target,
+                build_profile: BackendBuildProfile::Debug,
+                auxiliary_rust_plan: Some(plan),
+                ..BackendConfig::default()
+            },
+        )
+        .expect("main with auxiliary entry");
+
+        assert!(emitted
+            .contents
+            .contains("core::hint::black_box(fol_test_anchor::invoke());"));
+        assert!(!emit_main_rs(&session)
+            .expect("default main")
+            .contents
+            .contains("black_box"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn auxiliary_plan_builds_ordered_rlibs_and_runnable_final_binary() {
+        let root = temp_root("auxiliary_link");
+        let source_root = root.join("auxiliary-sources");
+        let output_root = root.join("output");
+        let target = BackendMachineTarget::host().unwrap();
+        let profile = BackendBuildProfile::Debug;
+        let plan = test_auxiliary_plan_with_observation(
+            &source_root,
+            target.clone(),
+            profile,
+            vec![],
+            BackendMainEntryResultObservation::StdoutI32,
+        );
+        let fixture = write_fixture(
+            &root.join("program"),
+            "fun[] main(): int = {\n    return 0;\n};\n",
+        );
+        let session = BackendSession::new(lowered_workspace_from_entry_path(&fixture));
+        let artifact = emit_backend_artifact(
+            &session,
+            &BackendConfig {
+                machine_target: target.clone(),
+                build_profile: profile,
+                mode: BackendMode::BuildArtifact,
+                keep_build_dir: true,
+                auxiliary_rust_plan: Some(plan.clone()),
+                ..BackendConfig::default()
+            },
+            &output_root,
+        )
+        .expect("backend build with auxiliary plan");
+        let BackendArtifact::CompiledBinary {
+            crate_root,
+            binary_path,
+        } = artifact
+        else {
+            panic!("expected compiled binary");
+        };
+
+        let auxiliary_build_dir = Path::new(&crate_root)
+            .join("target")
+            .join(target.as_str())
+            .join(profile.as_str())
+            .join("fol-auxiliary");
+        assert!(auxiliary_build_dir.join("libfol_test_raw.rlib").is_file());
+        assert!(auxiliary_build_dir
+            .join("libfol_test_anchor.rlib")
+            .is_file());
+        let main_source = fs::read_to_string(Path::new(&crate_root).join("src/main.rs")).unwrap();
+        assert!(main_source.contains(
+            "let __fol_auxiliary_result: i32 = core::hint::black_box(fol_test_anchor::invoke());"
+        ));
+        assert!(main_source.contains("println!(\"{}\", __fol_auxiliary_result);"));
+        let output = Command::new(binary_path)
+            .output()
+            .expect("run auxiliary-linked binary");
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"42\n");
+
+        // The lower-level API consumes the same exact validated plan.
+        let second_root = root.join("second");
+        let paths = prepare_backend_build_paths(&second_root).unwrap();
+        let generated = emit_generated_crate_skeleton_for_config(
+            &session,
+            &BackendConfig {
+                machine_target: target.clone(),
+                build_profile: profile,
+                auxiliary_rust_plan: Some(plan.clone()),
+                ..BackendConfig::default()
+            },
+        )
+        .unwrap();
+        let generated_root =
+            write_generated_crate(Path::new(&paths.build_root), &generated).unwrap();
+        assert!(build_generated_crate_with_auxiliary_plan(
+            &generated_root,
+            &paths,
+            &target,
+            profile,
+            &plan,
+        )
+        .unwrap()
+        .is_file());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stale_or_mismatched_auxiliary_plan_fails_before_backend_output_creation() {
+        let root = temp_root("auxiliary_fail_closed");
+        let source_root = root.join("sources");
+        let output_root = root.join("must-not-exist");
+        let target = BackendMachineTarget::host().unwrap();
+        let plan = test_auxiliary_plan(
+            &source_root,
+            target.clone(),
+            BackendBuildProfile::Debug,
+            vec![],
+        );
+        let session = BackendSession::new(sample_lowered_workspace());
+        let mismatch = emit_backend_artifact(
+            &session,
+            &BackendConfig {
+                machine_target: target.clone(),
+                build_profile: BackendBuildProfile::Release,
+                auxiliary_rust_plan: Some(plan.clone()),
+                ..BackendConfig::default()
+            },
+            &output_root,
+        )
+        .expect_err("profile mismatch must fail");
+        assert!(mismatch
+            .message()
+            .contains("does not match backend profile"));
+        assert!(!output_root.exists());
+
+        fs::remove_file(source_root.join("raw.rs")).unwrap();
+        let stale = emit_backend_artifact(
+            &session,
+            &BackendConfig {
+                machine_target: target,
+                build_profile: BackendBuildProfile::Debug,
+                auxiliary_rust_plan: Some(plan),
+                ..BackendConfig::default()
+            },
+            &output_root,
+        )
+        .expect_err("removed source must fail");
+        assert!(stale.message().contains("is unavailable"));
+        assert!(!output_root.exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
     fn rustc_runtime_builder_produces_release_runtime_rlib() {
         let temp_root = temp_root("runtime_rlib_release");
         let paths = prepare_backend_build_paths(&temp_root).expect("prepare paths");
+        let host = BackendMachineTarget::host().unwrap();
 
-        let rlib = build_runtime_rlib_with_rustc(
-            &paths,
-            &BackendMachineTarget::Host,
-            BackendBuildProfile::Release,
-        )
-        .expect("build runtime rlib");
+        let rlib = build_runtime_rlib_with_rustc(&paths, &host, BackendBuildProfile::Release)
+            .expect("build runtime rlib");
 
         assert!(rlib.exists());
         assert!(rlib.ends_with("libfol_runtime.rlib"));
         assert!(rlib
             .to_string_lossy()
-            .contains("/fol-backend/runtime/host/release/"));
+            .contains(&format!("/fol-backend/runtime/{}/release/", host.as_str())));
 
         let _ = fs::remove_dir_all(&temp_root);
     }
@@ -926,18 +1311,21 @@ mod tests {
         let paths = prepare_backend_build_paths(&temp_root).expect("prepare paths");
         let crate_root =
             write_generated_crate(Path::new(&paths.build_root), &artifact).expect("write crate");
+        let host = BackendMachineTarget::host().unwrap();
 
         let binary = build_generated_crate_with_rustc(
             &crate_root,
             &paths,
-            &BackendMachineTarget::Host,
+            &host,
             BackendBuildProfile::Release,
         )
         .expect("rustc build");
         let output = Command::new(&binary).output().expect("run rustc binary");
 
         assert!(binary.exists());
-        assert!(binary.to_string_lossy().contains("/target/host/release/"));
+        assert!(binary
+            .to_string_lossy()
+            .contains(&format!("/target/{}/release/", host.as_str())));
         assert!(output.status.code().is_some());
 
         let _ = fs::remove_dir_all(&temp_root);
@@ -960,7 +1348,7 @@ mod tests {
         let binary = build_generated_crate_with_rustc(
             &renamed_root,
             &paths,
-            &BackendMachineTarget::Host,
+            &BackendMachineTarget::host().unwrap(),
             BackendBuildProfile::Release,
         )
         .expect("rustc build");
@@ -1066,10 +1454,11 @@ mod tests {
         let paths = prepare_backend_build_paths(&temp_root).expect("prepare paths");
         let crate_root =
             write_generated_crate(Path::new(&paths.build_root), &artifact).expect("write crate");
-        let machine_target = BackendMachineTarget::Triple("x86_64-linux-gnu".to_string());
+        let machine_target = BackendMachineTarget::resolve("x86_64-linux-gnu").unwrap();
 
         let runtime_dir =
-            backend_runtime_build_dir(&paths, &machine_target, BackendBuildProfile::Release);
+            backend_runtime_build_dir(&paths, &machine_target, BackendBuildProfile::Release)
+                .expect("resolved cross-target runtime dir");
         let binary = build_generated_crate_with_rustc(
             &crate_root,
             &paths,
@@ -1097,6 +1486,11 @@ mod tests {
             panic!("expected compiled binary artifact");
         };
         assert!(binary_path.contains("/bin/x86_64-unknown-linux-gnu/"));
+        assert!(Path::new(&binary_path).is_file());
+        assert!(
+            !binary.exists(),
+            "publishing must move rustc's closed output rather than copy it from the parent"
+        );
 
         let _ = fs::remove_dir_all(&temp_root);
     }
@@ -1387,13 +1781,13 @@ mod tests {
             "typ Item: rec = { value: int };\n",
             "fun[] main(): int = {\n",
             "    @var owned: Item = { value = 7 };\n",
-            "    @var forwarded_owned: Item = forward(owned);\n",
+            "    @var forwarded_owned: Item = forward([mov]owned);\n",
             "    var seed: int = 11;\n",
-            "    var pointer: ptr[int] = &seed;\n",
-            "    var forwarded_pointer: ptr[int] = forward(pointer);\n",
+            "    var pointer: ptr[int] = [ref]seed;\n",
+            "    var forwarded_pointer: ptr[int] = forward([mov]pointer);\n",
             "    var scalar: int = 3;\n",
             "    var forwarded_scalar: int = forward(scalar);\n",
-            "    return forwarded_owned.value + *forwarded_pointer + scalar + forwarded_scalar;\n",
+            "    return forwarded_owned.value + [drf]forwarded_pointer + scalar + forwarded_scalar;\n",
             "};\n",
         );
         let fixture_root = temp_root("generic_transfer");
@@ -1487,13 +1881,13 @@ mod tests {
     fn executable_backend_preserves_move_only_mux_identity_when_forwarded() {
         let output = build_and_run_fixture(concat!(
             "typ Counter: rec = { marker: ptr[int], value: int };\n",
-            "fun[] update(counter[mux]: Counter): int = {\n",
+            "fun[] update(counter: mux[Counter]): int = {\n",
             "    counter.lock();\n",
             "    counter.value = 42;\n",
             "    counter.unlock();\n",
             "    return 0;\n",
             "};\n",
-            "fun[] forward(counter[mux]: Counter): int = {\n",
+            "fun[] forward(counter: mux[Counter]): int = {\n",
             "    update(counter);\n",
             "    counter.lock();\n",
             "    var value: int = counter.value;\n",
@@ -1502,15 +1896,15 @@ mod tests {
             "};\n",
             "fun[] main(): int = {\n",
             "    var seed: int = 7;\n",
-            "    var marker: ptr[int] = &seed;\n",
-            "    var counter: Counter = { marker = marker, value = 1 };\n",
-            "    return .echo(forward(counter));\n",
+            "    var marker: ptr[int] = [ref]seed;\n",
+            "    var counter: Counter = { marker = [mov]marker, value = 1 };\n",
+            "    return .echo(forward([mov]counter));\n",
             "};\n",
         ));
 
         assert!(
             output.status.success(),
-            "forwarding a move-only [mux] value should build and run: {}",
+            "forwarding a move-only mux[T] value should build and run: {}",
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
@@ -1523,8 +1917,8 @@ mod tests {
             "fun[] main(): int = {\n",
             "    var[mut] total: int = 0;\n",
             "    for (value in {1, 2}) {\n",
-            "        var pointer: ptr[int] = &value;\n",
-            "        var holder: Holder = { pointer = pointer };\n",
+            "        var pointer: ptr[int] = [ref]value;\n",
+            "        var holder: Holder = { pointer = [mov]pointer };\n",
             "        total = total + value;\n",
             "    };\n",
             "    return .echo(total);\n",

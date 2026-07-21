@@ -167,8 +167,8 @@ fn explicit_named_run_steps_select_the_requested_artifact_when_multiple_runnable
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    var graph = .graph();\n",
-            "    graph.add_exe(\"serve_app\", \"src/serve.fol\");\n",
-            "    graph.add_exe(\"admin_app\", \"src/admin.fol\");\n",
+            "    graph.add_exe(\"serve_app\", \"src/serve/main.fol\");\n",
+            "    graph.add_exe(\"admin_app\", \"src/admin/main.fol\");\n",
             "    graph.add_run(\"serve\", \"serve_app\");\n",
             "    graph.add_run(\"admin\", \"admin_app\");\n",
             "    return;\n",
@@ -176,14 +176,16 @@ fn explicit_named_run_steps_select_the_requested_artifact_when_multiple_runnable
         ),
     )
     .unwrap();
+    fs::create_dir_all(root.join("src/serve")).unwrap();
+    fs::create_dir_all(root.join("src/admin")).unwrap();
     fs::write(
-        root.join("src/serve.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/serve/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/admin.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/admin/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     let plan = plan_member_execution(
@@ -231,8 +233,8 @@ fn named_build_steps_can_target_matching_artifacts_when_multiple_builds_exist() 
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    var graph = .graph();\n",
-            "    graph.add_exe(\"serve_app\", \"src/serve.fol\");\n",
-            "    graph.add_exe(\"admin_app\", \"src/admin.fol\");\n",
+            "    graph.add_exe(\"serve_app\", \"src/serve/main.fol\");\n",
+            "    graph.add_exe(\"admin_app\", \"src/admin/main.fol\");\n",
             "    graph.step(\"serve_app\");\n",
             "    graph.step(\"admin_app\");\n",
             "    return;\n",
@@ -240,14 +242,16 @@ fn named_build_steps_can_target_matching_artifacts_when_multiple_builds_exist() 
         ),
     )
     .unwrap();
+    fs::create_dir_all(root.join("src/serve")).unwrap();
+    fs::create_dir_all(root.join("src/admin")).unwrap();
     fs::write(
-        root.join("src/serve.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/serve/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/admin.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/admin/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
 
@@ -296,21 +300,23 @@ fn default_build_step_is_marked_ambiguous_when_multiple_executables_exist() {
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    var graph = .graph();\n",
-            "    graph.add_exe(\"serve_app\", \"src/serve.fol\");\n",
-            "    graph.add_exe(\"admin_app\", \"src/admin.fol\");\n",
+            "    graph.add_exe(\"serve_app\", \"src/serve/main.fol\");\n",
+            "    graph.add_exe(\"admin_app\", \"src/admin/main.fol\");\n",
             "    return;\n",
             "};\n",
         ),
     )
     .unwrap();
+    fs::create_dir_all(root.join("src/serve")).unwrap();
+    fs::create_dir_all(root.join("src/admin")).unwrap();
     fs::write(
-        root.join("src/serve.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/serve/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/admin.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/admin/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
 
@@ -337,7 +343,7 @@ fn default_build_step_is_marked_ambiguous_when_multiple_executables_exist() {
 }
 
 #[test]
-fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
+fn default_build_step_fans_out_over_every_executable() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_ambiguous_build_exec_{}_{}",
         std::process::id(),
@@ -354,21 +360,23 @@ fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    var graph = .graph();\n",
-            "    graph.add_exe(\"serve_app\", \"src/serve.fol\");\n",
-            "    graph.add_exe(\"admin_app\", \"src/admin.fol\");\n",
+            "    graph.add_exe(\"serve_app\", \"src/serve/main.fol\");\n",
+            "    graph.add_exe(\"admin_app\", \"src/admin/main.fol\");\n",
             "    return;\n",
             "};\n",
         ),
     )
     .unwrap();
+    fs::create_dir_all(root.join("src/serve")).unwrap();
+    fs::create_dir_all(root.join("src/admin")).unwrap();
     fs::write(
-        root.join("src/serve.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/serve/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/admin.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/admin/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     let workspace = FrontendWorkspace {
@@ -382,7 +390,7 @@ fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
         install_prefix: root.join(".fol/install"),
     };
 
-    let error = execute_workspace_build_route(
+    let result = execute_workspace_build_route(
         &workspace,
         &FrontendConfig::default(),
         &FrontendWorkspaceBuildRequest {
@@ -391,12 +399,163 @@ fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
             run_args: Vec::new(),
         },
     )
-    .expect_err("ambiguous default build step should fail");
+    .expect("the default build step fans out over every executable");
 
-    assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
-    assert!(error.message().contains("requires an explicit named step"));
+    let binaries = result
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == crate::FrontendArtifactKind::Binary)
+        .count();
+    assert_eq!(
+        binaries, 2,
+        "both executables should build under the default step"
+    );
 
     fs::remove_dir_all(root).ok();
+}
+
+fn assert_routed_profile_case(
+    label: &str,
+    config: FrontendConfig,
+    requested_profile: FrontendProfile,
+    expected_optimize: fol_package::BuildOptimizeMode,
+    expected_backend_profile: fol_backend::BackendBuildProfile,
+    expected_output_profile: &str,
+) {
+    let root = std::env::temp_dir().join(format!(
+        "fol_frontend_build_route_profile_{label}_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"app\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var optimize = graph.standard_optimize();\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\", optimize = optimize });\n",
+            "    graph.install(app);\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 0\n};\n",
+    )
+    .unwrap();
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.clone()),
+        members: vec![PackageRoot::new(root.clone())],
+        std_root_override: None,
+        package_store_root_override: None,
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+    let effective_config = super::super::execution_config_for_profile(&config, requested_profile);
+    let plan = plan_member_execution(
+        &FrontendMemberBuildRoute {
+            member_root: root.clone(),
+            package_name: "app".to_owned(),
+            mode: FrontendBuildWorkflowMode::Modern,
+        },
+        &effective_config,
+    )
+    .expect("profiled semantic graph should plan");
+    let selection = plan
+        .steps
+        .iter()
+        .find(|step| step.name == "build")
+        .and_then(|step| step.selection.as_ref())
+        .expect("default build step should select the executable");
+    assert_eq!(selection.optimize, expected_optimize);
+    assert_eq!(selection.backend_build_profile(), expected_backend_profile);
+    let target_directory = selection.target.rust_target_directory_name().to_owned();
+
+    let result = execute_workspace_build_route(
+        &workspace,
+        &config,
+        &FrontendWorkspaceBuildRequest {
+            requested_step: "build".to_owned(),
+            profile: requested_profile,
+            run_args: Vec::new(),
+        },
+    )
+    .expect("profiled semantic build should execute");
+    let build_root = result
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.kind == FrontendArtifactKind::BuildRoot)
+        .and_then(|artifact| artifact.path.as_ref())
+        .expect("build result should report its output identity");
+    assert_eq!(
+        build_root,
+        &workspace.build_root.join(expected_output_profile)
+    );
+    let binary = result
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.kind == FrontendArtifactKind::Binary)
+        .and_then(|artifact| artifact.path.as_ref())
+        .expect("build result should report the compiled binary");
+    assert!(binary.starts_with(build_root.join("bin").join(&target_directory)));
+    assert!(
+        build_root
+            .join("fol-backend/runtime")
+            .join(target_directory)
+            .join(expected_backend_profile.as_str())
+            .is_dir(),
+        "rustc runtime output identity must match the effective backend profile"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn requested_release_profiles_semantic_graph_and_rustc_consistently() {
+    assert_routed_profile_case(
+        "release_default",
+        FrontendConfig::default(),
+        FrontendProfile::Release,
+        fol_package::BuildOptimizeMode::ReleaseSafe,
+        fol_backend::BackendBuildProfile::Release,
+        "release",
+    );
+}
+
+#[test]
+fn explicit_optimize_precedes_requested_profile_consistently() {
+    assert_routed_profile_case(
+        "explicit_release_fast",
+        FrontendConfig {
+            build_optimize_override: Some("release-fast".to_owned()),
+            ..FrontendConfig::default()
+        },
+        FrontendProfile::Debug,
+        fol_package::BuildOptimizeMode::ReleaseFast,
+        fol_backend::BackendBuildProfile::Release,
+        "release",
+    );
+    assert_routed_profile_case(
+        "explicit_debug",
+        FrontendConfig {
+            build_optimize_override: Some("debug".to_owned()),
+            ..FrontendConfig::default()
+        },
+        FrontendProfile::Release,
+        fol_package::BuildOptimizeMode::Debug,
+        fol_backend::BackendBuildProfile::Debug,
+        "debug",
+    );
 }
 
 #[test]

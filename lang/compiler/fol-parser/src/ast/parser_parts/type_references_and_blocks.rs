@@ -82,6 +82,7 @@ impl AstParser {
             FolType::Function {
                 params: params.into_iter().map(|param| param.param_type).collect(),
                 return_type: Box::new(return_type),
+                env_lifetime: None,
             },
         ))
     }
@@ -90,8 +91,50 @@ impl AstParser {
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
     ) -> Result<FolType, ParseError> {
-        self.parse_function_type_signature(tokens)
-            .map(|(_, function_type)| function_type)
+        let (_, mut function_type) = self.parse_function_type_signature(tokens)?;
+        // Optional environment lifetime: `{fun (): int}[bor=L]` marks an
+        // escaping-closure routine type (V3_MEM section 5.3).
+        self.skip_ignorable(tokens)?;
+        if matches!(
+            tokens.curr(false).map(|token| token.key()),
+            Ok(KEYWORD::Symbol(SYMBOL::SquarO))
+        ) && tokens
+            .peek(0, true)
+            .is_ok_and(|token| token.con().trim() == "bor")
+        {
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let equals = tokens.curr(false)?;
+            if !matches!(equals.key(), KEYWORD::Symbol(SYMBOL::Equal)) {
+                return Err(ParseError::from_token(
+                    &equals,
+                    "Expected '=' in routine type environment lifetime '[bor=L]'".to_string(),
+                ));
+            }
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let lifetime_token = tokens.curr(false)?;
+            let lifetime = Self::expect_named_label(
+                &lifetime_token,
+                "Expected a lifetime name in routine type environment lifetime '[bor=L]'",
+            )?;
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let close = tokens.curr(false)?;
+            if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+                return Err(ParseError::from_token(
+                    &close,
+                    "Expected ']' to close routine type environment lifetime".to_string(),
+                ));
+            }
+            let _ = tokens.bump();
+            if let FolType::Function { env_lifetime, .. } = &mut function_type {
+                *env_lifetime = Some(lifetime);
+            }
+        }
+        Ok(function_type)
     }
 
     pub(super) fn parse_balanced_type_suffix(
@@ -380,6 +423,19 @@ impl AstParser {
                 continue;
             }
 
+            // A prefix ownership operation at statement position — most
+            // usefully `[fin]place` for early finalization (V3_MEM §6.1). The
+            // operation is a full expression, so route it through the general
+            // expression parser rather than letting the `[` fall through to the
+            // identifier tail (which would parse the option keyword as a name).
+            if self.lookahead_is_ownership_operation(tokens)
+                && !(self.peek_is_deref_bracket(tokens) && self.lookahead_is_assignment(tokens))
+            {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
             if self.lookahead_is_spawn_expression(tokens) {
                 body.push(self.parse_logical_expression(tokens)?);
                 self.consume_required_semicolon(tokens)?;
@@ -392,19 +448,10 @@ impl AstParser {
                 continue;
             }
 
-            if matches!(
-                key,
-                KEYWORD::Symbol(SYMBOL::Bang) | KEYWORD::Symbol(SYMBOL::Hash)
-            ) || matches!(token.con().trim(), "!" | "#")
-            {
-                body.push(self.parse_logical_expression(tokens)?);
-                self.consume_required_semicolon(tokens)?;
-                continue;
-            }
-
             if (AstParser::token_can_be_logical_name(&key)
                 || key.is_textual_literal()
-                || matches!(key, KEYWORD::Symbol(SYMBOL::Star)))
+                || matches!(key, KEYWORD::Symbol(SYMBOL::Star))
+                || self.peek_is_deref_bracket(tokens))
                 && self.lookahead_is_assignment(tokens)
                 && self.can_start_assignment(tokens)
             {
@@ -590,6 +637,8 @@ impl AstParser {
         let syntax_id = self.record_syntax_origin(&dfr_token);
 
         let _ = tokens.bump();
+        let captures = self.parse_optional_routine_capture_list(tokens)?;
+        self.ensure_unique_capture_names(&captures, tokens)?;
         self.skip_ignorable(tokens)?;
         let open = tokens.curr(false)?;
         if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
@@ -600,7 +649,11 @@ impl AstParser {
         }
         let _ = tokens.bump();
         let body = self.parse_block_body(tokens, "Expected '}' to close dfr block")?;
-        Ok(AstNode::Dfr { syntax_id, body })
+        Ok(AstNode::Dfr {
+            syntax_id,
+            captures,
+            body,
+        })
     }
 
     pub(super) fn parse_edf_stmt(
@@ -622,6 +675,8 @@ impl AstParser {
         }
         let syntax_id = self.record_syntax_origin(&edf_token);
         let _ = tokens.bump();
+        let captures = self.parse_optional_routine_capture_list(tokens)?;
+        self.ensure_unique_capture_names(&captures, tokens)?;
         self.skip_ignorable(tokens)?;
         let open = tokens.curr(false)?;
         if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::CurlyO)) {
@@ -632,6 +687,10 @@ impl AstParser {
         }
         let _ = tokens.bump();
         let body = self.parse_block_body(tokens, "Expected '}' to close edf block")?;
-        Ok(AstNode::Edf { syntax_id, body })
+        Ok(AstNode::Edf {
+            syntax_id,
+            captures,
+            body,
+        })
     }
 }

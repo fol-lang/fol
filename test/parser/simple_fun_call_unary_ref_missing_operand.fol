@@ -1,4 +1,0 @@
-fun broken_call_unary_ref(a: int): int = {
-    value = run(&a, &);
-    return value;
-};

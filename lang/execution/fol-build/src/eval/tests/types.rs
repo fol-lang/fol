@@ -169,10 +169,7 @@ fn build_evaluation_result_keeps_declared_and_resolved_options() {
     resolved.insert("optimize", "release-fast");
     let result = BuildEvaluationResult::new(
         BuildEvaluationBoundary::GraphConstructionSubset,
-        BuildRuntimeCapabilityModel::new(
-            vec![AllowedBuildTimeOperation::OptionRead],
-            Vec::new(),
-        ),
+        BuildRuntimeCapabilityModel::new(vec![AllowedBuildTimeOperation::OptionRead], Vec::new()),
         "pkg",
         declarations,
         resolved,
@@ -193,10 +190,7 @@ fn build_evaluation_result_keeps_declared_dependency_requests() {
         alias: "core".to_string(),
         source_kind: crate::api::DependencySourceKind::PackageStore,
         package: "org/core".to_string(),
-        args: std::collections::BTreeMap::from([(
-            "jobs".to_string(),
-            DependencyArgValue::Int(4),
-        )]),
+        args: std::collections::BTreeMap::from([("jobs".to_string(), DependencyArgValue::Int(4))]),
         evaluation_mode: Some(crate::DependencyBuildEvaluationMode::Lazy),
         git_version: None,
         git_hash: None,

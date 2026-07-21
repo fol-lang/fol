@@ -1,0 +1,23 @@
+// A `fin` value is affine: moving it into a routine transfers ownership, so the
+// receiving routine finalizes it exactly once at its scope exit while the caller
+// does not (V3_MEM §6.1). `consume` prints the finalizer marker (88) when it
+// returns; `main` then prints the received value (5).
+
+use std: pkg = {"std"};
+
+typ File()(fin): rec = { descriptor: int };
+
+pro (File)finalize(): non = {
+    var cleaned: int = std::io::echo_int(88);
+    return;
+};
+
+fun[] consume(sink: File): int = {
+    return sink.descriptor;
+};
+
+fun[] main(): int = {
+    var handle: File = { descriptor = 5 };
+    var got: int = consume([mov]handle);
+    return std::io::echo_int(got);
+};

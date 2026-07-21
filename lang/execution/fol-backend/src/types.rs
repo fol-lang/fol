@@ -64,9 +64,24 @@ pub fn render_rust_type_in_workspace(
             if *mutable { "mut " } else { "" },
             render_rust_type_in_workspace(workspace, type_table, *inner)?
         )),
-        LoweredType::Pointer { target, shared } => Ok(format!(
+        LoweredType::Pointer {
+            target,
+            shared,
+            weak,
+            sync,
+        } => Ok(format!(
             "{}<{}>",
-            if *shared { "std::rc::Rc" } else { "Box" },
+            if *weak && *sync {
+                "std::sync::Weak"
+            } else if *weak {
+                "std::rc::Weak"
+            } else if *shared && *sync {
+                "std::sync::Arc"
+            } else if *shared {
+                "std::rc::Rc"
+            } else {
+                "Box"
+            },
             render_rust_type_in_workspace(workspace, type_table, *target)?
         )),
         LoweredType::Array {
@@ -94,6 +109,10 @@ pub fn render_rust_type_in_workspace(
         )),
         LoweredType::ChannelSender { element_type } => Ok(format!(
             "rt::FolSender<{}>",
+            render_rust_type_in_workspace(workspace, type_table, *element_type)?
+        )),
+        LoweredType::ChannelReceiver { element_type } => Ok(format!(
+            "rt::FolReceiver<{}>",
             render_rust_type_in_workspace(workspace, type_table, *element_type)?
         )),
         LoweredType::Eventual {
@@ -161,115 +180,185 @@ pub fn render_rust_type_in_workspace(
                 ),
                 (None, _) => String::new(),
             };
-            Ok(format!("fn({rendered_params}){return_section}"))
+            // Routine values are environment-capable closures: a shared handle
+            // to a callable. A plain named-routine reference wraps its fn item;
+            // an anonymous routine with captures wraps a real closure.
+            Ok(format!(
+                "std::rc::Rc<dyn Fn({rendered_params}){return_section}>"
+            ))
         }
     }
 }
 
-/// Whether a lowered type transitively contains a float (no `Eq`/`Ord` in
-/// Rust) or a routine value (no `Default`/`Eq`). Drives conditional derives
-/// on emitted aggregates: deriving `Eq` on a float-bearing struct or
-/// `Default` on an fn-pointer-bearing one fails rustc.
-fn type_contains(
+/// Whether a value of `type_id` transitively matches `matches`, resolving
+/// nominal `Named` fields through the workspace's type declarations (with cycle
+/// detection). Unlike `type_contains`, this crosses `Named` boundaries: a derive
+/// bound on an aggregate propagates through shared/box pointers and named
+/// fields to the concrete types they reference, so equality/`Eq`-blocking
+/// members (weak pointers, floats, routines) must be seen transitively.
+fn type_transitively_contains(
+    workspace: &LoweredWorkspace,
     type_table: &LoweredTypeTable,
     type_id: LoweredTypeId,
-    matches_builtin: &dyn Fn(&LoweredType) -> bool,
-    depth: usize,
+    matches: &dyn Fn(&LoweredType) -> bool,
+    visited: &mut std::collections::BTreeSet<fol_resolver::SymbolId>,
 ) -> bool {
-    if depth > 32 {
-        return true; // deep/cyclic: be conservative, skip the derive
-    }
     let Some(ty) = type_table.get(type_id) else {
-        return true;
+        return false;
     };
-    if matches_builtin(ty) {
+    if matches(ty) {
         return true;
     }
     match ty {
-        LoweredType::Array { element_type, .. }
-        | LoweredType::Vector { element_type }
-        | LoweredType::Sequence { element_type }
-        | LoweredType::Channel { element_type }
-        | LoweredType::ChannelSender { element_type }
-        | LoweredType::Owned {
-            inner: element_type,
-        }
-        | LoweredType::Borrowed {
-            inner: element_type,
+        LoweredType::Pointer { target: inner, .. }
+        | LoweredType::Owned { inner }
+        | LoweredType::Borrowed { inner, .. }
+        | LoweredType::Optional { inner }
+        | LoweredType::Array {
+            element_type: inner,
             ..
         }
-        | LoweredType::Pointer {
-            target: element_type,
-            ..
-        } => type_contains(type_table, *element_type, matches_builtin, depth + 1),
-        LoweredType::Set { member_types } => member_types
-            .iter()
-            .any(|member| type_contains(type_table, *member, matches_builtin, depth + 1)),
+        | LoweredType::Vector {
+            element_type: inner,
+        }
+        | LoweredType::Sequence {
+            element_type: inner,
+        }
+        | LoweredType::Channel {
+            element_type: inner,
+        }
+        | LoweredType::ChannelSender {
+            element_type: inner,
+        }
+        | LoweredType::ChannelReceiver {
+            element_type: inner,
+        } => type_transitively_contains(workspace, type_table, *inner, matches, visited),
+        LoweredType::Set { member_types } => member_types.iter().any(|member| {
+            type_transitively_contains(workspace, type_table, *member, matches, visited)
+        }),
         LoweredType::Map {
             key_type,
             value_type,
         } => {
-            type_contains(type_table, *key_type, matches_builtin, depth + 1)
-                || type_contains(type_table, *value_type, matches_builtin, depth + 1)
+            type_transitively_contains(workspace, type_table, *key_type, matches, visited)
+                || type_transitively_contains(workspace, type_table, *value_type, matches, visited)
         }
-        LoweredType::Optional { inner } => {
-            type_contains(type_table, *inner, matches_builtin, depth + 1)
-        }
-        LoweredType::Error { inner } => inner
-            .map(|inner| type_contains(type_table, inner, matches_builtin, depth + 1))
-            .unwrap_or(false),
+        LoweredType::Error { inner } => inner.is_some_and(|inner| {
+            type_transitively_contains(workspace, type_table, inner, matches, visited)
+        }),
         LoweredType::Eventual {
             value_type,
             error_type,
         } => {
-            type_contains(type_table, *value_type, matches_builtin, depth + 1)
+            type_transitively_contains(workspace, type_table, *value_type, matches, visited)
                 || error_type.is_some_and(|error_type| {
-                    type_contains(type_table, error_type, matches_builtin, depth + 1)
+                    type_transitively_contains(workspace, type_table, error_type, matches, visited)
                 })
         }
-        LoweredType::Record { fields } => fields
-            .values()
-            .any(|field| type_contains(type_table, *field, matches_builtin, depth + 1)),
-        LoweredType::Entry { variants } => variants.values().any(|payload| {
-            payload
-                .map(|payload| type_contains(type_table, payload, matches_builtin, depth + 1))
-                .unwrap_or(false)
+        LoweredType::Record { fields, .. } => fields.values().any(|field| {
+            type_transitively_contains(workspace, type_table, *field, matches, visited)
         }),
-        LoweredType::Named { .. }
-        | LoweredType::Builtin(_)
-        | LoweredType::GenericParameter { .. } => false,
-        LoweredType::Routine(_) => false,
+        LoweredType::Entry { variants } => variants.values().flatten().any(|payload| {
+            type_transitively_contains(workspace, type_table, *payload, matches, visited)
+        }),
+        LoweredType::Named {
+            package, symbol, ..
+        } => {
+            // Break cycles: a nominal type reached twice adds nothing new.
+            if !visited.insert(*symbol) {
+                return false;
+            }
+            let Some(type_decl) = workspace
+                .package(package)
+                .and_then(|pkg| pkg.type_decls.get(symbol))
+            else {
+                return false;
+            };
+            match &type_decl.kind {
+                LoweredTypeDeclKind::Alias { target_type } => type_transitively_contains(
+                    workspace,
+                    type_table,
+                    *target_type,
+                    matches,
+                    visited,
+                ),
+                LoweredTypeDeclKind::Record { fields } => fields.iter().any(|field| {
+                    type_transitively_contains(
+                        workspace,
+                        type_table,
+                        field.type_id,
+                        matches,
+                        visited,
+                    )
+                }),
+                LoweredTypeDeclKind::Entry { variants } => variants
+                    .iter()
+                    .filter_map(|variant| variant.payload_type)
+                    .any(|payload| {
+                        type_transitively_contains(workspace, type_table, payload, matches, visited)
+                    }),
+            }
+        }
+        LoweredType::Builtin(_)
+        | LoweredType::GenericParameter { .. }
+        | LoweredType::Routine(_) => false,
     }
 }
 
 fn aggregate_derives(
+    workspace: &LoweredWorkspace,
     type_table: &LoweredTypeTable,
     field_types: impl Iterator<Item = LoweredTypeId>,
     include_default: bool,
 ) -> String {
     let mut has_float = false;
     let mut has_routine = false;
+    let mut has_weak = false;
+    // Derive blockers propagate transitively through named/pointer fields (a
+    // Rust derive bound on the aggregate reaches every referenced type), so each
+    // check crosses `Named` boundaries via the workspace declarations.
     for type_id in field_types {
-        if type_contains(
+        if type_transitively_contains(
+            workspace,
             type_table,
             type_id,
             &|ty| matches!(ty, LoweredType::Builtin(LoweredBuiltinType::Float)),
-            0,
+            &mut std::collections::BTreeSet::new(),
         ) {
             has_float = true;
         }
-        if type_contains(
+        if type_transitively_contains(
+            workspace,
             type_table,
             type_id,
             &|ty| matches!(ty, LoweredType::Routine(_)),
-            0,
+            &mut std::collections::BTreeSet::new(),
         ) {
             has_routine = true;
         }
+        if type_transitively_contains(
+            workspace,
+            type_table,
+            type_id,
+            &|ty| matches!(ty, LoweredType::Pointer { weak: true, .. }),
+            &mut std::collections::BTreeSet::new(),
+        ) {
+            has_weak = true;
+        }
     }
-    let mut derives = vec!["Debug", "Clone", "PartialEq"];
-    if !has_float && !has_routine {
-        derives.push("Eq");
+    // A routine field is an `Rc<dyn Fn>` closure handle, which implements
+    // neither `Debug` nor `PartialEq`; a `Weak<T>` field implements neither
+    // `PartialEq` nor `Eq`.
+    let mut derives = vec![];
+    if !has_routine {
+        derives.push("Debug");
+    }
+    derives.push("Clone");
+    if !has_weak && !has_routine {
+        derives.push("PartialEq");
+        if !has_float {
+            derives.push("Eq");
+        }
     }
     if include_default && !has_routine {
         derives.push("Default");
@@ -304,7 +393,12 @@ pub fn render_record_definition(
         .collect::<BackendResult<Vec<_>>>()?
         .join("\n");
 
-    let derives = aggregate_derives(type_table, fields.iter().map(|field| field.type_id), true);
+    let derives = aggregate_derives(
+        workspace,
+        type_table,
+        fields.iter().map(|field| field.type_id),
+        true,
+    );
     Ok(format!(
         "{}\npub struct {} {{\n{}\n}}\n",
         derives,
@@ -368,6 +462,7 @@ pub fn render_entry_definition(
     let default_variant = render_entry_default_variant(workspace, variants, type_table)?;
     // Entries hand-write their Default impl, so only Eq is conditional.
     let derives = aggregate_derives(
+        workspace,
         type_table,
         variants.iter().filter_map(|variant| variant.payload_type),
         false,
@@ -392,7 +487,7 @@ pub fn render_entry_trait_impl(
     let type_name = mangle_type_name(package_identity, type_decl.runtime_type, &type_decl.name);
     let match_arms = variants
         .iter()
-        .map(|variant| render_entry_trait_match_arm(variant))
+        .map(render_entry_trait_match_arm)
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -402,7 +497,7 @@ pub fn render_entry_trait_impl(
         match_arms,
         variants
             .iter()
-            .map(|variant| render_entry_field_match_arm(variant))
+            .map(render_entry_field_match_arm)
             .collect::<Vec<_>>()
             .join("\n")
     ))
@@ -683,6 +778,7 @@ mod tests {
                 ("active".to_string(), bool_id),
                 ("name".to_string(), str_id),
             ]),
+            finalized: false,
         });
         let decl = LoweredTypeDecl {
             symbol_id: SymbolId(10),
@@ -724,6 +820,7 @@ mod tests {
                 ("active".to_string(), bool_id),
                 ("name".to_string(), str_id),
             ]),
+            finalized: false,
         });
         let decl = LoweredTypeDecl {
             symbol_id: SymbolId(10),
@@ -867,6 +964,7 @@ mod tests {
                 ("active".to_string(), bool_id),
                 ("name".to_string(), str_id),
             ]),
+            finalized: false,
         });
         let entry_id = table.intern(LoweredType::Entry {
             variants: std::collections::BTreeMap::from([
@@ -1015,15 +1113,15 @@ mod tests {
 
         assert_eq!(
             render_rust_type(&table, plain_fn_id),
-            Ok("fn(rt::FolInt, rt_model::FolStr) -> rt::FolBool".to_string())
+            Ok("std::rc::Rc<dyn Fn(rt::FolInt, rt_model::FolStr) -> rt::FolBool>".to_string())
         );
         assert_eq!(
             render_rust_type(&table, void_fn_id),
-            Ok("fn(rt::FolInt)".to_string())
+            Ok("std::rc::Rc<dyn Fn(rt::FolInt)>".to_string())
         );
         assert_eq!(
             render_rust_type(&table, recoverable_fn_id),
-            Ok("fn() -> rt::FolRecover<rt::FolInt, rt_model::FolStr>".to_string())
+            Ok("std::rc::Rc<dyn Fn() -> rt::FolRecover<rt::FolInt, rt_model::FolStr>>".to_string())
         );
     }
 }

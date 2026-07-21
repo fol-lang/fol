@@ -304,9 +304,26 @@ pub fn lower_global_declarations(
         }
         let source_unit_id = SourceUnitId(source_unit_index);
         for item in &source_unit.items {
-            let (name, kind, mutable) = match &item.node {
-                AstNode::VarDecl { name, .. } => (name.as_str(), SymbolKind::ValueBinding, true),
-                AstNode::LabDecl { name, .. } => (name.as_str(), SymbolKind::LabelBinding, false),
+            let (name, kind, mutable, value) = match &item.node {
+                // `con` parses to a VarDecl carrying the Immutable option; a
+                // constant global must not classify (and render) as mutable.
+                AstNode::VarDecl {
+                    name,
+                    options,
+                    value,
+                    ..
+                } => (
+                    name.as_str(),
+                    SymbolKind::ValueBinding,
+                    !options.contains(&fol_parser::ast::VarOption::Immutable),
+                    value.as_deref(),
+                ),
+                AstNode::LabDecl { name, value, .. } => (
+                    name.as_str(),
+                    SymbolKind::LabelBinding,
+                    false,
+                    value.as_deref(),
+                ),
                 _ => continue,
             };
 
@@ -318,6 +335,7 @@ pub fn lower_global_declarations(
                     source_unit_id,
                     name,
                     mutable,
+                    value,
                     next_global_index,
                 ) {
                     Ok(global) => {
@@ -579,6 +597,7 @@ fn checked_type_contains_generic_parameter(
             | CheckedType::Sequence { element_type }
             | CheckedType::Channel { element_type }
             | CheckedType::ChannelSender { element_type }
+            | CheckedType::ChannelReceiver { element_type }
             | CheckedType::Optional {
                 inner: element_type,
             }
@@ -627,14 +646,10 @@ fn checked_type_contains_generic_parameter(
                     .any(|param| contains_type_id(*param, program, visiting))
                     || signature
                         .return_type
-                        .is_some_and(|return_type| {
-                            contains_type_id(return_type, program, visiting)
-                        })
+                        .is_some_and(|return_type| contains_type_id(return_type, program, visiting))
                     || signature
                         .error_type
-                        .is_some_and(|error_type| {
-                            contains_type_id(error_type, program, visiting)
-                        })
+                        .is_some_and(|error_type| contains_type_id(error_type, program, visiting))
             }
         }
     }
@@ -734,6 +749,7 @@ fn lower_entry_decl(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower_global_decl(
     typed_package: &fol_typecheck::TypedPackage,
     lowered_package: &LoweredPackage,
@@ -741,6 +757,7 @@ pub(super) fn lower_global_decl(
     source_unit_id: SourceUnitId,
     name: &str,
     mutable: bool,
+    value: Option<&AstNode>,
     next_global_index: &mut usize,
 ) -> Result<LoweredGlobal, LoweringError> {
     let checked_type = typed_package
@@ -769,6 +786,102 @@ pub(super) fn lower_global_decl(
                 ),
             )
         })?;
+    // Global reads materialize through the declared initializer; without it a
+    // `con LIMIT: int = 9` silently read the type default. V3 restricts global
+    // initializers to literal values.
+    let mut stripped = value;
+    while let Some(AstNode::Commented { node, .. }) = stripped {
+        stripped = Some(node);
+    }
+    fn literal_operand(
+        literal: &fol_parser::ast::Literal,
+    ) -> Option<crate::control::LoweredOperand> {
+        Some(match literal {
+            fol_parser::ast::Literal::Integer(value) => crate::control::LoweredOperand::Int(*value),
+            fol_parser::ast::Literal::Float(value) => {
+                crate::control::LoweredOperand::Float(value.to_bits())
+            }
+            fol_parser::ast::Literal::String(value) => {
+                crate::control::LoweredOperand::Str(value.clone())
+            }
+            fol_parser::ast::Literal::Character(value) => {
+                crate::control::LoweredOperand::Char(*value)
+            }
+            fol_parser::ast::Literal::Boolean(value) => {
+                crate::control::LoweredOperand::Bool(*value)
+            }
+            fol_parser::ast::Literal::Nil => crate::control::LoweredOperand::Nil,
+        })
+    }
+    let unsupported_initializer = || {
+        LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            format!(
+                "global binding '{name}' requires a literal initializer (a scalar, or a record of scalars) in V3; construct other values inside a routine"
+            ),
+        )
+    };
+    let initializer = match stripped {
+        Some(AstNode::Literal(literal)) => Some(crate::model::LoweredGlobalInit::Operand(
+            literal_operand(literal).ok_or_else(unsupported_initializer)?,
+        )),
+        Some(AstNode::RecordInit { fields, .. }) => {
+            let mut lowered_fields = Vec::with_capacity(fields.len());
+            for field in fields {
+                let mut field_value = &field.value;
+                while let AstNode::Commented { node, .. } = field_value {
+                    field_value = node;
+                }
+                let AstNode::Literal(literal) = field_value else {
+                    return Err(unsupported_initializer());
+                };
+                let operand = literal_operand(literal).ok_or_else(unsupported_initializer)?;
+                lowered_fields.push((field.name.clone(), operand));
+            }
+            Some(crate::model::LoweredGlobalInit::Record {
+                fields: lowered_fields,
+            })
+        }
+        Some(reference @ (AstNode::Identifier { .. } | AstNode::QualifiedIdentifier { .. })) => {
+            let syntax_id = match reference {
+                AstNode::Identifier { syntax_id, .. } => *syntax_id,
+                AstNode::QualifiedIdentifier { path } => path.syntax_id(),
+                _ => None,
+            };
+            let referenced = syntax_id.and_then(|syntax_id| {
+                typed_package
+                    .program
+                    .resolved()
+                    .references
+                    .iter()
+                    .find(|candidate| candidate.syntax_id == Some(syntax_id))
+                    .and_then(|candidate| candidate.resolved)
+            });
+            let Some(referenced) = referenced else {
+                return Err(unsupported_initializer());
+            };
+            let (identity, origin_symbol) = typed_package
+                .program
+                .resolved()
+                .symbol(referenced)
+                .and_then(|symbol| symbol.mounted_from.as_ref())
+                .map(|provenance| {
+                    (
+                        provenance.package_identity.clone(),
+                        provenance.foreign_symbol,
+                    )
+                })
+                .unwrap_or_else(|| (lowered_package.identity.clone(), referenced));
+            Some(crate::model::LoweredGlobalInit::GlobalRef {
+                package: identity,
+                symbol: origin_symbol,
+            })
+        }
+        Some(_) => {
+            return Err(unsupported_initializer());
+        }
+        None => None,
+    };
     let global = LoweredGlobal {
         id: crate::LoweredGlobalId(*next_global_index),
         symbol_id,
@@ -776,6 +889,7 @@ pub(super) fn lower_global_decl(
         name: name.to_string(),
         type_id,
         mutable,
+        initializer,
     };
     *next_global_index += 1;
     Ok(global)

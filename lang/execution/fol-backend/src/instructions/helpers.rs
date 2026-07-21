@@ -105,6 +105,64 @@ pub fn resolve_type_decl(
         })
 }
 
+/// The Rust expression that materializes a global's declared initializer: a
+/// scalar literal, a record literal of scalars (missing fields defaulted), or
+/// the type default when the declaration carries no initializer.
+pub fn render_global_init_expr(
+    workspace: Option<&LoweredWorkspace>,
+    type_table: &LoweredTypeTable,
+    global: &fol_lower::LoweredGlobal,
+) -> BackendResult<String> {
+    match &global.initializer {
+        Some(fol_lower::LoweredGlobalInit::Operand(operand)) => render_operand(operand),
+        Some(fol_lower::LoweredGlobalInit::GlobalRef { package, symbol }) => {
+            let Some(workspace_ref) = workspace else {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    "global-reference initializer requires workspace context",
+                ));
+            };
+            let referenced = workspace_ref
+                .package(package)
+                .and_then(|lowered| {
+                    lowered
+                        .global_decls
+                        .values()
+                        .find(|candidate| candidate.symbol_id == *symbol)
+                })
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        format!(
+                            "global '{}' is initialized from a symbol that is not a global constant",
+                            global.name
+                        ),
+                    )
+                })?;
+            render_global_load(workspace, type_table, package, referenced)
+        }
+        Some(fol_lower::LoweredGlobalInit::Record { fields }) => {
+            let type_path =
+                crate::types::render_rust_type_in_workspace(workspace, type_table, global.type_id)?;
+            let rendered_fields = fields
+                .iter()
+                .map(|(name, operand)| {
+                    Ok(format!(
+                        "{}: {}",
+                        crate::escape_rust_field_ident(name),
+                        render_operand(operand)?
+                    ))
+                })
+                .collect::<BackendResult<Vec<_>>>()?
+                .join(", ");
+            Ok(format!(
+                "{type_path} {{ {rendered_fields}, ..Default::default() }}"
+            ))
+        }
+        None => render_type_default_expr_in_workspace(workspace, type_table, global.type_id),
+    }
+}
+
 pub fn render_global_load(
     workspace: Option<&LoweredWorkspace>,
     type_table: &LoweredTypeTable,
@@ -117,17 +175,14 @@ pub fn render_global_load(
         render_namespace_module_path(workspace, global_identity, global.source_unit_id)?,
         mangle_global_name(global_identity, global.id, &global.name)
     );
+    let init_expr = render_global_init_expr(workspace, type_table, global)?;
     if global.mutable {
-        let default_expr =
-            render_type_default_expr_in_workspace(workspace, type_table, global.type_id)?;
         Ok(format!(
-            "{}.get_or_init(|| std::sync::Mutex::new({default_expr})).lock().unwrap_or_else(|e| e.into_inner()).clone()",
+            "{}.get_or_init(|| std::sync::Mutex::new({init_expr})).lock().unwrap_or_else(|e| e.into_inner()).clone()",
             global_name,
         ))
     } else {
-        Ok(format!(
-            "{global_name}.get_or_init(Default::default).clone()"
-        ))
+        Ok(format!("{global_name}.get_or_init(|| {init_expr}).clone()"))
     }
 }
 
@@ -292,11 +347,33 @@ pub fn render_type_default_expr_in_workspace(
             BackendErrorKind::Unsupported,
             "borrowed references cannot be default-initialized",
         )),
-        LoweredType::Pointer { target, shared } => Ok(format!(
-            "{}::new({})",
-            if *shared { "std::rc::Rc" } else { "Box" },
-            render_type_default_expr_in_workspace(workspace, type_table, *target)?
-        )),
+        LoweredType::Pointer {
+            target,
+            shared,
+            weak,
+            sync,
+        } => {
+            if *weak {
+                // An empty weak handle; upgrading it yields `None`.
+                Ok(if *sync {
+                    "std::sync::Weak::new()".to_string()
+                } else {
+                    "std::rc::Weak::new()".to_string()
+                })
+            } else {
+                Ok(format!(
+                    "{}::new({})",
+                    if *shared && *sync {
+                        "std::sync::Arc"
+                    } else if *shared {
+                        "std::rc::Rc"
+                    } else {
+                        "Box"
+                    },
+                    render_type_default_expr_in_workspace(workspace, type_table, *target)?
+                ))
+            }
+        }
         LoweredType::Array {
             element_type,
             size: Some(_size),
@@ -315,17 +392,13 @@ pub fn render_type_default_expr_in_workspace(
         LoweredType::Sequence { .. } => Ok("rt_model::FolSeq::new(vec![])".to_string()),
         LoweredType::Channel { .. } => Ok("rt::FolChannel::default()".to_string()),
         LoweredType::ChannelSender { .. } => Ok("rt::FolSender::default()".to_string()),
+        LoweredType::ChannelReceiver { .. } => Ok("rt::FolReceiver::default()".to_string()),
         LoweredType::Eventual { .. } => Ok("rt::FolEventual::default()".to_string()),
         LoweredType::Set { .. } => Ok("rt_model::FolSet::from_items(vec![])".to_string()),
         LoweredType::Map { .. } => Ok("rt_model::FolMap::from_pairs(vec![])".to_string()),
         LoweredType::Optional { .. } => Ok("rt::FolOption::nil()".to_string()),
-        LoweredType::Error { inner } => Ok(match inner {
-            Some(inner) => format!(
-                "rt::FolError::new({})",
-                render_type_default_expr_in_workspace(workspace, type_table, *inner)?
-            ),
-            None => "rt::FolError::new(())".to_string(),
-        }),
+        // A nil-able `err[T]` defaults to `nil` (no stored error).
+        LoweredType::Error { .. } => Ok("rt::FolError::nil()".to_string()),
         LoweredType::Record { .. } | LoweredType::Entry { .. } => Ok(format!(
             "{}::default()",
             crate::types::render_rust_type_in_workspace(workspace, type_table, type_id)?

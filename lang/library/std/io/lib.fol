@@ -13,3 +13,15 @@ fun[exp] echo_bool(value: bol): bol = {
 fun[exp] echo_chr(value: chr): chr = {
     return .echo(value);
 };
+
+fun[exp] write(value: str): str = {
+    return .write(value);
+};
+
+fun[exp] read_key(): int = {
+    return .read_key();
+};
+
+fun[exp] read_key_ms(timeout: int): int = {
+    return .read_key_ms(timeout);
+};

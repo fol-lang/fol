@@ -170,6 +170,28 @@ Current `V1` rule:
 
 `.echo(...)` belongs to `std`, not `core` or `memo`.
 
+### Terminal and OS hooks
+
+The primitive layer for interactive terminal programs shares `.echo(...)`'s
+build contract (a `memo` artifact with the explicit bundled `std`
+dependency):
+
+- `.write(text)` — write a string to stdout without a trailing newline and
+  flush it; forwards the string unchanged
+- `.read_key()` — block for one byte of standard input; yields `-1` at end of
+  input
+- `.raw_mode(enable)` — enable or disable terminal raw mode; forwards the
+  requested state
+- `.sleep_ms(ms)` — sleep the current thread; forwards the duration
+- `.now_ms()` — milliseconds since the unix epoch
+- `.term_cols()` / `.term_rows()` — terminal size (80×24 when it cannot be
+  determined)
+- `.int_to_str(value)` — render an integer as its decimal string
+
+The bundled `std` package wraps them as `std::io::write`, `std::io::read_key`,
+`std::term::raw_mode`, `std::term::cols`, `std::term::rows`,
+`std::time::sleep_ms`, `std::time::now_ms`, and `std::fmt::int_to_str`.
+
 With that build contract, this is valid:
 
 ```fol
@@ -230,8 +252,8 @@ accidental user-space name collisions, but they are not part of the current
 - `.de_alloc(...)`
 
 Explicit deallocation is not part of the V3 memory model. Unique heap values
-drop implicitly, borrowing uses `#owner` and `!borrow`, and typed pointers use
-`&value` and `*pointer`. The old dot-root memory spellings are not reserved or
+drop implicitly, borrowing uses `[bor]owner` and `[end]borrow`, and typed pointers use
+`[ref]value` and `[drf]pointer`. The old dot-root memory spellings are not reserved or
 supported aliases.
 
 ## Library-preferred surfaces
@@ -261,7 +283,7 @@ instead of becoming permanent compiler intrinsics.
 
 ## Intrinsics are not shell operations
 
-Do not confuse intrinsics with shell syntax such as `nil` and postfix unwrap
+Do not confuse intrinsics with shell syntax such as `nil` and unwrap
 `!`.
 
 For example:
@@ -271,11 +293,11 @@ ali MaybeText: opt[str]
 ali Failure: err[str]
 
 fun[] unwrap_optional(value: MaybeText): str = {
-    return value!
+    return [uwp]value
 }
 
 fun[] unwrap_failure(value: Failure): str = {
-    return value!
+    return [uwp]value
 }
 ```
 

@@ -11,7 +11,7 @@ V3 Lexical Boundaries
 `
 
 `[doc] Documentation comments use only the exact prefix and may span
-multiple lines with V3 spellings such as #view, !view, and channel[rx].`
+multiple lines with V3 spellings such as [bor]view, [end]view, and channel[rx].`
 
 fun[] lexical_boundaries(): str = {
     var raw: str = 'raw text may span

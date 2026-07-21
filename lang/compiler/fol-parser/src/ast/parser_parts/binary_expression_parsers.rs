@@ -21,7 +21,16 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_logical_xor_expression(tokens)?;
 
-        for _ in 0..32 {
+        let mut folds = 0usize;
+        loop {
+            folds += 1;
+            if folds > 1024 {
+                return Err(ParseError::from_token(
+                    &tokens.curr(false)?,
+                    "expression chain exceeds the maximum supported length (1024 operators)"
+                        .to_string(),
+                ));
+            }
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
@@ -77,7 +86,16 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_logical_and_expression(tokens)?;
 
-        for _ in 0..32 {
+        let mut folds = 0usize;
+        loop {
+            folds += 1;
+            if folds > 1024 {
+                return Err(ParseError::from_token(
+                    &tokens.curr(false)?,
+                    "expression chain exceeds the maximum supported length (1024 operators)"
+                        .to_string(),
+                ));
+            }
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(key, KEYWORD::Keyword(BUILDIN::Xor))
             })?;
@@ -113,7 +131,16 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_comparison_expression(tokens)?;
 
-        for _ in 0..32 {
+        let mut folds = 0usize;
+        loop {
+            folds += 1;
+            if folds > 1024 {
+                return Err(ParseError::from_token(
+                    &tokens.curr(false)?,
+                    "expression chain exceeds the maximum supported length (1024 operators)"
+                        .to_string(),
+                ));
+            }
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
@@ -169,7 +196,16 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_range_expression(tokens)?;
 
-        for _ in 0..32 {
+        let mut folds = 0usize;
+        loop {
+            folds += 1;
+            if folds > 1024 {
+                return Err(ParseError::from_token(
+                    &tokens.curr(false)?,
+                    "expression chain exceeds the maximum supported length (1024 operators)"
+                        .to_string(),
+                ));
+            }
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
@@ -428,7 +464,16 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_mul_div_expression(tokens)?;
 
-        for _ in 0..32 {
+        let mut folds = 0usize;
+        loop {
+            folds += 1;
+            if folds > 1024 {
+                return Err(ParseError::from_token(
+                    &tokens.curr(false)?,
+                    "expression chain exceeds the maximum supported length (1024 operators)"
+                        .to_string(),
+                ));
+            }
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
@@ -481,7 +526,16 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut lhs = self.parse_pow_expression(tokens)?;
 
-        for _ in 0..32 {
+        let mut folds = 0usize;
+        loop {
+            folds += 1;
+            if folds > 1024 {
+                return Err(ParseError::from_token(
+                    &tokens.curr(false)?,
+                    "expression chain exceeds the maximum supported length (1024 operators)"
+                        .to_string(),
+                ));
+            }
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,

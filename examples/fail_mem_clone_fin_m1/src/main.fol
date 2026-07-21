@@ -1,0 +1,20 @@
+// `[cln]` requires the `clone` capability (V3_MEM §4.1). A `fin` value has no
+// structural clone (`copy` and `fin` cannot coexist; `fin + clone` would need a
+// custom clone), so cloning it is rejected; transfer it with `[mov]` instead.
+typ File()(fin): rec = {
+    descriptor: int,
+};
+
+pro (File)finalize(): non = {
+    return;
+};
+
+pro[] consume(handle: File): non = {
+    return;
+};
+
+fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    consume([cln]handle);
+    return 0;
+};

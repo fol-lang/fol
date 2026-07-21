@@ -39,7 +39,11 @@ fn workspace_entry_value_typing_accepts_imported_named_entry_contexts() {
     let syntax_id = find_named_routine_syntax_id(&typed, "main");
 
     assert_eq!(
-        typed.type_table().get(status.declared_type.expect("imported entry type should retain a declared shell")),
+        typed.type_table().get(
+            status
+                .declared_type
+                .expect("imported entry type should retain a declared shell")
+        ),
         Some(&CheckedType::Entry {
             variants: BTreeMap::from([
                 ("FAIL".to_string(), Some(typed.builtin_types().int)),
@@ -96,8 +100,14 @@ fn workspace_aggregate_typing_keeps_qualified_imported_record_and_entry_surfaces
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("Workspace entry typing should keep qualified imported record and entry aggregate surfaces");
+    let typed = typecheck_fixture_workspace_entry_with_config(
+        &root,
+        "app",
+        ResolverConfig::default(),
+    )
+    .expect(
+        "Workspace entry typing should keep qualified imported record and entry aggregate surfaces",
+    );
     let syntax_id = find_named_routine_syntax_id(&typed, "main");
 
     assert!(matches!(
@@ -138,7 +148,9 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
     let fail_syntax = find_named_routine_syntax_id(&typed, "fail");
 
     assert_eq!(
-        typed.type_table().get(label.declared_type.expect("optional binding should lower")),
+        typed
+            .type_table()
+            .get(label.declared_type.expect("optional binding should lower")),
         Some(&CheckedType::Declared {
             symbol: maybe_id,
             name: "MaybeText".to_string(),
@@ -147,7 +159,9 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
         })
     );
     assert_eq!(
-        typed.type_table().get(issue.declared_type.expect("error binding should lower")),
+        typed
+            .type_table()
+            .get(issue.declared_type.expect("error binding should lower")),
         Some(&CheckedType::Declared {
             symbol: failure_id,
             name: "Failure".to_string(),
@@ -190,9 +204,7 @@ fn shell_typing_rejects_mismatched_optional_payloads() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::IncompatibleType
-                && error
-                    .message()
-                    .contains("initializer for 'label' expects")
+                && error.message().contains("initializer for 'label' expects")
         }),
         "Expected an optional-shell mismatch diagnostic, got: {errors:?}"
     );
@@ -221,7 +233,10 @@ fn core_model_rejects_heap_backed_type_surfaces() {
         },
     );
 
-    let messages = errors.iter().map(|error| error.message()).collect::<Vec<_>>();
+    let messages = errors
+        .iter()
+        .map(|error| error.message())
+        .collect::<Vec<_>>();
     assert!(messages
         .iter()
         .any(|message| message.contains("str requires heap support")));
@@ -256,7 +271,10 @@ fn core_model_rejects_inferred_string_literals() {
         },
     );
 
-    let messages = errors.iter().map(|error| error.message()).collect::<Vec<_>>();
+    let messages = errors
+        .iter()
+        .map(|error| error.message())
+        .collect::<Vec<_>>();
     assert!(messages
         .iter()
         .any(|message| message.contains("string literals require heap support")));
@@ -309,21 +327,25 @@ fn operator_typing_rejects_invalid_scalar_pairs_and_pointer_operators() {
              return 1 and 2;\n\
          };\n\
          fun[] bad_ref(value: int): int = {\n\
-             return &value;\n\
+             return [ref]value;\n\
          };\n",
     )]);
 
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains("binary operator 'Add' is not valid")
+                && error
+                    .message()
+                    .contains("binary operator 'Add' is not valid")
         }),
         "Expected an invalid arithmetic-operator diagnostic, got: {errors:?}"
     );
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains("binary operator 'And' is not valid")
+                && error
+                    .message()
+                    .contains("binary operator 'And' is not valid")
         }),
         "Expected an invalid logical-operator diagnostic, got: {errors:?}"
     );
@@ -379,7 +401,9 @@ fn intrinsic_comparison_typing_rejects_wrong_arity_and_mixed_scalar_pairs() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains(".eq(...) expects exactly 2 argument(s) but got 1")
+                && error
+                    .message()
+                    .contains(".eq(...) expects exactly 2 argument(s) but got 1")
         }),
         "Expected wrong-arity intrinsic diagnostic, got: {errors:?}"
     );
@@ -497,7 +521,9 @@ fn intrinsic_boolean_typing_rejects_wrong_arity_and_non_boolean_operands() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains(".not(...) expects exactly 1 argument(s) but got 0")
+                && error
+                    .message()
+                    .contains(".not(...) expects exactly 1 argument(s) but got 0")
         }),
         "Expected wrong-arity .not diagnostic, got: {errors:?}"
     );
@@ -552,7 +578,9 @@ fn intrinsic_query_typing_rejects_wrong_arity_and_non_length_operands() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains(".len(...) expects exactly 1 argument(s) but got 2")
+                && error
+                    .message()
+                    .contains(".len(...) expects exactly 1 argument(s) but got 2")
         }),
         "Expected wrong-arity .len diagnostic, got: {errors:?}"
     );
@@ -595,7 +623,9 @@ fn intrinsic_query_typing_covers_full_v1_length_family_matrix() {
          };\n",
     )]);
 
-    for name in ["text_len", "arr_len", "vec_len", "seq_len", "set_len", "map_len"] {
+    for name in [
+        "text_len", "arr_len", "vec_len", "seq_len", "set_len", "map_len",
+    ] {
         let syntax_id = find_named_routine_syntax_id(&typed, name);
         assert_eq!(
             typed
@@ -783,7 +813,9 @@ fn intrinsic_diagnostic_typing_rejects_wrong_arity_for_echo() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::InvalidInput
-                && error.message().contains(".echo(...) expects exactly 1 argument(s) but got 0")
+                && error
+                    .message()
+                    .contains(".echo(...) expects exactly 1 argument(s) but got 0")
         }),
         "Expected wrong-arity .echo diagnostic, got: {errors:?}"
     );
@@ -945,9 +977,7 @@ fn coercion_policy_rejects_implicit_int_float_cross_family_conversions() {
     assert!(
         errors.iter().any(|error| {
             error.kind() == TypecheckErrorKind::IncompatibleType
-                && error
-                    .message()
-                    .contains("initializer for 'count' expects")
+                && error.message().contains("initializer for 'count' expects")
         }),
         "Expected an initializer coercion diagnostic, got: {errors:?}"
     );

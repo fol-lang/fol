@@ -640,10 +640,7 @@ impl AstParser {
         token: &fol_lexer::lexer::stage3::element::Element,
         key: &str,
     ) -> ParseError {
-        ParseError::from_token(
-            token,
-            format!("Duplicate type member '{}'", key),
-        )
+        ParseError::from_token(token, format!("Duplicate type member '{}'", key))
     }
 
     fn parse_prefixed_type_routine_member(

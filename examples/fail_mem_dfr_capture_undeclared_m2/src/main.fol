@@ -1,0 +1,11 @@
+// Every routine-local binding a dfr/edf body uses must be declared in the
+// block's capture list (V3_MEM section 2.3); an undeclared outer-local use is
+// rejected at the use site. Module-level values and routine names are exempt.
+
+fun[] main(): int = {
+    var seen: int = 7;
+    dfr {
+        var got: int = seen;
+    };
+    return seen;
+};

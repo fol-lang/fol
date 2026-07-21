@@ -1,0 +1,17 @@
+// Prefix operations choose how an inner place is used (V3_MEM Slice D §3.3):
+// `[cpy]container[]` copies the inner payload, while `[mov]container[]` moves it
+// out. Below, a shared-pointer pointee is copied and an optional payload is
+// moved out of its shell.
+
+fun[] first(): opt[int] = {
+    return 3;
+};
+
+fun[] main(): int = {
+    var origin: int = 4;
+    var handle: ptr[shared, int] = [ref]origin;
+    var maybe: opt[int] = first();
+    var copied: int = [cpy]handle[];
+    var moved: int = [mov]maybe[];
+    return copied + moved;
+};

@@ -318,6 +318,24 @@ mod tests {
         assert!(names.contains(&"StaticLibConfig"));
         assert!(names.contains(&"SharedLibConfig"));
         assert!(names.contains(&"TestConfig"));
+        assert!(names.contains(&"CImportConfig"));
+    }
+
+    #[test]
+    fn stdlib_scope_exposes_c_import_only_on_artifact_handles() {
+        let scope = BuildStdlibScope::canonical();
+        let method = scope
+            .find_handle_method(BuildSemanticTypeFamily::ArtifactHandle, "add_c_import")
+            .expect("artifact.add_c_import should be in the build stdlib");
+
+        assert_eq!(method.params.len(), 1);
+        assert_eq!(
+            method.params[0].shape,
+            crate::semantic::BuildSemanticParameterShape::Record
+        );
+        assert!(scope
+            .find_handle_method(BuildSemanticTypeFamily::Graph, "add_c_import")
+            .is_none());
     }
 
     #[test]

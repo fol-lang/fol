@@ -1,0 +1,8 @@
+// `[cpy]` requires the `copy` capability (V3_MEM §4.1). A unique pointer is a
+// move-only handle, so copying it is rejected; use `[mov]` to transfer it.
+fun[] main(): int = {
+    var value: int = 7;
+    var inner: ptr[int] = [ref]value;
+    var duplicate: ptr[int] = [cpy]inner;
+    return [drf]duplicate;
+};

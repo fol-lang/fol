@@ -1,9 +1,5 @@
-use crate::{
-    CheckedType, CheckedTypeId, TypecheckError, TypecheckErrorKind, TypedProgram,
-};
-use fol_parser::ast::{
-    AstNode, ChannelEndpoint, ParsedSourceUnitKind, SyntaxNodeId, SyntaxOrigin,
-};
+use crate::{CheckedType, CheckedTypeId, TypecheckError, TypecheckErrorKind, TypedProgram};
+use fol_parser::ast::{AstNode, ChannelEndpoint, ParsedSourceUnitKind, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -96,11 +92,9 @@ pub(crate) fn refine_channel_parameters(typed: &mut TypedProgram) -> Result<(), 
                 receiver_params.insert(*index);
                 continue;
             }
-            let sender_type = typed
-                .type_table_mut()
-                .intern(CheckedType::ChannelSender {
-                    element_type: *element_type,
-                });
+            let sender_type = typed.type_table_mut().intern(CheckedType::ChannelSender {
+                element_type: *element_type,
+            });
             if let Some(param) = signature.params.get_mut(*index) {
                 *param = sender_type;
             }
@@ -122,9 +116,7 @@ pub(crate) fn refine_channel_parameters(typed: &mut TypedProgram) -> Result<(), 
     Ok(())
 }
 
-pub(crate) fn validate_endpoint_lifecycles(
-    typed: &TypedProgram,
-) -> Result<(), TypecheckError> {
+pub(crate) fn validate_endpoint_lifecycles(typed: &TypedProgram) -> Result<(), TypecheckError> {
     let resolved = typed.resolved().clone();
     let syntax = resolved.syntax().clone();
     let mut routines = Vec::new();
@@ -848,13 +840,7 @@ fn validate_endpoint_node(
                     )
                 });
                 if let Some(origins) = symbol.and_then(|symbol| aliases.get(&symbol)) {
-                    reject_consumed_tx(
-                        resolved,
-                        node,
-                        &capture.name,
-                        origins,
-                        consumed,
-                    )?;
+                    reject_consumed_tx(resolved, node, &capture.name, origins, consumed)?;
                 }
             }
             return Ok(());
@@ -868,12 +854,18 @@ fn validate_endpoint_node(
                 .find_map(|node| first_full_channel_use(resolved, info, node, aliases))
             {
                 let message = "channel endpoint acquisition is not allowed inside dfr/edf; acquire sender handles before the deferred block and perform receiver operations in ordinary control flow";
-                return Err(crate::exprs::helpers::node_origin(resolved, channel_use).map_or_else(
-                    || TypecheckError::new(TypecheckErrorKind::Ownership, message),
-                    |origin| {
-                        TypecheckError::with_origin(TypecheckErrorKind::Ownership, message, origin)
-                    },
-                ));
+                return Err(
+                    crate::exprs::helpers::node_origin(resolved, channel_use).map_or_else(
+                        || TypecheckError::new(TypecheckErrorKind::Ownership, message),
+                        |origin| {
+                            TypecheckError::with_origin(
+                                TypecheckErrorKind::Ownership,
+                                message,
+                                origin,
+                            )
+                        },
+                    ),
+                );
             }
             return Ok(());
         }
@@ -885,7 +877,8 @@ fn validate_endpoint_node(
                 if let Some(origins) = aliases.get(&symbol) {
                     match endpoint {
                         ChannelEndpoint::Rx => {
-                            if let Some(origin) = crate::exprs::helpers::node_origin(resolved, node) {
+                            if let Some(origin) = crate::exprs::helpers::node_origin(resolved, node)
+                            {
                                 for root in origins {
                                     consumed.entry(*root).or_insert_with(|| origin.clone());
                                 }
@@ -949,11 +942,10 @@ fn validate_endpoint_node(
         AstNode::MethodCall {
             syntax_id, args, ..
         } => {
-            if let Some(target) = syntax_id.and_then(|syntax_id| typed.method_call_target(syntax_id))
+            if let Some(target) =
+                syntax_id.and_then(|syntax_id| typed.method_call_target(syntax_id))
             {
-                validate_sender_call_target(
-                    typed, resolved, target, args, aliases, consumed,
-                )?;
+                validate_sender_call_target(typed, resolved, target, args, aliases, consumed)?;
             }
         }
         _ => {}
@@ -1013,9 +1005,7 @@ fn first_full_channel_use<'a>(
             });
             return captures_endpoint.then_some(node);
         }
-        AstNode::FunDecl { .. } | AstNode::ProDecl { .. } | AstNode::LogDecl { .. } => {
-            return None
-        }
+        AstNode::FunDecl { .. } | AstNode::ProDecl { .. } | AstNode::LogDecl { .. } => return None,
         _ => {}
     }
     if identifier_symbol(resolved, node).is_some_and(|symbol| aliases.contains_key(&symbol)) {
@@ -1063,8 +1053,7 @@ fn premark_receiver_acquisitions(
                 if let Some(origins) =
                     identifier_symbol(resolved, channel).and_then(|symbol| aliases.get(&symbol))
                 {
-                    if let Some(origin) =
-                        crate::exprs::helpers::node_origin(resolved, &arm.channel)
+                    if let Some(origin) = crate::exprs::helpers::node_origin(resolved, &arm.channel)
                     {
                         for root in origins {
                             consumed.entry(*root).or_insert_with(|| origin.clone());

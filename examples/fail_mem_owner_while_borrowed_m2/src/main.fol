@@ -1,5 +1,11 @@
+// The owner is inaccessible while a borrow of it is still live (O2001). The
+// borrow `view` is used after the owner access below, so its non-lexical
+// lifetime spans that access and the read of `owner` conflicts with it.
+
 fun[] main(): int = {
     var owner: int = 7;
     var[bor] view: int = owner;
-    return owner;
+    var early: int = owner;
+    var seen: int = view;
+    return early + seen;
 };

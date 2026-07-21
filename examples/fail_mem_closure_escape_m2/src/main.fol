@@ -1,0 +1,13 @@
+// A closure holding borrowed captures is a local, nonescaping value
+// (V3_MEM section 5.3): returning it would let the loan outlive its owner's
+// scope, so the escape is rejected.
+
+fun escape(): {fun (): int} = {
+    var base: int = 30;
+    var reader: {fun (): int} = fun()[base[bor]]: int = { return base; };
+    return reader;
+};
+
+fun[] main(): int = {
+    return 0;
+};

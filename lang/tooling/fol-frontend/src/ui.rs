@@ -41,7 +41,6 @@ impl FrontendOutput {
         format!("{}", path.cyan())
     }
 
-
     pub fn render_human_header(&self, title: &str) -> String {
         self.styled_section(title)
     }
@@ -112,7 +111,9 @@ impl FrontendOutput {
     /// points at a declared-but-unmaterialized dependency. The compiler
     /// crates report the missing path; the `fol pack fetch` verb is a
     /// frontend concern, so the suggestion is added at this layer.
-    fn annotate_diagnostic(mut diagnostic: fol_diagnostics::Diagnostic) -> fol_diagnostics::Diagnostic {
+    fn annotate_diagnostic(
+        mut diagnostic: fol_diagnostics::Diagnostic,
+    ) -> fol_diagnostics::Diagnostic {
         let looks_unfetched = diagnostic.message.contains("/.fol/pkg/")
             && diagnostic.message.contains("does not exist");
         if looks_unfetched

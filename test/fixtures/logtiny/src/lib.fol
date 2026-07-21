@@ -1,0 +1,8 @@
+fun[exp] demo(): int = {
+    var logger: Logger = enable_verbose(make("demo"));
+    return emit(logger, INFO, "frontend-created log package") || 0;
+};
+
+fun[exp] smoke(): bol = {
+    return allows(DEFAULT, ERROR);
+};

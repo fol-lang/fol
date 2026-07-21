@@ -460,6 +460,8 @@ pub fn canonical_handle_method_signatures() -> Vec<BuildSemanticMethodSignature>
                 "gen_file",
                 BuildSemanticTypeFamily::GeneratedFileHandle,
             )),
+        BuildSemanticMethodSignature::new(BuildSemanticTypeFamily::ArtifactHandle, "add_c_import")
+            .with_param(BuildSemanticMethodParameter::record("config")),
         // Run handle methods
         BuildSemanticMethodSignature::new(BuildSemanticTypeFamily::RunHandle, "add_arg")
             .with_param(BuildSemanticMethodParameter::scalar("value"))
@@ -579,6 +581,14 @@ pub fn canonical_artifact_config_shapes() -> Vec<BuildSemanticRecordShape> {
         BuildSemanticRecordShape::artifact("StaticLibConfig", base_fields.clone()),
         BuildSemanticRecordShape::artifact("SharedLibConfig", base_fields.clone()),
         BuildSemanticRecordShape::artifact("TestConfig", base_fields),
+        BuildSemanticRecordShape::artifact(
+            "CImportConfig",
+            [
+                BuildSemanticRecordField::required("header"),
+                BuildSemanticRecordField::required("provider"),
+                BuildSemanticRecordField::required("provider_kind"),
+            ],
+        ),
     ]
 }
 
@@ -1112,6 +1122,18 @@ mod tests {
         assert!(signatures
             .iter()
             .any(|signature| signature.name == "generated"));
+        let add_c_import = signatures
+            .iter()
+            .find(|signature| {
+                signature.receiver == BuildSemanticTypeFamily::ArtifactHandle
+                    && signature.name == "add_c_import"
+            })
+            .expect("artifact.add_c_import signature should exist");
+        assert_eq!(add_c_import.params.len(), 1);
+        assert_eq!(
+            add_c_import.params[0].shape,
+            BuildSemanticParameterShape::Record
+        );
     }
 
     #[test]
@@ -1205,6 +1227,7 @@ mod tests {
         assert!(names.contains(&"StaticLibConfig"));
         assert!(names.contains(&"SharedLibConfig"));
         assert!(names.contains(&"TestConfig"));
+        assert!(names.contains(&"CImportConfig"));
         assert!(shapes
             .iter()
             .all(|shape| shape.kind == BuildSemanticRecordShapeKind::ArtifactConfig));
@@ -1214,7 +1237,10 @@ mod tests {
     fn canonical_artifact_config_shapes_keep_required_name_and_root_fields() {
         let shapes = canonical_artifact_config_shapes();
 
-        for shape in shapes {
+        for shape in shapes
+            .into_iter()
+            .filter(|shape| shape.name != "CImportConfig")
+        {
             assert!(shape
                 .fields
                 .iter()
@@ -1227,10 +1253,29 @@ mod tests {
     }
 
     #[test]
+    fn canonical_c_import_config_requires_typed_attachment_fields() {
+        let shape = canonical_artifact_config_shapes()
+            .into_iter()
+            .find(|shape| shape.name == "CImportConfig")
+            .expect("C import config shape should exist");
+        let required = shape
+            .fields
+            .iter()
+            .filter(|field| field.required)
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(required, vec!["header", "provider", "provider_kind"]);
+    }
+
+    #[test]
     fn canonical_artifact_config_shapes_allow_optional_fol_model_field() {
         let shapes = canonical_artifact_config_shapes();
 
-        for shape in shapes {
+        for shape in shapes
+            .into_iter()
+            .filter(|shape| shape.name != "CImportConfig")
+        {
             assert!(shape
                 .fields
                 .iter()

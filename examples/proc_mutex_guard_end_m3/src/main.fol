@@ -1,0 +1,29 @@
+// `[end]guard` ends a lifetime-scoped mutex guard early (V3_PROC / V3_MEM §8.3:
+// "'[end]guard' or NLL unlocks it"). Once the guard is ended the lock is
+// released, so a following spawn/await no longer holds it — the checker allows
+// the boundary and lowering drops the Rust guard before the await.
+
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+fun[] worker(): int = {
+    return 1;
+};
+
+fun[] bump(state: mux[Counter]): int = {
+    var[mut, bor] guard: Counter = ([bor]state).lock();
+    guard.value = guard.value + 1;
+    var snapshot: int = guard.value;
+    [end]guard;
+    var pending: evt[worker, int] = worker() | async;
+    var got: int = pending | await;
+    return std::io::echo_int(snapshot + got);
+};
+
+fun[] main(): int = {
+    var counter: Counter = { value = 41 };
+    return bump([mov]counter);
+};

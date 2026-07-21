@@ -1,0 +1,17 @@
+// A move-only binding declared outside a loop cannot be transferred out from
+// within the loop body: a later iteration would use it after it was already
+// moved (V3_MEM Slice C ownership analysis). The compiler rejects the move with
+// O1001 rather than silently letting the second iteration observe a moved value.
+
+fun[] take(item: int): int = {
+    return item;
+};
+
+fun[] main(): int = {
+    @var slot: int = 1;
+    var[mut] total: int = 0;
+    loop (total < 3) {
+        total = total + take([mov]slot);
+    }
+    return total;
+};

@@ -29,8 +29,11 @@ mod tests {
                 .expect("system clock should be monotonic enough for tmp names")
                 .as_nanos()
         ));
-        std::fs::write(&fixture, "fun[] greet(count: int): str = { return \"ok\"; };")
-            .expect("should write lowering signature fixture");
+        std::fs::write(
+            &fixture,
+            "fun[] greet(count: int): str = { return \"ok\"; };",
+        )
+        .expect("should write lowering signature fixture");
 
         let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))
             .expect("Should open lowering fixture");
@@ -112,12 +115,10 @@ mod tests {
         let lowered = crate::LoweringSession::new(typed)
             .lower_workspace()
             .expect("generic routine lowering should succeed");
-        assert!(
-            (0..lowered.type_table().len()).any(|index| matches!(
-                lowered.type_table().get(crate::LoweredTypeId(index)),
-                Some(LoweredType::GenericParameter { name }) if name == "T"
-            ))
-        );
+        assert!((0..lowered.type_table().len()).any(|index| matches!(
+            lowered.type_table().get(crate::LoweredTypeId(index)),
+            Some(LoweredType::GenericParameter { name }) if name == "T"
+        )));
     }
 
     #[test]
@@ -194,7 +195,8 @@ mod tests {
     }
 
     #[test]
-    fn declaration_lowering_supports_generic_routines_with_default_params_in_the_lowered_workspace() {
+    fn declaration_lowering_supports_generic_routines_with_default_params_in_the_lowered_workspace()
+    {
         let fixture = safe_temp_dir().join(format!(
             "fol_lower_generic_defaults_m1_{}.fol",
             std::time::SystemTime::now()
@@ -237,19 +239,19 @@ mod tests {
         std::fs::write(
             &fixture,
             concat!(
-        "std geo: pro = {\n",
-        "    fun area(): int;\n",
-        "};\n",
-        "typ Rect()(geo): rec = {\n",
-        "    var width: int;\n",
-        "};\n",
-        "fun (Rect)area(): int = {\n",
-        "    return 1;\n",
-        "};\n",
-        "fun[] main(): int = {\n",
-        "    return 0;\n",
-        "};\n",
-    ),
+                "std geo: pro = {\n",
+                "    fun area(): int;\n",
+                "};\n",
+                "typ Rect()(geo): rec = {\n",
+                "    var width: int;\n",
+                "};\n",
+                "fun (Rect)area(): int = {\n",
+                "    return 1;\n",
+                "};\n",
+                "fun[] main(): int = {\n",
+                "    return 0;\n",
+                "};\n",
+            ),
         )
         .expect("should write standard lowering fixture");
 
@@ -415,6 +417,7 @@ mod tests {
                             [&fol_typecheck::CheckedTypeId(4)],
                     ),
                 ]),
+                finalized: false,
             })
         );
     }
@@ -551,12 +554,14 @@ mod tests {
             .entry_package()
             .routine_signatures
             .values()
-            .find_map(|signature_id| match lowered_workspace.type_table().get(*signature_id) {
-                Some(LoweredType::Routine(signature)) if signature.params.len() == 1 => {
-                    Some(signature.params[0])
-                }
-                _ => None,
-            })
+            .find_map(
+                |signature_id| match lowered_workspace.type_table().get(*signature_id) {
+                    Some(LoweredType::Routine(signature)) if signature.params.len() == 1 => {
+                        Some(signature.params[0])
+                    }
+                    _ => None,
+                },
+            )
             .expect("read routine signature should retain its parameter type");
 
         let synthesized = lowered_package
@@ -574,6 +579,7 @@ mod tests {
                     lowered_workspace.entry_package().checked_type_map
                         [&fol_typecheck::CheckedTypeId(0)],
                 )]),
+                finalized: false,
             })
         );
     }
@@ -826,7 +832,10 @@ mod tests {
             *syntax_id,
             &[Parameter {
                 name: "missing".to_string(),
-                param_type: FolType::Int { size: None, signed: true },
+                param_type: FolType::Int {
+                    size: None,
+                    signed: true,
+                },
                 is_borrowable: false,
                 is_mutex: false,
                 is_variadic: false,
@@ -878,7 +887,8 @@ mod tests {
         let syntax = parser
             .parse_package(&mut lexer)
             .expect("Lowering folder fixture should parse");
-        let resolved = resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
+        let resolved =
+            resolve_package_workspace(syntax).expect("Lowering folder fixture should resolve");
         let typed = Typechecker::new()
             .check_resolved_workspace(resolved)
             .expect("Lowering folder fixture should typecheck");

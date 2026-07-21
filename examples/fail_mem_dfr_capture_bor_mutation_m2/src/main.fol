@@ -1,0 +1,7 @@
+// A `[bor]` capture is a shared, read-only loan; assigning through it inside
+// the deferred body requires the composite `[mut, bor]` capture instead.
+fun[] main(): int = {
+    var[mut] total: int = 5;
+    dfr[total[bor]] { total = total + 1; };
+    return total;
+};

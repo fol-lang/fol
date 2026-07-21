@@ -9,6 +9,6 @@ fun maybe(flag: bol): MaybeInt = {
 
 fun[] main(): int = {
     var present: MaybeInt = maybe(true);
-    var value: int = present!;
+    var value: int = present[];
     return value - 42;
 };

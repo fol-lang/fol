@@ -1,4 +1,4 @@
-use crate::api::{PathHandleClass, PathHandleProvenance};
+use crate::api::PathHandleClass;
 use crate::artifact::BuildArtifactFolModel;
 use crate::eval::{BuildEvaluationError, BuildEvaluationErrorKind};
 use crate::runtime::BuildRuntimeGeneratedFileKind;
@@ -19,13 +19,26 @@ impl BuildBodyExecutor {
         }
     }
 
-    fn generated_path_provenance(name: &str) -> PathHandleProvenance {
-        if name.starts_with("dep::") && name.contains("::generated::") {
-            PathHandleProvenance::DependencyGenerated
-        } else if name.starts_with("dep::") && name.contains("::path::") {
-            PathHandleProvenance::DependencyPath
-        } else {
-            PathHandleProvenance::Generated
+    fn resolve_exec_path_handle(value: &ExecValue) -> Option<ResolvedPathHandle> {
+        match value {
+            ExecValue::SourceFile { path, provenance } => {
+                Some(ResolvedPathHandle::file(path.clone(), *provenance))
+            }
+            ExecValue::SourceDir { path, provenance } => {
+                Some(ResolvedPathHandle::dir(path.clone(), *provenance))
+            }
+            ExecValue::GeneratedFile {
+                name,
+                path,
+                kind,
+                provenance,
+            } => {
+                let mut resolved =
+                    ResolvedPathHandle::generated(path.clone(), *provenance, name.clone());
+                resolved.descriptor.class = Self::generated_handle_class(*kind);
+                Some(resolved)
+            }
+            _ => None,
         }
     }
 
@@ -33,26 +46,9 @@ impl BuildBodyExecutor {
         let AstNode::Identifier { name, .. } = node else {
             return None;
         };
-        match self.scope.get(name.as_str()) {
-            Some(ExecValue::SourceFile { path }) => Some(ResolvedPathHandle::file(
-                path.clone(),
-                PathHandleProvenance::Source,
-            )),
-            Some(ExecValue::SourceDir { path }) => Some(ResolvedPathHandle::dir(
-                path.clone(),
-                PathHandleProvenance::Source,
-            )),
-            Some(ExecValue::GeneratedFile { name, path, kind }) => {
-                let mut resolved = ResolvedPathHandle::generated(
-                    path.clone(),
-                    Self::generated_path_provenance(name),
-                    name.clone(),
-                );
-                resolved.descriptor.class = Self::generated_handle_class(*kind);
-                Some(resolved)
-            }
-            _ => None,
-        }
+        self.scope
+            .get(name.as_str())
+            .and_then(Self::resolve_exec_path_handle)
     }
 
     pub(super) fn resolve_string(&self, node: &AstNode) -> Option<String> {
@@ -85,7 +81,7 @@ impl BuildBodyExecutor {
     pub(super) fn parse_config_value(
         &self,
         node: &AstNode,
-        _allowed_kinds: &[&str],
+        allowed_kinds: &[&str],
     ) -> Option<ExecConfigValue> {
         match node {
             AstNode::Literal(Literal::String(s)) => Some(ExecConfigValue::Literal(s.clone())),
@@ -93,10 +89,25 @@ impl BuildBodyExecutor {
                 Some(ExecConfigValue::Literal(c.to_string()))
             }
             AstNode::Identifier { name, .. } => match self.scope.get(name.as_str()) {
-                Some(ExecValue::Target(option_name))
-                | Some(ExecValue::Optimize(option_name))
-                | Some(ExecValue::OptionRef(option_name)) => {
-                    Some(ExecConfigValue::OptionRef(option_name.clone()))
+                Some(ExecValue::Target(option_name)) if allowed_kinds.contains(&"target") => {
+                    Some(ExecConfigValue::OptionRef {
+                        name: option_name.clone(),
+                        kind: crate::graph::BuildOptionKind::Target,
+                    })
+                }
+                Some(ExecValue::Optimize(option_name)) if allowed_kinds.contains(&"optimize") => {
+                    Some(ExecConfigValue::OptionRef {
+                        name: option_name.clone(),
+                        kind: crate::graph::BuildOptionKind::Optimize,
+                    })
+                }
+                Some(ExecValue::OptionRef { name, kind })
+                    if option_kind_is_allowed(*kind, allowed_kinds) =>
+                {
+                    Some(ExecConfigValue::OptionRef {
+                        name: name.clone(),
+                        kind: *kind,
+                    })
                 }
                 Some(ExecValue::Str(s)) => Some(ExecConfigValue::Literal(s.clone())),
                 _ => None,
@@ -179,9 +190,11 @@ impl BuildBodyExecutor {
                 Some(ExecValue::Bool(value)) => crate::api::DependencyArgValue::Bool(value),
                 Some(ExecValue::Str(value)) => crate::api::DependencyArgValue::String(value),
                 Some(ExecValue::Target(option_name))
-                | Some(ExecValue::Optimize(option_name))
-                | Some(ExecValue::OptionRef(option_name)) => {
+                | Some(ExecValue::Optimize(option_name)) => {
                     crate::api::DependencyArgValue::OptionRef(option_name)
+                }
+                Some(ExecValue::OptionRef { name, .. }) => {
+                    crate::api::DependencyArgValue::OptionRef(name)
                 }
                 Some(_) | None => {
                     return Err(crate::eval::BuildEvaluationError::new(
@@ -236,7 +249,7 @@ impl BuildBodyExecutor {
         let mut resolved = Vec::with_capacity(items.len());
         for item in items {
             match item {
-                ExecValue::SourceFile { path } | ExecValue::GeneratedFile { path, .. } => {
+                ExecValue::SourceFile { path, .. } | ExecValue::GeneratedFile { path, .. } => {
                     resolved.push(path)
                 }
                 _ => {
@@ -280,5 +293,55 @@ impl BuildBodyExecutor {
             resolved.insert(map_field.name.clone(), value);
         }
         Ok(resolved)
+    }
+}
+
+fn option_kind_is_allowed(kind: crate::graph::BuildOptionKind, allowed: &[&str]) -> bool {
+    let label = match kind {
+        crate::graph::BuildOptionKind::Target => "target",
+        crate::graph::BuildOptionKind::Optimize => "optimize",
+        crate::graph::BuildOptionKind::Bool => "bool",
+        crate::graph::BuildOptionKind::Int => "int",
+        crate::graph::BuildOptionKind::String => "string",
+        crate::graph::BuildOptionKind::Enum => "enum",
+        crate::graph::BuildOptionKind::Path => "path",
+    };
+    allowed.contains(&label)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BuildBodyExecutor, ExecValue};
+    use crate::api::{PathHandleClass, PathHandleProvenance};
+    use crate::runtime::BuildRuntimeGeneratedFileKind;
+
+    #[test]
+    fn c_import_path_resolution_uses_explicit_provenance_not_name_prefixes() {
+        let prefix_shaped_local = ExecValue::GeneratedFile {
+            name: "dep::looks::remote".to_string(),
+            path: "gen/local.o".to_string(),
+            kind: BuildRuntimeGeneratedFileKind::ToolOutput,
+            provenance: PathHandleProvenance::Generated,
+        };
+        let dependency_file_without_a_prefix = ExecValue::SourceFile {
+            path: "plain/provider.o".to_string(),
+            provenance: PathHandleProvenance::DependencyFile,
+        };
+
+        let local = BuildBodyExecutor::resolve_exec_path_handle(&prefix_shaped_local)
+            .expect("generated values should resolve");
+        let dependency =
+            BuildBodyExecutor::resolve_exec_path_handle(&dependency_file_without_a_prefix)
+                .expect("dependency files should resolve");
+
+        assert_eq!(local.generated_name.as_deref(), Some("dep::looks::remote"));
+        assert_eq!(local.descriptor.class, PathHandleClass::File);
+        assert_eq!(local.descriptor.provenance, PathHandleProvenance::Generated);
+        assert_eq!(dependency.generated_name, None);
+        assert_eq!(dependency.descriptor.class, PathHandleClass::File);
+        assert_eq!(
+            dependency.descriptor.provenance,
+            PathHandleProvenance::DependencyFile
+        );
     }
 }

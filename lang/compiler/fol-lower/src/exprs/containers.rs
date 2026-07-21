@@ -9,6 +9,7 @@ use fol_parser::ast::{AstNode, ContainerType, Literal};
 use fol_resolver::{PackageIdentity, ScopeId, SourceUnitId};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_record_initializer(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -28,7 +29,7 @@ pub(crate) fn lower_record_initializer(
         ));
     };
     let (construction_type, expected_fields) = match type_table.get(type_id) {
-        Some(crate::LoweredType::Record { fields }) => (type_id, fields.clone()),
+        Some(crate::LoweredType::Record { fields, .. }) => (type_id, fields.clone()),
         Some(crate::LoweredType::Named {
             package, symbol, ..
         }) => {
@@ -153,6 +154,7 @@ fn lower_positional_record_literal(
 ) -> Result<LoweredValue, LoweringError> {
     let Some(crate::LoweredType::Record {
         fields: expected_fields,
+        ..
     }) = type_table.get(type_id)
     else {
         return Err(LoweringError::with_kind(
@@ -381,6 +383,7 @@ pub(crate) fn apply_expected_shell_wrap(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_container_literal(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -461,6 +464,7 @@ pub(crate) fn lower_container_literal(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_linear_container_literal(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -525,6 +529,7 @@ fn lower_linear_container_literal(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_set_literal(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -601,6 +606,7 @@ fn lower_set_literal(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_map_literal(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -735,7 +741,7 @@ pub(crate) fn field_access_type(
     field: &str,
 ) -> Option<LoweredTypeId> {
     match type_table.get(object_type) {
-        Some(crate::LoweredType::Record { fields }) => fields.get(field).copied(),
+        Some(crate::LoweredType::Record { fields, .. }) => fields.get(field).copied(),
         Some(crate::LoweredType::Entry { variants }) => variants.get(field).copied().flatten(),
         Some(crate::LoweredType::Owned { inner })
         | Some(crate::LoweredType::Borrowed { inner, .. }) => {

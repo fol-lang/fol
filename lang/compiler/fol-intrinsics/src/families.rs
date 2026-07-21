@@ -46,7 +46,7 @@ pub const fn comparison_operand_contract(
 ) -> Option<ComparisonOperandContract> {
     match entry.id.index() {
         0 | 1 => Some(ComparisonOperandContract::EqualityScalar),
-        2 | 3 | 4 | 5 => Some(ComparisonOperandContract::OrderedScalar),
+        2..=5 => Some(ComparisonOperandContract::OrderedScalar),
         _ => None,
     }
 }

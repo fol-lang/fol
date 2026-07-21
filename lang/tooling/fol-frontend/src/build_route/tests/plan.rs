@@ -161,6 +161,7 @@ fn shared_graph_projection_helper_keeps_graph_steps_and_synthesizes_check() {
 fn resolve_requested_step_execution_accepts_untargeted_core_routes() {
     let member_plans = vec![super::super::FrontendMemberExecutionPlan {
         steps: vec![super::super::FrontendMemberPlannedStep {
+            fan_out_selections: Vec::new(),
             name: "run".to_string(),
             description: Some("Run the default executable artifact".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Run),
@@ -243,6 +244,81 @@ fn semantic_member_planning_uses_graph_projected_build_run_and_check_steps() {
     assert!(plan.steps.iter().any(|step| step.name == "build"));
     assert!(plan.steps.iter().any(|step| step.name == "run"));
     assert!(plan.steps.iter().any(|step| step.name == "check"));
+
+    fs::remove_dir_all(&workspace.root.root).ok();
+}
+
+#[test]
+fn semantic_member_planning_carries_target_optimize_c_import_and_graph_binding_exactly() {
+    let workspace = absorbed_build_workspace_fixture("artifact_target_selection", false);
+    let member_root = workspace.members[0].root.clone();
+    fs::create_dir_all(member_root.join("native")).unwrap();
+    fs::write(member_root.join("native/widget.h"), "int widget(void);\n").unwrap();
+    fs::write(member_root.join("native/widget.o"), "object fixture\n").unwrap();
+    fs::write(
+        member_root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var graph = .build().graph();\n",
+            "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\", target = \"aarch64-linux-gnu\", optimize = \"release-fast\" });\n",
+            "    var header = graph.file_from_root(\"native/widget.h\");\n",
+            "    var provider = graph.file_from_root(\"native/widget.o\");\n",
+            "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+            "    graph.add_run(app);\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .unwrap();
+
+    let plan = plan_member_execution(
+        &FrontendMemberBuildRoute {
+            member_root,
+            package_name: "app".to_string(),
+            mode: FrontendBuildWorkflowMode::Modern,
+        },
+        &FrontendConfig::default(),
+    )
+    .expect("semantic member planning should preserve artifact configuration");
+    let selection = plan
+        .steps
+        .iter()
+        .find(|step| step.name == "build")
+        .and_then(|step| step.selection.as_ref())
+        .expect("default build step should select the evaluated artifact");
+
+    assert_eq!(selection.target.as_str(), "aarch64-unknown-linux-gnu");
+    assert_eq!(
+        selection.optimize,
+        fol_package::BuildOptimizeMode::ReleaseFast
+    );
+    let binding = selection
+        .graph_binding
+        .as_ref()
+        .expect("graph-routed selections must retain the authoritative graph binding");
+    assert_eq!(binding.artifact_id, fol_package::BuildArtifactId(0));
+    assert_eq!(
+        binding
+            .graph
+            .artifact(binding.artifact_id)
+            .expect("selected artifact ID must exist in the retained graph")
+            .name,
+        "app"
+    );
+    let graph_c_imports = binding
+        .graph
+        .c_imports_for(binding.artifact_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(selection.c_imports, graph_c_imports);
+    assert_eq!(selection.c_imports.len(), 1);
+    assert_eq!(selection.c_imports[0].artifact_id, binding.artifact_id);
+    assert_eq!(selection.c_imports[0].header, "native/widget.h");
+    assert_eq!(selection.c_imports[0].provider, "native/widget.o");
+    assert_eq!(
+        selection.c_imports[0].provider_kind,
+        fol_package::BuildCImportProviderKind::Object
+    );
 
     fs::remove_dir_all(&workspace.root.root).ok();
 }

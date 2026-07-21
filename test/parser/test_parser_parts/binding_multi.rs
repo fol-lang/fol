@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_shared_binding_value_expands_to_multiple_declarations() {
+fn test_shared_binding_value_parses_as_destructuring() {
     let mut file_stream = FileStream::from_file("test/parser/simple_var_shared_value_multi.fol")
         .expect("Should read shared-value multi-binding fixture");
 
@@ -9,46 +9,41 @@ fn test_shared_binding_value_expands_to_multiple_declarations() {
     let mut parser = AstParser::new();
     let ast = parser
         .parse(&mut lexer)
-        .expect("Parser should accept shared-value multi-bindings");
+        .expect("Parser should accept single-source multi-bindings");
 
+    // One source expression with several names is positional destructuring
+    // (book 700_sugar/600_unpacking), never a broadcast of the same value.
     match ast {
         AstNode::Program { declarations } => {
-            let vars: Vec<_> = declarations
+            let destructure = declarations
                 .iter()
-                .filter_map(|node| {
-                    if let AstNode::VarDecl {
-                        name,
-                        type_hint,
-                        value,
-                        options, .. } = node
+                .find_map(|node| {
+                    if let AstNode::DestructureDecl {
+                        pattern, type_hint, ..
+                    } = node
                     {
-                        Some((name, type_hint, value, options))
+                        Some((pattern, type_hint))
                     } else {
                         None
                     }
                 })
-                .collect();
-
-            assert_eq!(
-                vars.len(),
-                2,
-                "Multi-binding should expand into two VarDecl nodes"
-            );
-            assert!(vars.iter().any(|(name, _, _, _)| *name == "left"));
-            assert!(vars.iter().any(|(name, _, _, _)| *name == "right"));
-            assert!(vars.iter().all(|(_, type_hint, _, _)| {
+                .expect("Single-source multi-binding should parse as a destructure");
+            match destructure.0 {
+                fol_parser::ast::BindingPattern::Sequence(parts) => {
+                    assert_eq!(parts.len(), 2, "Destructure should bind two names");
+                }
+                other => panic!("Expected a sequence pattern, got {other:?}"),
+            }
+            assert!(
                 matches!(
-                    type_hint,
+                    destructure.1,
                     Some(FolType::Int {
                         size: None,
                         signed: true
                     })
-                )
-            }));
-            assert!(vars.iter().all(|(_, _, value, _)| value.is_some()));
-            assert!(vars.iter().all(|(_, _, _, options)| {
-                options.contains(&fol_parser::ast::VarOption::Mutable)
-            }));
+                ),
+                "Destructure should retain the declared type hint"
+            );
         }
         _ => panic!("Expected program node"),
     }

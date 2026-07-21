@@ -1,0 +1,16 @@
+// Named lifetime regions (V3_MEM Slice C): a routine parameterized by a
+// lifetime `L: lif` ties its borrowed inputs and its borrowed result to one
+// region. The borrowed result is valid for as long as the inputs it may alias.
+
+typ Item: rec = { value: int };
+
+fun pick(L: lif)(left: Item[bor=L], right: Item[bor=L]): Item[bor=L] = {
+    return left;
+};
+
+fun[] main(): int = {
+    var a: Item = { value = 3 };
+    var b: Item = { value = 4 };
+    var[bor] chosen: Item = pick([bor]a, [bor]b);
+    return chosen.value;
+};

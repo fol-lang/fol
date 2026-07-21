@@ -1,4 +1,6 @@
-use crate::api::{DependencyRequest, PathHandleClass, PathHandleProvenance};
+use crate::api::{
+    BuildCImportRequest, DependencyRequest, PathHandleClass, PathHandleProvenance, SourceFileHandle,
+};
 use crate::eval::{
     BuildEvaluationError, BuildEvaluationOperation, BuildEvaluationOperationKind,
     BuildEvaluationRunArgKind,
@@ -28,6 +30,87 @@ impl BuildBodyExecutor {
             ));
         }
         Ok(())
+    }
+
+    fn resolve_local_c_import_file(
+        &self,
+        method: &str,
+        fields: &[fol_parser::ast::RecordInitField],
+        field_name: &str,
+    ) -> Result<SourceFileHandle, BuildEvaluationError> {
+        let field = fields
+            .iter()
+            .find(|field| field.name == field_name)
+            .ok_or_else(|| {
+                self.invalid_config(
+                    method,
+                    format!("missing required source-file field '{field_name}'"),
+                )
+            })?;
+        let AstNode::Identifier { name, .. } = &field.value else {
+            return Err(self.invalid_config(
+                method,
+                format!("'{field_name}' must be a local source-file handle"),
+            ));
+        };
+        match self.scope.get(name.as_str()) {
+            Some(ExecValue::SourceFile {
+                path,
+                provenance: PathHandleProvenance::Source,
+            }) => Ok(SourceFileHandle {
+                relative_path: path.clone(),
+            }),
+            Some(ExecValue::SourceFile {
+                provenance: PathHandleProvenance::DependencyFile,
+                ..
+            }) => Err(self.invalid_config(
+                method,
+                format!(
+                    "'{field_name}' must be a local source-file handle, not a dependency-file handle"
+                ),
+            )),
+            Some(ExecValue::SourceFile { .. }) => Err(self.invalid_config(
+                method,
+                format!(
+                    "'{field_name}' must be a local source-file handle, not a dependency-path handle"
+                ),
+            )),
+            Some(ExecValue::SourceDir { provenance, .. }) => {
+                let actual = if *provenance == PathHandleProvenance::DependencyDir {
+                    "dependency-dir handle"
+                } else {
+                    "source-dir handle"
+                };
+                Err(self.invalid_config(
+                    method,
+                    format!(
+                        "'{field_name}' must be a local source-file handle, not a {actual}"
+                    ),
+                ))
+            }
+            Some(ExecValue::GeneratedFile { provenance, .. }) => {
+                let actual = match provenance {
+                    PathHandleProvenance::Generated => "generated-output handle",
+                    PathHandleProvenance::DependencyGenerated => {
+                        "dependency-generated-output handle"
+                    }
+                    PathHandleProvenance::DependencyPath => "dependency-path handle",
+                    PathHandleProvenance::DependencyFile => "dependency-file handle",
+                    PathHandleProvenance::DependencyDir => "dependency-dir handle",
+                    PathHandleProvenance::Source => "source-path handle",
+                };
+                Err(self.invalid_config(
+                    method,
+                    format!(
+                        "'{field_name}' must be a local source-file handle, not a {actual}"
+                    ),
+                ))
+            }
+            _ => Err(self.invalid_config(
+                method,
+                format!("'{field_name}' must be a local source-file handle"),
+            )),
+        }
     }
 
     fn record_dependency_export(
@@ -319,32 +402,33 @@ impl BuildBodyExecutor {
                         }
                     }
                     "export_file" => {
-                        let target_name =
-                            match fields.iter().find(|field| field.name == "file") {
-                                Some(field) => match &field.value {
-                                    AstNode::Identifier { name, .. } => {
-                                        match self.scope.get(name.as_str()) {
-                                            Some(ExecValue::SourceFile { path }) => path.clone(),
-                                            _ => return Err(self.invalid_config(
+                        let target_name = match fields.iter().find(|field| field.name == "file") {
+                            Some(field) => match &field.value {
+                                AstNode::Identifier { name, .. } => {
+                                    match self.scope.get(name.as_str()) {
+                                        Some(ExecValue::SourceFile { path, .. }) => path.clone(),
+                                        _ => {
+                                            return Err(self.invalid_config(
                                                 method,
                                                 "build.export_file requires handle field 'file'",
-                                            )),
+                                            ))
                                         }
                                     }
-                                    _ => {
-                                        return Err(self.invalid_config(
-                                            method,
-                                            "build.export_file requires handle field 'file'",
-                                        ))
-                                    }
-                                },
-                                None => {
+                                }
+                                _ => {
                                     return Err(self.invalid_config(
                                         method,
                                         "build.export_file requires handle field 'file'",
                                     ))
                                 }
-                            };
+                            },
+                            None => {
+                                return Err(self.invalid_config(
+                                    method,
+                                    "build.export_file requires handle field 'file'",
+                                ))
+                            }
+                        };
                         BuildRuntimeDependencyExport {
                             name: export_name,
                             target_name,
@@ -356,7 +440,7 @@ impl BuildBodyExecutor {
                             Some(field) => match &field.value {
                                 AstNode::Identifier { name, .. } => {
                                     match self.scope.get(name.as_str()) {
-                                        Some(ExecValue::SourceDir { path }) => path.clone(),
+                                        Some(ExecValue::SourceDir { path, .. }) => path.clone(),
                                         Some(ExecValue::GeneratedFile {
                                             path,
                                             kind: BuildRuntimeGeneratedFileKind::GeneratedDir,
@@ -504,19 +588,23 @@ impl BuildBodyExecutor {
                     "step" => ExecValue::DependencyStep { alias, query_name },
                     "file" => ExecValue::SourceFile {
                         path: format!("$dep/{alias}/{query_name}"),
+                        provenance: PathHandleProvenance::DependencyFile,
                     },
                     "dir" => ExecValue::SourceDir {
                         path: format!("$dep/{alias}/{query_name}"),
+                        provenance: PathHandleProvenance::DependencyDir,
                     },
                     "path" => ExecValue::GeneratedFile {
                         name: format!("dep::{alias}::path::{query_name}"),
                         path: format!("$dep/{alias}/{query_name}"),
                         kind: BuildRuntimeGeneratedFileKind::ToolOutput,
+                        provenance: PathHandleProvenance::DependencyPath,
                     },
                     "generated" => ExecValue::GeneratedFile {
                         name: format!("dep::{alias}::generated::{query_name}"),
                         path: format!("$dep/{alias}/{query_name}"),
                         kind: BuildRuntimeGeneratedFileKind::ToolOutput,
+                        provenance: PathHandleProvenance::DependencyGenerated,
                     },
                     _ => return Err(self.unsupported(method)),
                 };
@@ -654,6 +742,44 @@ impl BuildBodyExecutor {
                 Ok(Some(receiver))
             }
 
+            ExecValue::Artifact(artifact) if method == "add_c_import" => {
+                let [AstNode::RecordInit { fields, .. }] = args else {
+                    return Err(self.invalid_config(method, "expected one config record"));
+                };
+                let header = self.resolve_local_c_import_file(method, fields, "header")?;
+                let provider = self.resolve_local_c_import_file(method, fields, "provider")?;
+                let provider_kind_field = fields
+                    .iter()
+                    .find(|field| field.name == "provider_kind")
+                    .ok_or_else(|| {
+                        self.invalid_config(method, "missing required string field 'provider_kind'")
+                    })?;
+                let provider_kind =
+                    self.resolve_string(&provider_kind_field.value)
+                        .ok_or_else(|| {
+                            self.invalid_config(method, "'provider_kind' must be a string")
+                        })?;
+                let provider_kind = crate::graph::BuildCImportProviderKind::parse(&provider_kind)
+                    .ok_or_else(|| {
+                    self.invalid_config(
+                        method,
+                        format!("'provider_kind' must be exactly 'object', got '{provider_kind}'"),
+                    )
+                })?;
+                self.output.operations.push(BuildEvaluationOperation {
+                    origin: None,
+                    kind: BuildEvaluationOperationKind::ArtifactAddCImport {
+                        artifact: artifact.name.clone(),
+                        request: BuildCImportRequest {
+                            header,
+                            provider,
+                            provider_kind,
+                        },
+                    },
+                });
+                Ok(Some(receiver))
+            }
+
             ExecValue::Artifact { .. } => Err(self.unsupported(method)),
 
             // Run handle methods
@@ -727,6 +853,7 @@ impl BuildBodyExecutor {
                     name: output_name.clone(),
                     path: output_name,
                     kind: BuildRuntimeGeneratedFileKind::ToolOutput,
+                    provenance: PathHandleProvenance::Generated,
                 }))
             }
 

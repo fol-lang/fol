@@ -1,0 +1,15 @@
+// A local, nonescaping closure may borrow (V3_MEM section 5.3): its capture
+// lifetime is inferred as the enclosing scope. The owner stays readable but
+// is frozen -- no mutation, no transfer -- while the closure can still run.
+
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    var base: int = 30;
+    var reader: {fun (n: int): int} = fun(n: int)[base[bor]]: int = { return n + base; };
+    var first: int = reader(12);
+    var second: int = reader(0);
+    std::io::echo_int(first);
+    std::io::echo_int(second);
+    return std::io::echo_int(base);
+};

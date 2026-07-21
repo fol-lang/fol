@@ -1,0 +1,22 @@
+// Weak edges break shared cycles (V3_MEM Slice D, §7.1): a node keeps a
+// `ptr[weak, Node]` back-reference to its owner instead of a second
+// `ptr[shared, Node]`, so no reference cycle leaks. The weak handle is
+// clone-safe like the shared pointer it observes, so a node that holds one is
+// still an ordinary observable value; the back-edge is followed with `[upg]`.
+
+typ Node: rec = {
+    value: int,
+    parent: opt ptr[weak, Node],
+};
+
+fun[] main(): int = {
+    var root: Node = { value = 10, parent = nil };
+    var root_ptr: ptr[shared, Node] = [ref]root;
+    var back: ptr[weak, Node] = [weak]root_ptr;
+    var child: Node = { value = 20, parent = back };
+    var revived: opt[ptr[shared, Node]] = [upg](child.parent[]);
+    when(revived) {
+        on(alive) { return ([drf]alive).value; }
+        * { return 0; }
+    }
+};
