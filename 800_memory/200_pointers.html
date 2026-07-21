@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -183,19 +183,19 @@ APIs.</p>
 <p><code>ptr[T]</code> is a uniquely owned pointer to <code>T</code>:</p>
 <pre><code class="language-fol">fun[] main(): int = {
     var value: int = 7;
-    var inner: ptr[int] = &amp;value;
-    var outer: ptr[ptr[int]] = &amp;inner;
-    var[mut] extracted: ptr[int] = *outer;
-    *extracted = 9;
-    return *extracted;
+    var inner: ptr[int] = [ref]value;
+    var outer: ptr[ptr[int]] = [ref]inner;
+    var[mut] extracted: ptr[int] = [drf]outer;
+    [drf]extracted = 9;
+    return [drf]extracted;
 };
 </code></pre>
-<p><code>&amp;value</code> allocates the pointed-to value and produces a unique pointer. The
+<p><code>[ref]value</code> allocates the pointed-to value and produces a unique pointer. The
 backend represents it as <code>Box&lt;T&gt;</code>. Unique pointers move on transfer, just like
 other unique heap-owned values, and are freed when their owner leaves scope.
 Constructing a pointer from a move-only value transfers that value into the new
 allocation.</p>
-<p><code>*pointer</code> is a by-value dereference to the <code>T</code> pointee:</p>
+<p><code>[drf]pointer</code> is a by-value dereference to the <code>T</code> pointee:</p>
 <ul>
 <li>if <code>T</code> is clone-safe, dereference clones <code>T</code> and leaves the pointer usable</li>
 <li>if <code>T</code> is move-only, dereferencing a unique pointer transfers <code>T</code> out and
@@ -204,7 +204,7 @@ consumes that pointer</li>
 <p>The example consumes <code>outer</code> because its pointee is another unique pointer.
 <code>extracted</code> then owns that inner pointer. A direct unique-pointer binding
 declared with <code>var[mut]</code> supports write-through assignment such as
-<code>*extracted = 9</code>.</p>
+<code>[drf]extracted = 9</code>.</p>
 <p>Direct unique-pointer bindings can be dereferenced, but a unique pointer reached
 through a record field cannot be dereferenced in V3. That observation needs a
 place-aware field projection in lowering; treating the field as an ordinary
@@ -215,14 +215,14 @@ read-only pointer field is the intended shape.</p>
 <h2 id="shared-pointers"><a class="header" href="#shared-pointers">Shared pointers</a></h2>
 <p><code>ptr[shared, T]</code> is a reference-counted shared pointer:</p>
 <pre><code class="language-fol">var value: int = 7;
-var first: ptr[shared, int] = &amp;value;
+var first: ptr[shared, int] = [ref]value;
 var second: ptr[shared, int] = first;
-return *first + *second;
+return [drf]first + [drf]second;
 </code></pre>
 <p>The backend represents shared pointers as <code>Rc&lt;T&gt;</code>. Assigning one clones the
 reference count, so <code>first</code> and <code>second</code> refer to the same allocation. Shared
 pointers are read-only; write-through is rejected.</p>
-<p>A single <code>*p</code> yields <code>T</code> for both unique and shared pointers. The reference
+<p>A single <code>[drf]p</code> yields <code>T</code> for both unique and shared pointers. The reference
 counting layer is not exposed as another pointer that needs a second
 dereference. Because a shared pointer cannot remove the value from all of its
 aliases, this read is available only when <code>T</code> is clone-safe. Dereferencing
@@ -231,7 +231,7 @@ the unique inner pointer.</p>
 <h2 id="borrowed-pointers"><a class="header" href="#borrowed-pointers">Borrowed pointers</a></h2>
 <p>A pointer can be borrowed like any other owned value:</p>
 <pre><code class="language-fol">fun[] read(pointer[bor]: ptr[int]): int = {
-    return *pointer;
+    return [drf]pointer;
 };
 </code></pre>
 <p>The borrowed pointer is a non-owning, read-only view. It can be passed directly
@@ -248,33 +248,58 @@ unique-pointer binding; a borrowed pointer is not such a binding.</p>
 };
 </code></pre>
 <p>This lowers to an optional <code>Rc&lt;Node&gt;</code> edge. Shared recursion is legal, but V3
-does not ship weak references or a cycle collector. A reference cycle therefore
-leaks. Programs should keep shared structures acyclic unless a later interop
-milestone adds an explicit weak-reference contract.</p>
+has no cycle collector: a cycle of shared pointers leaks unless a weak edge
+breaks it.</p>
 <p><code>Rc</code> is not thread-safe and cannot cross a processor spawn boundary. The V3
-processor pillar enforces that boundary.</p>
+processor pillar enforces that boundary; <code>ptr[shared, sync, T]</code> is the
+synchronized (<code>Arc</code>-backed) shared owner for values that may cross it.</p>
+<h2 id="weak-pointers"><a class="header" href="#weak-pointers">Weak pointers</a></h2>
+<p><code>ptr[weak, T]</code> observes a shared allocation without keeping it alive.
+<code>[weak]shared</code> creates the weak handle, and <code>[upg]weak</code> attempts to revive a
+shared owner, producing <code>opt[ptr[shared, T]]</code> — <code>nil</code> when the allocation is
+already gone. Neither operation consumes its operand.</p>
+<pre><code class="language-fol">fun[] main(): int = {
+    var value: int = 20;
+    var strong: ptr[shared, int] = [ref]value;
+    var observer: ptr[weak, int] = [weak]strong;
+    var revived: opt[ptr[shared, int]] = [upg]observer;
+    when(revived) {
+        on(alive) { return [drf]alive; }
+        * { return 0; }
+    }
+};
+</code></pre>
+<p>Dereferencing a weak handle directly is rejected — upgrade first, then handle
+the <code>nil</code> arm. Weak handles support explicit <code>[cln]</code>, may live inside records,
+and are the tool for breaking shared-pointer cycles
+(<code>examples/mem_ptr_weak_cycle_m3</code> breaks a parent/child cycle with a weak
+back-edge).</p>
+<h2 id="inner-place-access"><a class="header" href="#inner-place-access">Inner-place access</a></h2>
+<p><code>value[]</code> reads the inner place uniformly across the pointer and shell families:
+for a pointer it is a dereference, and for an <code>opt[T]</code> it is the present payload,
+panicking if the option is nil.</p>
+<pre><code class="language-fol">var slot: ptr[shared, int] = [ref]count;
+var maybe: opt[int] = lookup();
+return slot[] + maybe[];
+</code></pre>
+<p>The same <code>[]</code> spelling works wherever a value wraps an inner place, so a
+dereference and a shell unwrap share one surface.</p>
 <h2 id="raw-pointers-are-out"><a class="header" href="#raw-pointers-are-out">Raw pointers are out</a></h2>
 <p><code>ptr[raw, T]</code> is reserved but rejected with an explicit V4 interop diagnostic.
-V3 does not provide raw pointer construction, manual <code>.free()</code>, unsafe delete,
-or user-defined destructors. The <code>!x</code> prefix remains borrow give-back only; it
-never deletes a pointer.</p>
-<h2 id="sigil-alignment"><a class="header" href="#sigil-alignment">Sigil alignment</a></h2>
-<ul>
-<li><code>#owner</code> creates a lexical borrow without allocation</li>
-<li><code>!borrow</code> gives that borrow back early</li>
-<li><code>&amp;value</code> constructs a typed allocating pointer</li>
-<li><code>*pointer</code> clones a clone-safe pointee, consumes a unique pointer when its
-pointee is move-only, or writes through a direct mutable unique pointer</li>
-</ul>
-<p>Borrowing is compile-time-only and legal in <code>core</code>. Pointer type declarations
-can be analyzed in <code>core</code>, but evaluating <code>&amp;value</code> is rejected there because it
-allocates.</p>
+V3 does not provide raw pointer construction, manual <code>.free()</code>, or unsafe
+delete. <code>[end]x</code> remains borrow give-back only; it never deletes a pointer.
+Custom cleanup goes through the <code>fin</code> finalization capability instead.</p>
+<h2 id="operations-in-core"><a class="header" href="#operations-in-core">Operations in <code>core</code></a></h2>
+<p>Borrowing and pointer type declarations are legal in <code>core</code>: <code>[bor]owner</code>
+creates a lexical borrow without allocation, and <code>[end]borrow</code> ends it early.
+Constructing a pointer with <code>[ref]value</code> allocates, so it is rejected in <code>core</code>
+even though the pointer’s type can still be analyzed there.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../800_memory/100_ownership.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../800_memory/160_finalization.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -288,7 +313,7 @@ allocates.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../800_memory/100_ownership.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../800_memory/160_finalization.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

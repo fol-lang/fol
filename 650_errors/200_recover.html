@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -272,7 +272,9 @@ fun must_succeed(path: str): int = {
 }
 </code></pre>
 <h2 id="err-is-the-storable-error-form"><a class="header" href="#err-is-the-storable-error-form"><code>err[...]</code> is the storable error form</a></h2>
-<p><code>err[...]</code> is a normal value type.</p>
+<p><code>err[...]</code> is a normal value type. It is a nil-able shell: <code>nil</code> is the
+no-error (success) state and a present value carries a stored error payload.
+<code>return nil</code> produces the no-error state; <code>return payload</code> stores an error.</p>
 <p>You may store it, pass it, return it, and unwrap it later:</p>
 <pre><code class="language-fol">ali Failure: err[str]
 
@@ -281,9 +283,13 @@ fun keep(value: Failure): Failure = {
 }
 
 fun unwrap(value: Failure): str = {
-    return value!
+    return [uwp]value
 }
 </code></pre>
+<p>Because it is nil-able, an <code>err[T]</code> scrutinee also drives <code>when ... on ... *</code>:
+<code>on(payload)</code> binds the stored error and <code>*</code> takes the <code>nil</code> (no-error) branch.
+Postfix <code>[uwp]value</code> and inner-place <code>value[]</code> unwrap the stored error and panic on
+<code>nil</code>.</p>
 <p>This is different from:</p>
 <pre><code class="language-fol">fun read_code(path: str): int / str = { ... }
 </code></pre>

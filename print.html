@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-580adf60.js";
+            window.path_to_searchindex_js = "searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-df4b2410.js"></script>
+        <script src="toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -265,6 +265,207 @@ fun[] main(): int = {
 fun[exp] add(a, b: int): int = {
     return a + b;
 }
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="toolchain-management"><a class="header" href="#toolchain-management">Toolchain Management</a></h1>
+<p>FOL ships as <strong>two binaries with two jobs</strong>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>binary</th><th>role</th><th>where it lives</th></tr>
+</thead>
+<tbody>
+<tr><td><code>fol</code></td><td>the toolchain <strong>manager</strong> — the only binary on your <code>PATH</code>, the only thing a distribution packages</td><td><code>/usr/bin/fol</code> (or anywhere on <code>PATH</code>)</td></tr>
+<tr><td><code>folc</code></td><td>the toolchain <strong>engine</strong> — compiler, build graph, package system, LSP</td><td>inside a versioned toolchain directory, managed by <code>fol</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>You always type <code>fol</code>. It owns the <code>fol self …</code> command family and forwards
+everything else (<code>fol code build</code>, <code>fol work init</code>, <code>fol tool lsp</code>, …) to the
+right <code>folc</code> for the project you are standing in. You never invoke <code>folc</code>
+yourself — if you do, <code>folc self</code> even redirects you back to <code>fol</code>.</p>
+<p>This split is what makes multiple language versions coexist on one machine:
+<code>fol</code> changes rarely and is version-agnostic; every <code>folc</code> is an immutable,
+self-contained unit that can be installed, pinned, and removed independently.</p>
+<h2 id="fol_home"><a class="header" href="#fol_home">FOL_HOME</a></h2>
+<p>Everything the manager owns lives under a single directory:</p>
+<ol>
+<li><strong><code>$FOL_HOME</code></strong> if the environment variable is set — the shared,
+machine-wide home (for example <code>export FOL_HOME="$HOME/.fol"</code>).</li>
+<li>Otherwise, <strong><code>&lt;project&gt;/.fol/toolchain</code></strong> — the manager walks up from the
+current directory to the nearest <code>build.fol</code> and keeps toolchains next to
+the project’s build artifacts, inside the <code>.fol/</code> directory every project
+already has.</li>
+<li>If neither exists (no variable, not inside a project), <code>fol</code> stops with an
+error telling you both ways out.</li>
+</ol>
+<p>The layout inside the home:</p>
+<pre><code>$FOL_HOME/
+├── toolchains/
+│   ├── v0.2.1/            ← one immutable toolchain per version
+│   │   ├── folc           ← the engine binary
+│   │   ├── std/           ← the standard library, exactly as released
+│   │   └── runtime/       ← the runtime crate sources folc compiles against
+│   └── dev.toml           ← a *linked* toolchain (see below)
+├── pkg/                   ← third-party packages, shared by all versions
+└── config                 ← the default toolchain (`default = 0.2.1`)
+</code></pre>
+<p>A toolchain directory is <strong>self-contained</strong>: <code>folc</code> resolves <code>std/</code> and
+<code>runtime/</code> relative to its own binary, so nothing else on the machine — no
+environment variables, no source checkout — is needed for it to compile and
+run programs.</p>
+<h2 id="pinning-a-version"><a class="header" href="#pinning-a-version">Pinning a version</a></h2>
+<p>A project declares which toolchain it wants on the <strong>first comment line of
+<code>build.fol</code></strong>:</p>
+<pre><code class="language-fol">//fol 0.2.1
+
+pro[] build(): non = {
+    ...
+};
+</code></pre>
+<p>The manager scans only the leading comment block (it never needs to <em>run</em> the
+build program to learn the version — that would be a chicken-and-egg problem),
+matching <code>//fol &lt;version&gt;</code>. Checking this one line into the repository means
+everyone who clones the project builds it with the same toolchain.</p>
+<h2 id="selection-order"><a class="header" href="#selection-order">Selection order</a></h2>
+<p>For any forwarded command, the toolchain is chosen by the first match:</p>
+<ol>
+<li><code>fol +0.1.4 code build</code> — explicit one-shot override, <code>+&lt;version|name&gt;</code></li>
+<li><code>FOL_TOOLCHAIN=dev</code> — environment override</li>
+<li>the <code>//fol &lt;version&gt;</code> pin in the nearest <code>build.fol</code></li>
+<li>the default recorded in <code>$FOL_HOME/config</code> (<code>fol self default …</code>)</li>
+<li>if exactly one toolchain is installed, it is used; otherwise an error</li>
+</ol>
+<h2 id="automatic-fetching"><a class="header" href="#automatic-fetching">Automatic fetching</a></h2>
+<p>If a pinned version is not installed, <code>fol</code> downloads it on the spot and
+continues:</p>
+<pre><code class="language-console">$ fol code run
+toolchain 0.2.1 not installed, fetching...
+fetched fol 0.2.1 -&gt; ~/.fol/toolchains/v0.2.1
+42
+</code></pre>
+<p>Releases carry exactly two kinds of assets per target
+(FOL is Linux-only — <code>x86_64-linux</code> and <code>aarch64-linux</code>):</p>
+<ul>
+<li><code>fol-compiler-and-lib-v&lt;version&gt;-&lt;target&gt;.tar.gz</code> — the toolchain:
+<code>folc</code> + <code>std/</code> + <code>runtime/</code>, unpacked verbatim into
+<code>$FOL_HOME/toolchains/v&lt;version&gt;/</code></li>
+<li><code>fol-v&lt;version&gt;-&lt;target&gt;</code> — the <code>fol</code> binary itself, ready to drop on <code>PATH</code></li>
+</ul>
+<h2 id="the-fol-self-commands"><a class="header" href="#the-fol-self-commands">The <code>fol self</code> commands</a></h2>
+<pre><code class="language-console">fol self install 0.2.1              # fetch a released toolchain
+fol self install 0.2.1 --from .     # copy folc + std + runtime from a built source tree
+fol self link dev ~/code/fol        # register a source checkout as toolchain "dev"
+fol self default 0.2.1              # set the default toolchain
+fol self list                       # show installed toolchains, default marked
+fol self remove 0.2.1               # delete a toolchain (or a link)
+fol self which                      # print the folc the current directory resolves to
+</code></pre>
+<p>See <a href="#installing--developing">Installing &amp; Developing</a> for the day-to-day flows and
+<a href="#versions-in-depth">Versions In Depth</a> for the dispatch mechanics.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="installing--developing"><a class="header" href="#installing--developing">Installing &amp; Developing</a></h1>
+<h2 id="getting-fol"><a class="header" href="#getting-fol">Getting <code>fol</code></a></h2>
+<p><code>fol</code> is the only binary you install by hand — everything else it fetches
+itself. Take the <code>fol-v&lt;version&gt;-&lt;target&gt;</code> asset from a release, drop it on
+your <code>PATH</code>, and set your home:</p>
+<pre><code class="language-console">$ curl -fL -o ~/.local/bin/fol \
+    https://github.com/fol-lang/fol/releases/download/v0.2.1/fol-v0.2.1-x86_64-linux
+$ chmod +x ~/.local/bin/fol
+$ export FOL_HOME="$HOME/.fol"        # add to your shell profile
+</code></pre>
+<p>From that moment a plain <code>fol code run</code> inside any pinned project fetches the
+right toolchain automatically. To install one ahead of time:</p>
+<pre><code class="language-console">$ fol self install 0.2.1
+fetched fol 0.2.1 -&gt; ~/.fol/toolchains/v0.2.1
+$ fol self default 0.2.1
+default toolchain is now 0.2.1
+</code></pre>
+<p>Prefer keeping everything project-local? Skip <code>FOL_HOME</code> entirely — inside a
+project the manager uses <code>&lt;project&gt;/.fol/toolchain</code> as its home, so the
+toolchain sits beside the project’s build outputs and nothing global exists.</p>
+<h2 id="working-on-fol-itself"><a class="header" href="#working-on-fol-itself">Working on FOL itself</a></h2>
+<p>A source checkout becomes a first-class toolchain through a <strong>link</strong> — no
+copying, always fresh:</p>
+<pre><code class="language-console">$ fol self link dev ~/code/fol
+linked toolchain 'dev' -&gt; /home/you/code/fol
+$ fol self default dev
+</code></pre>
+<p>A linked toolchain resolves its <code>folc</code> from the checkout’s
+<code>target/release/folc</code> or <code>target/debug/folc</code> — whichever was <strong>built most
+recently</strong> — and its <code>std</code> and <code>runtime</code> straight from the live source tree.
+Rebuild the compiler, and every <code>fol</code> invocation immediately uses it.</p>
+<p>To freeze a source build into a normal, immutable toolchain instead (useful
+for testing the install flow offline):</p>
+<pre><code class="language-console">$ cargo build --release --bin folc &amp;&amp; cargo build --release -p fol-self
+$ fol self install 0.2.2 --from .
+installed fol 0.2.2 -&gt; ~/.fol/toolchains/v0.2.2 (from /home/you/code/fol)
+</code></pre>
+<h2 id="releasing"><a class="header" href="#releasing">Releasing</a></h2>
+<p>Pushing a <code>v*</code> tag runs the <code>release</code> workflow, which builds <code>folc</code> and <code>fol</code>
+on every supported Linux target, stages <code>{folc, std/, runtime/}</code>, and uploads:</p>
+<ul>
+<li><code>fol-compiler-and-lib-v&lt;version&gt;-&lt;target&gt;.tar.gz</code></li>
+<li><code>fol-v&lt;version&gt;-&lt;target&gt;</code></li>
+</ul>
+<p>The tarball layout is a contract: <code>fol self install</code> unpacks it verbatim into
+<code>$FOL_HOME/toolchains/v&lt;version&gt;/</code>, and an integration test pins the workflow
+to that layout.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="versions-in-depth"><a class="header" href="#versions-in-depth">Versions In Depth</a></h1>
+<h2 id="why-versions-coexist-cleanly"><a class="header" href="#why-versions-coexist-cleanly">Why versions coexist cleanly</a></h2>
+<p>Each <code>$FOL_HOME/toolchains/v&lt;version&gt;/</code> directory is a closed world:</p>
+<ul>
+<li><strong><code>folc</code></strong> — the engine binary for that exact language version.</li>
+<li><strong><code>std/</code></strong> — the standard library sources that version was released with.
+<code>folc</code> finds them <em>next to its own binary</em>, so a v0.2.1 engine can never
+accidentally compile against a v0.4.0 standard library.</li>
+<li><strong><code>runtime/</code></strong> — the runtime crate sources. <code>folc</code> emits Rust and compiles
+it against this crate; shipping it inside the toolchain is what makes the
+directory self-sufficient on a machine that has no FOL checkout.</li>
+</ul>
+<p>Because nothing inside a toolchain references anything outside it, installing,
+removing, or switching versions can never corrupt another version. The shared
+parts of the home — <code>pkg/</code> for third-party packages and <code>config</code> for the
+default — are version-independent by design (packages are source; every
+toolchain compiles them itself).</p>
+<h2 id="dispatch-mechanics"><a class="header" href="#dispatch-mechanics">Dispatch mechanics</a></h2>
+<p><code>fol</code> decides which engine runs before any engine code executes:</p>
+<pre><code>fol [+&lt;toolchain&gt;] &lt;anything else&gt; …
+      │
+      ├─ `self …`?  → handled by the manager itself, never forwarded
+      │
+      ├─ resolve:  +arg → FOL_TOOLCHAIN → //fol pin → config default
+      │            (a pinned version that is missing is fetched now)
+      │
+      └─ exec  $FOL_HOME/toolchains/v&lt;X&gt;/folc  &lt;anything else&gt; …
+</code></pre>
+<p>The manager passes your arguments through verbatim and replaces itself with
+<code>folc</code> (<code>exec</code>), so there is no wrapper process at runtime. A recursion guard
+(<code>FOL_DISPATCHED</code>) makes a mis-installed toolchain fail loudly instead of
+looping.</p>
+<p>Help and version flags are forwarded too: <code>fol --help</code> shows the <em>engine’s</em>
+help for the toolchain your project resolves to, which is why the commands you
+see always match the version you are actually running. Only when nothing is
+installed yet does the manager print its own copy of the help, with a hint to
+<code>fol self install</code>.</p>
+<h2 id="per-project-toolchains-in-practice"><a class="header" href="#per-project-toolchains-in-practice">Per-project toolchains in practice</a></h2>
+<p>Two projects on one machine, different language versions, zero ceremony:</p>
+<pre><code class="language-console">$ head -1 ~/work/legacy/build.fol
+//fol 0.2.1
+$ head -1 ~/work/greenfield/build.fol
+//fol 0.4.0
+
+$ cd ~/work/legacy     &amp;&amp; fol code build     # runs the v0.2.1 engine
+$ cd ~/work/greenfield &amp;&amp; fol code build     # runs the v0.4.0 engine
+</code></pre>
+<p>Editors get the same guarantee for free: the language server is started as
+<code>fol tool lsp</code>, so it goes through the same resolution and always matches the
+compiler that builds the project.</p>
+<h2 id="one-shot-overrides"><a class="header" href="#one-shot-overrides">One-shot overrides</a></h2>
+<pre><code class="language-console">$ fol +0.4.0 code build        # try a newer engine without touching the pin
+$ FOL_TOOLCHAIN=dev fol code test   # a whole shell session on the dev link
+$ fol self which               # show which folc the current directory gets
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
@@ -1069,7 +1270,7 @@ meaning survives:</p>
 <li>canonical positive/failure examples, integration tests, docs, and the book</li>
 </ul>
 <p>For V3 specifically, this rule covers every ownership, borrow, pointer, <code>dfr</code> /
-<code>edf</code>, spawn, channel, <code>select</code>, <code>[mux]</code>, async, and await boundary. Reusing the
+<code>edf</code>, spawn, channel, <code>select</code>, <code>mux[T]</code>, async, and await boundary. Reusing the
 typechecker is necessary, but it is not permission to skip an explicit syntax,
 tooling, inventory, or documentation audit.</p>
 <p>Runtime-model synchronization must preserve two independent questions across
@@ -1244,7 +1445,7 @@ these tests fail until the tree-sitter files are updated to match.</p>
 <tr><td><code>v3_ownership.txt</code></td><td>owned allocation, borrow options, <code>~var</code>, and give-back</td></tr>
 <tr><td><code>v3_pointers.txt</code></td><td>nested <code>ptr[...]</code> / <code>chn[...]</code> types, <code>@</code> types, address-of, and dereference</td></tr>
 <tr><td><code>v3_deferred.txt</code></td><td><code>dfr</code> and error-only <code>edf</code> blocks</td></tr>
-<tr><td><code>v3_channels_select_mutex.txt</code></td><td>spawn, channel endpoints, multi-arm <code>select</code>, and <code>[mux]</code> parameters</td></tr>
+<tr><td><code>v3_channels_select_mutex.txt</code></td><td>spawn, channel endpoints, multi-arm <code>select</code>, and <code>mux[T]</code> parameters</td></tr>
 <tr><td><code>v3_eventuals.txt</code></td><td>spawn plus <code>| async</code> and <code>| await</code> stages</td></tr>
 <tr><td><code>v3_lexical_boundaries.txt</code></td><td>multiline backtick/slash-block comments, exact <code>[doc]</code>, and raw single-quoted character/string boundaries</td></tr>
 </tbody>
@@ -1275,7 +1476,7 @@ families that should each have at least one corpus example:</p>
 <li>Error handling (<code>report</code>, pipe-or, <code>check</code>)</li>
 <li>V3 ownership and pointer sigils in both expression and nested type positions</li>
 <li>V3 deferred blocks (<code>dfr</code> / <code>edf</code>)</li>
-<li>V3 processor syntax (<code>[&gt;]</code>, <code>chn[...]</code>, channel endpoints, <code>select</code>, <code>[mux]</code>,
+<li>V3 processor syntax (<code>[&gt;]</code>, <code>chn[...]</code>, channel endpoints, <code>select</code>, <code>mux[T]</code>,
 <code>\| async</code>, and <code>\| await</code>)</li>
 <li>compiler-recognized lexical protection boundaries, especially multiline
 comments and raw single-quoted literals containing V3 sigils or braces</li>
@@ -1699,7 +1900,7 @@ plain positions</li>
 </ul>
 </li>
 <li>compiler-backed V3 diagnostics and navigation for the checked-in ownership,
-borrowing, pointer, <code>dfr</code>/<code>edf</code>, spawn, channel, <code>select</code>, <code>[mux]</code>, async, and
+borrowing, pointer, <code>dfr</code>/<code>edf</code>, spawn, channel, <code>select</code>, <code>mux[T]</code>, async, and
 await examples</li>
 <li>positive V3 roots in LSP/open/navigation inventory sweeps and <code>fail_mem_*</code> /
 <code>fail_proc_*</code> roots in the guarded diagnostic inventory; the exact processor
@@ -1717,7 +1918,7 @@ terminating <code>report</code> inside deferred cleanup, indirect stored/paramet
 targets for spawn and async, implicit nested-routine capture of outer locals,
 recoverable eventuals left live at fallthrough or an exiting
 <code>break</code>/<code>return</code>/<code>report</code>, awaiting an eventual inside <code>edf</code>, and mutex field,
-guard, or <code>[mux]</code> forwarding effects inside deferred bodies.</p>
+guard, or <code>mux[T]</code> forwarding effects inside deferred bodies.</p>
 <p>If the client is attached but you see no diagnostics at all, the likely issue is
 not Tree-sitter. It is the LSP request/attach path.</p>
 <p>For the compiler-owned contracts behind diagnostics and semantic editor
@@ -4894,6 +5095,26 @@ tier layers on top of <code>memo</code>; <code>.len(...)</code> does not itself 
 <li>it then forwards the same value unchanged</li>
 </ul>
 <p><code>.echo(...)</code> belongs to <code>std</code>, not <code>core</code> or <code>memo</code>.</p>
+<h3 id="terminal-and-os-hooks"><a class="header" href="#terminal-and-os-hooks">Terminal and OS hooks</a></h3>
+<p>The primitive layer for interactive terminal programs shares <code>.echo(...)</code>’s
+build contract (a <code>memo</code> artifact with the explicit bundled <code>std</code>
+dependency):</p>
+<ul>
+<li><code>.write(text)</code> — write a string to stdout without a trailing newline and
+flush it; forwards the string unchanged</li>
+<li><code>.read_key()</code> — block for one byte of standard input; yields <code>-1</code> at end of
+input</li>
+<li><code>.raw_mode(enable)</code> — enable or disable terminal raw mode; forwards the
+requested state</li>
+<li><code>.sleep_ms(ms)</code> — sleep the current thread; forwards the duration</li>
+<li><code>.now_ms()</code> — milliseconds since the unix epoch</li>
+<li><code>.term_cols()</code> / <code>.term_rows()</code> — terminal size (80×24 when it cannot be
+determined)</li>
+<li><code>.int_to_str(value)</code> — render an integer as its decimal string</li>
+</ul>
+<p>The bundled <code>std</code> package wraps them as <code>std::io::write</code>, <code>std::io::read_key</code>,
+<code>std::term::raw_mode</code>, <code>std::term::cols</code>, <code>std::term::rows</code>,
+<code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>, and <code>std::fmt::int_to_str</code>.</p>
 <p>With that build contract, this is valid:</p>
 <pre><code class="language-fol">fun[] main(flag: bol): bol = {
     return .echo(flag)
@@ -4942,8 +5163,8 @@ accidental user-space name collisions, but they are not part of the current
 <li><code>.de_alloc(...)</code></li>
 </ul>
 <p>Explicit deallocation is not part of the V3 memory model. Unique heap values
-drop implicitly, borrowing uses <code>#owner</code> and <code>!borrow</code>, and typed pointers use
-<code>&amp;value</code> and <code>*pointer</code>. The old dot-root memory spellings are not reserved or
+drop implicitly, borrowing uses <code>[bor]owner</code> and <code>[end]borrow</code>, and typed pointers use
+<code>[ref]value</code> and <code>[drf]pointer</code>. The old dot-root memory spellings are not reserved or
 supported aliases.</p>
 <h2 id="library-preferred-surfaces"><a class="header" href="#library-preferred-surfaces">Library-preferred surfaces</a></h2>
 <p>Some names are kept in the registry roadmap only as placeholders while the
@@ -4968,18 +5189,18 @@ language decides whether they should really stay compiler-owned.</p>
 <p>The current direction is that many of these may fit better in <code>core</code> or <code>std</code>
 instead of becoming permanent compiler intrinsics.</p>
 <h2 id="intrinsics-are-not-shell-operations"><a class="header" href="#intrinsics-are-not-shell-operations">Intrinsics are not shell operations</a></h2>
-<p>Do not confuse intrinsics with shell syntax such as <code>nil</code> and postfix unwrap
+<p>Do not confuse intrinsics with shell syntax such as <code>nil</code> and unwrap
 <code>!</code>.</p>
 <p>For example:</p>
 <pre><code class="language-fol">ali MaybeText: opt[str]
 ali Failure: err[str]
 
 fun[] unwrap_optional(value: MaybeText): str = {
-    return value!
+    return [uwp]value
 }
 
 fun[] unwrap_failure(value: Failure): str = {
-    return value!
+    return [uwp]value
 }
 </code></pre>
 <p>That <code>!</code> surface is part of shell typing, not the intrinsic registry.</p>
@@ -5379,12 +5600,12 @@ part of the current compiler surface. Imaginary-number support is likewise
 outside the active stream, lexer, parser, and lowering contract.</p>
 <h2 id="pointers"><a class="header" href="#pointers">Pointers</a></h2>
 <p>V3 ships typed unique and shared pointers:</p>
-<pre><code class="language-fol">var[mut] unique: ptr[int] = &amp;value;
-var shared: ptr[shared, int] = &amp;value;
+<pre><code class="language-fol">var[mut] unique: ptr[int] = [ref]value;
+var shared: ptr[shared, int] = [ref]value;
 </code></pre>
 <p><code>ptr[T]</code> is uniquely owned and writable through a mutable pointer binding.
 <code>ptr[shared, T]</code> is reference-counted and read-only. Pointer types can be
-analyzed in <code>core</code>, but <code>&amp;value</code> constructs an allocation and therefore
+analyzed in <code>core</code>, but <code>[ref]value</code> constructs an allocation and therefore
 requires <code>memo</code>. A <code>memo</code> artifact may additionally declare bundled <code>std</code>, but
 the pointer operation itself does not require hosted APIs. Raw <code>ptr[raw, T]</code>
 remains a V4 interop boundary.</p>
@@ -5400,10 +5621,10 @@ recursion, and current place-projection rules.</p>
 <h1 id="special"><a class="header" href="#special">Special</a></h1>
 <p>Current boundary:</p>
 <ul>
-<li>the <code>opt[...]</code> optional shell and the <code>err[...]</code> error shell are the current
-compiler surface</li>
-<li><code>uni[...]</code> (union), <code>any</code>, and <code>nev</code> (never) are not implemented; the compiler
-rejects them with a “not yet supported” diagnostic</li>
+<li>the <code>opt[...]</code> optional shell, the <code>err[...]</code> error shell, and the <code>nev</code>
+never type are the current compiler surface</li>
+<li><code>uni[...]</code> (union) and <code>any</code> are not implemented; the compiler rejects them
+with a “not yet supported” diagnostic</li>
 <li>those sections describe later design work, not current behavior</li>
 </ul>
 <h2 id="optional"><a class="header" href="#optional">Optional</a></h2>
@@ -5436,7 +5657,7 @@ Plain inference from <code>nil</code> alone is not supported.</p>
 <p>Current <code>V1</code> shell note:</p>
 <ul>
 <li><code>opt[...]</code> and <code>err[...]</code> are shell values.</li>
-<li>postfix unwrap <code>value!</code> applies to those shell values.</li>
+<li>Unwrap <code>[uwp]value</code> applies to those shell values.</li>
 <li>routine calls declared with <code>ResultType / ErrorType</code> are not <code>err[...]</code>
 shells.</li>
 <li>use <code>check(...)</code> or <code>expr || fallback</code> for those routine calls instead of
@@ -5523,7 +5744,7 @@ The <code>!borrow</code> prefix may give it back earlier.</p>
 <pre><code class="language-fol">fun[] main(): int = {
     var value: int = 55;
     {
-        var[bor] view: int = #value;
+        var[bor] view: int = [bor]value;
         var seen: int = view;
     };
     return value;
@@ -5679,7 +5900,7 @@ fun[] main(): int = {
 <pre><code>var oneVar, twoVar: int[8] = 2;
 </code></pre>
 <p>However, each of them gets a copy of the variable on a new memory address:</p>
-<pre><code>.assert(&amp;oneVar == &amp;twoVar)           // this will return false
+<pre><code>.assert([ref]oneVar == [ref]twoVar)           // this will return false
 </code></pre>
 <h3 id="one-to-many"><a class="header" href="#one-to-many">One to many</a></h3>
 <p>And lastly, one variable can be assigned to multiple ones. This by using container types:</p>
@@ -5801,7 +6022,7 @@ longer well defined.</p>
 <p>The one supported exception is call-site unpack for the final variadic
 parameter. <code>...items</code> may appear after named arguments when it is feeding that
 final variadic input.</p>
-<pre><code>fun[] calc(el1, el2, el3: int, el4, el5: flt): int = { result[0] = ((el1 + el2) * el4 ) - (el3 ** el5);  }
+<pre><code>fun[] calc(el1, el2, el3: int, el4, el5: flt): int = { result[0] = ((el1 + el2) * el4 ) - (el3 ^ el5);  }
 
 pro main: int = {
     calc(3, 4, el5 = 2, el4 = 5, el3 = 6);                  // element $el3 needs to be keyeorded at the end because 
@@ -5963,7 +6184,7 @@ contract and the shell-vs-routine distinction.</p>
 <li>recoverable procedure errors (<code>Result / Error</code>) are part of <code>V1</code></li>
 <li>ownership-aware transfers, unique heap moves, and explicit <code>[bor]</code> parameters
 are part of the shipped <code>V3</code> memory contract</li>
-<li><code>[mux]</code> parameters and the direct named-routine task boundary are part of the
+<li><code>mux[T]</code> parameters and the direct named-routine task boundary are part of the
 shipped <code>V3</code> processor contract</li>
 </ul>
 <p>Pointer and borrowing examples in this chapter therefore describe current V3
@@ -5979,7 +6200,7 @@ outside that shipped surface.</p>
 <p>Current <code>V1</code> note:</p>
 <ul>
 <li>a procedure declared as <code>pro[] write(...): T / E</code> does not produce an
-<code>err[E]</code> shell value that can be unwrapped with <code>!</code></li>
+<code>err[E]</code> shell value that can be unwrapped with <code>[uwp]</code></li>
 <li>it produces a recoverable routine result with a success path and an error path</li>
 <li>use <code>check(...)</code> or <code>expr || fallback</code> at the call site</li>
 <li>keep postfix <code>!</code> for <code>opt[...]</code> and <code>err[...]</code> shell values only</li>
@@ -7530,7 +7751,9 @@ fun must_succeed(path: str): int = {
 }
 </code></pre>
 <h2 id="err-is-the-storable-error-form"><a class="header" href="#err-is-the-storable-error-form"><code>err[...]</code> is the storable error form</a></h2>
-<p><code>err[...]</code> is a normal value type.</p>
+<p><code>err[...]</code> is a normal value type. It is a nil-able shell: <code>nil</code> is the
+no-error (success) state and a present value carries a stored error payload.
+<code>return nil</code> produces the no-error state; <code>return payload</code> stores an error.</p>
 <p>You may store it, pass it, return it, and unwrap it later:</p>
 <pre><code class="language-fol">ali Failure: err[str]
 
@@ -7539,9 +7762,13 @@ fun keep(value: Failure): Failure = {
 }
 
 fun unwrap(value: Failure): str = {
-    return value!
+    return [uwp]value
 }
 </code></pre>
+<p>Because it is nil-able, an <code>err[T]</code> scrutinee also drives <code>when ... on ... *</code>:
+<code>on(payload)</code> binds the stored error and <code>*</code> takes the <code>nil</code> (no-error) branch.
+Postfix <code>[uwp]value</code> and inner-place <code>value[]</code> unwrap the stored error and panic on
+<code>nil</code>.</p>
 <p>This is different from:</p>
 <pre><code class="language-fol">fun read_code(path: str): int / str = { ... }
 </code></pre>
@@ -8256,8 +8483,8 @@ surrounding exit is being replayed</li>
 <li><code>| await</code> and access to an existing eventual binding cannot occur inside
 <code>edf</code>; an error-only body cannot discharge eventual ownership on normal exits,
 and the restriction remains active inside a <code>dfr</code> nested within that <code>edf</code></li>
-<li>a <code>[mux]</code> handle cannot be locked, unlocked, used for guarded field access,
-or forwarded to another <code>[mux]</code> parameter there</li>
+<li>a <code>mux[T]</code> handle cannot be locked, unlocked, used for guarded field access,
+or forwarded to another <code>mux[T]</code> parameter there</li>
 </ul>
 <p>These are compile-time boundaries, not cleanup operations that are silently
 skipped. An outer <code>report</code> still triggers registered <code>dfr</code> and <code>edf</code> bodies;
@@ -8285,9 +8512,9 @@ instead makes the reference inside the deferred body an ordinary use-after-move
 error. A reservation registered in a nested block ends after that block’s
 deferred work has run, so the owner may be transferred afterward.</p>
 <p>Mutex guard effects are not deferred in <code>V3</code>. A <code>dfr</code> or <code>edf</code> body cannot
-call <code>.lock()</code> or <code>.unlock()</code> on a <code>[mux]</code> parameter, and it cannot access
+call <code>.lock()</code> or <code>.unlock()</code> on a <code>mux[T]</code> parameter, and it cannot access
 mutex-guarded fields even when the surrounding scope currently holds the
-guard. It also cannot forward the mutex handle to another <code>[mux]</code> routine,
+guard. It also cannot forward the mutex handle to another <code>mux[T]</code> routine,
 because that would hide delayed guard transitions behind the call. Perform
 guarded work in ordinary control flow before registering deferred cleanup.</p>
 <p>Channel endpoint acquisition is similarly rejected inside <code>dfr</code> and <code>edf</code>.
@@ -8298,6 +8525,32 @@ binding cannot be reinitialized inside <code>dfr</code> or <code>edf</code>: typ
 as immediate would make the binding look usable before the deferred assignment
 actually runs. Reinitialize the binding in ordinary control flow before the
 deferred block is registered.</p>
+<h2 id="explicit-captures"><a class="header" href="#explicit-captures">Explicit captures</a></h2>
+<p>A delayed block declares how outer locals enter it with a capture list — every
+routine-local binding the body uses must appear in it. Each entry names an
+outer binding and states its operation:</p>
+<pre><code class="language-fol">var seen: int = 2;
+var owned: ptr[int] = [ref]seed;
+dfr[seen[bor], owned[mov]] {
+    std::io::echo_int(seen + [drf]owned);
+};
+</code></pre>
+<p><code>[bor]</code> observes the binding — the owner stays restricted while the block can
+still run, and the loan is read-only: assigning through a <code>[bor]</code> capture is
+rejected. A block that mutates its capture states the composite <code>[mut, bor]</code>
+mutable loan instead:</p>
+<pre><code class="language-fol">var[mut] total: int = 5;
+dfr[total[mut, bor]] { total = total + 37; };
+</code></pre>
+<p><code>mut</code> composes only with <code>bor</code>. <code>[mov]</code> transfers the value into the block’s
+environment: the outer binding is invalidated for the rest of the scope, and
+the block still owns the value when scope-exit cleanup executes it. <code>[cpy]</code>
+and <code>[cln]</code> duplicate the value under the same capability rules as spawn
+captures. A bare capture name without an operation is rejected, as is a
+channel endpoint capture — endpoints belong to spawned tasks, not delayed
+blocks. Using an undeclared outer local
+inside the block is an ownership error; module-level values and routine names
+are not captures and need no declaration.</p>
 <h2 id="current-milestone-boundary"><a class="header" href="#current-milestone-boundary">Current milestone boundary</a></h2>
 <p>The basic <code>dfr</code> form belongs to V1. Ownership-aware ordering and <code>edf</code> are the
 shipped V3 memory contract. V3 processor resources do not become generalized
@@ -8402,6 +8655,11 @@ var matrix: mat[int, int] = { x * y for ( x in {..5}, y in {..5} ) }
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="unpacking"><a class="header" href="#unpacking">Unpacking</a></h1>
+<blockquote>
+<p><strong>Current boundary:</strong> fixed-name unpacking (<code>var a, b = container</code>) is
+implemented over set, array, vector, and sequence sources. Rest patterns
+(<code>*name</code>) parse but are rejected by typechecking in this milestone.</p>
+</blockquote>
 <p>Current boundary:</p>
 <ul>
 <li>unpacking / iterable-destructuring forms (<code>var a, *_ = ...</code>) are not part of
@@ -8467,9 +8725,9 @@ printString = "Hello, World!"
 <code>opt[...]</code> or <code>err[...]</code> shell.</li>
 <li>A standalone <code>nil</code> with no expected shell type is rejected during
 typechecking.</li>
-<li>Postfix unwrap <code>value!</code> is currently type-checked for <code>opt[T]</code> and <code>err[T]</code>
+<li>Unwrap <code>[uwp]value</code> is currently type-checked for <code>opt[T]</code> and <code>err[T]</code>
 and yields <code>T</code>.</li>
-<li>Bare <code>err[]</code> does not currently support postfix unwrap because there is no
+<li>Bare <code>err[]</code> does not currently support unwrap because there is no
 payload value to recover.</li>
 <li>This <code>!</code> surface is shell-only. It does not unwrap routine call results
 declared with <code>ResultType / ErrorType</code>.</li>
@@ -8601,8 +8859,13 @@ with that <code>V4</code> interop contract, not guessed earlier</li>
 instead of guessing semantics.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="memory-model"><a class="header" href="#memory-model">Memory Model</a></h1>
-<p>This section explains FOL’s shipped V3 memory model: ownership, lexical
-borrowing, owned allocation, and typed unique/shared pointers.</p>
+<p>This section explains FOL’s V3 memory model: explicit ownership operations
+(<code>[mov]</code>/<code>[cpy]</code>/<code>[cln]</code>/<code>[bor]</code> and friends) at every transfer boundary,
+non-lexical borrows, static places and partial moves, named and elided
+lifetimes, capability standards, custom finalization, closure environments,
+and the unique/shared/weak/synchronized pointer family. The normative contract
+is <code>plan/V3_MEM.md</code>; the first-shipped historical subset is recorded in its
+Appendix A.</p>
 <p>The main topics are:</p>
 <ul>
 <li>ownership</li>
@@ -8632,14 +8895,30 @@ and the repository-level <code>docs/editor-sync.md</code> matrix.</p>
 <li><code>examples/mem_linked_list_m1</code></li>
 <li><code>examples/mem_tree_m1</code></li>
 <li><code>examples/mem_move_stack_vs_heap_m1</code></li>
+<li><code>examples/mem_partial_move_m1</code></li>
+<li><code>examples/mem_fin_finalizer_m1</code></li>
+<li><code>examples/mem_fin_move_m1</code></li>
+<li><code>examples/mem_fin_early_m1</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
 <li><code>examples/fail_mem_use_after_move_m1</code></li>
+<li><code>examples/fail_mem_loop_move_m1</code></li>
+<li><code>examples/fail_mem_explicit_move_reuse_m1</code></li>
 <li><code>examples/fail_mem_discarded_move_m1</code></li>
 <li><code>examples/fail_mem_deferred_reinit_m1</code></li>
 <li><code>examples/fail_mem_recursive_value_m1</code></li>
 <li><code>examples/fail_mem_heap_in_core_m1</code></li>
+<li><code>examples/fail_mem_uninit_borrow_m1</code></li>
+<li><code>examples/fail_mem_partial_move_m1</code></li>
+<li><code>examples/fail_mem_global_fin_m1</code></li>
+<li><code>examples/fail_mem_fin_partial_move_m1</code></li>
+<li><code>examples/fail_mem_fin_fun_finalizer_m1</code></li>
+<li><code>examples/fail_mem_fin_reuse_m1</code></li>
+<li><code>examples/fail_mem_clone_fin_m1</code></li>
+<li><code>examples/fail_mem_clone_fin_claim_m1</code></li>
+<li><code>examples/fail_mem_generic_copy_bound_m1</code></li>
+<li><code>examples/fail_mem_generic_send_bound_transitive_m1</code></li>
 </ul>
 <h3 id="m2-lexical-borrowing-and-deferred-ownership"><a class="header" href="#m2-lexical-borrowing-and-deferred-ownership">M2: lexical borrowing and deferred ownership</a></h3>
 <p>Positive:</p>
@@ -8648,15 +8927,55 @@ and the repository-level <code>docs/editor-sync.md</code> matrix.</p>
 <li><code>examples/mem_borrow_giveback_m2</code></li>
 <li><code>examples/mem_borrow_param_m2</code></li>
 <li><code>examples/mem_mut_borrow_m2</code></li>
+<li><code>examples/mem_ownership_ops_m2</code></li>
+<li><code>examples/mem_capabilities_m2</code></li>
+<li><code>examples/mem_copy_clone_m2</code></li>
+<li><code>examples/mem_custom_clone_m2</code></li>
+<li><code>examples/mem_borrow_receiver_m2</code></li>
+<li><code>examples/mem_mut_receiver_m2</code></li>
+<li><code>examples/mem_receiver_ops_m2</code></li>
+<li><code>examples/mem_reborrow_m2</code></li>
+<li><code>examples/mem_nll_last_use_m2</code></li>
+<li><code>examples/mem_named_lifetime_m2</code></li>
+<li><code>examples/mem_temp_borrow_m2</code></li>
+<li><code>examples/mem_place_borrow_m2</code></li>
 <li><code>examples/mem_edf_m2</code></li>
+<li><code>examples/mem_dfr_capture_m2</code></li>
+<li><code>examples/mem_dfr_capture_mut_m2</code></li>
+<li><code>examples/mem_closure_capture_m2</code></li>
+<li><code>examples/mem_closure_borrow_m2</code></li>
+<li><code>examples/mem_closure_env_lifetime_m2</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
 <li><code>examples/fail_mem_deferred_report_m2</code></li>
+<li><code>examples/fail_mem_dfr_capture_bare_m2</code></li>
+<li><code>examples/fail_mem_dfr_capture_bor_mutation_m2</code></li>
+<li><code>examples/fail_mem_dfr_capture_undeclared_m2</code></li>
+<li><code>examples/fail_mem_closure_move_only_m2</code></li>
+<li><code>examples/fail_mem_closure_escape_m2</code></li>
+<li><code>examples/fail_mem_closure_env_leak_m2</code></li>
+<li><code>examples/fail_mem_copy_moveonly_m2</code></li>
+<li><code>examples/fail_mem_copy_record_field_m2</code></li>
+<li><code>examples/fail_mem_send_field_m2</code></li>
+<li><code>examples/fail_mem_send_nested_field_m2</code></li>
+<li><code>examples/fail_mem_clone_nested_field_m2</code></li>
+<li><code>examples/fail_mem_share_field_m2</code></li>
 <li><code>examples/fail_mem_owner_while_borrowed_m2</code></li>
 <li><code>examples/fail_mem_second_mut_borrow_m2</code></li>
 <li><code>examples/fail_mem_mut_borrow_immutable_owner_m2</code></li>
 <li><code>examples/fail_mem_borrow_reuse_m2</code></li>
+<li><code>examples/fail_mem_conditional_giveback_m2</code></li>
+<li><code>examples/fail_mem_deferred_giveback_m2</code></li>
+<li><code>examples/fail_mem_ownership_op_combo_m2</code></li>
+<li><code>examples/fail_mem_copy_fin_conflict_m2</code></li>
+<li><code>examples/fail_mem_copy_field_m2</code></li>
+<li><code>examples/fail_mem_copy_nested_field_m2</code></li>
+<li><code>examples/fail_mem_copy_operand_unclaimed_m2</code></li>
+<li><code>examples/fail_mem_fun_mut_receiver_m2</code></li>
+<li><code>examples/fail_mem_escaping_borrow_m2</code></li>
+<li><code>examples/fail_mem_temp_borrow_escape_m2</code></li>
+<li><code>examples/fail_mem_place_borrow_owner_m2</code></li>
 </ul>
 <h3 id="m3-typed-pointers"><a class="header" href="#m3-typed-pointers">M3: typed pointers</a></h3>
 <p>Positive:</p>
@@ -8664,11 +8983,20 @@ and the repository-level <code>docs/editor-sync.md</code> matrix.</p>
 <li><code>examples/mem_ptr_unique_m3</code></li>
 <li><code>examples/mem_ptr_shared_m3</code></li>
 <li><code>examples/mem_ptr_shared_recursive_m3</code></li>
+<li><code>examples/mem_ptr_weak_m3</code></li>
+<li><code>examples/mem_ptr_weak_clone_m3</code></li>
+<li><code>examples/mem_ptr_weak_upgrade_m3</code></li>
+<li><code>examples/mem_ptr_weak_cycle_m3</code></li>
+<li><code>examples/mem_ptr_weak_nested_m3</code></li>
+<li><code>examples/mem_shell_access_m3</code></li>
+<li><code>examples/mem_shell_prefix_m3</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
 <li><code>examples/fail_mem_borrowed_ptr_move_deref_m3</code></li>
 <li><code>examples/fail_mem_ptr_raw_m3</code></li>
+<li><code>examples/fail_mem_ptr_weak_m3</code></li>
+<li><code>examples/fail_mem_shell_access_m3</code></li>
 <li><code>examples/fail_mem_ptr_in_core_m3</code></li>
 <li><code>examples/fail_mem_pointer_field_deref_m3</code></li>
 <li><code>examples/fail_mem_shared_ptr_move_deref_m3</code></li>
@@ -8723,10 +9051,10 @@ when its result is discarded. Lowering still evaluates that expression, so the
 source cannot be used afterward. Clone-safe scalar expression statements remain
 usable because their values clone.</p>
 <p>A whole mutable binding can be reinitialized after its old value moves:</p>
-<pre><code class="language-fol">var[mut] pointer: ptr[int] = &amp;first;
+<pre><code class="language-fol">var[mut] pointer: ptr[int] = [ref]first;
 consume(pointer);
-pointer = &amp;second;
-return *pointer;
+pointer = [ref]second;
+return [drf]pointer;
 </code></pre>
 <p>The assignment target is a storage place, not a read of the missing old value.
 The right-hand side is checked and transferred first, then a successful store
@@ -8748,13 +9076,13 @@ projection IR; such a lookup is rejected instead of partially moving its
 source. The same boundary rejects nested field access through a move-only
 intermediate.</p>
 <p>Dereferencing is a by-value operation whose ownership effect depends on the
-pointee. <code>*pointer</code> clones a clone-safe pointee and leaves the pointer usable.
+pointee. <code>[drf]pointer</code> clones a clone-safe pointee and leaves the pointer usable.
 If the pointee is move-only, dereferencing a direct unique <code>ptr[T]</code> transfers
 the pointee and consumes that pointer. A shared or borrowed pointer cannot
 surrender a move-only pointee, so those dereferences are rejected; their
 read-only dereference is available only when the pointee is clone-safe.</p>
 <p>Dereferencing a unique-pointer field is also a place observation, not a whole
-field transfer. Until V3 has place-aware projection IR, <code>*record.pointer</code> is
+field transfer. Until V3 has place-aware projection IR, <code>[drf]record.pointer</code> is
 rejected even when its pointee is clone-safe; otherwise backend lowering would
 partially move the pointer just to observe its target. Direct pointer bindings
 remain available. A field containing <code>ptr[shared, T]</code> can be dereferenced when
@@ -8816,18 +9144,19 @@ to one nominal Rust structure whose recursive field has the shape
 </code></pre>
 <p>Such a type has no finite value layout. The compiler recommends an owned edge
 such as <code>opt @Bad</code> instead.</p>
-<h2 id="lexical-borrowing"><a class="header" href="#lexical-borrowing">Lexical borrowing</a></h2>
+<h2 id="borrowing-1"><a class="header" href="#borrowing-1">Borrowing</a></h2>
 <p>A borrow is an alias that does not take ownership:</p>
 <pre><code class="language-fol">var owner: Node = { value = 7, next = nil };
 var[bor] view: Node = owner;
 var value: int = view.value;
 </code></pre>
-<p><code>#owner</code> is expression sugar for borrowing from an owner:</p>
-<pre><code class="language-fol">var[bor] view: Node = #owner;
+<p><code>[bor]owner</code> borrows from an owner as an expression:</p>
+<pre><code class="language-fol">var[bor] view: Node = [bor]owner;
 </code></pre>
-<p>Borrowing is scope-granular. A borrow remains active until the end of the
-lexical scope where its binding was created. FOL deliberately does not use
-flow-sensitive or non-lexical lifetime analysis in V3.</p>
+<p>Borrowing is non-lexical. A borrow stays active only until its last use, not
+until the end of the lexical scope where its binding was created. Once a loan’s
+final read has passed, the owner becomes usable again in the same scope with no
+explicit give-back.</p>
 <p>While a borrow is active:</p>
 <ul>
 <li>the owner cannot be read, written, moved, or borrowed incompatibly</li>
@@ -8844,24 +9173,25 @@ observations remain available</li>
 };
 return owner.value;
 </code></pre>
-<p><code>!view</code> gives a borrow back before scope exit. A returned borrow cannot be used
+<p><code>[end]view</code> gives a borrow back before scope exit. A returned borrow cannot be used
 again; attempting to read <code>view</code> afterward reports <code>O2004</code> with the give-back
 site as related information:</p>
 <pre><code class="language-fol">var[bor] view: Node = owner;
 var value: int = view.value;
-!view;
+[end]view;
 return view.value;
 </code></pre>
 <p>The <code>!</code> prefix is give-back only. It is not deletion or manual memory free.</p>
-<p>V3 does not support reborrowing a borrow binding. Borrow from the original owner
-or pass an existing borrow binding directly to a <code>[bor]</code> parameter instead.</p>
+<p>A borrow binding may be reborrowed: <code>[bor]view</code> creates a nested loan from an
+existing borrow, released like any other loan by its last use or an explicit
+<code>[end]</code>. A reborrow cannot outlive the loan it derives from.</p>
 <h2 id="mutable-borrowing"><a class="header" href="#mutable-borrowing">Mutable borrowing</a></h2>
 <p>A mutable borrow requires both an explicitly mutable owner and an explicitly
 mutable borrow binding:</p>
 <pre><code class="language-fol">var[mut] owner: Node = { value = 7, next = nil };
 var[mut, bor] view: Node = owner;
 view.value = 9;
-!view;
+[end]view;
 return owner.value;
 </code></pre>
 <p><code>var[bor]</code> is immutable unless <code>mut</code> is also present. A <code>var[mut, bor]</code> binding
@@ -8876,7 +9206,7 @@ ownership diagnostic.</p>
 };
 </code></pre>
 <p>The backend emits a Rust reference parameter. Passing an owner requires an
-explicit <code>#owner</code>; an existing compatible borrow binding can be passed directly
+explicit <code>[bor]owner</code>; an existing compatible borrow binding can be passed directly
 and reused by later <code>[bor]</code> calls. The call borrow ends when the call returns,
 while an existing borrow binding keeps its surrounding lexical lifetime.
 Parameter spelling or casing never changes ownership semantics;
@@ -8885,6 +9215,156 @@ observe clone-safe data, but it cannot return or forward a move-only value as
 an owned argument.</p>
 <p>Borrowing is compile-time-only and legal in <code>core</code>. It does not allocate or add
 runtime reference bookkeeping.</p>
+<h2 id="named-lifetimes"><a class="header" href="#named-lifetimes">Named lifetimes</a></h2>
+<p>When a routine returns a borrow, the compiler must know which input the result
+may alias. A lifetime parameter <code>L: lif</code> names a single region and ties the
+borrowed inputs and the borrowed result together:</p>
+<pre><code class="language-fol">fun pick(L: lif)(left: Item[bor=L], right: Item[bor=L]): Item[bor=L] = {
+    return left;
+};
+</code></pre>
+<p><code>Item[bor=L]</code> is a borrow bound to region <code>L</code>. The returned borrow is valid for
+as long as every input it may alias, so the caller’s owners must outlive the
+result. A routine that borrows a single input and returns a borrow may leave the
+region implicit; naming it is required only when several borrows share one
+result region.</p>
+<h2 id="receiver-ownership"><a class="header" href="#receiver-ownership">Receiver ownership</a></h2>
+<p>A method states how it takes its receiver with the same option position; the
+receiver binds to <code>self</code>:</p>
+<pre><code class="language-fol">fun (Node[bor])inspect(): int = { return self.value; };
+pro (Node[mut, bor])update(): non = { self.value = 9; return; };
+fun (Node)consume(): int = { return self.value; };
+</code></pre>
+<p>A <code>fun</code> may take a shared <code>[bor]</code> receiver or move its receiver by value; only a
+<code>pro</code> may take a mutable <code>[mut, bor]</code> receiver. At the call site the ownership
+operation binds the receiver directly, with no surrounding parentheses:</p>
+<pre><code class="language-fol">[bor]node.inspect();
+[mut, bor]node.update();
+[mov]node.consume();
+</code></pre>
+<p><code>[op]receiver.method()</code> groups as <code>([op]receiver).method()</code>: the operation
+describes how the receiver crosses the call boundary, not the call’s result, and
+a <code>[mut, bor]</code> receiver’s field updates persist to the original binding. The
+rule is scoped to a trailing method call — a plain place chain keeps the
+operation over the place, so <code>[mov]bundle.held</code> still moves the <code>held</code> subfield
+rather than <code>bundle</code>. The same grouping applies to the bracket unary operations,
+so <code>[drf]pointer.method()</code> dereferences <code>pointer</code> and then calls the method.</p>
+<h2 id="closure-captures"><a class="header" href="#closure-captures">Closure captures</a></h2>
+<p>An anonymous routine used as a first-class value declares how outer locals
+enter its environment with the same capture list delayed blocks use. The
+routine value’s type is its visible call signature; the environment re-supplies
+the captured values on every invocation:</p>
+<pre><code class="language-fol">var base: int = 30;
+var adder: {fun (n: int): int} = fun(n: int)[base[cpy]]: int = { return n + base; };
+var first: int = adder(12);
+</code></pre>
+<p><code>[cpy]</code> and <code>[cln]</code> duplicate the outer value into the environment, leaving the
+source live. <code>[mov]</code> transfers a clone-safe value and invalidates the outer
+binding; moving a move-only value into a routine value is rejected because the
+closure may run more than once — spawn the routine directly when the value
+should transfer into exactly one execution.</p>
+<p>A local, nonescaping closure may also borrow: <code>[bor]</code> captures infer their
+lifetime as the enclosing scope. The owner stays readable but is frozen — no
+mutation, no transfer — while the closure can still run, and the closure value
+itself cannot escape that scope: returning it, passing it to a call, storing
+it, or rebinding it is rejected. The one sanctioned crossing is a parameter
+whose routine type names its environment lifetime — <code>{fun (): int}[bor=L]</code>
+with a declared <code>L: lif</code> — which receives the closure and obeys the same
+nonescaping rules inside the callee
+(<code>examples/mem_closure_env_lifetime_m2</code> and
+<code>examples/fail_mem_closure_env_leak_m2</code> pin that boundary). Channel-endpoint captures never enter routine
+values (<code>examples/mem_closure_capture_m2</code>, <code>examples/mem_closure_borrow_m2</code>,
+<code>examples/fail_mem_closure_move_only_m2</code>, and
+<code>examples/fail_mem_closure_escape_m2</code> pin the contract).</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="capabilities"><a class="header" href="#capabilities">Capabilities</a></h1>
+<p>Five compiler-owned standards describe what may be done with a value. A type
+lists the ones it guarantees in its conformance position, and the compiler
+verifies each claim against the type’s fields.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Standard</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>copy</code></td><td><code>[cpy]value</code> may duplicate the value; the source stays usable</td></tr>
+<tr><td><code>clone</code></td><td><code>[cln]value</code> may create an independent copy; the source stays usable</td></tr>
+<tr><td><code>fin</code></td><td>the type runs custom finalization when it is dropped</td></tr>
+<tr><td><code>send</code></td><td>owned access may cross a task or thread boundary</td></tr>
+<tr><td><code>share</code></td><td>shared access may cross a task or thread boundary</td></tr>
+</tbody>
+</table>
+</div>
+<p>A type states its capabilities in the conformance list:</p>
+<pre><code class="language-fol">typ Point()(copy): rec = { x: int, y: int };
+typ Job()(clone): rec = { input: int };
+typ Buffer()(clone, send): rec = { bytes: seq[int] };
+</code></pre>
+<h2 id="verification"><a class="header" href="#verification">Verification</a></h2>
+<p>Each claim is checked recursively against the type’s fields. <code>clone</code> has a
+structural default: a type is clonable when every field is clonable, so a
+<code>clone</code> claim needs no extra code for ordinary data. <code>copy</code> has no structural
+default — every aggregate field of a <code>copy</code> type must itself claim <code>copy</code>.
+<code>copy</code> implies <code>clone</code>, and <code>copy</code> and <code>fin</code> cannot coexist.</p>
+<p><code>send</code> and <code>share</code> require every field to be thread-safe transitively, so a type
+holding a non-synchronized shared pointer or a <code>fin</code> resource cannot claim them.</p>
+<h2 id="operations"><a class="header" href="#operations">Operations</a></h2>
+<p><code>[cpy]value</code> requires the value’s type to declare <code>copy</code>; a structurally
+copy-safe record without the <code>(copy)</code> header is clone- or move-only.
+<code>[cln]value</code> requires <code>clone</code>, which the structural default usually satisfies.</p>
+<h2 id="custom-clone"><a class="header" href="#custom-clone">Custom clone</a></h2>
+<p>A type may override the structural clone with a pure borrowed-receiver method
+named <code>clone</code>:</p>
+<pre><code class="language-fol">typ Counter()(clone): rec = { value: int, clones: int };
+
+fun (Counter[bor])clone(): Counter = {
+    return { value = self.value, clones = self.clones + 1 };
+};
+</code></pre>
+<p><code>[cln]counter</code> then dispatches to this method instead of copying fields
+structurally. A custom clone is a <code>fun</code> with a shared <code>[bor]</code> receiver: it
+observes the source and returns an independent value.</p>
+<h2 id="generic-bounds"><a class="header" href="#generic-bounds">Generic bounds</a></h2>
+<p>A capability may constrain a generic parameter. The obligation is checked at each
+call site against the concrete type argument, so the routine is only usable with
+types that satisfy the standard:</p>
+<pre><code class="language-fol">fun keep(T: copy)(value: T): T = { return [cpy]value; };
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="finalization"><a class="header" href="#finalization">Finalization</a></h1>
+<p>A type that claims the <code>fin</code> capability runs custom cleanup when its owner is
+released. The cleanup is a compiler-owned receiver contract: a <code>pro</code> named
+<code>finalize</code> that takes the value by value and returns <code>non</code>.</p>
+<pre><code class="language-fol">typ File()(fin): rec = { descriptor: int };
+
+pro (File)finalize(): non = {
+    close(self.descriptor);
+    return;
+};
+</code></pre>
+<p>The finalizer is a <code>pro</code> because releasing a foreign resource is an effect. A
+<code>fin</code> type cannot also claim <code>copy</code>: a value with cleanup is not trivially
+duplicable.</p>
+<h2 id="scope-exit-cleanup"><a class="header" href="#scope-exit-cleanup">Scope-exit cleanup</a></h2>
+<p>The finalizer runs automatically when the owning scope exits, exactly once per
+value:</p>
+<pre><code class="language-fol">fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    return handle.descriptor;
+    // handle.finalize() runs here, as the scope exits
+};
+</code></pre>
+<p>When a value is moved, responsibility for finalization moves with it: the new
+owner finalizes it, and the original binding does not.</p>
+<h2 id="early-finalization"><a class="header" href="#early-finalization">Early finalization</a></h2>
+<p><code>[fin]value</code> runs the finalizer immediately and invalidates the source. The
+value is finalized exactly once, so scope-exit cleanup does not run a second
+time:</p>
+<pre><code class="language-fol">var handle: File = { descriptor = 3 };
+observe(handle.descriptor);
+[fin]handle;
+// handle is now consumed; no second finalize at scope exit
+</code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="pointers-1"><a class="header" href="#pointers-1">Pointers</a></h1>
 <p>FOL V3 has typed unique and shared pointers. Pointer construction allocates, so
@@ -8895,19 +9375,19 @@ APIs.</p>
 <p><code>ptr[T]</code> is a uniquely owned pointer to <code>T</code>:</p>
 <pre><code class="language-fol">fun[] main(): int = {
     var value: int = 7;
-    var inner: ptr[int] = &amp;value;
-    var outer: ptr[ptr[int]] = &amp;inner;
-    var[mut] extracted: ptr[int] = *outer;
-    *extracted = 9;
-    return *extracted;
+    var inner: ptr[int] = [ref]value;
+    var outer: ptr[ptr[int]] = [ref]inner;
+    var[mut] extracted: ptr[int] = [drf]outer;
+    [drf]extracted = 9;
+    return [drf]extracted;
 };
 </code></pre>
-<p><code>&amp;value</code> allocates the pointed-to value and produces a unique pointer. The
+<p><code>[ref]value</code> allocates the pointed-to value and produces a unique pointer. The
 backend represents it as <code>Box&lt;T&gt;</code>. Unique pointers move on transfer, just like
 other unique heap-owned values, and are freed when their owner leaves scope.
 Constructing a pointer from a move-only value transfers that value into the new
 allocation.</p>
-<p><code>*pointer</code> is a by-value dereference to the <code>T</code> pointee:</p>
+<p><code>[drf]pointer</code> is a by-value dereference to the <code>T</code> pointee:</p>
 <ul>
 <li>if <code>T</code> is clone-safe, dereference clones <code>T</code> and leaves the pointer usable</li>
 <li>if <code>T</code> is move-only, dereferencing a unique pointer transfers <code>T</code> out and
@@ -8916,7 +9396,7 @@ consumes that pointer</li>
 <p>The example consumes <code>outer</code> because its pointee is another unique pointer.
 <code>extracted</code> then owns that inner pointer. A direct unique-pointer binding
 declared with <code>var[mut]</code> supports write-through assignment such as
-<code>*extracted = 9</code>.</p>
+<code>[drf]extracted = 9</code>.</p>
 <p>Direct unique-pointer bindings can be dereferenced, but a unique pointer reached
 through a record field cannot be dereferenced in V3. That observation needs a
 place-aware field projection in lowering; treating the field as an ordinary
@@ -8927,14 +9407,14 @@ read-only pointer field is the intended shape.</p>
 <h2 id="shared-pointers"><a class="header" href="#shared-pointers">Shared pointers</a></h2>
 <p><code>ptr[shared, T]</code> is a reference-counted shared pointer:</p>
 <pre><code class="language-fol">var value: int = 7;
-var first: ptr[shared, int] = &amp;value;
+var first: ptr[shared, int] = [ref]value;
 var second: ptr[shared, int] = first;
-return *first + *second;
+return [drf]first + [drf]second;
 </code></pre>
 <p>The backend represents shared pointers as <code>Rc&lt;T&gt;</code>. Assigning one clones the
 reference count, so <code>first</code> and <code>second</code> refer to the same allocation. Shared
 pointers are read-only; write-through is rejected.</p>
-<p>A single <code>*p</code> yields <code>T</code> for both unique and shared pointers. The reference
+<p>A single <code>[drf]p</code> yields <code>T</code> for both unique and shared pointers. The reference
 counting layer is not exposed as another pointer that needs a second
 dereference. Because a shared pointer cannot remove the value from all of its
 aliases, this read is available only when <code>T</code> is clone-safe. Dereferencing
@@ -8943,7 +9423,7 @@ the unique inner pointer.</p>
 <h2 id="borrowed-pointers"><a class="header" href="#borrowed-pointers">Borrowed pointers</a></h2>
 <p>A pointer can be borrowed like any other owned value:</p>
 <pre><code class="language-fol">fun[] read(pointer[bor]: ptr[int]): int = {
-    return *pointer;
+    return [drf]pointer;
 };
 </code></pre>
 <p>The borrowed pointer is a non-owning, read-only view. It can be passed directly
@@ -8960,33 +9440,58 @@ unique-pointer binding; a borrowed pointer is not such a binding.</p>
 };
 </code></pre>
 <p>This lowers to an optional <code>Rc&lt;Node&gt;</code> edge. Shared recursion is legal, but V3
-does not ship weak references or a cycle collector. A reference cycle therefore
-leaks. Programs should keep shared structures acyclic unless a later interop
-milestone adds an explicit weak-reference contract.</p>
+has no cycle collector: a cycle of shared pointers leaks unless a weak edge
+breaks it.</p>
 <p><code>Rc</code> is not thread-safe and cannot cross a processor spawn boundary. The V3
-processor pillar enforces that boundary.</p>
+processor pillar enforces that boundary; <code>ptr[shared, sync, T]</code> is the
+synchronized (<code>Arc</code>-backed) shared owner for values that may cross it.</p>
+<h2 id="weak-pointers"><a class="header" href="#weak-pointers">Weak pointers</a></h2>
+<p><code>ptr[weak, T]</code> observes a shared allocation without keeping it alive.
+<code>[weak]shared</code> creates the weak handle, and <code>[upg]weak</code> attempts to revive a
+shared owner, producing <code>opt[ptr[shared, T]]</code> — <code>nil</code> when the allocation is
+already gone. Neither operation consumes its operand.</p>
+<pre><code class="language-fol">fun[] main(): int = {
+    var value: int = 20;
+    var strong: ptr[shared, int] = [ref]value;
+    var observer: ptr[weak, int] = [weak]strong;
+    var revived: opt[ptr[shared, int]] = [upg]observer;
+    when(revived) {
+        on(alive) { return [drf]alive; }
+        * { return 0; }
+    }
+};
+</code></pre>
+<p>Dereferencing a weak handle directly is rejected — upgrade first, then handle
+the <code>nil</code> arm. Weak handles support explicit <code>[cln]</code>, may live inside records,
+and are the tool for breaking shared-pointer cycles
+(<code>examples/mem_ptr_weak_cycle_m3</code> breaks a parent/child cycle with a weak
+back-edge).</p>
+<h2 id="inner-place-access"><a class="header" href="#inner-place-access">Inner-place access</a></h2>
+<p><code>value[]</code> reads the inner place uniformly across the pointer and shell families:
+for a pointer it is a dereference, and for an <code>opt[T]</code> it is the present payload,
+panicking if the option is nil.</p>
+<pre><code class="language-fol">var slot: ptr[shared, int] = [ref]count;
+var maybe: opt[int] = lookup();
+return slot[] + maybe[];
+</code></pre>
+<p>The same <code>[]</code> spelling works wherever a value wraps an inner place, so a
+dereference and a shell unwrap share one surface.</p>
 <h2 id="raw-pointers-are-out"><a class="header" href="#raw-pointers-are-out">Raw pointers are out</a></h2>
 <p><code>ptr[raw, T]</code> is reserved but rejected with an explicit V4 interop diagnostic.
-V3 does not provide raw pointer construction, manual <code>.free()</code>, unsafe delete,
-or user-defined destructors. The <code>!x</code> prefix remains borrow give-back only; it
-never deletes a pointer.</p>
-<h2 id="sigil-alignment"><a class="header" href="#sigil-alignment">Sigil alignment</a></h2>
-<ul>
-<li><code>#owner</code> creates a lexical borrow without allocation</li>
-<li><code>!borrow</code> gives that borrow back early</li>
-<li><code>&amp;value</code> constructs a typed allocating pointer</li>
-<li><code>*pointer</code> clones a clone-safe pointee, consumes a unique pointer when its
-pointee is move-only, or writes through a direct mutable unique pointer</li>
-</ul>
-<p>Borrowing is compile-time-only and legal in <code>core</code>. Pointer type declarations
-can be analyzed in <code>core</code>, but evaluating <code>&amp;value</code> is rejected there because it
-allocates.</p>
+V3 does not provide raw pointer construction, manual <code>.free()</code>, or unsafe
+delete. <code>[end]x</code> remains borrow give-back only; it never deletes a pointer.
+Custom cleanup goes through the <code>fin</code> finalization capability instead.</p>
+<h2 id="operations-in-core"><a class="header" href="#operations-in-core">Operations in <code>core</code></a></h2>
+<p>Borrowing and pointer type declarations are legal in <code>core</code>: <code>[bor]owner</code>
+creates a lexical borrow without allocation, and <code>[end]borrow</code> ends it early.
+Constructing a pointer with <code>[ref]value</code> allocates, so it is rejected in <code>core</code>
+even though the pointer’s type can still be analyzed there.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="concurrency"><a class="header" href="#concurrency">Concurrency</a></h1>
-<p>This section covers FOL’s shipped V3 concurrency and asynchronous execution
-model. Every processor surface is hosted <code>std</code>-only and is implemented with OS
-threads and Rust standard-library synchronization; FOL does not use a separate
-async runtime.</p>
+<p>This section covers FOL’s first shipped V3 concurrency and asynchronous
+execution subset. Every processor surface is hosted <code>std</code>-only and is
+implemented with OS threads and Rust standard-library synchronization; FOL does
+not use a separate async runtime.</p>
 <p>Here <code>std</code>-only describes source capability: the artifact uses
 <code>fol_model = "memo"</code> and the package explicitly declares the bundled internal
 <code>standard</code> dependency. It does not mean FOL needs <code>std</code> merely to launch a
@@ -9018,9 +9523,17 @@ editor tests consume that shared machine inventory.</p>
 <ul>
 <li><code>examples/proc_spawn_m1</code></li>
 <li><code>examples/proc_spawn_move_heap_m1</code></li>
+<li><code>examples/proc_spawn_canonical_m1</code></li>
+<li><code>examples/proc_spawn_detached_m1</code></li>
+<li><code>examples/proc_shared_sync_ptr_m1</code></li>
+<li><code>examples/proc_spawn_borrow_m1</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
+<li><code>examples/fail_proc_spawn_detached_borrow_m1</code></li>
+<li><code>examples/fail_proc_spawn_fin_m1</code></li>
+<li><code>examples/fail_proc_spawn_borrow_mutate_m1</code></li>
+<li><code>examples/fail_proc_spawn_weak_m3</code></li>
 <li><code>examples/fail_proc_spawn_heap_use_after_move_m1</code></li>
 <li><code>examples/fail_proc_spawn_in_core_m1</code></li>
 <li><code>examples/fail_proc_spawn_indirect_m1</code></li>
@@ -9035,19 +9548,27 @@ editor tests consume that shared machine inventory.</p>
 <li><code>examples/proc_channel_loop_m2</code></li>
 <li><code>examples/proc_channel_m2</code></li>
 <li><code>examples/proc_channel_pull_m2</code></li>
+<li><code>examples/proc_sender_endpoint_m2</code></li>
+<li><code>examples/proc_receiver_endpoint_m2</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
+<li><code>examples/fail_proc_channel_bare_send_m2</code></li>
 <li><code>examples/fail_proc_channel_capture_rx_m2</code></li>
 <li><code>examples/fail_proc_channel_in_core_m2</code></li>
 <li><code>examples/fail_proc_channel_in_memo_m2</code></li>
 <li><code>examples/fail_proc_channel_index_m2</code></li>
+<li><code>examples/fail_proc_channel_receive_bare_m2</code></li>
 <li><code>examples/fail_proc_channel_spawn_consumer_m2</code></li>
+<li><code>examples/fail_proc_clone_receiver_m2</code></li>
 </ul>
 <h3 id="p3-select-and-mutexes"><a class="header" href="#p3-select-and-mutexes">P3: select and mutexes</a></h3>
 <p>Positive:</p>
 <ul>
 <li><code>examples/proc_mutex_explicit_unlock_m3</code></li>
+<li><code>examples/proc_mutex_local_m3</code></li>
+<li><code>examples/proc_mutex_guard_m3</code></li>
+<li><code>examples/proc_mutex_guard_end_m3</code></li>
 <li><code>examples/proc_mutex_m3</code></li>
 <li><code>examples/proc_select_m3</code></li>
 </ul>
@@ -9058,6 +9579,8 @@ editor tests consume that shared machine inventory.</p>
 <li><code>examples/fail_proc_mutex_deferred_lock_m3</code></li>
 <li><code>examples/fail_proc_mutex_deferred_unlock_m3</code></li>
 <li><code>examples/fail_proc_mutex_double_paren_m3</code></li>
+<li><code>examples/fail_proc_mutex_guard_await_m3</code></li>
+<li><code>examples/fail_proc_mutex_guard_move_m3</code></li>
 <li><code>examples/fail_proc_mutex_in_core_m3</code></li>
 <li><code>examples/fail_proc_mutex_in_memo_m3</code></li>
 <li><code>examples/fail_proc_select_empty_m3</code></li>
@@ -9070,9 +9593,15 @@ editor tests consume that shared machine inventory.</p>
 <ul>
 <li><code>examples/proc_async_await_m4</code></li>
 <li><code>examples/proc_await_error_m4</code></li>
+<li><code>examples/proc_evt_named_m4</code></li>
+<li><code>examples/proc_evt_lifetime_m4</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
+<li><code>examples/fail_proc_evt_return_elided_m4</code></li>
+<li><code>examples/fail_proc_evt_param_elided_m4</code></li>
+<li><code>examples/fail_proc_evt_detached_m4</code></li>
+<li><code>examples/fail_proc_evt_embedded_m4</code></li>
 <li><code>examples/fail_proc_async_in_core_m4</code></li>
 <li><code>examples/fail_proc_async_break_outer_m4</code></li>
 <li><code>examples/fail_proc_async_edf_await_m4</code></li>
@@ -9085,7 +9614,6 @@ editor tests consume that shared machine inventory.</p>
 <li><code>examples/fail_proc_await_in_core_m4</code></li>
 <li><code>examples/fail_proc_await_in_memo_m4</code></li>
 <li><code>examples/fail_proc_await_recoverable_discard_m4</code></li>
-<li><code>examples/fail_proc_evt_named_m4</code></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="eventuals"><a class="header" href="#eventuals">Eventuals</a></h1>
@@ -9099,10 +9627,22 @@ the processor API; it is not what makes the executable runnable.</p>
 <pre><code class="language-fol">var pending = calculate() | async;
 var value = pending | await;
 </code></pre>
-<p><code>| async</code> starts the call on an OS thread and produces an internal eventual.
-<code>| await</code> blocks the current OS thread until that computation finishes. The
-eventual type is not nameable in <code>V3</code>; <code>evt[T]</code> is only a possible later design
-slot.</p>
+<p><code>| async</code> starts the call on an OS thread and produces a one-shot eventual.
+<code>| await</code> blocks the current OS thread until that computation finishes. A local
+binding may name the eventual with its lexical lifetime elided (V3_MEM §8.1):
+<code>evt[T]</code> for an infallible call and <code>evt[T / E]</code> for a recoverable one, e.g.
+<code>var work: evt[int] = compute(7) | async</code>. The public lifetime-carrying
+<code>evt[L, T]</code> spelling is also a namable type, naming the region the eventual
+belongs to. An eventual that crosses a routine signature must spell that
+lifetime on both sides: a parameter or return type declares <code>L: lif</code> and
+writes <code>evt[L, T]</code>, and the lifetime name must resolve to a declared lifetime
+parameter. The elided <code>evt[T]</code> form is local-declaration shorthand only.</p>
+<p>This signature rule is what makes <code>L</code> enforceable without a region solver.
+Handles cannot be embedded in aggregates or wrappers, sent through channels,
+stored at module level, captured by routine values, or enter detached tasks —
+so the only way a handle travels is through signatures and local moves.
+Requiring the <code>evt[L, T]</code> spelling wherever a signature carries one means a
+handle provably cannot outlive the parent scope <code>L</code> names.</p>
 <p>The call to the left of <code>| async</code> must resolve directly to a named routine
 declaration. Both <code>calculate()</code> and a qualified call such as
 <code>workers::calculate()</code> are supported; qualification selects a declaration and
@@ -9112,9 +9652,8 @@ targets in <code>V3</code>. Receiver-method call syntax is also excluded from th
 target surface; call a free named routine directly instead.</p>
 <p>Nested routine bodies cannot implicitly capture outer locals. Pass ordinary
 outer values through declared parameters instead of relying on a hidden closure
-environment. An outer eventual cannot use that workaround because its type is
-internal and generic crossings are forbidden; await and handle it in the outer
-routine.</p>
+environment. An outer eventual cannot use that workaround because generic
+crossings are forbidden; await and handle it in the outer routine.</p>
 <p>Eventual bindings are move-only. A plain binding or assignment transfers the
 eventual and makes the source binding unavailable. An eventual may be consumed
 at most once: <code>| await</code> consumes the current binding, so a second await is a
@@ -9160,8 +9699,9 @@ are not part of <code>V3</code>.</p>
 <code>V3</code> does not execute generator <code>yield</code>; that statement remains recognized by
 the parser but is rejected by semantic analysis and lowering. <code>async</code> also does
 not color the called routine or change its declaration.</p>
-<p>The eventual slice is implemented end to end. Its exact positive, tier-failure,
-must-handle failure, and unnameable-<code>evt[T]</code> example set is maintained in the
+<p>The eventual slice is implemented end to end. Its exact positive (including the
+namable <code>evt[T]</code> local), tier-failure, and must-handle failure example set is
+maintained in the
 <a href="#shipped-example-inventory-1">canonical shipped processor inventory</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="tasks-channels-and-mutexes"><a class="header" href="#tasks-channels-and-mutexes">Tasks, Channels, and Mutexes</a></h1>
@@ -9196,16 +9736,21 @@ The call form must resolve directly to a named routine declaration. Both an
 unqualified call such as <code>[&gt;]worker()</code> and a qualified call such as
 <code>[&gt;]workers::worker()</code> are supported. Stored routine values, stored anonymous
 routines, and routine parameters remain indirect calls and are not spawn
-targets in <code>V3</code>. The explicit zero-parameter anonymous spawn form remains
-available for explicit channel sender-endpoint captures; it is not a general
-closure-capture surface. Receiver-method call syntax is not a named
-spawn-target form; use a free routine name or qualified path instead.</p>
+targets in <code>V3</code>. The explicit zero-parameter anonymous spawn form carries an
+explicit capture list: channel sender endpoints (<code>c[tx]</code>) and value operations
+(<code>data[mov]</code>, <code>amount[cpy]</code>, <code>record[cln]</code>) thread their captures into the
+task, and <code>state[bor]</code> lends the outer binding to the scoped task: the owner
+stays readable but is frozen — no mutation, no transfer — until the scope
+joins its tasks. Borrowed captures require a clone-safe, thread-safe owner. Receiver-method call
+syntax is not a named spawn-target form; use a free routine name or qualified
+path instead.</p>
 <p>The spawn boundary follows the <code>V3</code> memory rules:</p>
 <ul>
 <li>clone-safe values clone into the task</li>
 <li>thread-safe move-only values, including <code>@</code> ownership and unique pointers,
 move into the task and leave the sender moved-out</li>
-<li>borrowed values do not cross the thread boundary</li>
+<li>borrowed values cross only as explicit <code>[bor]</code> captures of a scoped task,
+which freeze their owner until the scope joins</li>
 <li><code>ptr[shared, T]</code> values do not cross the boundary because their <code>Rc</code> backing
 is not thread-safe</li>
 <li>unresolved generic parameters do not cross until FOL has a thread-safety and
@@ -9213,19 +9758,34 @@ lifetime contract for generics; concrete thread-safe instantiations can cross</l
 <li>omitted defaults are checked as task arguments under the same rules as
 explicit arguments</li>
 </ul>
-<p>Cross-thread shared mutation belongs to <code>[mux]</code> parameters, not <code>Rc</code>.</p>
+<p>Cross-thread shared mutation belongs to <code>mux[T]</code> parameters, not <code>Rc</code>.</p>
 <p>The exact positive and negative spawn examples are maintained in the
 <a href="#shipped-example-inventory-1">canonical shipped processor inventory</a>.</p>
 <h2 id="channels"><a class="header" href="#channels">Channels</a></h2>
 <p>Channels are an implemented processor surface. The contract is an unbounded
 MPSC <code>chn[T]</code> backed by <code>std::sync::mpsc</code>: <code>c[tx]</code> sends without blocking,
-<code>c[rx]</code> performs a blocking pull, and receiver iteration runs until all sender
-handles are dropped. The old sequence-index spelling <code>c[rx][i]</code> is not part of
-the contract.</p>
+<code>c[rx]</code> performs a blocking pull that yields <code>opt[T]</code> — its present branch owns
+a fresh payload and <code>nil</code> means every sender has closed — and receiver iteration
+runs until all sender handles are dropped. Unwrap the result with <code>c[rx][]</code> or
+bind it and inspect it with <code>when ... on ... *</code>. The old sequence-index spelling
+<code>c[rx][i]</code> is not part of the contract.</p>
+<p>A send <code>value | c[tx]</code> produces a must-handle <code>err[T]</code>: <code>nil</code> means the payload
+was delivered, and the present branch owns the unsent payload when every
+receiver has already closed. Bind it (<code>var sent: err[int] = value | c[tx]</code>),
+inspect it with <code>when ... on ... *</code>, or propagate it; a bare send that discards
+the result — and with it the unsent payload — is rejected.</p>
+<p>A transmitter is a first-class value. <code>c[tx]</code> has type <code>chn[tx, T]</code>, a
+clone-capable sender endpoint that may be bound, passed to another routine, or
+returned. Sending works through any sender value — <code>value | sender</code> — not only a
+direct <code>c[tx]</code> access, so a producer can accept a <code>chn[tx, T]</code> parameter and emit
+into it. The receiver endpoint is also a first-class <code>chn[rx, T]</code> value, but
+unlike the cloneable sender it is unique and move-only: it may be bound, passed,
+or returned, yet never duplicated, so a channel keeps exactly one receiver.</p>
 <p><code>T</code> may be a thread-safe move-only value. Sending consumes that value, and a
 blocking receive, receiver iteration, or selected arm transfers the payload to
-its destination without cloning it. Unique pointers are supported this way;
-values containing <code>ptr[shared, T]</code> remain barred from OS-thread boundaries.</p>
+its destination without cloning it; the blocking receive delivers it inside the
+<code>opt[T]</code> shell. Unique pointers are supported this way; values containing
+<code>ptr[shared, T]</code> remain barred from OS-thread boundaries.</p>
 <p>The first <code>c[rx]</code> acquisition relinquishes that channel binding’s local
 transmitter capability. Clone or capture every needed <code>c[tx]</code> handle before
 receiving. Sender handles acquired earlier remain valid and the channel closes
@@ -9276,8 +9836,9 @@ fairness guarantee is promised.</p>
 for lowering. A default-only select is non-blocking because its <code>*</code> body runs
 immediately.</p>
 <h2 id="mutex-parameters"><a class="header" href="#mutex-parameters">Mutex parameters</a></h2>
-<p>The chosen mutex surface uses the ordinary parameter-option seam:</p>
-<pre><code class="language-fol">fun[] update(value[mux]: Counter): int = {
+<p>The mutex is the first-class managed type <code>mux[T]</code>. The direct handle surface
+locks and unlocks through the handle itself:</p>
+<pre><code class="language-fol">fun[] update(value: mux[Counter]): int = {
     value.lock();
     value.total = value.total + 1;
     var result: int = value.total;
@@ -9285,7 +9846,7 @@ immediately.</p>
     return result;
 };
 </code></pre>
-<p><code>[mux]</code> lowers to <code>Arc&lt;Mutex&lt;T&gt;&gt;</code>. A routine acquires the guard with <code>.lock()</code>;
+<p><code>mux[T]</code> lowers to <code>Arc&lt;Mutex&lt;T&gt;&gt;</code>. A routine acquires the guard with <code>.lock()</code>;
 guarded fields are accessible only while that guard is active. The guard is
 released automatically at the end of the lexical scope that acquired it, or
 early with <code>.unlock()</code> in that same scope. Locking the same parameter twice is
@@ -9294,22 +9855,49 @@ scope. The historical <code>((name))</code> parameter spelling is not retained.<
 <p>Mutex field access and <code>.lock()</code>/<code>.unlock()</code> are not allowed inside <code>dfr</code> or
 <code>edf</code> bodies in <code>V3</code>. Guard transitions are tracked for immediate lexical
 execution and are not replayed as delayed effects at scope exit. Forwarding a
-mutex handle from a deferred body to another <code>[mux]</code> routine is rejected for
+mutex handle from a deferred body to another <code>mux[T]</code> routine is rejected for
 the same reason.</p>
 <p>The guarded <code>T</code> cannot be copied, returned, embedded, or passed to an ordinary
 <code>T</code> parameter as a whole value. Passing the mutex handle directly to another
-<code>[mux]</code> parameter is allowed, including through spawn; data access still
+<code>mux[T]</code> parameter is allowed, including through spawn; data access still
 requires that receiving routine to acquire its own guard.</p>
+<p>Wrapping an existing owner into a <code>mux[T]</code> parameter transfers it into the
+mutex and consumes the binding: the call site must state <code>[mov]owner</code>, and the
+original binding is unusable afterward. An implicit copy at that boundary
+would silently fork the state between the caller’s binding and the guarded
+value, so it is rejected even for copy-safe types. Fresh values (record
+literals or call results) pass without an operation — there is no surviving
+source to fork.</p>
 <p>For a synchronous call, the caller must unlock a handle before forwarding it
-to another <code>[mux]</code> parameter; otherwise the callee could block trying to acquire
-the caller’s guard. One call also cannot pass the same handle to two <code>[mux]</code>
+to another <code>mux[T]</code> parameter; otherwise the callee could block trying to acquire
+the caller’s guard. One call also cannot pass the same handle to two <code>mux[T]</code>
 parameters because those aliases can self-deadlock. Spawn and async calls are
 task boundaries and may receive the cloned handle while the caller still holds
 its guard; the new task waits until the caller releases it.</p>
-<p>The <code>[mux]</code> calling convention is currently available only on named routines
+<h3 id="guard-values"><a class="header" href="#guard-values">Guard values</a></h3>
+<p>Locking a borrowed handle produces a named, lifetime-scoped mutable guard
+bound with <code>var[mut, bor]</code>. Field access goes through the guard while the lock
+is held:</p>
+<pre><code class="language-fol">fun[] bump(state: mux[Counter]): int = {
+    var[mut, bor] guard: Counter = ([bor]state).lock();
+    guard.value = guard.value + 1;
+    var snapshot: int = guard.value;
+    [end]guard;
+    return snapshot;
+};
+</code></pre>
+<p>The guard releases at its last use (the same non-lexical rule as ordinary
+loans), or early and explicitly with <code>[end]guard</code>. A guard value cannot be
+moved, copied, or cloned, and it cannot be held across a spawn, an await, or a
+blocking receive — the checker rejects those boundaries rather than attempting
+static deadlock analysis. End the guard first, then cross the boundary
+(<code>examples/proc_mutex_guard_end_m3</code> shows the early-end pattern;
+<code>examples/fail_proc_mutex_guard_await_m3</code> and
+<code>examples/fail_proc_mutex_guard_move_m3</code> pin the rejections).</p>
+<p>The <code>mux[T]</code> calling convention is currently available only on named routines
 that are called directly, through either unqualified or qualified names. A
-named routine with <code>[mux]</code> parameters cannot be stored or passed as a
-first-class routine value, and anonymous routines cannot declare <code>[mux]</code>
+named routine with <code>mux[T]</code> parameters cannot be stored or passed as a
+first-class routine value, and anonymous routines cannot declare <code>mux[T]</code>
 parameters. Those routine-value forms do not yet retain the mutex ABI metadata
 needed to preserve <code>Arc&lt;Mutex&lt;T&gt;&gt;</code>; use a named direct call instead.</p>
 <p>Despite this chapter’s historical filename, the shipped surface is OS-thread

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -206,16 +206,21 @@ The call form must resolve directly to a named routine declaration. Both an
 unqualified call such as <code>[&gt;]worker()</code> and a qualified call such as
 <code>[&gt;]workers::worker()</code> are supported. Stored routine values, stored anonymous
 routines, and routine parameters remain indirect calls and are not spawn
-targets in <code>V3</code>. The explicit zero-parameter anonymous spawn form remains
-available for explicit channel sender-endpoint captures; it is not a general
-closure-capture surface. Receiver-method call syntax is not a named
-spawn-target form; use a free routine name or qualified path instead.</p>
+targets in <code>V3</code>. The explicit zero-parameter anonymous spawn form carries an
+explicit capture list: channel sender endpoints (<code>c[tx]</code>) and value operations
+(<code>data[mov]</code>, <code>amount[cpy]</code>, <code>record[cln]</code>) thread their captures into the
+task, and <code>state[bor]</code> lends the outer binding to the scoped task: the owner
+stays readable but is frozen — no mutation, no transfer — until the scope
+joins its tasks. Borrowed captures require a clone-safe, thread-safe owner. Receiver-method call
+syntax is not a named spawn-target form; use a free routine name or qualified
+path instead.</p>
 <p>The spawn boundary follows the <code>V3</code> memory rules:</p>
 <ul>
 <li>clone-safe values clone into the task</li>
 <li>thread-safe move-only values, including <code>@</code> ownership and unique pointers,
 move into the task and leave the sender moved-out</li>
-<li>borrowed values do not cross the thread boundary</li>
+<li>borrowed values cross only as explicit <code>[bor]</code> captures of a scoped task,
+which freeze their owner until the scope joins</li>
 <li><code>ptr[shared, T]</code> values do not cross the boundary because their <code>Rc</code> backing
 is not thread-safe</li>
 <li>unresolved generic parameters do not cross until FOL has a thread-safety and
@@ -223,19 +228,34 @@ lifetime contract for generics; concrete thread-safe instantiations can cross</l
 <li>omitted defaults are checked as task arguments under the same rules as
 explicit arguments</li>
 </ul>
-<p>Cross-thread shared mutation belongs to <code>[mux]</code> parameters, not <code>Rc</code>.</p>
+<p>Cross-thread shared mutation belongs to <code>mux[T]</code> parameters, not <code>Rc</code>.</p>
 <p>The exact positive and negative spawn examples are maintained in the
 <a href="./_index.html#shipped-example-inventory">canonical shipped processor inventory</a>.</p>
 <h2 id="channels"><a class="header" href="#channels">Channels</a></h2>
 <p>Channels are an implemented processor surface. The contract is an unbounded
 MPSC <code>chn[T]</code> backed by <code>std::sync::mpsc</code>: <code>c[tx]</code> sends without blocking,
-<code>c[rx]</code> performs a blocking pull, and receiver iteration runs until all sender
-handles are dropped. The old sequence-index spelling <code>c[rx][i]</code> is not part of
-the contract.</p>
+<code>c[rx]</code> performs a blocking pull that yields <code>opt[T]</code> — its present branch owns
+a fresh payload and <code>nil</code> means every sender has closed — and receiver iteration
+runs until all sender handles are dropped. Unwrap the result with <code>c[rx][]</code> or
+bind it and inspect it with <code>when ... on ... *</code>. The old sequence-index spelling
+<code>c[rx][i]</code> is not part of the contract.</p>
+<p>A send <code>value | c[tx]</code> produces a must-handle <code>err[T]</code>: <code>nil</code> means the payload
+was delivered, and the present branch owns the unsent payload when every
+receiver has already closed. Bind it (<code>var sent: err[int] = value | c[tx]</code>),
+inspect it with <code>when ... on ... *</code>, or propagate it; a bare send that discards
+the result — and with it the unsent payload — is rejected.</p>
+<p>A transmitter is a first-class value. <code>c[tx]</code> has type <code>chn[tx, T]</code>, a
+clone-capable sender endpoint that may be bound, passed to another routine, or
+returned. Sending works through any sender value — <code>value | sender</code> — not only a
+direct <code>c[tx]</code> access, so a producer can accept a <code>chn[tx, T]</code> parameter and emit
+into it. The receiver endpoint is also a first-class <code>chn[rx, T]</code> value, but
+unlike the cloneable sender it is unique and move-only: it may be bound, passed,
+or returned, yet never duplicated, so a channel keeps exactly one receiver.</p>
 <p><code>T</code> may be a thread-safe move-only value. Sending consumes that value, and a
 blocking receive, receiver iteration, or selected arm transfers the payload to
-its destination without cloning it. Unique pointers are supported this way;
-values containing <code>ptr[shared, T]</code> remain barred from OS-thread boundaries.</p>
+its destination without cloning it; the blocking receive delivers it inside the
+<code>opt[T]</code> shell. Unique pointers are supported this way; values containing
+<code>ptr[shared, T]</code> remain barred from OS-thread boundaries.</p>
 <p>The first <code>c[rx]</code> acquisition relinquishes that channel binding’s local
 transmitter capability. Clone or capture every needed <code>c[tx]</code> handle before
 receiving. Sender handles acquired earlier remain valid and the channel closes
@@ -286,8 +306,9 @@ fairness guarantee is promised.</p>
 for lowering. A default-only select is non-blocking because its <code>*</code> body runs
 immediately.</p>
 <h2 id="mutex-parameters"><a class="header" href="#mutex-parameters">Mutex parameters</a></h2>
-<p>The chosen mutex surface uses the ordinary parameter-option seam:</p>
-<pre><code class="language-fol">fun[] update(value[mux]: Counter): int = {
+<p>The mutex is the first-class managed type <code>mux[T]</code>. The direct handle surface
+locks and unlocks through the handle itself:</p>
+<pre><code class="language-fol">fun[] update(value: mux[Counter]): int = {
     value.lock();
     value.total = value.total + 1;
     var result: int = value.total;
@@ -295,7 +316,7 @@ immediately.</p>
     return result;
 };
 </code></pre>
-<p><code>[mux]</code> lowers to <code>Arc&lt;Mutex&lt;T&gt;&gt;</code>. A routine acquires the guard with <code>.lock()</code>;
+<p><code>mux[T]</code> lowers to <code>Arc&lt;Mutex&lt;T&gt;&gt;</code>. A routine acquires the guard with <code>.lock()</code>;
 guarded fields are accessible only while that guard is active. The guard is
 released automatically at the end of the lexical scope that acquired it, or
 early with <code>.unlock()</code> in that same scope. Locking the same parameter twice is
@@ -304,22 +325,49 @@ scope. The historical <code>((name))</code> parameter spelling is not retained.<
 <p>Mutex field access and <code>.lock()</code>/<code>.unlock()</code> are not allowed inside <code>dfr</code> or
 <code>edf</code> bodies in <code>V3</code>. Guard transitions are tracked for immediate lexical
 execution and are not replayed as delayed effects at scope exit. Forwarding a
-mutex handle from a deferred body to another <code>[mux]</code> routine is rejected for
+mutex handle from a deferred body to another <code>mux[T]</code> routine is rejected for
 the same reason.</p>
 <p>The guarded <code>T</code> cannot be copied, returned, embedded, or passed to an ordinary
 <code>T</code> parameter as a whole value. Passing the mutex handle directly to another
-<code>[mux]</code> parameter is allowed, including through spawn; data access still
+<code>mux[T]</code> parameter is allowed, including through spawn; data access still
 requires that receiving routine to acquire its own guard.</p>
+<p>Wrapping an existing owner into a <code>mux[T]</code> parameter transfers it into the
+mutex and consumes the binding: the call site must state <code>[mov]owner</code>, and the
+original binding is unusable afterward. An implicit copy at that boundary
+would silently fork the state between the caller’s binding and the guarded
+value, so it is rejected even for copy-safe types. Fresh values (record
+literals or call results) pass without an operation — there is no surviving
+source to fork.</p>
 <p>For a synchronous call, the caller must unlock a handle before forwarding it
-to another <code>[mux]</code> parameter; otherwise the callee could block trying to acquire
-the caller’s guard. One call also cannot pass the same handle to two <code>[mux]</code>
+to another <code>mux[T]</code> parameter; otherwise the callee could block trying to acquire
+the caller’s guard. One call also cannot pass the same handle to two <code>mux[T]</code>
 parameters because those aliases can self-deadlock. Spawn and async calls are
 task boundaries and may receive the cloned handle while the caller still holds
 its guard; the new task waits until the caller releases it.</p>
-<p>The <code>[mux]</code> calling convention is currently available only on named routines
+<h3 id="guard-values"><a class="header" href="#guard-values">Guard values</a></h3>
+<p>Locking a borrowed handle produces a named, lifetime-scoped mutable guard
+bound with <code>var[mut, bor]</code>. Field access goes through the guard while the lock
+is held:</p>
+<pre><code class="language-fol">fun[] bump(state: mux[Counter]): int = {
+    var[mut, bor] guard: Counter = ([bor]state).lock();
+    guard.value = guard.value + 1;
+    var snapshot: int = guard.value;
+    [end]guard;
+    return snapshot;
+};
+</code></pre>
+<p>The guard releases at its last use (the same non-lexical rule as ordinary
+loans), or early and explicitly with <code>[end]guard</code>. A guard value cannot be
+moved, copied, or cloned, and it cannot be held across a spawn, an await, or a
+blocking receive — the checker rejects those boundaries rather than attempting
+static deadlock analysis. End the guard first, then cross the boundary
+(<code>examples/proc_mutex_guard_end_m3</code> shows the early-end pattern;
+<code>examples/fail_proc_mutex_guard_await_m3</code> and
+<code>examples/fail_proc_mutex_guard_move_m3</code> pin the rejections).</p>
+<p>The <code>mux[T]</code> calling convention is currently available only on named routines
 that are called directly, through either unqualified or qualified names. A
-named routine with <code>[mux]</code> parameters cannot be stored or passed as a
-first-class routine value, and anonymous routines cannot declare <code>[mux]</code>
+named routine with <code>mux[T]</code> parameters cannot be stored or passed as a
+first-class routine value, and anonymous routines cannot declare <code>mux[T]</code>
 parameters. Those routine-value forms do not yet retain the mutex ABI metadata
 needed to preserve <code>Arc&lt;Mutex&lt;T&gt;&gt;</code>; use a named direct call instead.</p>
 <p>Despite this chapter’s historical filename, the shipped surface is OS-thread

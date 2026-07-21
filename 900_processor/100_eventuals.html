@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -185,10 +185,22 @@ the processor API; it is not what makes the executable runnable.</p>
 <pre><code class="language-fol">var pending = calculate() | async;
 var value = pending | await;
 </code></pre>
-<p><code>| async</code> starts the call on an OS thread and produces an internal eventual.
-<code>| await</code> blocks the current OS thread until that computation finishes. The
-eventual type is not nameable in <code>V3</code>; <code>evt[T]</code> is only a possible later design
-slot.</p>
+<p><code>| async</code> starts the call on an OS thread and produces a one-shot eventual.
+<code>| await</code> blocks the current OS thread until that computation finishes. A local
+binding may name the eventual with its lexical lifetime elided (V3_MEM §8.1):
+<code>evt[T]</code> for an infallible call and <code>evt[T / E]</code> for a recoverable one, e.g.
+<code>var work: evt[int] = compute(7) | async</code>. The public lifetime-carrying
+<code>evt[L, T]</code> spelling is also a namable type, naming the region the eventual
+belongs to. An eventual that crosses a routine signature must spell that
+lifetime on both sides: a parameter or return type declares <code>L: lif</code> and
+writes <code>evt[L, T]</code>, and the lifetime name must resolve to a declared lifetime
+parameter. The elided <code>evt[T]</code> form is local-declaration shorthand only.</p>
+<p>This signature rule is what makes <code>L</code> enforceable without a region solver.
+Handles cannot be embedded in aggregates or wrappers, sent through channels,
+stored at module level, captured by routine values, or enter detached tasks —
+so the only way a handle travels is through signatures and local moves.
+Requiring the <code>evt[L, T]</code> spelling wherever a signature carries one means a
+handle provably cannot outlive the parent scope <code>L</code> names.</p>
 <p>The call to the left of <code>| async</code> must resolve directly to a named routine
 declaration. Both <code>calculate()</code> and a qualified call such as
 <code>workers::calculate()</code> are supported; qualification selects a declaration and
@@ -198,9 +210,8 @@ targets in <code>V3</code>. Receiver-method call syntax is also excluded from th
 target surface; call a free named routine directly instead.</p>
 <p>Nested routine bodies cannot implicitly capture outer locals. Pass ordinary
 outer values through declared parameters instead of relying on a hidden closure
-environment. An outer eventual cannot use that workaround because its type is
-internal and generic crossings are forbidden; await and handle it in the outer
-routine.</p>
+environment. An outer eventual cannot use that workaround because generic
+crossings are forbidden; await and handle it in the outer routine.</p>
 <p>Eventual bindings are move-only. A plain binding or assignment transfers the
 eventual and makes the source binding unavailable. An eventual may be consumed
 at most once: <code>| await</code> consumes the current binding, so a second await is a
@@ -246,8 +257,9 @@ are not part of <code>V3</code>.</p>
 <code>V3</code> does not execute generator <code>yield</code>; that statement remains recognized by
 the parser but is rejected by semantic analysis and lowering. <code>async</code> also does
 not color the called routine or change its declaration.</p>
-<p>The eventual slice is implemented end to end. Its exact positive, tier-failure,
-must-handle failure, and unnameable-<code>evt[T]</code> example set is maintained in the
+<p>The eventual slice is implemented end to end. Its exact positive (including the
+namable <code>evt[T]</code> local), tier-failure, and must-handle failure example set is
+maintained in the
 <a href="./_index.html#shipped-example-inventory">canonical shipped processor inventory</a>.</p>
 
                     </main>

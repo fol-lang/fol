@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -308,6 +308,26 @@ tier layers on top of <code>memo</code>; <code>.len(...)</code> does not itself 
 <li>it then forwards the same value unchanged</li>
 </ul>
 <p><code>.echo(...)</code> belongs to <code>std</code>, not <code>core</code> or <code>memo</code>.</p>
+<h3 id="terminal-and-os-hooks"><a class="header" href="#terminal-and-os-hooks">Terminal and OS hooks</a></h3>
+<p>The primitive layer for interactive terminal programs shares <code>.echo(...)</code>’s
+build contract (a <code>memo</code> artifact with the explicit bundled <code>std</code>
+dependency):</p>
+<ul>
+<li><code>.write(text)</code> — write a string to stdout without a trailing newline and
+flush it; forwards the string unchanged</li>
+<li><code>.read_key()</code> — block for one byte of standard input; yields <code>-1</code> at end of
+input</li>
+<li><code>.raw_mode(enable)</code> — enable or disable terminal raw mode; forwards the
+requested state</li>
+<li><code>.sleep_ms(ms)</code> — sleep the current thread; forwards the duration</li>
+<li><code>.now_ms()</code> — milliseconds since the unix epoch</li>
+<li><code>.term_cols()</code> / <code>.term_rows()</code> — terminal size (80×24 when it cannot be
+determined)</li>
+<li><code>.int_to_str(value)</code> — render an integer as its decimal string</li>
+</ul>
+<p>The bundled <code>std</code> package wraps them as <code>std::io::write</code>, <code>std::io::read_key</code>,
+<code>std::term::raw_mode</code>, <code>std::term::cols</code>, <code>std::term::rows</code>,
+<code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>, and <code>std::fmt::int_to_str</code>.</p>
 <p>With that build contract, this is valid:</p>
 <pre><code class="language-fol">fun[] main(flag: bol): bol = {
     return .echo(flag)
@@ -356,8 +376,8 @@ accidental user-space name collisions, but they are not part of the current
 <li><code>.de_alloc(...)</code></li>
 </ul>
 <p>Explicit deallocation is not part of the V3 memory model. Unique heap values
-drop implicitly, borrowing uses <code>#owner</code> and <code>!borrow</code>, and typed pointers use
-<code>&amp;value</code> and <code>*pointer</code>. The old dot-root memory spellings are not reserved or
+drop implicitly, borrowing uses <code>[bor]owner</code> and <code>[end]borrow</code>, and typed pointers use
+<code>[ref]value</code> and <code>[drf]pointer</code>. The old dot-root memory spellings are not reserved or
 supported aliases.</p>
 <h2 id="library-preferred-surfaces"><a class="header" href="#library-preferred-surfaces">Library-preferred surfaces</a></h2>
 <p>Some names are kept in the registry roadmap only as placeholders while the
@@ -382,18 +402,18 @@ language decides whether they should really stay compiler-owned.</p>
 <p>The current direction is that many of these may fit better in <code>core</code> or <code>std</code>
 instead of becoming permanent compiler intrinsics.</p>
 <h2 id="intrinsics-are-not-shell-operations"><a class="header" href="#intrinsics-are-not-shell-operations">Intrinsics are not shell operations</a></h2>
-<p>Do not confuse intrinsics with shell syntax such as <code>nil</code> and postfix unwrap
+<p>Do not confuse intrinsics with shell syntax such as <code>nil</code> and unwrap
 <code>!</code>.</p>
 <p>For example:</p>
 <pre><code class="language-fol">ali MaybeText: opt[str]
 ali Failure: err[str]
 
 fun[] unwrap_optional(value: MaybeText): str = {
-    return value!
+    return [uwp]value
 }
 
 fun[] unwrap_failure(value: Failure): str = {
-    return value!
+    return [uwp]value
 }
 </code></pre>
 <p>That <code>!</code> surface is part of shell typing, not the intrinsic registry.</p>

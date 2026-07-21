@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,6 +175,11 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="unpacking"><a class="header" href="#unpacking">Unpacking</a></h1>
+<blockquote>
+<p><strong>Current boundary:</strong> fixed-name unpacking (<code>var a, b = container</code>) is
+implemented over set, array, vector, and sequence sources. Rest patterns
+(<code>*name</code>) parse but are rejected by typechecking in this milestone.</p>
+</blockquote>
 <p>Current boundary:</p>
 <ul>
 <li>unpacking / iterable-destructuring forms (<code>var a, *_ = ...</code>) are not part of

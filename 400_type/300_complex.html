@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,12 +187,12 @@ part of the current compiler surface. Imaginary-number support is likewise
 outside the active stream, lexer, parser, and lowering contract.</p>
 <h2 id="pointers"><a class="header" href="#pointers">Pointers</a></h2>
 <p>V3 ships typed unique and shared pointers:</p>
-<pre><code class="language-fol">var[mut] unique: ptr[int] = &amp;value;
-var shared: ptr[shared, int] = &amp;value;
+<pre><code class="language-fol">var[mut] unique: ptr[int] = [ref]value;
+var shared: ptr[shared, int] = [ref]value;
 </code></pre>
 <p><code>ptr[T]</code> is uniquely owned and writable through a mutable pointer binding.
 <code>ptr[shared, T]</code> is reference-counted and read-only. Pointer types can be
-analyzed in <code>core</code>, but <code>&amp;value</code> constructs an allocation and therefore
+analyzed in <code>core</code>, but <code>[ref]value</code> constructs an allocation and therefore
 requires <code>memo</code>. A <code>memo</code> artifact may additionally declare bundled <code>std</code>, but
 the pointer operation itself does not require hosted APIs. Raw <code>ptr[raw, T]</code>
 remains a V4 interop boundary.</p>

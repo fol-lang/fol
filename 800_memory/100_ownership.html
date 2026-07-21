@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -222,10 +222,10 @@ when its result is discarded. Lowering still evaluates that expression, so the
 source cannot be used afterward. Clone-safe scalar expression statements remain
 usable because their values clone.</p>
 <p>A whole mutable binding can be reinitialized after its old value moves:</p>
-<pre><code class="language-fol">var[mut] pointer: ptr[int] = &amp;first;
+<pre><code class="language-fol">var[mut] pointer: ptr[int] = [ref]first;
 consume(pointer);
-pointer = &amp;second;
-return *pointer;
+pointer = [ref]second;
+return [drf]pointer;
 </code></pre>
 <p>The assignment target is a storage place, not a read of the missing old value.
 The right-hand side is checked and transferred first, then a successful store
@@ -247,13 +247,13 @@ projection IR; such a lookup is rejected instead of partially moving its
 source. The same boundary rejects nested field access through a move-only
 intermediate.</p>
 <p>Dereferencing is a by-value operation whose ownership effect depends on the
-pointee. <code>*pointer</code> clones a clone-safe pointee and leaves the pointer usable.
+pointee. <code>[drf]pointer</code> clones a clone-safe pointee and leaves the pointer usable.
 If the pointee is move-only, dereferencing a direct unique <code>ptr[T]</code> transfers
 the pointee and consumes that pointer. A shared or borrowed pointer cannot
 surrender a move-only pointee, so those dereferences are rejected; their
 read-only dereference is available only when the pointee is clone-safe.</p>
 <p>Dereferencing a unique-pointer field is also a place observation, not a whole
-field transfer. Until V3 has place-aware projection IR, <code>*record.pointer</code> is
+field transfer. Until V3 has place-aware projection IR, <code>[drf]record.pointer</code> is
 rejected even when its pointee is clone-safe; otherwise backend lowering would
 partially move the pointer just to observe its target. Direct pointer bindings
 remain available. A field containing <code>ptr[shared, T]</code> can be dereferenced when
@@ -315,18 +315,19 @@ to one nominal Rust structure whose recursive field has the shape
 </code></pre>
 <p>Such a type has no finite value layout. The compiler recommends an owned edge
 such as <code>opt @Bad</code> instead.</p>
-<h2 id="lexical-borrowing"><a class="header" href="#lexical-borrowing">Lexical borrowing</a></h2>
+<h2 id="borrowing"><a class="header" href="#borrowing">Borrowing</a></h2>
 <p>A borrow is an alias that does not take ownership:</p>
 <pre><code class="language-fol">var owner: Node = { value = 7, next = nil };
 var[bor] view: Node = owner;
 var value: int = view.value;
 </code></pre>
-<p><code>#owner</code> is expression sugar for borrowing from an owner:</p>
-<pre><code class="language-fol">var[bor] view: Node = #owner;
+<p><code>[bor]owner</code> borrows from an owner as an expression:</p>
+<pre><code class="language-fol">var[bor] view: Node = [bor]owner;
 </code></pre>
-<p>Borrowing is scope-granular. A borrow remains active until the end of the
-lexical scope where its binding was created. FOL deliberately does not use
-flow-sensitive or non-lexical lifetime analysis in V3.</p>
+<p>Borrowing is non-lexical. A borrow stays active only until its last use, not
+until the end of the lexical scope where its binding was created. Once a loan’s
+final read has passed, the owner becomes usable again in the same scope with no
+explicit give-back.</p>
 <p>While a borrow is active:</p>
 <ul>
 <li>the owner cannot be read, written, moved, or borrowed incompatibly</li>
@@ -343,24 +344,25 @@ observations remain available</li>
 };
 return owner.value;
 </code></pre>
-<p><code>!view</code> gives a borrow back before scope exit. A returned borrow cannot be used
+<p><code>[end]view</code> gives a borrow back before scope exit. A returned borrow cannot be used
 again; attempting to read <code>view</code> afterward reports <code>O2004</code> with the give-back
 site as related information:</p>
 <pre><code class="language-fol">var[bor] view: Node = owner;
 var value: int = view.value;
-!view;
+[end]view;
 return view.value;
 </code></pre>
 <p>The <code>!</code> prefix is give-back only. It is not deletion or manual memory free.</p>
-<p>V3 does not support reborrowing a borrow binding. Borrow from the original owner
-or pass an existing borrow binding directly to a <code>[bor]</code> parameter instead.</p>
+<p>A borrow binding may be reborrowed: <code>[bor]view</code> creates a nested loan from an
+existing borrow, released like any other loan by its last use or an explicit
+<code>[end]</code>. A reborrow cannot outlive the loan it derives from.</p>
 <h2 id="mutable-borrowing"><a class="header" href="#mutable-borrowing">Mutable borrowing</a></h2>
 <p>A mutable borrow requires both an explicitly mutable owner and an explicitly
 mutable borrow binding:</p>
 <pre><code class="language-fol">var[mut] owner: Node = { value = 7, next = nil };
 var[mut, bor] view: Node = owner;
 view.value = 9;
-!view;
+[end]view;
 return owner.value;
 </code></pre>
 <p><code>var[bor]</code> is immutable unless <code>mut</code> is also present. A <code>var[mut, bor]</code> binding
@@ -375,7 +377,7 @@ ownership diagnostic.</p>
 };
 </code></pre>
 <p>The backend emits a Rust reference parameter. Passing an owner requires an
-explicit <code>#owner</code>; an existing compatible borrow binding can be passed directly
+explicit <code>[bor]owner</code>; an existing compatible borrow binding can be passed directly
 and reused by later <code>[bor]</code> calls. The call borrow ends when the call returns,
 while an existing borrow binding keeps its surrounding lexical lifetime.
 Parameter spelling or casing never changes ownership semantics;
@@ -384,6 +386,67 @@ observe clone-safe data, but it cannot return or forward a move-only value as
 an owned argument.</p>
 <p>Borrowing is compile-time-only and legal in <code>core</code>. It does not allocate or add
 runtime reference bookkeeping.</p>
+<h2 id="named-lifetimes"><a class="header" href="#named-lifetimes">Named lifetimes</a></h2>
+<p>When a routine returns a borrow, the compiler must know which input the result
+may alias. A lifetime parameter <code>L: lif</code> names a single region and ties the
+borrowed inputs and the borrowed result together:</p>
+<pre><code class="language-fol">fun pick(L: lif)(left: Item[bor=L], right: Item[bor=L]): Item[bor=L] = {
+    return left;
+};
+</code></pre>
+<p><code>Item[bor=L]</code> is a borrow bound to region <code>L</code>. The returned borrow is valid for
+as long as every input it may alias, so the caller’s owners must outlive the
+result. A routine that borrows a single input and returns a borrow may leave the
+region implicit; naming it is required only when several borrows share one
+result region.</p>
+<h2 id="receiver-ownership"><a class="header" href="#receiver-ownership">Receiver ownership</a></h2>
+<p>A method states how it takes its receiver with the same option position; the
+receiver binds to <code>self</code>:</p>
+<pre><code class="language-fol">fun (Node[bor])inspect(): int = { return self.value; };
+pro (Node[mut, bor])update(): non = { self.value = 9; return; };
+fun (Node)consume(): int = { return self.value; };
+</code></pre>
+<p>A <code>fun</code> may take a shared <code>[bor]</code> receiver or move its receiver by value; only a
+<code>pro</code> may take a mutable <code>[mut, bor]</code> receiver. At the call site the ownership
+operation binds the receiver directly, with no surrounding parentheses:</p>
+<pre><code class="language-fol">[bor]node.inspect();
+[mut, bor]node.update();
+[mov]node.consume();
+</code></pre>
+<p><code>[op]receiver.method()</code> groups as <code>([op]receiver).method()</code>: the operation
+describes how the receiver crosses the call boundary, not the call’s result, and
+a <code>[mut, bor]</code> receiver’s field updates persist to the original binding. The
+rule is scoped to a trailing method call — a plain place chain keeps the
+operation over the place, so <code>[mov]bundle.held</code> still moves the <code>held</code> subfield
+rather than <code>bundle</code>. The same grouping applies to the bracket unary operations,
+so <code>[drf]pointer.method()</code> dereferences <code>pointer</code> and then calls the method.</p>
+<h2 id="closure-captures"><a class="header" href="#closure-captures">Closure captures</a></h2>
+<p>An anonymous routine used as a first-class value declares how outer locals
+enter its environment with the same capture list delayed blocks use. The
+routine value’s type is its visible call signature; the environment re-supplies
+the captured values on every invocation:</p>
+<pre><code class="language-fol">var base: int = 30;
+var adder: {fun (n: int): int} = fun(n: int)[base[cpy]]: int = { return n + base; };
+var first: int = adder(12);
+</code></pre>
+<p><code>[cpy]</code> and <code>[cln]</code> duplicate the outer value into the environment, leaving the
+source live. <code>[mov]</code> transfers a clone-safe value and invalidates the outer
+binding; moving a move-only value into a routine value is rejected because the
+closure may run more than once — spawn the routine directly when the value
+should transfer into exactly one execution.</p>
+<p>A local, nonescaping closure may also borrow: <code>[bor]</code> captures infer their
+lifetime as the enclosing scope. The owner stays readable but is frozen — no
+mutation, no transfer — while the closure can still run, and the closure value
+itself cannot escape that scope: returning it, passing it to a call, storing
+it, or rebinding it is rejected. The one sanctioned crossing is a parameter
+whose routine type names its environment lifetime — <code>{fun (): int}[bor=L]</code>
+with a declared <code>L: lif</code> — which receives the closure and obeys the same
+nonescaping rules inside the callee
+(<code>examples/mem_closure_env_lifetime_m2</code> and
+<code>examples/fail_mem_closure_env_leak_m2</code> pin that boundary). Channel-endpoint captures never enter routine
+values (<code>examples/mem_closure_capture_m2</code>, <code>examples/mem_closure_borrow_m2</code>,
+<code>examples/fail_mem_closure_move_only_m2</code>, and
+<code>examples/fail_mem_closure_escape_m2</code> pin the contract).</p>
 
                     </main>
 
@@ -393,7 +456,7 @@ runtime reference bookkeeping.</p>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../800_memory/200_pointers.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../800_memory/150_capabilities.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -407,7 +470,7 @@ runtime reference bookkeeping.</p>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../800_memory/200_pointers.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../800_memory/150_capabilities.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -238,7 +238,7 @@ The <code>!borrow</code> prefix may give it back earlier.</p>
 <pre><code class="language-fol">fun[] main(): int = {
     var value: int = 55;
     {
-        var[bor] view: int = #value;
+        var[bor] view: int = [bor]value;
         var seen: int = view;
     };
     return value;
@@ -394,7 +394,7 @@ fun[] main(): int = {
 <pre><code>var oneVar, twoVar: int[8] = 2;
 </code></pre>
 <p>However, each of them gets a copy of the variable on a new memory address:</p>
-<pre><code>.assert(&amp;oneVar == &amp;twoVar)           // this will return false
+<pre><code>.assert([ref]oneVar == [ref]twoVar)           // this will return false
 </code></pre>
 <h3 id="one-to-many"><a class="header" href="#one-to-many">One to many</a></h3>
 <p>And lastly, one variable can be assigned to multiple ones. This by using container types:</p>

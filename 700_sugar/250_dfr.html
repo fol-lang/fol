@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -290,8 +290,8 @@ surrounding exit is being replayed</li>
 <li><code>| await</code> and access to an existing eventual binding cannot occur inside
 <code>edf</code>; an error-only body cannot discharge eventual ownership on normal exits,
 and the restriction remains active inside a <code>dfr</code> nested within that <code>edf</code></li>
-<li>a <code>[mux]</code> handle cannot be locked, unlocked, used for guarded field access,
-or forwarded to another <code>[mux]</code> parameter there</li>
+<li>a <code>mux[T]</code> handle cannot be locked, unlocked, used for guarded field access,
+or forwarded to another <code>mux[T]</code> parameter there</li>
 </ul>
 <p>These are compile-time boundaries, not cleanup operations that are silently
 skipped. An outer <code>report</code> still triggers registered <code>dfr</code> and <code>edf</code> bodies;
@@ -319,9 +319,9 @@ instead makes the reference inside the deferred body an ordinary use-after-move
 error. A reservation registered in a nested block ends after that block’s
 deferred work has run, so the owner may be transferred afterward.</p>
 <p>Mutex guard effects are not deferred in <code>V3</code>. A <code>dfr</code> or <code>edf</code> body cannot
-call <code>.lock()</code> or <code>.unlock()</code> on a <code>[mux]</code> parameter, and it cannot access
+call <code>.lock()</code> or <code>.unlock()</code> on a <code>mux[T]</code> parameter, and it cannot access
 mutex-guarded fields even when the surrounding scope currently holds the
-guard. It also cannot forward the mutex handle to another <code>[mux]</code> routine,
+guard. It also cannot forward the mutex handle to another <code>mux[T]</code> routine,
 because that would hide delayed guard transitions behind the call. Perform
 guarded work in ordinary control flow before registering deferred cleanup.</p>
 <p>Channel endpoint acquisition is similarly rejected inside <code>dfr</code> and <code>edf</code>.
@@ -332,6 +332,32 @@ binding cannot be reinitialized inside <code>dfr</code> or <code>edf</code>: typ
 as immediate would make the binding look usable before the deferred assignment
 actually runs. Reinitialize the binding in ordinary control flow before the
 deferred block is registered.</p>
+<h2 id="explicit-captures"><a class="header" href="#explicit-captures">Explicit captures</a></h2>
+<p>A delayed block declares how outer locals enter it with a capture list — every
+routine-local binding the body uses must appear in it. Each entry names an
+outer binding and states its operation:</p>
+<pre><code class="language-fol">var seen: int = 2;
+var owned: ptr[int] = [ref]seed;
+dfr[seen[bor], owned[mov]] {
+    std::io::echo_int(seen + [drf]owned);
+};
+</code></pre>
+<p><code>[bor]</code> observes the binding — the owner stays restricted while the block can
+still run, and the loan is read-only: assigning through a <code>[bor]</code> capture is
+rejected. A block that mutates its capture states the composite <code>[mut, bor]</code>
+mutable loan instead:</p>
+<pre><code class="language-fol">var[mut] total: int = 5;
+dfr[total[mut, bor]] { total = total + 37; };
+</code></pre>
+<p><code>mut</code> composes only with <code>bor</code>. <code>[mov]</code> transfers the value into the block’s
+environment: the outer binding is invalidated for the rest of the scope, and
+the block still owns the value when scope-exit cleanup executes it. <code>[cpy]</code>
+and <code>[cln]</code> duplicate the value under the same capability rules as spawn
+captures. A bare capture name without an operation is rejected, as is a
+channel endpoint capture — endpoints belong to spawned tasks, not delayed
+blocks. Using an undeclared outer local
+inside the block is an ownership error; module-level values and routine names
+are not captures and need no declaration.</p>
 <h2 id="current-milestone-boundary"><a class="header" href="#current-milestone-boundary">Current milestone boundary</a></h2>
 <p>The basic <code>dfr</code> form belongs to V1. Ownership-aware ordering and <code>edf</code> are the
 shipped V3 memory contract. V3 processor resources do not become generalized

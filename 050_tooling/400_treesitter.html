@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -321,7 +321,7 @@ these tests fail until the tree-sitter files are updated to match.</p>
 <tr><td><code>v3_ownership.txt</code></td><td>owned allocation, borrow options, <code>~var</code>, and give-back</td></tr>
 <tr><td><code>v3_pointers.txt</code></td><td>nested <code>ptr[...]</code> / <code>chn[...]</code> types, <code>@</code> types, address-of, and dereference</td></tr>
 <tr><td><code>v3_deferred.txt</code></td><td><code>dfr</code> and error-only <code>edf</code> blocks</td></tr>
-<tr><td><code>v3_channels_select_mutex.txt</code></td><td>spawn, channel endpoints, multi-arm <code>select</code>, and <code>[mux]</code> parameters</td></tr>
+<tr><td><code>v3_channels_select_mutex.txt</code></td><td>spawn, channel endpoints, multi-arm <code>select</code>, and <code>mux[T]</code> parameters</td></tr>
 <tr><td><code>v3_eventuals.txt</code></td><td>spawn plus <code>| async</code> and <code>| await</code> stages</td></tr>
 <tr><td><code>v3_lexical_boundaries.txt</code></td><td>multiline backtick/slash-block comments, exact <code>[doc]</code>, and raw single-quoted character/string boundaries</td></tr>
 </tbody>
@@ -352,7 +352,7 @@ families that should each have at least one corpus example:</p>
 <li>Error handling (<code>report</code>, pipe-or, <code>check</code>)</li>
 <li>V3 ownership and pointer sigils in both expression and nested type positions</li>
 <li>V3 deferred blocks (<code>dfr</code> / <code>edf</code>)</li>
-<li>V3 processor syntax (<code>[&gt;]</code>, <code>chn[...]</code>, channel endpoints, <code>select</code>, <code>[mux]</code>,
+<li>V3 processor syntax (<code>[&gt;]</code>, <code>chn[...]</code>, channel endpoints, <code>select</code>, <code>mux[T]</code>,
 <code>\| async</code>, and <code>\| await</code>)</li>
 <li>compiler-recognized lexical protection boundaries, especially multiline
 comments and raw single-quoted literals containing V3 sigils or braces</li>

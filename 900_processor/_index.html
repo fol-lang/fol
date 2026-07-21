@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,10 +175,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="concurrency"><a class="header" href="#concurrency">Concurrency</a></h1>
-<p>This section covers FOL’s shipped V3 concurrency and asynchronous execution
-model. Every processor surface is hosted <code>std</code>-only and is implemented with OS
-threads and Rust standard-library synchronization; FOL does not use a separate
-async runtime.</p>
+<p>This section covers FOL’s first shipped V3 concurrency and asynchronous
+execution subset. Every processor surface is hosted <code>std</code>-only and is
+implemented with OS threads and Rust standard-library synchronization; FOL does
+not use a separate async runtime.</p>
 <p>Here <code>std</code>-only describes source capability: the artifact uses
 <code>fol_model = "memo"</code> and the package explicitly declares the bundled internal
 <code>standard</code> dependency. It does not mean FOL needs <code>std</code> merely to launch a
@@ -210,9 +210,17 @@ editor tests consume that shared machine inventory.</p>
 <ul>
 <li><code>examples/proc_spawn_m1</code></li>
 <li><code>examples/proc_spawn_move_heap_m1</code></li>
+<li><code>examples/proc_spawn_canonical_m1</code></li>
+<li><code>examples/proc_spawn_detached_m1</code></li>
+<li><code>examples/proc_shared_sync_ptr_m1</code></li>
+<li><code>examples/proc_spawn_borrow_m1</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
+<li><code>examples/fail_proc_spawn_detached_borrow_m1</code></li>
+<li><code>examples/fail_proc_spawn_fin_m1</code></li>
+<li><code>examples/fail_proc_spawn_borrow_mutate_m1</code></li>
+<li><code>examples/fail_proc_spawn_weak_m3</code></li>
 <li><code>examples/fail_proc_spawn_heap_use_after_move_m1</code></li>
 <li><code>examples/fail_proc_spawn_in_core_m1</code></li>
 <li><code>examples/fail_proc_spawn_indirect_m1</code></li>
@@ -227,19 +235,27 @@ editor tests consume that shared machine inventory.</p>
 <li><code>examples/proc_channel_loop_m2</code></li>
 <li><code>examples/proc_channel_m2</code></li>
 <li><code>examples/proc_channel_pull_m2</code></li>
+<li><code>examples/proc_sender_endpoint_m2</code></li>
+<li><code>examples/proc_receiver_endpoint_m2</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
+<li><code>examples/fail_proc_channel_bare_send_m2</code></li>
 <li><code>examples/fail_proc_channel_capture_rx_m2</code></li>
 <li><code>examples/fail_proc_channel_in_core_m2</code></li>
 <li><code>examples/fail_proc_channel_in_memo_m2</code></li>
 <li><code>examples/fail_proc_channel_index_m2</code></li>
+<li><code>examples/fail_proc_channel_receive_bare_m2</code></li>
 <li><code>examples/fail_proc_channel_spawn_consumer_m2</code></li>
+<li><code>examples/fail_proc_clone_receiver_m2</code></li>
 </ul>
 <h3 id="p3-select-and-mutexes"><a class="header" href="#p3-select-and-mutexes">P3: select and mutexes</a></h3>
 <p>Positive:</p>
 <ul>
 <li><code>examples/proc_mutex_explicit_unlock_m3</code></li>
+<li><code>examples/proc_mutex_local_m3</code></li>
+<li><code>examples/proc_mutex_guard_m3</code></li>
+<li><code>examples/proc_mutex_guard_end_m3</code></li>
 <li><code>examples/proc_mutex_m3</code></li>
 <li><code>examples/proc_select_m3</code></li>
 </ul>
@@ -250,6 +266,8 @@ editor tests consume that shared machine inventory.</p>
 <li><code>examples/fail_proc_mutex_deferred_lock_m3</code></li>
 <li><code>examples/fail_proc_mutex_deferred_unlock_m3</code></li>
 <li><code>examples/fail_proc_mutex_double_paren_m3</code></li>
+<li><code>examples/fail_proc_mutex_guard_await_m3</code></li>
+<li><code>examples/fail_proc_mutex_guard_move_m3</code></li>
 <li><code>examples/fail_proc_mutex_in_core_m3</code></li>
 <li><code>examples/fail_proc_mutex_in_memo_m3</code></li>
 <li><code>examples/fail_proc_select_empty_m3</code></li>
@@ -262,9 +280,15 @@ editor tests consume that shared machine inventory.</p>
 <ul>
 <li><code>examples/proc_async_await_m4</code></li>
 <li><code>examples/proc_await_error_m4</code></li>
+<li><code>examples/proc_evt_named_m4</code></li>
+<li><code>examples/proc_evt_lifetime_m4</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
+<li><code>examples/fail_proc_evt_return_elided_m4</code></li>
+<li><code>examples/fail_proc_evt_param_elided_m4</code></li>
+<li><code>examples/fail_proc_evt_detached_m4</code></li>
+<li><code>examples/fail_proc_evt_embedded_m4</code></li>
 <li><code>examples/fail_proc_async_in_core_m4</code></li>
 <li><code>examples/fail_proc_async_break_outer_m4</code></li>
 <li><code>examples/fail_proc_async_edf_await_m4</code></li>
@@ -277,7 +301,6 @@ editor tests consume that shared machine inventory.</p>
 <li><code>examples/fail_proc_await_in_core_m4</code></li>
 <li><code>examples/fail_proc_await_in_memo_m4</code></li>
 <li><code>examples/fail_proc_await_recoverable_discard_m4</code></li>
-<li><code>examples/fail_proc_evt_named_m4</code></li>
 </ul>
 
                     </main>

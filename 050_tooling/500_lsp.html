@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -314,7 +314,7 @@ plain positions</li>
 </ul>
 </li>
 <li>compiler-backed V3 diagnostics and navigation for the checked-in ownership,
-borrowing, pointer, <code>dfr</code>/<code>edf</code>, spawn, channel, <code>select</code>, <code>[mux]</code>, async, and
+borrowing, pointer, <code>dfr</code>/<code>edf</code>, spawn, channel, <code>select</code>, <code>mux[T]</code>, async, and
 await examples</li>
 <li>positive V3 roots in LSP/open/navigation inventory sweeps and <code>fail_mem_*</code> /
 <code>fail_proc_*</code> roots in the guarded diagnostic inventory; the exact processor
@@ -332,7 +332,7 @@ terminating <code>report</code> inside deferred cleanup, indirect stored/paramet
 targets for spawn and async, implicit nested-routine capture of outer locals,
 recoverable eventuals left live at fallthrough or an exiting
 <code>break</code>/<code>return</code>/<code>report</code>, awaiting an eventual inside <code>edf</code>, and mutex field,
-guard, or <code>[mux]</code> forwarding effects inside deferred bodies.</p>
+guard, or <code>mux[T]</code> forwarding effects inside deferred bodies.</p>
 <p>If the client is attached but you see no diagnostics at all, the likely issue is
 not Tree-sitter. It is the LSP request/attach path.</p>
 <p>For the compiler-owned contracts behind diagnostics and semantic editor

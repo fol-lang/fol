@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,10 +177,10 @@
                         <h1 id="special"><a class="header" href="#special">Special</a></h1>
 <p>Current boundary:</p>
 <ul>
-<li>the <code>opt[...]</code> optional shell and the <code>err[...]</code> error shell are the current
-compiler surface</li>
-<li><code>uni[...]</code> (union), <code>any</code>, and <code>nev</code> (never) are not implemented; the compiler
-rejects them with a “not yet supported” diagnostic</li>
+<li>the <code>opt[...]</code> optional shell, the <code>err[...]</code> error shell, and the <code>nev</code>
+never type are the current compiler surface</li>
+<li><code>uni[...]</code> (union) and <code>any</code> are not implemented; the compiler rejects them
+with a “not yet supported” diagnostic</li>
 <li>those sections describe later design work, not current behavior</li>
 </ul>
 <h2 id="optional"><a class="header" href="#optional">Optional</a></h2>
@@ -213,7 +213,7 @@ Plain inference from <code>nil</code> alone is not supported.</p>
 <p>Current <code>V1</code> shell note:</p>
 <ul>
 <li><code>opt[...]</code> and <code>err[...]</code> are shell values.</li>
-<li>postfix unwrap <code>value!</code> applies to those shell values.</li>
+<li>Unwrap <code>[uwp]value</code> applies to those shell values.</li>
 <li>routine calls declared with <code>ResultType / ErrorType</code> are not <code>err[...]</code>
 shells.</li>
 <li>use <code>check(...)</code> or <code>expr || fallback</code> for those routine calls instead of

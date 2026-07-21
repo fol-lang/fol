@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-df4b2410.js"></script>
+        <script src="../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -315,7 +315,7 @@ meaning survives:</p>
 <li>canonical positive/failure examples, integration tests, docs, and the book</li>
 </ul>
 <p>For V3 specifically, this rule covers every ownership, borrow, pointer, <code>dfr</code> /
-<code>edf</code>, spawn, channel, <code>select</code>, <code>[mux]</code>, async, and await boundary. Reusing the
+<code>edf</code>, spawn, channel, <code>select</code>, <code>mux[T]</code>, async, and await boundary. Reusing the
 typechecker is necessary, but it is not permission to skip an explicit syntax,
 tooling, inventory, or documentation audit.</p>
 <p>Runtime-model synchronization must preserve two independent questions across

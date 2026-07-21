@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-580adf60.js";
+            window.path_to_searchindex_js = "../../searchindex-7891e20b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-df4b2410.js"></script>
+        <script src="../../toc-7a86c1dd.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -190,7 +190,7 @@
 <li>recoverable procedure errors (<code>Result / Error</code>) are part of <code>V1</code></li>
 <li>ownership-aware transfers, unique heap moves, and explicit <code>[bor]</code> parameters
 are part of the shipped <code>V3</code> memory contract</li>
-<li><code>[mux]</code> parameters and the direct named-routine task boundary are part of the
+<li><code>mux[T]</code> parameters and the direct named-routine task boundary are part of the
 shipped <code>V3</code> processor contract</li>
 </ul>
 <p>Pointer and borrowing examples in this chapter therefore describe current V3
@@ -206,7 +206,7 @@ outside that shipped surface.</p>
 <p>Current <code>V1</code> note:</p>
 <ul>
 <li>a procedure declared as <code>pro[] write(...): T / E</code> does not produce an
-<code>err[E]</code> shell value that can be unwrapped with <code>!</code></li>
+<code>err[E]</code> shell value that can be unwrapped with <code>[uwp]</code></li>
 <li>it produces a recoverable routine result with a success path and an error path</li>
 <li>use <code>check(...)</code> or <code>expr || fallback</code> at the call site</li>
 <li>keep postfix <code>!</code> for <code>opt[...]</code> and <code>err[...]</code> shell values only</li>

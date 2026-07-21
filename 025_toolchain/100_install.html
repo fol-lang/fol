@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Build Options - FOL Language Specification</title>
+        <title>Installing &amp; Developing - FOL Language Specification</title>
 
 
         <!-- Custom HTML head -->
@@ -174,145 +174,63 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="build-options"><a class="header" href="#build-options">Build Options</a></h1>
-<p>Build options are named values passed from the command line into <code>build.fol</code>.
-They follow Zig’s <code>-D</code> convention.</p>
-<h2 id="syntax"><a class="header" href="#syntax">Syntax</a></h2>
-<pre><code class="language-text">fol code build -Dname=value
+                        <h1 id="installing--developing"><a class="header" href="#installing--developing">Installing &amp; Developing</a></h1>
+<h2 id="getting-fol"><a class="header" href="#getting-fol">Getting <code>fol</code></a></h2>
+<p><code>fol</code> is the only binary you install by hand — everything else it fetches
+itself. Take the <code>fol-v&lt;version&gt;-&lt;target&gt;</code> asset from a release, drop it on
+your <code>PATH</code>, and set your home:</p>
+<pre><code class="language-console">$ curl -fL -o ~/.local/bin/fol \
+    https://github.com/fol-lang/fol/releases/download/v0.2.1/fol-v0.2.1-x86_64-linux
+$ chmod +x ~/.local/bin/fol
+$ export FOL_HOME="$HOME/.fol"        # add to your shell profile
 </code></pre>
-<p>Multiple options can be passed in one command:</p>
-<pre><code class="language-text">fol code build -Dtarget=x86_64-linux-gnu -Doptimize=release-fast -Dstrip=true
+<p>From that moment a plain <code>fol code run</code> inside any pinned project fetches the
+right toolchain automatically. To install one ahead of time:</p>
+<pre><code class="language-console">$ fol self install 0.2.1
+fetched fol 0.2.1 -&gt; ~/.fol/toolchains/v0.2.1
+$ fol self default 0.2.1
+default toolchain is now 0.2.1
 </code></pre>
-<h2 id="standard-options"><a class="header" href="#standard-options">Standard Options</a></h2>
-<p>Two options are pre-defined by the build system: <code>target</code> and <code>optimize</code>.
-They are read via dedicated graph methods.</p>
-<h3 id="target"><a class="header" href="#target">Target</a></h3>
-<pre><code class="language-fol">var target = graph.standard_target();
+<p>Prefer keeping everything project-local? Skip <code>FOL_HOME</code> entirely — inside a
+project the manager uses <code>&lt;project&gt;/.fol/toolchain</code> as its home, so the
+toolchain sits beside the project’s build outputs and nothing global exists.</p>
+<h2 id="working-on-fol-itself"><a class="header" href="#working-on-fol-itself">Working on FOL itself</a></h2>
+<p>A source checkout becomes a first-class toolchain through a <strong>link</strong> — no
+copying, always fresh:</p>
+<pre><code class="language-console">$ fol self link dev ~/code/fol
+linked toolchain 'dev' -&gt; /home/you/code/fol
+$ fol self default dev
 </code></pre>
-<p>CLI: <code>-Dtarget=arch-os-env</code></p>
-<p>Format: <code>arch-os-env</code> triple. Examples:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Triple</th><th>Meaning</th></tr>
-</thead>
-<tbody>
-<tr><td><code>x86_64-linux-gnu</code></td><td>x86-64 Linux with glibc</td></tr>
-<tr><td><code>x86_64-linux-musl</code></td><td>x86-64 Linux with musl libc</td></tr>
-<tr><td><code>aarch64-linux-gnu</code></td><td>ARM64 Linux with glibc</td></tr>
-<tr><td><code>aarch64-linux-musl</code></td><td>ARM64 Linux with musl libc</td></tr>
-<tr><td><code>x86_64-macos-gnu</code></td><td>x86-64 macOS</td></tr>
-<tr><td><code>aarch64-macos-gnu</code></td><td>ARM64 macOS</td></tr>
-<tr><td><code>x86_64-windows-gnu</code></td><td>x86-64 Windows with MinGW</td></tr>
-<tr><td><code>x86_64-windows-msvc</code></td><td>x86-64 Windows with MSVC</td></tr>
-<tr><td><code>aarch64-windows-msvc</code></td><td>ARM64 Windows with MSVC</td></tr>
-</tbody>
-</table>
-</div>
-<p>Supported architectures: <code>x86_64</code>, <code>aarch64</code>.
-Supported operating systems: <code>linux</code>, <code>macos</code>, <code>windows</code>.
-Supported environments: <code>gnu</code>, <code>musl</code>, <code>msvc</code>.</p>
-<p>If not set, the host target is used.</p>
-<p><code>standard_target()</code> always exposes the compact FOL spelling shown above, so
-<code>when</code> and <code>case</code> comparisons are stable even when the CLI accepted a canonical
-Rust triple. Artifact identity and the backend separately retain the matching
-canonical Rust triple (for example, <code>x86_64-unknown-linux-gnu</code>).</p>
-<p>To pass the resolved value to an artifact:</p>
-<pre><code class="language-fol">var target = graph.standard_target();
-var app = graph.add_exe({
-    name   = "app",
-    root   = "src/main.fol",
-    target = target,
-});
+<p>A linked toolchain resolves its <code>folc</code> from the checkout’s
+<code>target/release/folc</code> or <code>target/debug/folc</code> — whichever was <strong>built most
+recently</strong> — and its <code>std</code> and <code>runtime</code> straight from the live source tree.
+Rebuild the compiler, and every <code>fol</code> invocation immediately uses it.</p>
+<p>To freeze a source build into a normal, immutable toolchain instead (useful
+for testing the install flow offline):</p>
+<pre><code class="language-console">$ cargo build --release --bin folc &amp;&amp; cargo build --release -p fol-self
+$ fol self install 0.2.2 --from .
+installed fol 0.2.2 -&gt; ~/.fol/toolchains/v0.2.2 (from /home/you/code/fol)
 </code></pre>
-<h3 id="optimize"><a class="header" href="#optimize">Optimize</a></h3>
-<pre><code class="language-fol">var optimize = graph.standard_optimize();
-</code></pre>
-<p>CLI: <code>-Doptimize=mode</code></p>
-<p>Valid modes:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Mode</th><th>Meaning</th></tr>
-</thead>
-<tbody>
-<tr><td><code>debug</code></td><td>No optimization, full debug info</td></tr>
-<tr><td><code>release-safe</code></td><td>Optimized with safety checks</td></tr>
-<tr><td><code>release-fast</code></td><td>Maximum speed, no safety checks</td></tr>
-<tr><td><code>release-small</code></td><td>Minimize binary size</td></tr>
-</tbody>
-</table>
-</div>
-<p>Default: <code>debug</code>. A <code>fol code ... --release</code> request supplies
-<code>release-safe</code> when no explicit optimize value is present. An explicit
-<code>-Doptimize=...</code> or <code>--optimize ...</code> value takes precedence and also determines
-whether the artifact uses the debug or release output/rustc profile, so the
-directory identity cannot disagree with the compiler profile.</p>
-<p>To pass the resolved value to an artifact:</p>
-<pre><code class="language-fol">var optimize = graph.standard_optimize();
-var app = graph.add_exe({
-    name     = "app",
-    root     = "src/main.fol",
-    optimize = optimize,
-});
-</code></pre>
-<h2 id="user-options"><a class="header" href="#user-options">User Options</a></h2>
-<p><code>graph.option(...)</code> declares a named option specific to the package.</p>
-<pre><code class="language-fol">var strip = graph.option({
-    name    = "strip",
-    kind    = "bool",
-    default = false,
-});
-</code></pre>
-<p>CLI: <code>-Dstrip=true</code></p>
-<h3 id="option-kinds"><a class="header" href="#option-kinds">Option Kinds</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Kind</th><th>Example CLI</th><th>Default type</th></tr>
-</thead>
-<tbody>
-<tr><td><code>bool</code></td><td><code>-Dverbose=true</code></td><td><code>false</code></td></tr>
-<tr><td><code>int</code></td><td><code>-Djobs=8</code></td><td><code>0</code></td></tr>
-<tr><td><code>str</code></td><td><code>-Dprefix=/usr</code></td><td><code>""</code></td></tr>
-<tr><td><code>enum</code></td><td><code>-Dbackend=llvm</code></td><td>first value</td></tr>
-<tr><td><code>path</code></td><td><code>-Droot=src/main.fol</code></td><td><code>""</code></td></tr>
-<tr><td><code>target</code></td><td><code>-Dtarget=x86_64-linux-gnu</code></td><td>host target</td></tr>
-<tr><td><code>optimize</code></td><td><code>-Doptimize=release-fast</code></td><td><code>debug</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="using-option-values"><a class="header" href="#using-option-values">Using Option Values</a></h3>
-<p>Option handle values can be interpolated into strings or compared with <code>==</code>:</p>
-<pre><code class="language-fol">var root_opt = graph.option({ name = "root", kind = "path", default = "src/main.fol" });
-var app = graph.add_exe({ name = "app", root = root_opt });
-</code></pre>
-<p>Comparing in a <code>when</code> condition:</p>
-<pre><code class="language-fol">var strip = graph.option({ name = "strip", kind = "bool", default = false });
-when(strip == true) {
-    {
-        var strip_step = graph.step("strip");
-    }
-};
-</code></pre>
-<h2 id="shorthand-vs-long-form"><a class="header" href="#shorthand-vs-long-form">Shorthand vs Long Form</a></h2>
-<p>Both of these are equivalent:</p>
-<pre><code class="language-text">fol code build -Dtarget=x86_64-linux-gnu
-fol code build --build-option target=x86_64-linux-gnu
-</code></pre>
-<p><code>-D</code> is the shorthand. <code>-Dtarget=</code> and <code>-Doptimize=</code> route to the dedicated
-standard option slots. All other <code>-Dname=value</code> pairs route to user-declared
-options.</p>
+<h2 id="releasing"><a class="header" href="#releasing">Releasing</a></h2>
+<p>Pushing a <code>v*</code> tag runs the <code>release</code> workflow, which builds <code>folc</code> and <code>fol</code>
+on every supported Linux target, stages <code>{folc, std/, runtime/}</code>, and uploads:</p>
+<ul>
+<li><code>fol-compiler-and-lib-v&lt;version&gt;-&lt;target&gt;.tar.gz</code></li>
+<li><code>fol-v&lt;version&gt;-&lt;target&gt;</code></li>
+</ul>
+<p>The tarball layout is a contract: <code>fol self install</code> unpacks it verbatim into
+<code>$FOL_HOME/toolchains/v&lt;version&gt;/</code>, and an integration test pins the workflow
+to that layout.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../055_build/300_handle_api.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../025_toolchain/_index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../055_build/500_control_flow.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../025_toolchain/200_versions.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -322,11 +240,11 @@ options.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../055_build/300_handle_api.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../025_toolchain/_index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../055_build/500_control_flow.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../025_toolchain/200_versions.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
