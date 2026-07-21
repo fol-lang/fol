@@ -181,6 +181,8 @@ pub fn editor_intrinsic_available_in_model(
             | "str_byte"
             | "byte_to_str"
             | "read_key_ms"
+            | "env_var"
+            | "shell"
     ) {
         return editor_model_capability(model).hosted_runtime;
     }

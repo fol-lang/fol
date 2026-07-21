@@ -682,3 +682,26 @@ fn string_primitives_slice_index_and_absorb_chars() {
     assert_successful_stdout(&root, "hello!\n104\n-1\n<q>\n07\n");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn env_and_shell_hooks_read_the_host() {
+    // `std::env` yields the variable or an empty string; `std::shell` runs a
+    // command and forwards its exit code.
+    let root = write_hosted_app(
+        "v3_env_shell",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var missing: str = std::env(\"FOL_DEFINITELY_UNSET_VAR\");\n\
+             \x20   std::io::echo_int(.len(missing));\n\
+             \x20   var home: str = std::env(\"HOME\");\n\
+             \x20   if (.len(home) > 0) {\n\
+             \x20       std::io::echo_int(1);\n\
+             \x20   }\n\
+             \x20   std::io::echo_int(std::shell(\"exit 3\"));\n\
+             \x20   std::io::echo_int(std::shell(\"true\"));\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "0\n1\n3\n0\n");
+    std::fs::remove_dir_all(root).ok();
+}

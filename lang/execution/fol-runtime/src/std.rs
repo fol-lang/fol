@@ -786,3 +786,21 @@ mod tests {
         );
     }
 }
+
+/// The value of an environment variable, or the empty string when unset.
+pub fn env_var(name: FolStr) -> FolStr {
+    std::env::var(name.as_str())
+        .map(FolStr::new)
+        .unwrap_or_else(|_| FolStr::new(""))
+}
+
+/// Run a shell command attached to the terminal and yield its exit code
+/// (-1 when it cannot start). The TUI suspend/exec primitive.
+pub fn shell(command: FolStr) -> crate::value::FolInt {
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command.as_str())
+        .status()
+        .map(|status| status.code().unwrap_or(-1) as crate::value::FolInt)
+        .unwrap_or(-1)
+}

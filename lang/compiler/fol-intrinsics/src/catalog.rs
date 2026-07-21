@@ -786,6 +786,30 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::RuntimeHook,
         "one byte of standard input within a timeout; -2 on timeout, -1 at end of input",
     ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(69),
+        "env_var",
+        &[],
+        IntrinsicCategory::Diagnostic,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::RuntimeHook,
+        "the value of an environment variable, or the empty string when unset",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(70),
+        "shell",
+        &[],
+        IntrinsicCategory::Diagnostic,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::RuntimeHook,
+        "run a shell command attached to the terminal and yield its exit code",
+    ),
 ];
 
 pub const fn intrinsic_registry() -> &'static [IntrinsicEntry] {
@@ -857,7 +881,7 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
         0..=6 => Some(IntrinsicBackendRole::PureOp),
         7 | 12 => Some(IntrinsicBackendRole::TargetHelper),
         // 8 = echo; 57..=64 = the terminal/OS hooks.
-        8 | 57..=68 => Some(IntrinsicBackendRole::RuntimeHook),
+        8 | 57..=70 => Some(IntrinsicBackendRole::RuntimeHook),
         13 => Some(IntrinsicBackendRole::ControlEffect),
         _ => None,
     })

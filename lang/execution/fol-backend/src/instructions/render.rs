@@ -420,7 +420,9 @@ pub fn render_core_instruction_in_workspace(
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
-                | ("read_key_ms", [value]) => {
+                | ("read_key_ms", [value])
+                | ("env_var", [value])
+                | ("shell", [value]) => {
                     let value =
                         render_transfer_expr(type_table, package_identity, routine, *value)?;
                     format!("rt::{}({value})", entry.name)

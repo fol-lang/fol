@@ -522,6 +522,8 @@ fn terminal_intrinsic_signature(
         "str_byte" => Some((vec![builtins.str_, builtins.int], builtins.int)),
         "byte_to_str" => Some((vec![builtins.int], builtins.str_)),
         "read_key_ms" => Some((vec![builtins.int], builtins.int)),
+        "env_var" => Some((vec![builtins.str_], builtins.str_)),
+        "shell" => Some((vec![builtins.str_], builtins.int)),
         _ => None,
     }
 }
