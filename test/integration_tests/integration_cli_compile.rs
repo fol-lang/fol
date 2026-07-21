@@ -79,19 +79,39 @@ fn test_cli_typecheck_accepts_loc_imported_symbols_after_workspace_handoff() {
 }
 
 #[test]
-fn test_release_workflow_uses_the_current_stable_rust_toolchain() {
+fn test_release_workflow_ships_fetchable_toolchain_artifacts() {
     let release_workflow =
         std::fs::read_to_string(repo_root().join(".github/workflows/release.yml"))
             .expect("release workflow should exist");
 
     assert!(
-        release_workflow.contains("TOOLCHAIN_VERSION : stable"),
+        release_workflow.contains("dtolnay/rust-toolchain@stable"),
         "release workflow should track the current stable Rust toolchain"
     );
+    for step in [
+        "cargo build --release --bin folc",
+        "cargo build --release -p fol-self",
+    ] {
+        assert!(
+            release_workflow.contains(step),
+            "release workflow should build both toolchain binaries, missing: {step}"
+        );
+    }
     assert!(
-        !release_workflow.contains("TOOLCHAIN_VERSION : 1.70.0"),
-        "release workflow should no longer pin the stale Rust 1.70.0 toolchain"
+        release_workflow.contains("-C \"$STAGE\" folc std"),
+        "release tarballs must hold exactly {{folc, std/}} at the archive root for `fol self install`"
     );
+    for target in [
+        "x86_64-linux",
+        "aarch64-linux",
+        "x86_64-macos",
+        "aarch64-macos",
+    ] {
+        assert!(
+            release_workflow.contains(target),
+            "release workflow should cover the {target} target that `fol self install` requests"
+        );
+    }
 }
 
 #[test]

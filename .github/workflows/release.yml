@@ -1,55 +1,62 @@
 name: release
 
 on:
-  release:
-    types: [created]
+  push:
+    tags: ["v*"]
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    name: release ${{ matrix.target }}
-    runs-on: ubuntu-latest
+  toolchain:
+    name: toolchain ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-unknown-linux-musl]
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-linux
+          - runner: ubuntu-24.04-arm
+            target: aarch64-linux
+          - runner: macos-13
+            target: x86_64-macos
+          - runner: macos-latest
+            target: aarch64-macos
     steps:
-      - name: Checkout FOL
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          path: fol
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Checkout PARC
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          repository: fol-lang/parc
-          ref: 0f52aeeeeec47a082c0d8a515130ee853aa1101d
-          path: parc
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Checkout LINC
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          repository: fol-lang/linc
-          ref: c874d5b0332249524422d9d08c35b3d4edd7e3fa
-          path: linc
+      - name: Build folc and fol
+        run: |
+          cargo build --release --bin folc
+          cargo build --release -p fol-self
 
-      - name: Checkout GERC
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          repository: fol-lang/gerc
-          ref: 000c1f6c12fba99f1a157267ee7db39d42bda8e3
-          path: gerc
+      - name: Stage and pack toolchain
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="$(mktemp -d)"
+          cp target/release/folc "$STAGE/folc"
+          cp -R lang/library/std "$STAGE/std"
+          # Archive root must hold exactly {folc, std/} — `fol self install`
+          # unpacks it straight into $FOL_HOME/toolchains/v$VERSION/.
+          tar -czf "fol-v${VERSION}-${{ matrix.target }}.tar.gz" -C "$STAGE" folc std
+          # The manager itself, as a standalone bootstrap binary.
+          cp target/release/fol "fol-manager-v${VERSION}-${{ matrix.target }}"
 
-      - name: Compile and release
-        id: compile
-        uses: rust-build/rust-build.action@7d5b0c135ddb825f7692d4d2d75e598184d15cec # v1.4.3
+      - name: Upload release assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          SRC_DIR: fol
-          TOOLCHAIN_VERSION : stable
-          RUSTTARGET: ${{ matrix.target }}
-          ARCHIVE_TYPES: "zip tar.gz"
-          # ARCHIVE_NAME: "roc_${{ matrix.target }}"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "fol $GITHUB_REF_NAME" \
+            --notes "FOL toolchain $GITHUB_REF_NAME — install with: fol self install $VERSION" \
+            2>/dev/null || true
+          gh release upload "$GITHUB_REF_NAME" \
+            "fol-v${VERSION}-${{ matrix.target }}.tar.gz" \
+            "fol-manager-v${VERSION}-${{ matrix.target }}" \
+            --clobber
