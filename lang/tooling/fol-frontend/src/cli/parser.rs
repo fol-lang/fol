@@ -90,7 +90,7 @@ impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.kind {
             ParseErrorKind::Help(text) => write!(f, "{text}"),
-            ParseErrorKind::Version => write!(f, "fol-frontend {VERSION}"),
+            ParseErrorKind::Version => write!(f, "fol {VERSION}"),
             ParseErrorKind::InvalidInput(msg)
             | ParseErrorKind::InvalidSubcommand(msg)
             | ParseErrorKind::Conflict(msg)
@@ -223,6 +223,7 @@ User-facing frontend for the FOL toolchain
   {pack}  {ap}  Package management
   {code}  {ac}  Build, run, test, check
   {tool}  {at}  Editor tools, LSP, completion
+  {selfc}  {as_}  Toolchain management (install, link, default)
 
 {opts}
   {h}, {hh}     Print help
@@ -236,10 +237,12 @@ User-facing frontend for the FOL toolchain
         pack = cmd("pack", 4),
         code = cmd("code", 4),
         tool = cmd("tool", 4),
+        selfc = cmd("self", 4),
         aw = alias("[aliases: w]"),
         ap = alias("[aliases: p]"),
         ac = alias("[aliases: c]"),
         at = alias("[aliases: t]"),
+        as_ = alias("[aliases: s]"),
         h = opt("-h", 2),
         hh = opt("--help", 6),
         v = opt("-V", 2),
@@ -515,6 +518,11 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
     }
 
     let token = cursor.peek().unwrap().to_string();
+    if token == "self" || token == "s" {
+        return Err(ParseError::invalid_subcommand(
+            "toolchain management lives in the `fol` manager binary\nrun: fol self <command>",
+        ));
+    }
     match resolve_command_group(&token) {
         Some(group) => {
             cursor.advance();

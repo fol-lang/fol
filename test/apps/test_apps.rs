@@ -36,7 +36,7 @@ fn formal_pkg_build(name: &str) -> String {
 }
 
 fn run_fol(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_fol"))
+    Command::new(env!("CARGO_BIN_EXE_folc"))
         .args(args)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()

@@ -1,0 +1,8 @@
+[package]
+name = "fol-self"
+version.workspace = true
+edition = "2021"
+
+[[bin]]
+name = "fol"
+path = "src/main.rs"

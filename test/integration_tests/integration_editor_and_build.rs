@@ -2108,7 +2108,7 @@ fn run_fol_with_store_in_dir(
     store_root: &std::path::Path,
     args: &[&str],
 ) -> std::process::Output {
-    std::process::Command::new(env!("CARGO_BIN_EXE_fol"))
+    std::process::Command::new(env!("CARGO_BIN_EXE_folc"))
         .args(["--package-store-root"])
         .arg(store_root)
         .args(args)
@@ -4179,7 +4179,7 @@ fn test_build_install_prefix_moves_without_changing_build_source() {
 fn test_cli_build_summary_surfaces_install_prefix_and_outputs() {
     let root = temp_example_root("examples/build_install_prefix");
     let install_prefix = root.join(".custom-install");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_fol"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_folc"))
         .args(["code", "build"])
         .env("FOL_INSTALL_PREFIX", &install_prefix)
         .current_dir(&root)

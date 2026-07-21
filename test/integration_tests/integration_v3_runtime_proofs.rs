@@ -55,7 +55,7 @@ fn write_hosted_app(name: &str, source: &str) -> std::path::PathBuf {
 }
 
 fn build_hosted_app(root: &std::path::Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_fol"))
+    Command::new(env!("CARGO_BIN_EXE_folc"))
         .args(["--package-store-root"])
         .arg(repo_root().join("lang/library"))
         .args(["code", "build", "--keep-build-dir"])
