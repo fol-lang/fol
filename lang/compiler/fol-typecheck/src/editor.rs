@@ -183,6 +183,8 @@ pub fn editor_intrinsic_available_in_model(
             | "read_key_ms"
             | "env_var"
             | "shell"
+            | "dir_list"
+            | "read_file"
     ) {
         return editor_model_capability(model).hosted_runtime;
     }

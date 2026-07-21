@@ -422,7 +422,9 @@ pub fn render_core_instruction_in_workspace(
                 | ("byte_to_str", [value])
                 | ("read_key_ms", [value])
                 | ("env_var", [value])
-                | ("shell", [value]) => {
+                | ("shell", [value])
+                | ("dir_list", [value])
+                | ("read_file", [value]) => {
                     let value =
                         render_transfer_expr(type_table, package_identity, routine, *value)?;
                     format!("rt::{}({value})", entry.name)

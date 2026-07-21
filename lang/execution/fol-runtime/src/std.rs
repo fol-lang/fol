@@ -804,3 +804,29 @@ pub fn shell(command: FolStr) -> crate::value::FolInt {
         .map(|status| status.code().unwrap_or(-1) as crate::value::FolInt)
         .unwrap_or(-1)
 }
+
+/// Sorted directory entries joined by newlines, directories suffixed with a
+/// slash; empty when the path cannot be read.
+pub fn dir_list(path: FolStr) -> FolStr {
+    let mut entries: Vec<String> = std::fs::read_dir(path.as_str())
+        .map(|reader| {
+            reader
+                .filter_map(|entry| entry.ok())
+                .map(|entry| {
+                    let mut name = entry.file_name().to_string_lossy().to_string();
+                    if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                        name.push('/');
+                    }
+                    name
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    entries.sort();
+    FolStr::new(entries.join("\n"))
+}
+
+/// The text contents of a file, or the empty string when unreadable.
+pub fn read_file(path: FolStr) -> FolStr {
+    FolStr::new(std::fs::read_to_string(path.as_str()).unwrap_or_default())
+}

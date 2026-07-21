@@ -524,6 +524,8 @@ fn terminal_intrinsic_signature(
         "read_key_ms" => Some((vec![builtins.int], builtins.int)),
         "env_var" => Some((vec![builtins.str_], builtins.str_)),
         "shell" => Some((vec![builtins.str_], builtins.int)),
+        "dir_list" => Some((vec![builtins.str_], builtins.str_)),
+        "read_file" => Some((vec![builtins.str_], builtins.str_)),
         _ => None,
     }
 }

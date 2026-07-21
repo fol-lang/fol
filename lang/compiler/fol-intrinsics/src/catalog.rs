@@ -810,6 +810,30 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::RuntimeHook,
         "run a shell command attached to the terminal and yield its exit code",
     ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(71),
+        "dir_list",
+        &[],
+        IntrinsicCategory::Diagnostic,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::RuntimeHook,
+        "sorted directory entries joined by newlines, directories suffixed with a slash",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(72),
+        "read_file",
+        &[],
+        IntrinsicCategory::Diagnostic,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::RuntimeHook,
+        "the text contents of a file, or the empty string when unreadable",
+    ),
 ];
 
 pub const fn intrinsic_registry() -> &'static [IntrinsicEntry] {
@@ -881,7 +905,7 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
         0..=6 => Some(IntrinsicBackendRole::PureOp),
         7 | 12 => Some(IntrinsicBackendRole::TargetHelper),
         // 8 = echo; 57..=64 = the terminal/OS hooks.
-        8 | 57..=70 => Some(IntrinsicBackendRole::RuntimeHook),
+        8 | 57..=72 => Some(IntrinsicBackendRole::RuntimeHook),
         13 => Some(IntrinsicBackendRole::ControlEffect),
         _ => None,
     })

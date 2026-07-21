@@ -5,3 +5,11 @@ fun[exp] env(name: str): str = {
 fun[exp] shell(command: str): int = {
     return .shell(command);
 };
+
+fun[exp] dir_list(path: str): str = {
+    return .dir_list(path);
+};
+
+fun[exp] read_file(path: str): str = {
+    return .read_file(path);
+};

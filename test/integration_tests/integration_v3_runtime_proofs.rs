@@ -705,3 +705,32 @@ fn env_and_shell_hooks_read_the_host() {
     assert_successful_stdout(&root, "0\n1\n3\n0\n");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn filesystem_hooks_list_and_read() {
+    // `std::dir_list` yields sorted entries (dirs slash-suffixed);
+    // `std::read_file` yields contents or an empty string.
+    let staging = unique_temp_root("v3_fs_hooks_data");
+    std::fs::create_dir_all(staging.join("inner")).expect("fs hook staging dir");
+    std::fs::write(staging.join("note.txt"), "steep").expect("fs hook staging file");
+    let root = write_hosted_app(
+        "v3_fs_hooks",
+        &("use std: pkg = {\"std\"};\n".to_string()
+            + &format!(
+                "fun[] main(): int = {{\n\
+             \x20   var entries: str = std::dir_list(\"{dir}\");\n\
+             \x20   var shown: str = std::io::echo_str(entries);\n\
+             \x20   var source: str = std::read_file(\"{dir}/note.txt\");\n\
+             \x20   if (source == \"steep\") {{\n\
+             \x20       std::io::echo_int(1);\n\
+             \x20   }}\n\
+             \x20   std::io::echo_int(.len(std::read_file(\"no/such/file\")));\n\
+             \x20   return 0;\n\
+             }};\n",
+                dir = staging.display()
+            )),
+    );
+    assert_successful_stdout(&root, "inner/\nnote.txt\n1\n0\n");
+    std::fs::remove_dir_all(root).ok();
+    std::fs::remove_dir_all(staging).ok();
+}
