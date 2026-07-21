@@ -17,6 +17,13 @@ pub fn available_bundled_std_root() -> Option<PathBuf> {
     root.is_dir().then_some(root)
 }
 
+/// The package store shipped with the toolchain (the directory holding the
+/// bundled `std` package), when it exists. Lets `use x: pkg = {...}` imports
+/// resolve without `fol pack fetch` or an explicit `--package-store-root`.
+pub fn available_bundled_store_root() -> Option<PathBuf> {
+    available_bundled_std_root().and_then(|std_root| std_root.parent().map(PathBuf::from))
+}
+
 pub fn effective_std_root(explicit: Option<&str>) -> Option<String> {
     explicit
         .map(str::to_string)

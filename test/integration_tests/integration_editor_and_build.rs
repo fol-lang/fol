@@ -4028,8 +4028,13 @@ fn test_build_rejects_std_imports_without_declared_dependency() {
         !build.status.success(),
         "memo std-import app should fail without declared dependency"
     );
+    // The bundled store lets the import RESOLVE, so the failure now lands at
+    // the hosted-support gate with the actionable add_dep hint instead of a
+    // misleading unfetched-store message.
     assert!(
-        stderr.contains(".fol/pkg/std") || stderr.contains("resolver pkg import target"),
+        stderr.contains("requires hosted std support")
+            || stderr.contains(".fol/pkg/std")
+            || stderr.contains("resolver pkg import target"),
         "memo std-import app should fail because bundled std is dependency-backed: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&build.stdout),
         stderr

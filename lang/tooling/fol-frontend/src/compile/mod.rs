@@ -1343,11 +1343,14 @@ fn validate_build_dependency_queries(
 
     let metadata =
         fol_package::parse_package_metadata_from_build(&build_path).map_err(FrontendError::from)?;
+    let local_store = workspace.root.root.join(".fol").join("pkg");
     let package_store_root = config
         .package_store_root_override
         .clone()
         .or_else(|| workspace.package_store_root_override.clone())
-        .unwrap_or_else(|| workspace.root.root.join(".fol").join("pkg"));
+        .or_else(|| local_store.is_dir().then_some(local_store.clone()))
+        .or_else(fol_package::available_bundled_store_root)
+        .unwrap_or(local_store);
     let std_root = workspace
         .std_root_override
         .clone()
@@ -1562,11 +1565,16 @@ fn resolver_config(
     workspace: &FrontendWorkspace,
     config: &FrontendConfig,
 ) -> fol_resolver::ResolverConfig {
+    // A fetched local store wins; otherwise fall back to the store bundled
+    // with the toolchain so `use std: pkg = {"std"}` works out of the box.
+    let local_store = workspace.root.root.join(".fol/pkg");
     let package_store_root = config
         .package_store_root_override
         .clone()
         .or_else(|| workspace.package_store_root_override.clone())
-        .unwrap_or_else(|| workspace.root.root.join(".fol/pkg"));
+        .or_else(|| local_store.is_dir().then_some(local_store.clone()))
+        .or_else(fol_package::available_bundled_store_root)
+        .unwrap_or(local_store);
 
     fol_resolver::ResolverConfig {
         std_root: config
