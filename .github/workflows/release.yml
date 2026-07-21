@@ -24,18 +24,45 @@ jobs:
           - runner: macos-latest
             target: aarch64-macos
     steps:
-      - name: Checkout
+      - name: Checkout FOL
         uses: actions/checkout@v4
+        with:
+          path: fol
+
+      # fol-interop consumes these as ../../../../{parc,linc,gerc} path
+      # dependencies, so they must sit next to the fol checkout.
+      - name: Checkout PARC
+        uses: actions/checkout@v4
+        with:
+          repository: fol-lang/parc
+          ref: 0f52aeeeeec47a082c0d8a515130ee853aa1101d
+          path: parc
+
+      - name: Checkout LINC
+        uses: actions/checkout@v4
+        with:
+          repository: fol-lang/linc
+          ref: c874d5b0332249524422d9d08c35b3d4edd7e3fa
+          path: linc
+
+      - name: Checkout GERC
+        uses: actions/checkout@v4
+        with:
+          repository: fol-lang/gerc
+          ref: 000c1f6c12fba99f1a157267ee7db39d42bda8e3
+          path: gerc
 
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build folc and fol
+        working-directory: fol
         run: |
           cargo build --release --bin folc
           cargo build --release -p fol-self
 
       - name: Stage and pack toolchain
+        working-directory: fol
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           STAGE="$(mktemp -d)"
@@ -48,15 +75,18 @@ jobs:
           cp target/release/fol "fol-manager-v${VERSION}-${{ matrix.target }}"
 
       - name: Upload release assets
+        working-directory: fol
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "fol $GITHUB_REF_NAME" \
             --notes "FOL toolchain $GITHUB_REF_NAME — install with: fol self install $VERSION" \
             2>/dev/null || true
           gh release upload "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             "fol-v${VERSION}-${{ matrix.target }}.tar.gz" \
             "fol-manager-v${VERSION}-${{ matrix.target }}" \
             --clobber
