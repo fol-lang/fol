@@ -216,7 +216,7 @@ pub fn resolve_qualified_symbol(
         ));
     }
 
-    let (mut current_scope, mut current_namespace, crosses_import) = resolve_qualified_root(
+    let root = resolve_qualified_root(
         program,
         starting_scope,
         &path.segments[0],
@@ -224,7 +224,42 @@ pub fn resolve_qualified_symbol(
         missing_role,
         origin.clone(),
     )?;
+    match resolve_qualified_from_root(program, root, path, allowed_kinds, missing_role, &origin) {
+        Ok(symbol_id) => Ok(symbol_id),
+        Err(error) if error.kind() == ResolverErrorKind::UnresolvedName => {
+            // A package may import a library whose alias matches the
+            // package's own name (an `icetea` workspace importing its
+            // `icetea` library). The self-name root shadows the alias, so
+            // when nothing resolves under the package root, retry through
+            // the import alias before reporting.
+            let Some(alias_root) =
+                import_alias_root(program, starting_scope, &path.segments[0], &origin)
+            else {
+                return Err(error);
+            };
+            resolve_qualified_from_root(
+                program,
+                alias_root,
+                path,
+                allowed_kinds,
+                missing_role,
+                &origin,
+            )
+            .map_err(|_| error)
+        }
+        Err(error) => Err(error),
+    }
+}
 
+fn resolve_qualified_from_root(
+    program: &ResolvedProgram,
+    root: (ScopeId, String, bool),
+    path: &QualifiedPath,
+    allowed_kinds: &[SymbolKind],
+    missing_role: &str,
+    origin: &Option<fol_parser::ast::SyntaxOrigin>,
+) -> Result<SymbolId, ResolverError> {
+    let (mut current_scope, mut current_namespace, crosses_import) = root;
     for segment in &path.segments[1..path.segments.len() - 1] {
         current_namespace.push_str("::");
         current_namespace.push_str(segment);
@@ -248,9 +283,36 @@ pub fn resolve_qualified_symbol(
         allowed_kinds,
         &path.joined(),
         missing_role,
-        origin,
+        origin.clone(),
         crosses_import,
     )
+}
+
+/// The import-alias root for a segment, if one is visible: the mounted scope
+/// the alias targets. Used as the fallback when the segment also names the
+/// current package.
+fn import_alias_root(
+    program: &ResolvedProgram,
+    starting_scope: ScopeId,
+    root_segment: &str,
+    origin: &Option<fol_parser::ast::SyntaxOrigin>,
+) -> Option<(ScopeId, String, bool)> {
+    let import_symbol = resolve_visible_symbol_of_kinds(
+        program,
+        starting_scope,
+        root_segment,
+        &[SymbolKind::ImportAlias],
+        Some("import alias"),
+        origin.clone(),
+    )
+    .ok()?;
+    let target_scope = program
+        .imports
+        .iter()
+        .find(|import| import.alias_symbol == import_symbol)
+        .and_then(|import| import.target_scope)?;
+    let namespace = scope_namespace(program, target_scope).ok()?;
+    Some((target_scope, namespace, true))
 }
 
 fn resolve_qualified_root(

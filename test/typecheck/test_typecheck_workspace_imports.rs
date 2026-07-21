@@ -1956,3 +1956,76 @@ fn imported_generic_routines_reject_with_the_wrapper_hint() {
         Ok(_) => panic!("imported generic call must not typecheck"),
     }
 }
+
+#[test]
+fn transitively_mounted_symbols_do_not_reexport_to_importers() {
+    // A library that imports std must not leak std's exports into its own
+    // export surface; a consumer importing both previously collided on the
+    // transitive copies.
+    let root = unique_temp_dir("workspace_transitive_mount");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "midlib/lib.fol",
+                "use extra: loc = {\"../extra\"};\n\
+                 fun[exp] wrapped(): int = { return extra::answer() + 1; };\n",
+            ),
+            (
+                "extra/lib.fol",
+                "fun[exp] answer(): int = { return 41; };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use midlib: loc = {\"../midlib\"};\n",
+                    "use extra: loc = {\"../extra\"};\n",
+                    "fun[] main(): int = { return midlib::wrapped() + extra::answer(); };\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("importing a library plus its dependency must not collide on transitive mounts");
+}
+
+#[test]
+fn import_aliases_win_over_the_package_self_name_on_fallback() {
+    // A workspace named like its own library import (`icetea` importing an
+    // `icetea` lib directory) resolves qualified paths through the alias
+    // when nothing matches under the package's own root.
+    let root = unique_temp_dir("workspace_selfname_alias");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            ("app/lib/kit/lib.fol", "con[exp] SEED: int = 7;\n"),
+            (
+                "app/main.fol",
+                concat!(
+                    "use app: loc = {\"lib\"};\n",
+                    "fun[] main(): int = { return app::kit::SEED; };\n",
+                ),
+            ),
+        ],
+    );
+
+    typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    )
+    .expect("the import alias must win when the package self-name path resolves nothing");
+}

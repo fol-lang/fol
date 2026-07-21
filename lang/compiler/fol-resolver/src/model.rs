@@ -679,8 +679,14 @@ impl ResolvedProgram {
             let Some(symbol) = loaded.program.symbol(*foreign_symbol_id) else {
                 continue;
             };
+            // Mount first-party exports only: a symbol that itself arrived
+            // through the importee's own imports (`mounted_from` set) must
+            // not be re-exported, or any package that imports both the
+            // library and the library's dependency collides on the
+            // transitive copies.
             if symbol.visibility != Some(ParsedDeclVisibility::Exported)
                 || symbol.kind == SymbolKind::ImportAlias
+                || symbol.mounted_from.is_some()
             {
                 continue;
             }
