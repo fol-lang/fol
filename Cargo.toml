@@ -1,5 +1,6 @@
 [workspace]
 package.version = "0.2.2"
+default-members = [".", "lang/tooling/fol-self"]
 members = [
     "lang/compiler/fol-types",
     "lang/compiler/fol-stream",
