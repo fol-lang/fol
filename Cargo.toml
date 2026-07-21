@@ -1,5 +1,5 @@
 [workspace]
-package.version = "0.2.1"
+package.version = "0.2.2"
 members = [
     "lang/compiler/fol-types",
     "lang/compiler/fol-stream",

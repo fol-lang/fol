@@ -1,9 +1,41 @@
 # Changelog
 
-## [0.2.0] - 2026-07-16
+## [0.2.2] - 2026-07-21
+
+### <!-- 3 -->📚 Documentation
+
+- Toolchain management guide front and center
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Merge feature_v2_redo to main
+
+## [0.2.1] - 2026-07-21
 
 ### <!-- 0 -->⛰️  Features
 
+- Release toolchain artifacts on tag
+- Split fol manager from folc
+- Resolve std from the bundled store
+- Default build fans out to all exes
+- Filesystem hooks
+- Env and shell hooks
+- String and timed-input primitives
+- Concatenation absorbs chr operands
+- Materialize graph.install for binaries
+- Terminal and time primitives
+- Composite [mut,bor] dfr/edf captures
+- Enforce evt lifetime on parameters
+- Implement positional destructuring
+- Closure environment lifetimes
+- Local nonescaping borrowed closures
+- Borrowed captures on scoped tasks
+- Require lifetime on escaping eventuals
+- First-class closure values
+- Enforce dfr/edf capture lists
+- Add dfr/edf capture lists
+- Land v3 surface and tooling parity
+- Complete H7 handoff
 - Merge V3 into develop
 - Sync editor tooling
 - Mirror all v3 contracts
@@ -965,6 +997,29 @@
 
 ### <!-- 1 -->🐛 Bug Fixes
 
+- Bundle runtime crate in the toolchain
+- Ship fol and fol-compiler-and-lib assets
+- Name assets folc tarball and fol binary
+- Checkout interop siblings for release
+- Transitive mounts and alias fallback
+- Eventuals cannot hide behind type names
+- Fence new capture and evt surfaces
+- Peel borrows in generic constraint paths
+- Import visibility and generic boundary
+- Branded faults for int div and mod
+- Honest cap error on long op chains
+- Else-less if guards lower as statements
+- Mux wrap transfer + capture calls + arity
+- Rename across closure capture links
+- Correct lint attribute placement
+- Global initializers, conformance receivers
+- Clean runtime fault messages
+- Restore partially moved bindings on reinit
+- Correct if branching and weak send guard
+- Anchor eventual lifetime diagnostics
+- Cover env lifetime in type identity tests
+- Pin fixture branch name
+- Harden clean-checkout verification
 - Count corpus cases
 - Narrow capture guidance
 - Align failure inventory
@@ -1308,6 +1363,8 @@
 
 ### <!-- 3 -->📚 Documentation
 
+- Record implemented contract
+- Record hardening completion
 - Finalize shipped contract
 - Align runtime capability tiers
 - Explain no-std execution
@@ -1649,6 +1706,7 @@
 
 ### <!-- 6 -->🧪 Testing
 
+- Sync fixtures with global init field
 - Sync diagnostic wording
 - Align capture boundaries
 - Clarify hosted tier names
@@ -2365,6 +2423,8 @@
 
 ### <!-- 7 -->⚙️ Miscellaneous Tasks
 
+- Centralize workspace version to 0.2.1
+- Silence arg-count lint on global decl
 - Cleanup
 - Generic fixes for v2
 - Run workspace tests in make test
@@ -2372,11 +2432,17 @@
 - Sync stable toolchain
 - Remove cross-compilation plan
 - Drop generated docs artifacts
+- Merge develop to main
+- Merge develop to main
 - Refactor C ABI and native linking documentation
+- Merge develop to main
 - Refactor and update internal planning documents
+- Merge develop to main
 - Remove all example projects
+- Merge develop to main
 - Clean Cargo.toml — trim root deps, unify version strings, remove redundant dev-deps
 - Version unification, dependency cleanup, legacy removal
+- Merge develop to main
 - Add explicit reset slices
 - Add build mode participation helpers
 - Replay install dependencies through build eval
@@ -2384,6 +2450,7 @@
 - Add explicit code step flags
 - Add build graph step dependencies
 - Sync lockfile for intrinsic completion
+- Merge develop to main
 - Simplify release process with git-rel
 - Rework tooling documentation and add new sections
 - Sync lockfile for workspace crate
