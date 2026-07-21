@@ -167,8 +167,8 @@ fn explicit_named_run_steps_select_the_requested_artifact_when_multiple_runnable
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    var graph = .graph();\n",
-            "    graph.add_exe(\"serve_app\", \"src/serve.fol\");\n",
-            "    graph.add_exe(\"admin_app\", \"src/admin.fol\");\n",
+            "    graph.add_exe(\"serve_app\", \"src/serve/main.fol\");\n",
+            "    graph.add_exe(\"admin_app\", \"src/admin/main.fol\");\n",
             "    graph.add_run(\"serve\", \"serve_app\");\n",
             "    graph.add_run(\"admin\", \"admin_app\");\n",
             "    return;\n",
@@ -176,14 +176,16 @@ fn explicit_named_run_steps_select_the_requested_artifact_when_multiple_runnable
         ),
     )
     .unwrap();
+    fs::create_dir_all(root.join("src/serve")).unwrap();
+    fs::create_dir_all(root.join("src/admin")).unwrap();
     fs::write(
-        root.join("src/serve.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/serve/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/admin.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/admin/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     let plan = plan_member_execution(
@@ -231,8 +233,8 @@ fn named_build_steps_can_target_matching_artifacts_when_multiple_builds_exist() 
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    var graph = .graph();\n",
-            "    graph.add_exe(\"serve_app\", \"src/serve.fol\");\n",
-            "    graph.add_exe(\"admin_app\", \"src/admin.fol\");\n",
+            "    graph.add_exe(\"serve_app\", \"src/serve/main.fol\");\n",
+            "    graph.add_exe(\"admin_app\", \"src/admin/main.fol\");\n",
             "    graph.step(\"serve_app\");\n",
             "    graph.step(\"admin_app\");\n",
             "    return;\n",
@@ -240,14 +242,16 @@ fn named_build_steps_can_target_matching_artifacts_when_multiple_builds_exist() 
         ),
     )
     .unwrap();
+    fs::create_dir_all(root.join("src/serve")).unwrap();
+    fs::create_dir_all(root.join("src/admin")).unwrap();
     fs::write(
-        root.join("src/serve.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/serve/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/admin.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/admin/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
 
@@ -296,21 +300,23 @@ fn default_build_step_is_marked_ambiguous_when_multiple_executables_exist() {
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    var graph = .graph();\n",
-            "    graph.add_exe(\"serve_app\", \"src/serve.fol\");\n",
-            "    graph.add_exe(\"admin_app\", \"src/admin.fol\");\n",
+            "    graph.add_exe(\"serve_app\", \"src/serve/main.fol\");\n",
+            "    graph.add_exe(\"admin_app\", \"src/admin/main.fol\");\n",
             "    return;\n",
             "};\n",
         ),
     )
     .unwrap();
+    fs::create_dir_all(root.join("src/serve")).unwrap();
+    fs::create_dir_all(root.join("src/admin")).unwrap();
     fs::write(
-        root.join("src/serve.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/serve/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/admin.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/admin/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
 
@@ -337,7 +343,7 @@ fn default_build_step_is_marked_ambiguous_when_multiple_executables_exist() {
 }
 
 #[test]
-fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
+fn default_build_step_fans_out_over_every_executable() {
     let root = std::env::temp_dir().join(format!(
         "fol_frontend_build_route_ambiguous_build_exec_{}_{}",
         std::process::id(),
@@ -354,21 +360,23 @@ fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
             "    var build = .build();\n",
             "    build.meta({ name = \"demo\", version = \"0.1.0\" });\n",
             "    var graph = .graph();\n",
-            "    graph.add_exe(\"serve_app\", \"src/serve.fol\");\n",
-            "    graph.add_exe(\"admin_app\", \"src/admin.fol\");\n",
+            "    graph.add_exe(\"serve_app\", \"src/serve/main.fol\");\n",
+            "    graph.add_exe(\"admin_app\", \"src/admin/main.fol\");\n",
             "    return;\n",
             "};\n",
         ),
     )
     .unwrap();
+    fs::create_dir_all(root.join("src/serve")).unwrap();
+    fs::create_dir_all(root.join("src/admin")).unwrap();
     fs::write(
-        root.join("src/serve.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/serve/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/admin.fol"),
-        "fun[] main(): int = {\n    return 0\n};\n",
+        root.join("src/admin/main.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
     )
     .unwrap();
     let workspace = FrontendWorkspace {
@@ -382,7 +390,7 @@ fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
         install_prefix: root.join(".fol/install"),
     };
 
-    let error = execute_workspace_build_route(
+    let result = execute_workspace_build_route(
         &workspace,
         &FrontendConfig::default(),
         &FrontendWorkspaceBuildRequest {
@@ -391,10 +399,17 @@ fn ambiguous_default_multi_artifact_build_steps_fail_clearly() {
             run_args: Vec::new(),
         },
     )
-    .expect_err("ambiguous default build step should fail");
+    .expect("the default build step fans out over every executable");
 
-    assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
-    assert!(error.message().contains("requires an explicit named step"));
+    let binaries = result
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == crate::FrontendArtifactKind::Binary)
+        .count();
+    assert_eq!(
+        binaries, 2,
+        "both executables should build under the default step"
+    );
 
     fs::remove_dir_all(root).ok();
 }

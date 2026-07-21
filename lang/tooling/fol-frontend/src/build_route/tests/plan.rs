@@ -161,6 +161,7 @@ fn shared_graph_projection_helper_keeps_graph_steps_and_synthesizes_check() {
 fn resolve_requested_step_execution_accepts_untargeted_core_routes() {
     let member_plans = vec![super::super::FrontendMemberExecutionPlan {
         steps: vec![super::super::FrontendMemberPlannedStep {
+            fan_out_selections: Vec::new(),
             name: "run".to_string(),
             description: Some("Run the default executable artifact".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Run),

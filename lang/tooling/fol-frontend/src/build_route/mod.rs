@@ -50,6 +50,9 @@ struct FrontendMemberPlannedStep {
     execution: Option<FrontendStepExecutionKind>,
     selection: Option<crate::compile::FrontendArtifactExecutionSelection>,
     ambiguous_selection: bool,
+    /// For the default `build` step over several executables: build them
+    /// all instead of demanding a named step.
+    fan_out_selections: Vec<crate::compile::FrontendArtifactExecutionSelection>,
     available_models: Vec<fol_backend::BackendFolModel>,
 }
 
@@ -474,9 +477,24 @@ pub(crate) fn plan_member_execution_from_graph(
             // default selections.
             let ambiguous_selection = selection.is_none()
                 && step_has_ambiguous_default_selection(evaluated, step.default_kind);
+            // The default `build` step over several executables builds all
+            // of them; only `run`/`test` genuinely need a single target.
+            let fan_out_selections = if ambiguous_selection
+                && step.default_kind == Some(fol_package::BuildDefaultStepKind::Build)
+            {
+                all_selections(
+                    member,
+                    graph,
+                    evaluated,
+                    fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
+                )
+            } else {
+                Vec::new()
+            };
             FrontendMemberPlannedStep {
                 selection,
                 ambiguous_selection,
+                fan_out_selections,
                 available_models: models_for_step(evaluated, &step.name, step.default_kind),
                 description: step.description,
                 default_kind: step.default_kind,
@@ -494,6 +512,7 @@ pub(crate) fn plan_member_execution_from_graph(
     }
     if !steps.iter().any(|step| step.name == "check") {
         steps.push(FrontendMemberPlannedStep {
+            fan_out_selections: Vec::new(),
             name: "check".to_string(),
             description: Some("Typecheck the workspace graph".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Check),
@@ -583,7 +602,20 @@ fn synthesized_default_steps(
             evaluated,
             fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
         );
+        // Several executables: the default `build` step fans out over all
+        // of them instead of demanding a named step.
+        let fan_out_selections = if executable_count > 1 {
+            all_selections(
+                member,
+                graph,
+                evaluated,
+                fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,
+            )
+        } else {
+            Vec::new()
+        };
         steps.push(FrontendMemberPlannedStep {
+            fan_out_selections,
             name: "build".to_string(),
             description: Some("Build default executable artifacts".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Build),
@@ -596,6 +628,7 @@ fn synthesized_default_steps(
             ),
         });
         steps.push(FrontendMemberPlannedStep {
+            fan_out_selections: Vec::new(),
             name: "run".to_string(),
             description: Some("Run the default executable artifact".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Run),
@@ -620,6 +653,7 @@ fn synthesized_default_steps(
             fol_package::build_runtime::BuildRuntimeArtifactKind::Test,
         );
         steps.push(FrontendMemberPlannedStep {
+            fan_out_selections: Vec::new(),
             name: "test".to_string(),
             description: Some("Run the default test artifact".to_string()),
             default_kind: Some(fol_package::BuildDefaultStepKind::Test),
@@ -727,6 +761,23 @@ fn models_for_step(
     }
 }
 
+/// Every artifact of the given kind as an execution selection, in
+/// declaration order. The default `build` step uses this to fan out over
+/// all executables.
+fn all_selections(
+    member: &FrontendMemberBuildRoute,
+    graph: &fol_package::BuildGraph,
+    evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
+    kind: fol_package::build_runtime::BuildRuntimeArtifactKind,
+) -> Vec<crate::compile::FrontendArtifactExecutionSelection> {
+    evaluated
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == kind)
+        .map(|artifact| artifact_selection(member, graph, evaluated, artifact))
+        .collect()
+}
+
 fn single_selection(
     member: &FrontendMemberBuildRoute,
     graph: &fol_package::BuildGraph,
@@ -824,6 +875,36 @@ fn resolve_requested_step_execution(
         let Some(execution_kind) = step.execution else {
             continue;
         };
+        if step.ambiguous_selection && !step.fan_out_selections.is_empty() {
+            if saw_untargeted {
+                return Err(FrontendError::new(
+                    FrontendErrorKind::InvalidInput,
+                    format!(
+                        "workspace build execution step '{}' mixes targeted and untargeted members",
+                        requested_step
+                    ),
+                ));
+            }
+            for selection in &step.fan_out_selections {
+                if !selections.contains(selection) {
+                    selections.push(selection.clone());
+                }
+            }
+            match resolved {
+                None => resolved = Some(execution_kind),
+                Some(current) if current == execution_kind => {}
+                Some(current) => {
+                    return Err(FrontendError::new(
+                        FrontendErrorKind::InvalidInput,
+                        format!(
+                            "workspace build execution step '{}' resolves to incompatible execution kinds: {:?} and {:?}",
+                            requested_step, current, execution_kind
+                        ),
+                    ));
+                }
+            }
+            continue;
+        }
         if step.ambiguous_selection {
             let resolved = if step.available_models.is_empty() {
                 "unknown".to_string()
