@@ -1,5 +1,5 @@
 [workspace]
-package.version = "0.2.3"
+package.version = "0.2.4"
 default-members = [".", "lang/tooling/fol-self"]
 members = [
     "lang/compiler/fol-types",

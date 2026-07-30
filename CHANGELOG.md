@@ -1,9 +1,17 @@
 # Changelog
 
+## [0.2.4] - 2026-07-30
+
+### Build
+
+- Pin components by git revision
+
 ## [0.2.3] - 2026-07-30
 
 ### <!-- 1 -->🐛 Bug Fixes
 
+- Match the guard command in the pin
+- Read the bare version in the tag guard
 - Stop leaking overlay trees on error
 - Read stdin on demand and honest hooks
 - Receive from first-class chn[rx] values
