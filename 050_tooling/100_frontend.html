@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
+            window.path_to_searchindex_js = "../searchindex-c873a7aa.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -175,8 +175,9 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="frontend-workflow"><a class="header" href="#frontend-workflow">Frontend Workflow</a></h1>
-<p>The public FOL entrypoint is the <code>fol</code> tool.</p>
-<p><code>fol</code> is implemented by the <code>fol-frontend</code> crate. It sits above:</p>
+<p>The public FOL entrypoint is the <code>fol</code> tool, which dispatches to the versioned
+<code>folc</code> engine (see <a href="../025_toolchain/_index.html">Toolchain Management</a>).</p>
+<p>The engine is implemented by the <code>fol-frontend</code> crate. It sits above:</p>
 <ul>
 <li><code>fol-package</code></li>
 <li><code>fol-resolver</code></li>
@@ -188,7 +189,7 @@
 <h2 id="what-the-frontend-owns"><a class="header" href="#what-the-frontend-owns">What The Frontend Owns</a></h2>
 <p>The frontend owns:</p>
 <ul>
-<li>CLI parsing with <code>clap</code></li>
+<li>CLI parsing (hand-rolled, no argument-parser dependency)</li>
 <li>grouped command structure</li>
 <li>package and workspace discovery</li>
 <li>project scaffolding</li>

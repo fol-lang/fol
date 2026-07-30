@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
+            window.path_to_searchindex_js = "../searchindex-c873a7aa.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -221,6 +221,24 @@ error telling you both ways out.</li>
 <code>runtime/</code> relative to its own binary, so nothing else on the machine — no
 environment variables, no source checkout — is needed for it to compile and
 run programs.</p>
+<h2 id="where-packages-are-read-from-and-written-to"><a class="header" href="#where-packages-are-read-from-and-written-to">Where packages are read from and written to</a></h2>
+<p>Two different chains govern the package store, and the difference matters.</p>
+<p>A <strong>read</strong> — resolving <code>use x: pkg = {"x"}</code> — consults, most specific first:</p>
+<ol>
+<li>an explicit <code>--package-store-root</code> flag or <code>FOL_PACKAGE_STORE_ROOT</code></li>
+<li>a <code>package_store_root</code> declared in <code>fol.work.yaml</code></li>
+<li><code>&lt;project&gt;/.fol/pkg</code></li>
+<li><code>$FOL_HOME/pkg</code> — the shared store, usable by every toolchain</li>
+<li>the store bundled with the running toolchain (this is how <code>std</code> resolves out
+of the box)</li>
+</ol>
+<p>An explicit or declared root is always used, even if it does not exist, so a
+wrong path fails loudly instead of silently resolving somewhere else. The
+remaining candidates are skipped unless they actually contain packages — an
+empty <code>$FOL_HOME/pkg</code> must never shadow the toolchain’s own store.</p>
+<p>A <strong>write</strong> — where <code>fol pack fetch</code> materializes packages — stops at step 3:
+explicit, then declared, then <code>&lt;project&gt;/.fol/pkg</code>. A fetch can therefore never
+write into the shared home store or into an installed toolchain.</p>
 <h2 id="pinning-a-version"><a class="header" href="#pinning-a-version">Pinning a version</a></h2>
 <p>A project declares which toolchain it wants on the <strong>first comment line of
 <code>build.fol</code></strong>:</p>

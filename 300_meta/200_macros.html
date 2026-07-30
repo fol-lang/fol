@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
+            window.path_to_searchindex_js = "../searchindex-c873a7aa.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -183,8 +183,10 @@ surface</li>
 <li>everything below describes intended design, not current behavior</li>
 </ul>
 <p>Macros are intended to support source-level replacement. They will not be able
-to redefine the compiler-owned memory sigils <code>@</code>, <code>#</code>, <code>!</code>, <code>&amp;</code>, or <code>*</code>; those
-spellings already have fixed ownership, borrowing, and pointer semantics.</p>
+to redefine the compiler-owned ownership surface: the bracketed operations
+(<code>[mov]</code>, <code>[bor]</code>, <code>[ref]</code>, <code>[drf]</code>, <code>[cpy]</code>, <code>[cln]</code>, …) and the binding sigils
+that remain in the language have fixed ownership, borrowing, and pointer
+semantics.</p>
 <pre><code class="language-fol">def '$'(a: any): mac = '.to_string'
 </code></pre>
 

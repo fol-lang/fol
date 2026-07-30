@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
+            window.path_to_searchindex_js = "../searchindex-c873a7aa.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -175,31 +175,25 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="frontend-workflow"><a class="header" href="#frontend-workflow">Frontend Workflow</a></h1>
-<p>FOL now has a dedicated frontend layer above the compiler pipeline.</p>
-<p>That layer is the <code>fol</code> tool itself.</p>
-<p>The frontend is implemented in <code>fol-frontend</code>, and it is the user-facing
-workflow shell for:</p>
+<p>A frontend layer sits above the compiler pipeline. It is implemented in
+<code>fol-frontend</code> and shipped as the <code>folc</code> engine, which the <code>fol</code> manager
+dispatches to (see <a href="../025_toolchain/_index.html">Toolchain Management</a>).</p>
+<p>The frontend owns:</p>
 <ul>
-<li>project/workspace setup</li>
-<li>fetch/update flows</li>
-<li>build/run/test/emit flows</li>
+<li>workflow commands: project/workspace setup, fetch and update flows,
+build/run/test/emit</li>
+<li>direct single-file compile dispatch</li>
+<li>root help and output rendering</li>
+<li>frontend diagnostics</li>
 <li>editor tooling dispatch under <code>fol tool</code></li>
 </ul>
-<p>The detailed reference has moved to the Tooling section:</p>
+<p>Use this page as an entrypoint pointer; the detailed reference lives in the
+Tooling section:</p>
 <ul>
 <li><a href="../050_tooling/_index.html">Tooling</a></li>
 <li><a href="../050_tooling/100_frontend.html">Frontend Workflow</a></li>
 <li><a href="../050_tooling/200_tool_commands.html">Tool Commands</a></li>
 </ul>
-<p>Use this overview page only as the entrypoint pointer.</p>
-<ul>
-<li>workflow commands</li>
-<li>direct compile dispatch</li>
-<li>root help</li>
-<li>output rendering</li>
-<li>frontend diagnostics</li>
-</ul>
-<p>So the root binary is no longer its own separate CLI implementation.</p>
 <h2 id="current-boundary"><a class="header" href="#current-boundary">Current Boundary</a></h2>
 <p>The current frontend milestone is about local workflows and the first backend.</p>
 <p>It already covers:</p>
@@ -222,7 +216,7 @@ the shipped <code>V3</code> surfaces</li>
 </ul>
 <p>Future work is still expected around:</p>
 <ul>
-<li>richer package-store policy beyond the first git/store workflow</li>
+<li>richer package-store policy beyond the current read/write chains</li>
 <li>lockfile/version solving beyond the current pinned git contract</li>
 <li>additional backend targets</li>
 </ul>

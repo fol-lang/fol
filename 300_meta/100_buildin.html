@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
+            window.path_to_searchindex_js = "../searchindex-c873a7aa.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -324,10 +324,25 @@ requested state</li>
 <li><code>.term_cols()</code> / <code>.term_rows()</code> — terminal size (80×24 when it cannot be
 determined)</li>
 <li><code>.int_to_str(value)</code> — render an integer as its decimal string</li>
+<li><code>.read_key_ms(timeout)</code> — like <code>.read_key()</code> but gives up after the timeout,
+yielding <code>-2</code> on timeout and <code>-1</code> at end of input</li>
+<li><code>.str_sub(text, start, count)</code> — a byte-range slice snapped to UTF-8
+boundaries</li>
+<li><code>.str_byte(text, index)</code> / <code>.byte_to_str(value)</code> — byte inspection and
+single-byte construction</li>
+<li><code>.env_var(name)</code> — an environment variable’s value</li>
+<li><code>.shell(command)</code> — run a command through <code>sh -c</code> with inherited streams and
+yield its exit status</li>
+<li><code>.dir_list(path)</code> — the sorted entries of a directory, directories suffixed
+with <code>/</code></li>
+<li><code>.read_file(path)</code> — a file’s contents</li>
 </ul>
 <p>The bundled <code>std</code> package wraps them as <code>std::io::write</code>, <code>std::io::read_key</code>,
-<code>std::term::raw_mode</code>, <code>std::term::cols</code>, <code>std::term::rows</code>,
-<code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>, and <code>std::fmt::int_to_str</code>.</p>
+<code>std::io::read_key_ms</code>, <code>std::term::raw_mode</code>, <code>std::term::cols</code>,
+<code>std::term::rows</code>, <code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>,
+<code>std::fmt::int_to_str</code>, <code>std::strn::sub</code>, <code>std::strn::byte_at</code>,
+<code>std::strn::from_byte</code>, <code>std::env</code>, <code>std::shell</code>, <code>std::dir_list</code>, and
+<code>std::read_file</code>.</p>
 <p>With that build contract, this is valid:</p>
 <pre><code class="language-fol">fun[] main(flag: bol): bol = {
     return .echo(flag)

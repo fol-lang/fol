@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7891e20b.js";
+            window.path_to_searchindex_js = "searchindex-c873a7aa.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-7a86c1dd.js"></script>
@@ -314,6 +314,24 @@ error telling you both ways out.</li>
 <code>runtime/</code> relative to its own binary, so nothing else on the machine — no
 environment variables, no source checkout — is needed for it to compile and
 run programs.</p>
+<h2 id="where-packages-are-read-from-and-written-to"><a class="header" href="#where-packages-are-read-from-and-written-to">Where packages are read from and written to</a></h2>
+<p>Two different chains govern the package store, and the difference matters.</p>
+<p>A <strong>read</strong> — resolving <code>use x: pkg = {"x"}</code> — consults, most specific first:</p>
+<ol>
+<li>an explicit <code>--package-store-root</code> flag or <code>FOL_PACKAGE_STORE_ROOT</code></li>
+<li>a <code>package_store_root</code> declared in <code>fol.work.yaml</code></li>
+<li><code>&lt;project&gt;/.fol/pkg</code></li>
+<li><code>$FOL_HOME/pkg</code> — the shared store, usable by every toolchain</li>
+<li>the store bundled with the running toolchain (this is how <code>std</code> resolves out
+of the box)</li>
+</ol>
+<p>An explicit or declared root is always used, even if it does not exist, so a
+wrong path fails loudly instead of silently resolving somewhere else. The
+remaining candidates are skipped unless they actually contain packages — an
+empty <code>$FOL_HOME/pkg</code> must never shadow the toolchain’s own store.</p>
+<p>A <strong>write</strong> — where <code>fol pack fetch</code> materializes packages — stops at step 3:
+explicit, then declared, then <code>&lt;project&gt;/.fol/pkg</code>. A fetch can therefore never
+write into the shared home store or into an installed toolchain.</p>
 <h2 id="pinning-a-version"><a class="header" href="#pinning-a-version">Pinning a version</a></h2>
 <p>A project declares which toolchain it wants on the <strong>first comment line of
 <code>build.fol</code></strong>:</p>
@@ -381,6 +399,13 @@ fetched fol 0.2.1 -&gt; ~/.fol/toolchains/v0.2.1
 $ fol self default 0.2.1
 default toolchain is now 0.2.1
 </code></pre>
+<p>Every download is verified before it is unpacked: <code>fol</code> fetches the release’s
+<code>SHA256SUMS-&lt;target&gt;</code> alongside the tarball and refuses to extract on a
+mismatch or when no checksums are published. There is no opt-out.</p>
+<p>An install is also atomic. The new toolchain is staged beside its destination
+and swapped into place only after all three payloads (<code>folc</code>, <code>std/</code>,
+<code>runtime/</code>) are present, so a failed or interrupted install leaves the previous
+toolchain exactly as it was.</p>
 <p>Prefer keeping everything project-local? Skip <code>FOL_HOME</code> entirely — inside a
 project the manager uses <code>&lt;project&gt;/.fol/toolchain</code> as its home, so the
 toolchain sits beside the project’s build outputs and nothing global exists.</p>
@@ -395,6 +420,8 @@ $ fol self default dev
 <code>target/release/folc</code> or <code>target/debug/folc</code> — whichever was <strong>built most
 recently</strong> — and its <code>std</code> and <code>runtime</code> straight from the live source tree.
 Rebuild the compiler, and every <code>fol</code> invocation immediately uses it.</p>
+<p><code>fol self link</code> also accepts <code>--bin &lt;path&gt;</code> and <code>--std &lt;path&gt;</code> when the binary
+or the standard library lives somewhere other than the checkout defaults.</p>
 <p>To freeze a source build into a normal, immutable toolchain instead (useful
 for testing the install flow offline):</p>
 <pre><code class="language-console">$ cargo build --release --bin folc &amp;&amp; cargo build --release -p fol-self
@@ -427,8 +454,10 @@ directory self-sufficient on a machine that has no FOL checkout.</li>
 <p>Because nothing inside a toolchain references anything outside it, installing,
 removing, or switching versions can never corrupt another version. The shared
 parts of the home — <code>pkg/</code> for third-party packages and <code>config</code> for the
-default — are version-independent by design (packages are source; every
-toolchain compiles them itself).</p>
+default — are version-independent by design: packages are source, so every
+toolchain compiles them itself. A build only ever <em>reads</em> <code>$FOL_HOME/pkg</code>;
+fetches write into the project, so one project cannot corrupt the store another
+version relies on.</p>
 <h2 id="dispatch-mechanics"><a class="header" href="#dispatch-mechanics">Dispatch mechanics</a></h2>
 <p><code>fol</code> decides which engine runs before any engine code executes:</p>
 <pre><code>fol [+&lt;toolchain&gt;] &lt;anything else&gt; …
@@ -595,31 +624,25 @@ namespace/package surface addressed through <code>use</code>, <code>def</code>, 
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="frontend-workflow"><a class="header" href="#frontend-workflow">Frontend Workflow</a></h1>
-<p>FOL now has a dedicated frontend layer above the compiler pipeline.</p>
-<p>That layer is the <code>fol</code> tool itself.</p>
-<p>The frontend is implemented in <code>fol-frontend</code>, and it is the user-facing
-workflow shell for:</p>
+<p>A frontend layer sits above the compiler pipeline. It is implemented in
+<code>fol-frontend</code> and shipped as the <code>folc</code> engine, which the <code>fol</code> manager
+dispatches to (see <a href="#toolchain-management">Toolchain Management</a>).</p>
+<p>The frontend owns:</p>
 <ul>
-<li>project/workspace setup</li>
-<li>fetch/update flows</li>
-<li>build/run/test/emit flows</li>
+<li>workflow commands: project/workspace setup, fetch and update flows,
+build/run/test/emit</li>
+<li>direct single-file compile dispatch</li>
+<li>root help and output rendering</li>
+<li>frontend diagnostics</li>
 <li>editor tooling dispatch under <code>fol tool</code></li>
 </ul>
-<p>The detailed reference has moved to the Tooling section:</p>
+<p>Use this page as an entrypoint pointer; the detailed reference lives in the
+Tooling section:</p>
 <ul>
 <li><a href="#tooling">Tooling</a></li>
 <li><a href="#frontend-workflow-1">Frontend Workflow</a></li>
 <li><a href="#tool-commands">Tool Commands</a></li>
 </ul>
-<p>Use this overview page only as the entrypoint pointer.</p>
-<ul>
-<li>workflow commands</li>
-<li>direct compile dispatch</li>
-<li>root help</li>
-<li>output rendering</li>
-<li>frontend diagnostics</li>
-</ul>
-<p>So the root binary is no longer its own separate CLI implementation.</p>
 <h2 id="current-boundary"><a class="header" href="#current-boundary">Current Boundary</a></h2>
 <p>The current frontend milestone is about local workflows and the first backend.</p>
 <p>It already covers:</p>
@@ -642,7 +665,7 @@ the shipped <code>V3</code> surfaces</li>
 </ul>
 <p>Future work is still expected around:</p>
 <ul>
-<li>richer package-store policy beyond the first git/store workflow</li>
+<li>richer package-store policy beyond the current read/write chains</li>
 <li>lockfile/version solving beyond the current pinned git contract</li>
 <li>additional backend targets</li>
 </ul>
@@ -688,8 +711,9 @@ and LSP surfaces used for ordinary source files</li>
 <p>This section is the detailed operational reference.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="frontend-workflow-1"><a class="header" href="#frontend-workflow-1">Frontend Workflow</a></h1>
-<p>The public FOL entrypoint is the <code>fol</code> tool.</p>
-<p><code>fol</code> is implemented by the <code>fol-frontend</code> crate. It sits above:</p>
+<p>The public FOL entrypoint is the <code>fol</code> tool, which dispatches to the versioned
+<code>folc</code> engine (see <a href="#toolchain-management">Toolchain Management</a>).</p>
+<p>The engine is implemented by the <code>fol-frontend</code> crate. It sits above:</p>
 <ul>
 <li><code>fol-package</code></li>
 <li><code>fol-resolver</code></li>
@@ -701,7 +725,7 @@ and LSP surfaces used for ordinary source files</li>
 <h2 id="what-the-frontend-owns"><a class="header" href="#what-the-frontend-owns">What The Frontend Owns</a></h2>
 <p>The frontend owns:</p>
 <ul>
-<li>CLI parsing with <code>clap</code></li>
+<li>CLI parsing (hand-rolled, no argument-parser dependency)</li>
 <li>grouped command structure</li>
 <li>package and workspace discovery</li>
 <li>project scaffolding</li>
@@ -921,6 +945,7 @@ does not exist.</p>
 <li><code>fol tool symbols &lt;PATH&gt;</code></li>
 <li><code>fol tool references &lt;PATH&gt; --line &lt;LINE&gt; --character &lt;CHARACTER&gt;</code></li>
 <li><code>fol tool rename &lt;PATH&gt; --line &lt;LINE&gt; --character &lt;CHARACTER&gt; &lt;NEW_NAME&gt;</code></li>
+<li><code>fol tool complete &lt;PATH&gt; --line &lt;LINE&gt; --character &lt;CHARACTER&gt;</code></li>
 <li><code>fol tool semantic-tokens &lt;PATH&gt;</code></li>
 <li><code>fol tool tree generate &lt;PATH&gt;</code></li>
 <li><code>fol tool clean</code></li>
@@ -5111,10 +5136,25 @@ requested state</li>
 <li><code>.term_cols()</code> / <code>.term_rows()</code> — terminal size (80×24 when it cannot be
 determined)</li>
 <li><code>.int_to_str(value)</code> — render an integer as its decimal string</li>
+<li><code>.read_key_ms(timeout)</code> — like <code>.read_key()</code> but gives up after the timeout,
+yielding <code>-2</code> on timeout and <code>-1</code> at end of input</li>
+<li><code>.str_sub(text, start, count)</code> — a byte-range slice snapped to UTF-8
+boundaries</li>
+<li><code>.str_byte(text, index)</code> / <code>.byte_to_str(value)</code> — byte inspection and
+single-byte construction</li>
+<li><code>.env_var(name)</code> — an environment variable’s value</li>
+<li><code>.shell(command)</code> — run a command through <code>sh -c</code> with inherited streams and
+yield its exit status</li>
+<li><code>.dir_list(path)</code> — the sorted entries of a directory, directories suffixed
+with <code>/</code></li>
+<li><code>.read_file(path)</code> — a file’s contents</li>
 </ul>
 <p>The bundled <code>std</code> package wraps them as <code>std::io::write</code>, <code>std::io::read_key</code>,
-<code>std::term::raw_mode</code>, <code>std::term::cols</code>, <code>std::term::rows</code>,
-<code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>, and <code>std::fmt::int_to_str</code>.</p>
+<code>std::io::read_key_ms</code>, <code>std::term::raw_mode</code>, <code>std::term::cols</code>,
+<code>std::term::rows</code>, <code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>,
+<code>std::fmt::int_to_str</code>, <code>std::strn::sub</code>, <code>std::strn::byte_at</code>,
+<code>std::strn::from_byte</code>, <code>std::env</code>, <code>std::shell</code>, <code>std::dir_list</code>, and
+<code>std::read_file</code>.</p>
 <p>With that build contract, this is valid:</p>
 <pre><code class="language-fol">fun[] main(flag: bol): bol = {
     return .echo(flag)
@@ -5254,8 +5294,10 @@ surface</li>
 <li>everything below describes intended design, not current behavior</li>
 </ul>
 <p>Macros are intended to support source-level replacement. They will not be able
-to redefine the compiler-owned memory sigils <code>@</code>, <code>#</code>, <code>!</code>, <code>&amp;</code>, or <code>*</code>; those
-spellings already have fixed ownership, borrowing, and pointer semantics.</p>
+to redefine the compiler-owned ownership surface: the bracketed operations
+(<code>[mov]</code>, <code>[bor]</code>, <code>[ref]</code>, <code>[drf]</code>, <code>[cpy]</code>, <code>[cln]</code>, …) and the binding sigils
+that remain in the language have fixed ownership, borrowing, and pointer
+semantics.</p>
 <pre><code class="language-fol">def '$'(a: any): mac = '.to_string'
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -9571,6 +9613,8 @@ editor tests consume that shared machine inventory.</p>
 <li><code>examples/proc_mutex_guard_end_m3</code></li>
 <li><code>examples/proc_mutex_m3</code></li>
 <li><code>examples/proc_select_m3</code></li>
+<li><code>examples/proc_receiver_select_m3</code></li>
+<li><code>examples/proc_receiver_loop_m3</code></li>
 </ul>
 <p>Negative:</p>
 <ul>

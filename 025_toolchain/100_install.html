@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
+            window.path_to_searchindex_js = "../searchindex-c873a7aa.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -191,6 +191,13 @@ fetched fol 0.2.1 -&gt; ~/.fol/toolchains/v0.2.1
 $ fol self default 0.2.1
 default toolchain is now 0.2.1
 </code></pre>
+<p>Every download is verified before it is unpacked: <code>fol</code> fetches the release’s
+<code>SHA256SUMS-&lt;target&gt;</code> alongside the tarball and refuses to extract on a
+mismatch or when no checksums are published. There is no opt-out.</p>
+<p>An install is also atomic. The new toolchain is staged beside its destination
+and swapped into place only after all three payloads (<code>folc</code>, <code>std/</code>,
+<code>runtime/</code>) are present, so a failed or interrupted install leaves the previous
+toolchain exactly as it was.</p>
 <p>Prefer keeping everything project-local? Skip <code>FOL_HOME</code> entirely — inside a
 project the manager uses <code>&lt;project&gt;/.fol/toolchain</code> as its home, so the
 toolchain sits beside the project’s build outputs and nothing global exists.</p>
@@ -205,6 +212,8 @@ $ fol self default dev
 <code>target/release/folc</code> or <code>target/debug/folc</code> — whichever was <strong>built most
 recently</strong> — and its <code>std</code> and <code>runtime</code> straight from the live source tree.
 Rebuild the compiler, and every <code>fol</code> invocation immediately uses it.</p>
+<p><code>fol self link</code> also accepts <code>--bin &lt;path&gt;</code> and <code>--std &lt;path&gt;</code> when the binary
+or the standard library lives somewhere other than the checkout defaults.</p>
 <p>To freeze a source build into a normal, immutable toolchain instead (useful
 for testing the install flow offline):</p>
 <pre><code class="language-console">$ cargo build --release --bin folc &amp;&amp; cargo build --release -p fol-self

@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7891e20b.js";
+            window.path_to_searchindex_js = "../searchindex-c873a7aa.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -189,8 +189,10 @@ directory self-sufficient on a machine that has no FOL checkout.</li>
 <p>Because nothing inside a toolchain references anything outside it, installing,
 removing, or switching versions can never corrupt another version. The shared
 parts of the home — <code>pkg/</code> for third-party packages and <code>config</code> for the
-default — are version-independent by design (packages are source; every
-toolchain compiles them itself).</p>
+default — are version-independent by design: packages are source, so every
+toolchain compiles them itself. A build only ever <em>reads</em> <code>$FOL_HOME/pkg</code>;
+fetches write into the project, so one project cannot corrupt the store another
+version relies on.</p>
 <h2 id="dispatch-mechanics"><a class="header" href="#dispatch-mechanics">Dispatch mechanics</a></h2>
 <p><code>fol</code> decides which engine runs before any engine code executes:</p>
 <pre><code>fol [+&lt;toolchain&gt;] &lt;anything else&gt; …
