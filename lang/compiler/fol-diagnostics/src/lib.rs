@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_coded_report_helpers_preserve_legacy_location_and_help_views() {
+    fn test_coded_report_helpers_expose_primary_location_and_help() {
         let mut report = DiagnosticReport::new();
         report.add_coded_error(
             "R2000",
@@ -362,7 +362,7 @@ mod tests {
 
         assert_eq!(diagnostic.code.as_str(), "R2000");
         assert_eq!(
-            diagnostic.legacy_location(),
+            diagnostic.primary_location(),
             Some(&DiagnosticLocation {
                 file: Some("pkg/main.fol".to_string()),
                 line: 9,
@@ -370,7 +370,7 @@ mod tests {
                 length: Some(2),
             })
         );
-        assert_eq!(diagnostic.legacy_help(), None);
+        assert_eq!(diagnostic.first_help(), None);
     }
 
     #[test]
@@ -474,7 +474,7 @@ mod tests {
         assert_eq!(decoded.notes, vec!["extra note".to_string()]);
         assert_eq!(decoded.helps, vec!["first help".to_string()]);
         assert_eq!(decoded.suggestions.len(), 1);
-        assert_eq!(decoded.legacy_help(), Some("first help"));
+        assert_eq!(decoded.first_help(), Some("first help"));
         assert_eq!(
             decoded
                 .primary_label()

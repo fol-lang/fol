@@ -219,13 +219,6 @@ impl Diagnostic {
         self.helps.first().map(|help| help.as_str())
     }
 
-    pub fn legacy_location(&self) -> Option<&DiagnosticLocation> {
-        self.primary_location()
-    }
-
-    pub fn legacy_help(&self) -> Option<&str> {
-        self.first_help()
-    }
 }
 
 impl Serialize for Diagnostic {

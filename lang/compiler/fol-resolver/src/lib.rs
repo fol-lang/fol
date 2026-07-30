@@ -55,9 +55,9 @@ impl Resolver {
 
     /// Resolve one parsed package into scopes, symbols, references, and imports.
     ///
-    /// This is the legacy single-program surface. New semantic
-    /// consumers should prefer the workspace APIs and then read the entry
-    /// package from the returned `ResolvedWorkspace`.
+    /// Single-package surface: it returns the entry package's `ResolvedProgram`
+    /// directly. Consumers that need the dependency graph resolve a workspace
+    /// instead and read the entry package out of `ResolvedWorkspace`.
     pub fn resolve_package(
         &mut self,
         syntax: fol_parser::ast::ParsedPackage,
@@ -67,7 +67,7 @@ impl Resolver {
 
     /// Resolve one parsed package with an explicit resolver configuration.
     ///
-    /// This is the legacy single-program surface.
+    /// Single-package surface; see [`Resolver::resolve_package`].
     pub fn resolve_package_with_config(
         &mut self,
         syntax: fol_parser::ast::ParsedPackage,
@@ -95,7 +95,7 @@ impl Resolver {
 
     /// Resolve one fol-package prepared package with a fresh resolver session.
     ///
-    /// This is the legacy single-program surface.
+    /// Single-package surface; see [`Resolver::resolve_package`].
     pub fn resolve_prepared_package(
         &mut self,
         prepared: PreparedPackage,
@@ -105,7 +105,7 @@ impl Resolver {
 
     /// Resolve one fol-package prepared package with an explicit resolver configuration.
     ///
-    /// This is the legacy single-program surface.
+    /// Single-package surface; see [`Resolver::resolve_package`].
     pub fn resolve_prepared_package_with_config(
         &mut self,
         prepared: PreparedPackage,

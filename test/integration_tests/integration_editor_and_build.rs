@@ -4094,8 +4094,8 @@ fn test_final_std_contract_negative_paths_fail_cleanly() {
         old_std_mode_stderr
     );
     assert!(
-        old_std_mode_stderr.contains("artifact fol_model no longer accepts 'std'"),
-        "old std-mode spelling should keep the exact guidance: stdout=\n{}\nstderr=\n{}",
+        old_std_mode_stderr.contains("artifact fol_model must be one of: core, memo (got 'std')"),
+        "a removed model spelling should get the plain unknown-value error with no migration hint: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&old_std_mode_output.stdout),
         old_std_mode_stderr
     );
@@ -5883,18 +5883,19 @@ fn test_v2_contract_keeps_broader_dispatch_out_of_scope() {
 }
 
 #[test]
-fn test_v2_milestone_notes_are_retained_as_transition_notes() {
+fn test_v2_milestone_notes_scope_themselves_against_the_full_contract() {
     let generics_note = std::fs::read_to_string(repo_root().join("docs/v2-generics-m1.md"))
         .expect("generic milestone note should load");
     let standards_note = std::fs::read_to_string(repo_root().join("docs/v2-standards-m2.md"))
         .expect("standards milestone note should load");
 
-    assert!(generics_note.contains("Historical transition note:"));
-    assert!(generics_note.contains("not the full `V2`"));
-    assert!(generics_note.contains("docs/v2-full-contract.md"));
-    assert!(standards_note.contains("Historical transition note:"));
-    assert!(standards_note.contains("not the full `V2`"));
-    assert!(standards_note.contains("docs/v2-full-contract.md"));
+    // These notes record shipped surface; they must not narrate history.
+    for note in [&generics_note, &standards_note] {
+        assert!(note.contains("Scope:"));
+        assert!(note.contains("the examples that pin it"));
+        assert!(note.contains("docs/v2-full-contract.md"));
+        assert!(!note.contains("Historical transition note"));
+    }
 }
 
 #[test]
@@ -5916,8 +5917,8 @@ fn test_v2_surface_freeze_is_now_explicit_across_plan_docs_and_book() {
     assert!(contract.contains("Still out of scope for this `V2` target:"));
     assert!(generics_book.contains("Full `V2` now includes generic type declarations"));
     assert!(standards_book.contains("For the current full `V2` target"));
-    assert!(generics_note.contains("Historical transition note:"));
-    assert!(standards_note.contains("Historical transition note:"));
+    assert!(generics_note.contains("Scope:"));
+    assert!(standards_note.contains("Scope:"));
 }
 
 #[test]

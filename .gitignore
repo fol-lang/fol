@@ -2,10 +2,18 @@
 /vendor
 .direnv
 .devbox
-docs/
 *.swp
 .idea/
 *.log
 .fol/build/
 AGENTS.md
-plan
+
+# mdbook render output; the sources under book/src stay tracked.
+/book/book
+
+# plan/ is working scratch except the notes checked in deliberately.
+/plan/*
+!/plan/V4_PLAN.md
+!/plan/AUDIT.md
+!/plan/CLEANUP.md
+!/plan/TOOLCHAIN.md

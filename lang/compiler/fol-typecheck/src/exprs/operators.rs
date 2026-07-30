@@ -571,11 +571,9 @@ fn mark_awaited_eventual_binding(
     Ok(())
 }
 
-/// Type the canonical V3 prefix ownership operation `[opt, ...]operand`. This is
-/// the explicit spelling of the transfer/borrow/allocation operations. It is
-/// wired additively alongside the legacy `#`/`@`/implicit forms: each option
-/// combination reuses the same checked machinery the legacy forms do, so the two
-/// spellings stay semantically identical until the legacy forms are retired.
+/// Type the prefix ownership operation `[opt, ...]operand` — the only spelling
+/// of the transfer, borrow, and allocation operations. Each option combination
+/// maps onto the checked machinery for that operation.
 pub(crate) fn type_ownership_op(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,

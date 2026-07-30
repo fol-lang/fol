@@ -2526,7 +2526,7 @@ fn substitute_generic_type(
             TypecheckError::with_origin(
                 TypecheckErrorKind::Unsupported,
                 format!(
-                    "call to '{callee}' leaves generic parameter '{generic_name}' underconstrained in V2 Milestone 1; inference only uses call arguments, so add an argument whose type mentions '{generic_name}' or make the routine stop depending on '{generic_name}' outside the argument list"
+                    "call to '{callee}' leaves generic parameter '{generic_name}' underconstrained; inference only uses call arguments, so add an argument whose type mentions '{generic_name}' or make the routine stop depending on '{generic_name}' outside the argument list"
                 ),
                 origin.unwrap_or(SyntaxOrigin {
                     file: None,
@@ -2936,7 +2936,7 @@ pub(crate) fn type_for_reference(
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::Unsupported,
                 format!(
-                    "generic routine '{symbol_name}' cannot be used as a plain routine value in V2 Milestone 1; call it directly instead"
+                    "generic routine '{symbol_name}' cannot be used as a plain routine value; call it directly instead"
                 ),
                 origin.clone().unwrap_or(SyntaxOrigin {
                     file: None,

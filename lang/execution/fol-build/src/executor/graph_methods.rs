@@ -866,18 +866,6 @@ impl BuildBodyExecutor {
                         match raw.as_str() {
                             "core" => BuildArtifactFolModel::Core,
                             "memo" => BuildArtifactFolModel::Memo,
-                            "std" => {
-                                return Err(BuildEvaluationError::new(
-                                    BuildEvaluationErrorKind::InvalidInput,
-                                    "artifact fol_model no longer accepts 'std'; use 'memo' and declare bundled std through build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" })".to_string(),
-                                ))
-                            }
-                            "mem" => {
-                                return Err(BuildEvaluationError::new(
-                                    BuildEvaluationErrorKind::InvalidInput,
-                                    "artifact fol_model no longer accepts 'mem'; use 'memo'".to_string(),
-                                ))
-                            }
                             _ => {
                                 return Err(BuildEvaluationError::new(
                                     BuildEvaluationErrorKind::InvalidInput,

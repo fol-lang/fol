@@ -741,7 +741,7 @@ fn generic_routine_values_reject_returning_generic_routines() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("cannot be used as a plain routine value in V2 Milestone 1")
+                    .contains("cannot be used as a plain routine value")
         }),
         "Expected returning generic routines as values to stay unsupported in M1, got: {errors:?}"
     );
@@ -765,7 +765,7 @@ fn generic_routine_values_reject_plain_callable_bindings() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("cannot be used as a plain routine value in V2 Milestone 1")
+                    .contains("cannot be used as a plain routine value")
         }),
         "Expected generic routine value binding to stay unsupported in M1, got: {errors:?}"
     );
@@ -792,7 +792,7 @@ fn generic_routine_values_reject_storing_generic_routines_in_records() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("cannot be used as a plain routine value in V2 Milestone 1")
+                    .contains("cannot be used as a plain routine value")
         }),
         "Expected storing generic routines in aggregates to stay unsupported in M1, got: {errors:?}"
     );
@@ -818,7 +818,7 @@ fn generic_routine_values_reject_plain_callable_arguments() {
             error.kind() == TypecheckErrorKind::Unsupported
                 && error
                     .message()
-                    .contains("cannot be used as a plain routine value in V2 Milestone 1")
+                    .contains("cannot be used as a plain routine value")
         }),
         "Expected generic routine arguments to stay unsupported in M1, got: {errors:?}"
     );

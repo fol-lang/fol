@@ -390,7 +390,6 @@ impl Element {
             '!' => self.key = Symbol(SYMBOL::Bang),
             '&' => self.key = Symbol(SYMBOL::And),
             '@' => self.key = Symbol(SYMBOL::At),
-            '#' => self.key = Symbol(SYMBOL::Hash),
             '$' => self.key = Symbol(SYMBOL::Dollar),
             '°' => self.key = Symbol(SYMBOL::Degree),
             '§' => self.key = Symbol(SYMBOL::Sign),

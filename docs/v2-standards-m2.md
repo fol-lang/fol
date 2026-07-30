@@ -1,10 +1,9 @@
 # V2 Standards Milestone 2
 
-Historical transition note:
+Scope:
 
-- this document tracks the narrow M2 hardening state, not the full `V2`
-  product contract
-- the current full `V2` target is frozen in `docs/v2-full-contract.md`
+- this note records the shipped standards surface and the examples that pin it
+- the full language contract lives in `docs/v2-full-contract.md`
 
 This note freezes the intended scope for the second `V2` milestone.
 

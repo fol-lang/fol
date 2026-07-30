@@ -530,7 +530,7 @@ fn lsp_server_surfaces_current_generic_m1_boundaries_only() {
     );
     assert!(
         messages.iter().any(|message| message.contains(
-            "generic routine 'pick' cannot be used as a plain routine value in V2 Milestone 1"
+            "generic routine 'pick' cannot be used as a plain routine value"
         )),
         "editor path should surface the generic-routine value boundary, got: {messages:?}"
     );

@@ -797,7 +797,7 @@ fn standards_m2_reject_unsupported_protocol_member_shapes_cleanly() {
     assert!(errors.iter().any(|error| {
         error.kind() == TypecheckErrorKind::Unsupported
             && error.message().contains(
-                "protocol standards currently support only required routine signatures in V2 Milestone 2",
+                "protocol standards support only required routine signatures",
             )
     }));
 }

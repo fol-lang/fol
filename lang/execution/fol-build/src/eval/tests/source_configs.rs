@@ -174,7 +174,7 @@ fn build_source_evaluator_rejects_unknown_artifact_fol_models() {
 }
 
 #[test]
-fn build_source_evaluator_rejects_removed_std_artifact_model_with_exact_guidance() {
+fn build_source_evaluator_rejects_unknown_artifact_models_without_migration_hints() {
     let source = concat!(
         "pro[] build(): non = {\n",
         "    var graph = .build().graph();\n",
@@ -193,12 +193,14 @@ fn build_source_evaluator_rejects_removed_std_artifact_model_with_exact_guidance
     };
 
     let error = evaluate_build_source(&request, &build_path, source)
-        .expect_err("removed std fol_model should fail build evaluation");
+        .expect_err("an unknown fol_model should fail build evaluation");
 
+    // `std` and `mem` are simply not models: they get the same message as any
+    // other unknown value, with no migration guidance.
     assert_eq!(error.kind(), BuildEvaluationErrorKind::InvalidInput);
     assert_eq!(
         error.message(),
-        "artifact fol_model no longer accepts 'std'; use 'memo' and declare bundled std through build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" })"
+        "artifact fol_model must be one of: core, memo (got 'std')"
     );
 }
 

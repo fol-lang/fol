@@ -1484,7 +1484,7 @@ fn lower_protocol_standard_member(
             })
         }
         _ => Err(unsupported(
-            "protocol standards currently support only required routine signatures in V2 Milestone 2",
+            "protocol standards support only required routine signatures",
         )),
     }
 }
