@@ -1,0 +1,20 @@
+use std: pkg = {"std"};
+
+// Terminal and clock hooks. Everything here is deterministic off a terminal:
+// `cols`/`rows` fall back to 80x24, `raw_mode` forwards the requested state,
+// and a 15ms sleep always advances the millisecond clock.
+fun[] main(): int = {
+    var cols: int = std::term::cols();
+    var rows: int = std::term::rows();
+    var start: int = std::time::now_ms();
+    var slept: int = std::time::sleep_ms(15);
+    var elapsed: int = std::time::now_ms() - start;
+    var raw_on: bol = std::term::raw_mode(true);
+    var raw_off: bol = std::term::raw_mode(false);
+    var wide: bol = std::io::echo_bool(cols > 0);
+    var tall: bol = std::io::echo_bool(rows > 0);
+    var waited: bol = std::io::echo_bool(elapsed > 9);
+    var entered: bol = std::io::echo_bool(raw_on);
+    var left: bol = std::io::echo_bool(raw_off);
+    return 0;
+};

@@ -377,34 +377,93 @@ pub fn write(value: FolStr) -> FolStr {
 
 /// The shared stdin byte feed: one reader thread owns stdin so blocking and
 /// timed reads can coexist without competing for the handle.
-fn key_feed() -> &'static std::sync::Mutex<std::sync::mpsc::Receiver<u8>> {
-    static FEED: std::sync::OnceLock<std::sync::Mutex<std::sync::mpsc::Receiver<u8>>> =
-        std::sync::OnceLock::new();
+/// One shared reader thread serves both key primitives, because a timed-out
+/// read must not lose the byte that arrives late — it has to be buffered for
+/// the next call.
+///
+/// The thread reads **only when a byte has been requested**. An eager reader
+/// would sit in a blocking `read` forever and steal input from any child
+/// process that inherits stdin, which is exactly what `shell()` — the TUI
+/// suspend/exec primitive — hands its editor or pager.
+struct KeyFeed {
+    requests: std::sync::mpsc::Sender<()>,
+    bytes: std::sync::Mutex<std::sync::mpsc::Receiver<crate::value::FolInt>>,
+    /// Requested reads that have not been consumed yet. While this is zero the
+    /// thread is parked and stdin belongs to whoever else wants it.
+    outstanding: std::sync::atomic::AtomicUsize,
+}
+
+fn key_feed() -> &'static KeyFeed {
+    static FEED: std::sync::OnceLock<KeyFeed> = std::sync::OnceLock::new();
     FEED.get_or_init(|| {
-        let (sender, receiver) = std::sync::mpsc::channel();
+        let (request_sender, request_receiver) = std::sync::mpsc::channel::<()>();
+        let (byte_sender, byte_receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             use std::io::Read as _;
             let mut stdin = std::io::stdin();
             let mut buffer = [0u8; 1];
-            while let Ok(1) = stdin.read(&mut buffer) {
-                if sender.send(buffer[0]).is_err() {
+            // Park until a read is actually asked for.
+            while request_receiver.recv().is_ok() {
+                let value = match stdin.read(&mut buffer) {
+                    Ok(1) => crate::value::FolInt::from(buffer[0]),
+                    _ => -1,
+                };
+                if byte_sender.send(value).is_err() {
                     break;
                 }
             }
         });
-        std::sync::Mutex::new(receiver)
+        KeyFeed {
+            requests: request_sender,
+            bytes: std::sync::Mutex::new(byte_receiver),
+            outstanding: std::sync::atomic::AtomicUsize::new(0),
+        }
     })
+}
+
+impl KeyFeed {
+    /// Ask for a byte unless a previous request is still pending (a timed-out
+    /// `read_key_ms` leaves one behind, and its byte lands in the channel).
+    fn request(&self) {
+        use std::sync::atomic::Ordering;
+        if self.outstanding.load(Ordering::Acquire) == 0 {
+            self.outstanding.fetch_add(1, Ordering::AcqRel);
+            let _ = self.requests.send(());
+        }
+    }
+
+    fn consumed(&self) {
+        use std::sync::atomic::Ordering;
+        let _ = self
+            .outstanding
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                Some(current.saturating_sub(1))
+            });
+    }
+
+    fn idle(&self) -> bool {
+        self.outstanding.load(std::sync::atomic::Ordering::Acquire) == 0
+    }
 }
 
 /// Block for one byte of standard input. Yields -1 at end of input so callers
 /// can end their read loop without a recoverable shell.
 pub fn read_key() -> crate::value::FolInt {
-    let feed = key_feed()
+    let feed = key_feed();
+    let bytes = feed
+        .bytes
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    match feed.recv() {
-        Ok(byte) => byte as crate::value::FolInt,
-        Err(_) => -1,
+    feed.request();
+    match bytes.recv() {
+        Ok(byte) => {
+            feed.consumed();
+            byte
+        }
+        Err(_) => {
+            feed.consumed();
+            -1
+        }
     }
 }
 
@@ -412,14 +471,30 @@ pub fn read_key() -> crate::value::FolInt {
 /// timeout elapses first, or -1 at end of input. The escape-sequence
 /// disambiguator for key decoders.
 pub fn read_key_ms(timeout_ms: crate::value::FolInt) -> crate::value::FolInt {
-    let feed = key_feed()
+    let feed = key_feed();
+    let bytes = feed
+        .bytes
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    match feed.recv_timeout(std::time::Duration::from_millis(timeout_ms.max(0) as u64)) {
-        Ok(byte) => byte as crate::value::FolInt,
+    feed.request();
+    match bytes.recv_timeout(std::time::Duration::from_millis(timeout_ms.max(0) as u64)) {
+        Ok(byte) => {
+            feed.consumed();
+            byte
+        }
+        // The request stays outstanding: its byte will arrive later and the
+        // next call picks it up instead of asking for another one.
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => -2,
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => -1,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            feed.consumed();
+            -1
+        }
     }
+}
+
+/// Whether the shared reader is parked, i.e. nothing is competing for stdin.
+pub fn stdin_is_idle() -> bool {
+    key_feed().idle()
 }
 
 /// The substring at a byte offset and length, clamped to the string and
@@ -454,17 +529,18 @@ pub fn str_byte(text: FolStr, index: crate::value::FolInt) -> crate::value::FolI
         .unwrap_or(-1)
 }
 
-/// A one-byte string from a byte value (empty outside 0-255).
+/// A one-byte string from an ASCII byte value.
+///
+/// Empty for anything outside 0-127: a FOL `str` is UTF-8, so a lone byte in
+/// 128-255 is not a valid one-byte string. Returning a replacement character
+/// instead would hand back three bytes and quietly break `str_byte`
+/// round-trips; callers reassembling multi-byte text must build the whole
+/// sequence themselves.
 pub fn byte_to_str(value: crate::value::FolInt) -> FolStr {
-    if !(0..=255).contains(&value) {
+    if !(0..=127).contains(&value) {
         return FolStr::new("");
     }
-    let byte = value as u8;
-    if byte.is_ascii() {
-        FolStr::new((byte as char).to_string())
-    } else {
-        FolStr::new(String::from_utf8_lossy(&[byte]).to_string())
-    }
+    FolStr::new((value as u8 as char).to_string())
 }
 
 /// Enable or disable terminal raw mode via `stty` on the controlling
@@ -821,6 +897,14 @@ pub fn env_var(name: FolStr) -> FolStr {
 /// Run a shell command attached to the terminal and yield its exit code
 /// (-1 when it cannot start). The TUI suspend/exec primitive.
 pub fn shell(command: FolStr) -> crate::value::FolInt {
+    // The child inherits stdin. The shared key reader only touches stdin while
+    // a read is outstanding, so after a completed `read_key` the child gets the
+    // terminal to itself. A pending timed-out `read_key_ms` is the one case
+    // where a single byte can still be taken by the reader first.
+    debug_assert!(
+        stdin_is_idle(),
+        "shell() ran while a key read was still outstanding; the child may lose one byte of input"
+    );
     std::process::Command::new("sh")
         .arg("-c")
         .arg(command.as_str())

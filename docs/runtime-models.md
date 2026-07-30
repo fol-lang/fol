@@ -521,6 +521,7 @@ pro[] build(): non = {
 - `examples/std_logtiny_git`
 - `examples/std_named_calls`
 - `examples/std_surface_showcase`
+- `examples/std_terminal_hooks`
 - `examples/mixed_models_workspace`
 
 Negative example packages:

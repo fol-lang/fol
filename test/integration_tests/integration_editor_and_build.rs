@@ -3687,6 +3687,8 @@ fn test_cli_std_examples_run_and_print_expected_output() {
         ("examples/std_named_calls", "host-ok-ready"),
         ("examples/std_substrate_echo", "11"),
         ("examples/std_surface_showcase", "std-hosted-full"),
+        // Terminal, clock, and raw-mode hooks had no example coverage at all.
+        ("examples/std_terminal_hooks", "true"),
     ];
 
     for (path, expected_text) in cases {
@@ -5481,6 +5483,7 @@ fn test_docs_reference_real_example_packages() {
         "examples/std_named_calls",
         "examples/std_substrate_echo",
         "examples/std_surface_showcase",
+        "examples/std_terminal_hooks",
         "examples/mixed_models_workspace",
     ];
     let build_examples = [

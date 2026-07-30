@@ -889,6 +889,9 @@ pub fn roadmap_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicRoadmap> {
         16 => IntrinsicRoadmap::V4,
         23..=36 => IntrinsicRoadmap::CoreStdInstead,
         37..=56 => IntrinsicRoadmap::V2,
+        // The terminal, string, time, and OS hooks are shipped and wrapped by
+        // the bundled std, so they are current surface rather than roadmap.
+        57..=72 => IntrinsicRoadmap::CurrentV1,
         _ => IntrinsicRoadmap::V2,
     })
 }
@@ -904,7 +907,7 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
     intrinsic_by_id(id).and_then(|entry| match entry.id.index() {
         0..=6 => Some(IntrinsicBackendRole::PureOp),
         7 | 12 => Some(IntrinsicBackendRole::TargetHelper),
-        // 8 = echo; 57..=64 = the terminal/OS hooks.
+        // 8 = echo; 57..=72 = the terminal, string, time, and OS hooks.
         8 | 57..=72 => Some(IntrinsicBackendRole::RuntimeHook),
         13 => Some(IntrinsicBackendRole::ControlEffect),
         _ => None,
