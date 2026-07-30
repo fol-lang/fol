@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-c873a7aa.js";
+            window.path_to_searchindex_js = "searchindex-c18b3349.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-7a86c1dd.js"></script>
@@ -9993,19 +9993,33 @@ against this exact snapshot:</p>
 </thead>
 <tbody>
 <tr><td>PARC</td><td><code>follang-parc 0.16.0</code></td><td>source package schema 2</td><td><code>0f52aeeeeec47a082c0d8a515130ee853aa1101d</code></td></tr>
-<tr><td>LINC</td><td><code>follang-linc 0.1.0</code> with <code>native-inspection</code></td><td>link-analysis schema 2</td><td><code>c874d5b0332249524422d9d08c35b3d4edd7e3fa</code></td></tr>
-<tr><td>GERC</td><td><code>follang-gerc 0.1.0</code> with <code>pipeline-native</code></td><td>generation domain 1</td><td><code>000c1f6c12fba99f1a157267ee7db39d42bda8e3</code></td></tr>
+<tr><td>LINC</td><td><code>follang-linc 0.1.0</code> with <code>native-inspection</code></td><td>link-analysis schema 2</td><td><code>fdb50ae9743ee09c6592bc40e87b6f57a892fc51</code></td></tr>
+<tr><td>GERC</td><td><code>follang-gerc 0.1.0</code> with <code>pipeline-native</code></td><td>generation domain 1</td><td><code>fdf139209e824dd7fdc274da20b6be3ba0183a10</code></td></tr>
 </tbody>
 </table>
 </div>
 <p>The lock also freezes the GERC H5 compatibility driver, fixtures, and support
 code under digest
 <code>13644fd1f6ad3f1de06338e5bd415604dbedc9b6baaaaed8a63f44515db004e7</code>.
-<code>Cargo.lock</code> alone cannot record Git identities for path dependencies.
-The production H7 route therefore observes each compiled sibling path’s
-canonical Git root, <code>HEAD</code>, worktree status, and normalized origin before any
-sibling API runs. Revision values enter the evidence report only after those
-runtime checks match the compiled lock identities.</p>
+The three components are <strong>git dependencies pinned by revision</strong>, not sibling
+path dependencies, so a fresh clone of this repository builds and tests without
+any of them checked out. A pinned revision is content-binding, which makes
+provenance a build-time property rather than something to re-observe at run
+time:</p>
+<ul>
+<li><code>fol-interop/build.rs</code> proves that every revision and remote in
+<code>interop.lock.toml</code> equals what cargo resolved in <code>Cargo.lock</code>, and hands the
+verified revisions to the crate. A stale lockfile is a compile error.</li>
+<li>compile-time assertions in <code>fol-interop/src/lib.rs</code> prove the resolved crates
+still expose the contract versions the lock claims.</li>
+<li>each component pins the components below it at the same revisions this lock
+records (<code>parc_revision</code>, <code>linc_revision</code>), because two different <code>follang-parc</code>
+revisions in one graph would produce two incompatible sets of contract types.</li>
+</ul>
+<p>The earlier design shelled out to <code>git</code> at run time to check each sibling
+checkout’s root, <code>HEAD</code>, worktree cleanliness, and origin. That could only pass
+inside a source tree — a released binary carried the build machine’s paths — so
+it verified nothing for users.</p>
 <h2 id="certified-platform"><a class="header" href="#certified-platform">Certified platform</a></h2>
 <p>The only promoted lane is:</p>
 <pre><code class="language-text">x86_64-unknown-linux-gnu
@@ -10048,20 +10062,27 @@ sibling checkouts:</p>
 <pre><code class="language-sh">make interop-check interop-locked test-interop
 </code></pre>
 <ul>
-<li><code>make interop-check</code> checks lock shape, package/schema/feature compatibility,
-the H5 corpus identity, and compilation of the typed integration. It is the
-development check and does not require sibling <code>HEAD</code>s to equal the lock.</li>
-<li><code>make interop-locked</code> additionally requires each sibling to have the exact
-locked <code>HEAD</code>, canonical GitHub origin, and a clean worktree.</li>
+<li><code>make interop-check</code> runs the offline tier: lock self-consistency, the
+cross-pins between components, agreement with <code>fol-interop/Cargo.toml</code> and
+<code>Cargo.lock</code>, the absence of any source override, and compilation of the typed
+integration. It needs no network and no resolved checkouts.</li>
+<li><code>make interop-locked</code> adds the resolved tier: it fetches with <code>--locked</code>,
+finds each component’s checkout in the cargo git cache, and verifies its
+revision, manifest identity, schema constants, features, and the H5 corpus
+digest.</li>
 <li><code>make test-interop</code> depends on the locked check, requires Linux and GCC, and
 runs the positive and fail-closed native H7 tests without an optional-skip
 path.</li>
 </ul>
-<p>CI checks out FOL plus all three repositories in that sibling layout, installs
-Rust 1.89.0, and invokes the same Make-owned locked smoke gate. Changing a
-sibling revision requires changing <code>interop.lock.toml</code>, compiled lock
-constants, CI checkout refs, compatibility evidence, and this snapshot
-together.</p>
+<p>CI checks out only FOL and invokes the same Make-owned locked smoke gate; cargo
+fetches the pinned components. Moving a component means updating
+<code>interop.lock.toml</code>, <code>fol-interop/Cargo.toml</code>, <code>Cargo.lock</code>, and this snapshot
+together — the offline tier fails the moment any one of them disagrees.</p>
+<p>Working on a component locally without editing the pins:</p>
+<pre><code class="language-toml"># ~/.cargo/config.toml
+[patch."https://github.com/fol-lang/parc"]
+follang-parc = { path = "/absolute/path/to/parc" }
+</code></pre>
 <p>With repository-wide hardening complete, this boundary unblocks the first
 broader V4 work. It does not itself expose general foreign declaration
 syntax, general pointers or ownership, C export, bounded header-import
