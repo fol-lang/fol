@@ -115,14 +115,14 @@ impl<T> FolError<T> {
     pub fn as_ref(&self) -> &T {
         match self {
             Self::Err(value) => value,
-            Self::Nil => panic!("attempted to unwrap nil error shell"),
+            Self::Nil => panic!("fol runtime fault: attempted to unwrap nil error shell"),
         }
     }
 
     pub fn into_inner(self) -> T {
         match self {
             Self::Err(value) => value,
-            Self::Nil => panic!("attempted to unwrap nil error shell"),
+            Self::Nil => panic!("fol runtime fault: attempted to unwrap nil error shell"),
         }
     }
 }

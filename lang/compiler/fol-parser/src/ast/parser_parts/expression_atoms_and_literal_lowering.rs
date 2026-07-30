@@ -565,12 +565,8 @@ impl AstParser {
                         index += 1;
                     }
                 }
-                'p' => {
-                    if cfg!(windows) {
-                        decoded.push('\r');
-                    }
-                    decoded.push('\n');
-                }
+                // Platform newline. FOL is linux-only, so this is just \n.
+                'p' => decoded.push('\n'),
                 'r' | 'c' => decoded.push('\r'),
                 'n' | 'l' => decoded.push('\n'),
                 'f' => decoded.push('\u{000C}'),
