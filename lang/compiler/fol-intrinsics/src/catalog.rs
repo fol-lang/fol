@@ -208,6 +208,9 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::Reject,
         "explicit deallocation is reserved for the V4 FFI boundary",
     ),
+    // Ids 17-20 were assigned to allocation intrinsics that never shipped. Ids
+    // are stable identifiers used by lowering and the backend, so the gap stays
+    // rather than renumbering every entry after it.
     IntrinsicEntry::new(
         IntrinsicId::new(21),
         "low",

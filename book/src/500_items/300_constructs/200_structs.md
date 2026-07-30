@@ -13,7 +13,7 @@ A struct definition creates a new, distinct type and are few of them in FOL:
 
 A record is an aggregate of data elements in which the individual elements are identified by names and types and accessed through offsets from the beginning of the structure. There is frequently a need in programs to model a collection of data in which the individual elements are not of the same type or size. For example, information about a college student might include name, student number, grade point average, and so forth. A data type for such a collection might use a character string for the name, an integer for the student number, a  floating- point for the grade point average, and so forth. Records are designed for this kind of need.
 
-It may appear that records and heterogeneous [set](/docs/spec/types/#sets) are the same, but that is not the case. The elements of a heterogeneous `set[]` are all references to data values that may reside in scattered locations. The elements of a record are of potentially different sizes and reside in adjacent memory locations. Records are primarily data layouts.
+It may appear that records and heterogeneous [set](../../400_types/_index.md) are the same, but that is not the case. The elements of a heterogeneous `set[]` are all references to data values that may reside in scattered locations. The elements of a record are of potentially different sizes and reside in adjacent memory locations. Records are primarily data layouts.
 ```
 typ user: rec = {
     var username: str;
@@ -130,7 +130,7 @@ Current boundaries:
   the current compiler contract
 ## Returning
 
-As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. As specified [in function return](/docs/spec/functions/#return), the final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (here is defined as `user`) and this can be used only in one statement body. Here we have declared only one variable `user1` and that itslef spanc into multi rows:
+As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. A record instance is returned like any other value, with an explicit `return` (see [Routines](../200_routines/_index.md)). Here we declare one variable `user1` whose initializer spans several lines:
 ```
 pro buildUser(email, username: str): user = { user1: user = {
     email = "someone@example.com",

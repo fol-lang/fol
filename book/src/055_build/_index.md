@@ -66,17 +66,18 @@ nor require bundled `std`.
 ## What `fol-build` Owns
 
 - `graph.rs` — build graph IR (steps, artifacts, modules, options, generated files)
-- `api.rs` — Rust-level graph mutation interface
+- `api/` — Rust-level graph mutation interface
 - `semantic.rs` — method signatures and type info for the resolver and typechecker
 - `stdlib.rs` — `BuildStdlibScope`: the ambient scope injected into `build.fol`
-- `executor.rs` — executes the lowered FOL IR against the build graph
-- `eval.rs` — evaluate a `build.fol` from source; entry point for `fol-package`
+- `executor/` — executes the lowered FOL IR against the build graph
+- `eval/` — evaluate a `build.fol` from source; entry point for `fol-package`
 - `option.rs` — build option kinds, target triples, optimize modes
 - `runtime.rs` — runtime representation of artifacts, generated files, step bindings
 - `step.rs` — step planning, ordering, cache keys, execution reports
 - `codegen.rs` — system tool and codegen request types
 - `artifact.rs` — artifact pipeline definitions and output types
 - `dependency.rs` — inter-package dependency surfaces
+- `native.rs` — native (C interop) build inputs
 
 Use this section for:
 

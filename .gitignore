@@ -8,6 +8,9 @@
 .fol/build/
 AGENTS.md
 
+# Scratch checkouts of other projects kept beside the repo.
+/xtra
+
 # mdbook render output; the sources under book/src stay tracked.
 /book/book
 
@@ -16,3 +19,5 @@ AGENTS.md
 !/plan/V4_PLAN.md
 !/plan/AUDIT.md
 !/plan/TOOLCHAIN.md
+!/plan/V3_MEM.md
+!/plan/V3_PROC.md

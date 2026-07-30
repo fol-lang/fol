@@ -37,10 +37,6 @@ Current `V1` routine model:
 - a routine that declares a recoverable error type (`: T / E`) must have both a
   return path and a `report` path
 
-The sections further down that show `result = ...`, short-form omission,
-last-expression return, and same-name overloading describe earlier design, not
-the current compiler surface.
-
 ## Types
 There are two main types of routines in fol:
 
@@ -61,35 +57,23 @@ Parameter passing is more flexible than direct access to nonlocal variables. Prr
 
 Parameters are declared as a list of identifiers separated by semicolon (or by a colon, but for code cleanness, the semicolon is preferred). A parameter is given a type by : typename. If after the parameter the `:` is not declared, but `,` colon to identfy another paremeter, of which both parameters are of the same type if after the second one the `:` and the type is placed. Then the same type parameters continue to grow with `,` until `:` is reached.
 ```
-fun[] calc(el1, el2, el3: int[64]; changed: bol = true): int[64] = { result = el1 + el2 - el3 }
+fun[] calc(el1, el2, el3: int[64]; changed: bol = true): int[64] = { return el1 + el2 - el3; }
 ```
 
-In routine signatures, you must declare the type of each parameter. Requiring type annotations in routine definitions is obligatory, which means the compiler almost never needs you to use them elsewhere in the code to figure out what you mean. Routine can parameter overloaded too. It makes possible to create multiple routine of the same name with different implementations. Calls to an overloaded routine will run a specific implementation of that routine appropriate to the context of the call, allowing one routine call to perform different tasks depending on context:
+In routine signatures, you must declare the type of each parameter. Requiring type annotations in routine definitions is obligatory, which means the compiler almost never needs you to use them elsewhere in the code to figure out what you mean.
+
+Routine names are unique: declaring two routines with the same name in one
+scope is rejected, so there is no overload-resolution step. Give the variants
+distinct names, or take a generic parameter when the bodies are the same shape:
 
 ```
-fun retBigger(el2, el2: int): int = { return el1 | this > el2 | el2 }
-fun retBigger(el2, el2: flt): flt = { return el1 | this > el2 | el2 }
+fun[] lower_chr(c: chr): chr = {
+    return .to_lower(c);
+};
 
-pro main: int = {
-    retBigger(4, 5);                                        // calling a routine with intigers
-    retBigger(4.5, .3);                                     // calling another routine with same name but floats
-}
-```
-The overloading resolution algorithm determines which routine is the best match for the arguments. Example:
-```
-pro toLower(c: char): char = {                              // toLower for characters
-    if (c in {'A' ... 'Z'}){
-        result = chr(ord(c) + (ord('a') - ord('A')))
-    } else {
-        result = c
-    }
-}
-
-pro toLower(s: str): str = {                                // toLower for strings
-    result = newString(.len(s))
-    for i in {0 ... len(s) - 1}:
-        result[i] = toLower(s[i])                           // calls toLower for characters; no recursion!
-}
+fun[] lower_str(s: str): str = {
+    return .to_lower(s);
+};
 ```
 
 ### Actual parameters
@@ -100,7 +84,7 @@ routine call statements must include the name of the routine and a list of param
 The correspondence between actual and formal parameters, or the binding of actual parameters to formal parameters - is done by position: The first actual parameter is bound to the first formal parameter and so forth. Such parameters are called positional parameters. This is an effective and safe method of relating actual parameters to their corresponding formal parameters, as long as the parameter lists are relatively short. 
 
 ```
-fun[] calc(el1, el2, el3: int): int = { result = el1 + el2 - el3 }
+fun[] calc(el1, el2, el3: int): int = { return el1 + el2 - el3; }
 
 pro main: int = {
     calc(3,4,5);                                            // calling routine with positional arguments
@@ -112,7 +96,7 @@ pro main: int = {
 When parameter lists are long, however, it is easy to make mistakes in the order of actual parameters in the list. One solution to this problem is with keyword parameters, in which the name of the formal parameter to which an actual parameter is to be bound is specified with the actual parameter in a call. The advantage of keyword parameters is that they can appear in any order in the actual parameter list. 
 
 ```
-fun[] calc(el1, el2, el3: int): int = { result = el1 + el2 - el3 }
+fun[] calc(el1, el2, el3: int): int = { return el1 + el2 - el3; }
 
 pro main: int = {
     calc(el3 = 5, el2 = 4, el1 = 3);                        // calling routine with keywords arguments
@@ -236,18 +220,22 @@ Nested procedures don't have access to the outer scope, while nested function ha
 
 ## Return
 
-The return type of the routine has to always be defined, just after the formal parameter definition. Following the general rule of **FOL**: 
+A routine always declares its return type after the formal parameters, and a
+value leaves the routine through an explicit `return`:
+
 ```
-fun[] add(el1, el2: int[64]): int[64] = { result = el1 + el2 }
+fun[] add(el1, el2: int[64]): int[64] = {
+    return el1 + el2;
+};
 ```
 
-To make it shorter (so we don't have to type `int[64]` two times), we can use a *short form* by omitting the return type. The compiler then will assign the returntype the same as the functions return value.
-```
-fun[] add(el1, el2: int[64]) = { result = el1 + el2 }
-```
+There is no short form that omits the return type, no implicitly declared
+`result` variable, and no last-expression return: a routine body that falls off
+the end without `return` does not produce a value.
+
 {{% notice info %}}
 
-Current `V1` routine summary:
+Routine summary:
 
 - routines declare a success type after `:`
 - routines may also declare a recoverable error type after `/`
@@ -256,32 +244,26 @@ Current `V1` routine summary:
   values
 - use `check(...)` or `expr || fallback` for those calls
 - ordinary plain-value use of `/ ErrorType` calls is rejected
-- keep postfix `!` for `opt[...]` and `err[...]` shell values
+- keep postfix `[uwp]` for `opt[...]` and `err[...]` shell values
 
 {{% /notice %}}
 
-The implicitly declared variable `result` is of the same type of the return type. For it top be implicitly declared, the return type of the function shoud be always declared, and not use the short form. The variable is initialized with zero value, and if not changed during the body implementation, the same value will return (so zero).
-```
-pro main(): int = {
-    fun[] add(el1, el2: int[64]): int[64] = { result = el1 + el2 }          // using the implicitly declared $result variable
-    fun[] sub(el1, el2: int[64]) = { return el1 - el2 }                     // can't access the result variable, thus we use return
-}
-```
 Recoverable error-aware routines use the current signature form:
+
 ```
 fun[] read(path: str): int / str = {
-    report "missing path"
-}
+    report "missing path";
+};
 ```
+
 and are handled at the call site with `check(...)` or `||` rather than shell
 unwrap or plain propagation.
 
-Current intrinsic note:
+Intrinsic note:
 
 - `.echo(...)` is a dot-root diagnostic intrinsic
 - `check(...)` is a keyword intrinsic for recoverable-call inspection
 - `panic(...)` is a keyword intrinsic for immediate abort
-- `as` and `cast` are registry-owned but still deferred in current `V1`
 
 Model reminder:
 
@@ -290,20 +272,6 @@ Model reminder:
 - routine examples without hosted behavior should stay valid in `core` or
   `memo` where the surrounding chapter claims they are model-neutral
 
-The final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (so the function cnat be in the short form)). ver this can be used only in one statement body.
-```
-pro main(): int = {
-    fun[] add(el1, el2: int[64]): int[64] = { el1 + el2 }                   // This is tha last statement, this will serve as return
-    fun[] someting(el1,el2: int): int = {
-        if (condition) {
-
-        } else {
-
-        }
-        el1 + el2                                                           // this will throw an error, cand be used in kulti statement body
-    }
-    fun[] add(el1, el2: int[64]) = { el1 + el2 }                            // this will throw an error, we can't use the short form of funciton in this way
-```
-Alternatively, `return` and `report` can exit a routine early from within
-control flow. See the recoverable-error chapter for the full current `V1`
-contract and the shell-vs-routine distinction.
+`return` and `report` can also exit a routine early from within control flow.
+See the recoverable-error chapter for the full contract and the
+shell-vs-routine distinction.

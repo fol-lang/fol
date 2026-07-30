@@ -40,4 +40,4 @@ compiler contract is that locations, codes, and structured diagnostic shape are
 stable enough to build tests and tooling around them.
 
 For the detailed compiler-facing reporting model, see
-[Compiler Diagnostics](/docs/spec/errors/300_diagnostics).
+[Compiler Diagnostics](./300_diagnostics.md).

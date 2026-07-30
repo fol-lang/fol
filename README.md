@@ -55,7 +55,8 @@ A project pins its language version on the first comment line of `build.fol`:
 ```
 
 Selection order is `+<toolchain>` argument → `FOL_TOOLCHAIN` env → the
-`//fol` pin → the configured default. A pinned version that is not installed
+`//fol` pin → the configured default → the only installed toolchain, if there
+is exactly one. A pinned version that is not installed
 is **fetched automatically** from the GitHub release
 (`fol-compiler-and-lib-v<version>-<target>.tar.gz`, containing exactly
 `folc` + `std/` + `runtime/`; Linux-only: `x86_64-linux`, `aarch64-linux`).

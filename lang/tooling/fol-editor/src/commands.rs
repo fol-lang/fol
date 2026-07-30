@@ -646,7 +646,39 @@ where
     Ok(summary)
 }
 
+/// The tree-sitter CLI this bundle is generated with. A different major/minor
+/// emits a different parser ABI, so generation fails in ways that look like a
+/// broken grammar; naming the version turns that into an actionable message.
+const REQUIRED_TREE_SITTER_VERSION: &str = "0.26";
+
+fn tree_sitter_cli_version() -> Option<String> {
+    let output = std::process::Command::new("tree-sitter")
+        .arg("--version")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .nth(1)
+        .map(|version| version.to_string())
+}
+
 fn run_tree_sitter_generate(path: &Path) -> EditorResult<()> {
+    if let Some(version) = tree_sitter_cli_version() {
+        if !version.starts_with(REQUIRED_TREE_SITTER_VERSION) {
+            return Err(EditorError::new(
+                EditorErrorKind::Internal,
+                format!(
+                    "tree-sitter CLI {version} cannot generate this bundle; {REQUIRED_TREE_SITTER_VERSION}.x is required"
+                ),
+            )
+            .with_note("a different CLI series emits a different parser ABI")
+            .with_note("install the required series, for example: cargo install tree-sitter-cli --version 0.26.8 --locked")
+            .with_note("the destination bundle was not changed"));
+        }
+    }
     match std::process::Command::new("tree-sitter")
         .arg("generate")
         .arg("--js-runtime")

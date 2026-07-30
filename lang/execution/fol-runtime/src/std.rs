@@ -576,7 +576,30 @@ pub fn now_ms() -> crate::value::FolInt {
         .unwrap_or(0)
 }
 
+/// How long a probed terminal size is reused. A redraw loop asks for the size
+/// every frame; spawning `stty` that often is pure overhead. The window is
+/// short enough that a resize is still picked up promptly.
+const TERM_SIZE_TTL: std::time::Duration = std::time::Duration::from_millis(200);
+
 fn term_size() -> (crate::value::FolInt, crate::value::FolInt) {
+    static CACHE: Mutex<
+        Option<(
+            (crate::value::FolInt, crate::value::FolInt),
+            std::time::Instant,
+        )>,
+    > = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some((size, probed_at)) = *cache {
+        if probed_at.elapsed() < TERM_SIZE_TTL {
+            return size;
+        }
+    }
+    let size = probe_term_size();
+    *cache = Some((size, std::time::Instant::now()));
+    size
+}
+
+fn probe_term_size() -> (crate::value::FolInt, crate::value::FolInt) {
     let probed = std::process::Command::new("stty")
         .arg("size")
         .stdin(std::process::Stdio::inherit())

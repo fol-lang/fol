@@ -1022,10 +1022,9 @@ fn parse_run_command(
     // Everything after -- goes to args
     if hit_separator {
         while let Some(token) = cursor.advance() {
-            // After --, first token might become target.input if not set,
-            // but clap's behavior with trailing_var_arg puts them all after the positional
-            // Actually with clap, `fol code run -- --flag value` puts --flag into target.input
-            // and value into args. Let's match that.
+            // After `--`, the first token still fills the target when none was
+            // given, so `fol code run -- main.fol arg` names the target and
+            // passes `arg` through; everything after it is the program's.
             if cmd.target.input.is_none() {
                 cmd.target.input = Some(token.to_string());
             } else {

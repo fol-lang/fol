@@ -60,7 +60,7 @@ pro[] main: int = {
 ```
 ### Piping / Ternary
 
-Piping can be used as ternary operator. More about piping can be [found here](/docs/spec/pipes). Here is an example, the code below basically says: **if the function internally had an error, don't exit the program, but assign another value (or default value) to the variable**:
+Piping can be used as ternary operator. More about piping can be [found here](../700_sugar/200_pipes.md). Here is an example, the code below basically says: **if the function internally had an error, don't exit the program, but assign another value (or default value) to the variable**:
 ```
 pro[] main: int = {
     fun addFunc(x, y: int): int = {
