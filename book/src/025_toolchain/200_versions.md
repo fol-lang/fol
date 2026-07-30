@@ -15,8 +15,10 @@ Each `$FOL_HOME/toolchains/v<version>/` directory is a closed world:
 Because nothing inside a toolchain references anything outside it, installing,
 removing, or switching versions can never corrupt another version. The shared
 parts of the home — `pkg/` for third-party packages and `config` for the
-default — are version-independent by design (packages are source; every
-toolchain compiles them itself).
+default — are version-independent by design: packages are source, so every
+toolchain compiles them itself. A build only ever *reads* `$FOL_HOME/pkg`;
+fetches write into the project, so one project cannot corrupt the store another
+version relies on.
 
 ## Dispatch mechanics
 

@@ -1,8 +1,9 @@
 # Frontend Workflow
 
-The public FOL entrypoint is the `fol` tool.
+The public FOL entrypoint is the `fol` tool, which dispatches to the versioned
+`folc` engine (see [Toolchain Management](../025_toolchain/_index.md)).
 
-`fol` is implemented by the `fol-frontend` crate. It sits above:
+The engine is implemented by the `fol-frontend` crate. It sits above:
 
 - `fol-package`
 - `fol-resolver`
@@ -16,7 +17,7 @@ Its job is orchestration, not semantic analysis.
 
 The frontend owns:
 
-- CLI parsing with `clap`
+- CLI parsing (hand-rolled, no argument-parser dependency)
 - grouped command structure
 - package and workspace discovery
 - project scaffolding

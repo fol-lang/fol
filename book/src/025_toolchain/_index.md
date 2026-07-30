@@ -48,6 +48,28 @@ A toolchain directory is **self-contained**: `folc` resolves `std/` and
 environment variables, no source checkout — is needed for it to compile and
 run programs.
 
+## Where packages are read from and written to
+
+Two different chains govern the package store, and the difference matters.
+
+A **read** — resolving `use x: pkg = {"x"}` — consults, most specific first:
+
+1. an explicit `--package-store-root` flag or `FOL_PACKAGE_STORE_ROOT`
+2. a `package_store_root` declared in `fol.work.yaml`
+3. `<project>/.fol/pkg`
+4. `$FOL_HOME/pkg` — the shared store, usable by every toolchain
+5. the store bundled with the running toolchain (this is how `std` resolves out
+   of the box)
+
+An explicit or declared root is always used, even if it does not exist, so a
+wrong path fails loudly instead of silently resolving somewhere else. The
+remaining candidates are skipped unless they actually contain packages — an
+empty `$FOL_HOME/pkg` must never shadow the toolchain's own store.
+
+A **write** — where `fol pack fetch` materializes packages — stops at step 3:
+explicit, then declared, then `<project>/.fol/pkg`. A fetch can therefore never
+write into the shared home store or into an installed toolchain.
+
 ## Pinning a version
 
 A project declares which toolchain it wants on the **first comment line of

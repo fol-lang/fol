@@ -23,6 +23,15 @@ $ fol self default 0.2.1
 default toolchain is now 0.2.1
 ```
 
+Every download is verified before it is unpacked: `fol` fetches the release's
+`SHA256SUMS-<target>` alongside the tarball and refuses to extract on a
+mismatch or when no checksums are published. There is no opt-out.
+
+An install is also atomic. The new toolchain is staged beside its destination
+and swapped into place only after all three payloads (`folc`, `std/`,
+`runtime/`) are present, so a failed or interrupted install leaves the previous
+toolchain exactly as it was.
+
 Prefer keeping everything project-local? Skip `FOL_HOME` entirely — inside a
 project the manager uses `<project>/.fol/toolchain` as its home, so the
 toolchain sits beside the project's build outputs and nothing global exists.
@@ -42,6 +51,9 @@ A linked toolchain resolves its `folc` from the checkout's
 `target/release/folc` or `target/debug/folc` — whichever was **built most
 recently** — and its `std` and `runtime` straight from the live source tree.
 Rebuild the compiler, and every `fol` invocation immediately uses it.
+
+`fol self link` also accepts `--bin <path>` and `--std <path>` when the binary
+or the standard library lives somewhere other than the checkout defaults.
 
 To freeze a source build into a normal, immutable toolchain instead (useful
 for testing the install flow offline):

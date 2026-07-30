@@ -111,42 +111,68 @@ An explicit `--std-root <DIR>` override may still exist for development and test
 
 ## Where Bundled Std Physically Lives
 
-Resolution is binary-relative, in this order:
+Two separate roots are involved, and they resolve differently.
 
-1. an explicit `--std-root` / `--package-store-root` flag or the matching
-   `FOL_STD_ROOT` / `FOL_PACKAGE_STORE_ROOT` environment override
-2. the project-local fetched store `.fol/pkg`, when it exists
-3. **`std/` next to the running `folc` binary** — this is the installed
-   toolchain layout (`$FOL_HOME/toolchains/vX.X.X/{folc, std/, runtime/}`)
-   managed by `fol self`; a released toolchain is fully self-contained
-4. the source-tree path compiled into dev builds
-   (`lang/library/std` in the checkout)
+The **std root** (where the `standard` package's sources live):
 
-The same rule applies to the `runtime/` crate sources the backend compiles
-emitted Rust against. See the book's Toolchain Management chapter for the full
-`fol` / `folc` split, version pinning, and the release asset contract.
+1. an explicit `--std-root` flag or `FOL_STD_ROOT`
+2. a `std_root` declared in `fol.work.yaml`
+3. **`std/` next to the running `folc` binary** — the installed toolchain
+   layout (`$FOL_HOME/toolchains/vX.X.X/{folc, std/, runtime/}`) managed by
+   `fol self`, which makes a released toolchain fully self-contained
+4. the source-tree path compiled into dev builds (`lang/library/std`)
+
+The **package store root**, which is what `use std: pkg = {"std"}` resolves
+through, has its own chain — explicit → declared → `<project>/.fol/pkg` →
+`$FOL_HOME/pkg` → the toolchain's bundled store — with the last three skipped
+unless they actually contain packages. `.fol/pkg` belongs to *that* chain, not
+to std-root resolution.
+
+The `runtime/` crate sources the backend compiles emitted Rust against follow
+the same binary-relative rule as std. See the book's Toolchain Management
+chapter for the full `fol` / `folc` split and the release asset contract.
 
 ## Bootstrap Surface
 
 The bundled shipped std is intentionally small right now.
 
-Current public bootstrap modules:
+Current public modules:
 
+- `std` (root)
 - `std.fmt`
 - `std.fmt.math`
 - `std.io`
+- `std.term`
+- `std.time`
+- `std.strn`
 
-Current bootstrap routines:
+Current shipped routines:
 
+- `std::env(str): str`
+- `std::shell(str): int`
+- `std::dir_list(str): str`
+- `std::read_file(str): str`
 - `fmt::answer(): int`
 - `fmt::double(int): int`
 - `fmt::triple(int): int`
 - `fmt::sum2(int, int): int`
+- `fmt::int_to_str(int): str`
 - `fmt::math::answer(): int`
 - `io::echo_int(int): int`
 - `io::echo_str(str): str`
 - `io::echo_bool(bol): bol`
 - `io::echo_chr(chr): chr`
+- `io::write(str): str`
+- `io::read_key(): int`
+- `io::read_key_ms(int): int`
+- `term::raw_mode(bol): bol`
+- `term::cols(): int`
+- `term::rows(): int`
+- `time::sleep_ms(int): int`
+- `time::now_ms(): int`
+- `strn::sub(str, int, int): str`
+- `strn::byte_at(str, int): int`
+- `strn::from_byte(int): str`
 
 `std.io` is intentionally narrow right now. It wraps the hosted `.echo(...)`
 primitive instead of replacing it.
@@ -182,18 +208,6 @@ Canonical bootstrap example packages:
   - `examples/std_explicit_pkg`
   - `examples/std_alias_pkg`
   - `examples/std_substrate_echo`
-
-Current shipped public routines:
-
-- `fmt::answer(): int`
-- `fmt::double(int): int`
-- `fmt::triple(int): int`
-- `fmt::sum2(int, int): int`
-- `fmt::math::answer(): int`
-- `io::echo_int(int): int`
-- `io::echo_str(str): str`
-- `io::echo_bool(bol): bol`
-- `io::echo_chr(chr): chr`
 
 Older hosted std examples should use bundled std modules when one already exists.
 That means current echo-based examples should prefer `std.io` instead of calling

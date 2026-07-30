@@ -1,32 +1,24 @@
 # Frontend Workflow
 
-FOL now has a dedicated frontend layer above the compiler pipeline.
+A frontend layer sits above the compiler pipeline. It is implemented in
+`fol-frontend` and shipped as the `folc` engine, which the `fol` manager
+dispatches to (see [Toolchain Management](../025_toolchain/_index.md)).
 
-That layer is the `fol` tool itself.
+The frontend owns:
 
-The frontend is implemented in `fol-frontend`, and it is the user-facing
-workflow shell for:
-
-- project/workspace setup
-- fetch/update flows
-- build/run/test/emit flows
+- workflow commands: project/workspace setup, fetch and update flows,
+  build/run/test/emit
+- direct single-file compile dispatch
+- root help and output rendering
+- frontend diagnostics
 - editor tooling dispatch under `fol tool`
 
-The detailed reference has moved to the Tooling section:
+Use this page as an entrypoint pointer; the detailed reference lives in the
+Tooling section:
 
 - [Tooling](../050_tooling/_index.md)
 - [Frontend Workflow](../050_tooling/100_frontend.md)
 - [Tool Commands](../050_tooling/200_tool_commands.md)
-
-Use this overview page only as the entrypoint pointer.
-
-- workflow commands
-- direct compile dispatch
-- root help
-- output rendering
-- frontend diagnostics
-
-So the root binary is no longer its own separate CLI implementation.
 
 ## Current Boundary
 
@@ -52,6 +44,6 @@ It already covers:
 
 Future work is still expected around:
 
-- richer package-store policy beyond the first git/store workflow
+- richer package-store policy beyond the current read/write chains
 - lockfile/version solving beyond the current pinned git contract
 - additional backend targets

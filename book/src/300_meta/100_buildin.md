@@ -187,10 +187,25 @@ dependency):
 - `.term_cols()` / `.term_rows()` — terminal size (80×24 when it cannot be
   determined)
 - `.int_to_str(value)` — render an integer as its decimal string
+- `.read_key_ms(timeout)` — like `.read_key()` but gives up after the timeout,
+  yielding `-2` on timeout and `-1` at end of input
+- `.str_sub(text, start, count)` — a byte-range slice snapped to UTF-8
+  boundaries
+- `.str_byte(text, index)` / `.byte_to_str(value)` — byte inspection and
+  single-byte construction
+- `.env_var(name)` — an environment variable's value
+- `.shell(command)` — run a command through `sh -c` with inherited streams and
+  yield its exit status
+- `.dir_list(path)` — the sorted entries of a directory, directories suffixed
+  with `/`
+- `.read_file(path)` — a file's contents
 
 The bundled `std` package wraps them as `std::io::write`, `std::io::read_key`,
-`std::term::raw_mode`, `std::term::cols`, `std::term::rows`,
-`std::time::sleep_ms`, `std::time::now_ms`, and `std::fmt::int_to_str`.
+`std::io::read_key_ms`, `std::term::raw_mode`, `std::term::cols`,
+`std::term::rows`, `std::time::sleep_ms`, `std::time::now_ms`,
+`std::fmt::int_to_str`, `std::strn::sub`, `std::strn::byte_at`,
+`std::strn::from_byte`, `std::env`, `std::shell`, `std::dir_list`, and
+`std::read_file`.
 
 With that build contract, this is valid:
 

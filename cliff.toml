@@ -23,7 +23,7 @@ footer = """
 
 
 postprocessors = [
-  { pattern = '<REPO>', replace = "https://github.com/bresilla/roc" }, # replace repository URL
+  { pattern = '<REPO>', replace = "https://github.com/fol-lang/fol" }, # replace repository URL
 ]
 
 

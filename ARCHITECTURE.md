@@ -82,6 +82,7 @@ lang/
     fol-self          the `fol` binary: toolchain manager and dispatcher
     fol-frontend      the `folc` engine: CLI surface, workspace orchestration
     fol-editor        LSP server and tree-sitter integration
+    fol-interop       checked handoff to the PARC/LINC/GERC pipeline
 ```
 
 Two binaries come out of the workspace. `fol` (from `fol-self`) is the

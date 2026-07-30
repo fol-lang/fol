@@ -51,15 +51,20 @@ External dependencies stay separate from bundled std.
 
 The current bundled bootstrap surface is intentionally tiny:
 
-- `std.fmt.answer(): int`
-- `std.fmt.double(int): int`
-- `std.fmt.triple(int): int`
-- `std.fmt.sum2(int, int): int`
+- `std.env(str): str`, `std.shell(str): int`, `std.dir_list(str): str`,
+  `std.read_file(str): str`
+- `std.fmt.answer(): int`, `std.fmt.double(int): int`,
+  `std.fmt.triple(int): int`, `std.fmt.sum2(int, int): int`,
+  `std.fmt.int_to_str(int): str`
 - `std.fmt.math.answer(): int`
-- `std.io.echo_int(int): int`
-- `std.io.echo_str(str): str`
-- `std.io.echo_bool(bol): bol`
-- `std.io.echo_chr(chr): chr`
+- `std.io.echo_int(int): int`, `std.io.echo_str(str): str`,
+  `std.io.echo_bool(bol): bol`, `std.io.echo_chr(chr): chr`,
+  `std.io.write(str): str`, `std.io.read_key(): int`,
+  `std.io.read_key_ms(int): int`
+- `std.term.raw_mode(bol): bol`, `std.term.cols(): int`, `std.term.rows(): int`
+- `std.time.sleep_ms(int): int`, `std.time.now_ms(): int`
+- `std.strn.sub(str, int, int): str`, `std.strn.byte_at(str, int): int`,
+  `std.strn.from_byte(int): str`
 
 That is enough to prove:
 
@@ -93,21 +98,41 @@ exists.
 
 Current shipped bundled modules:
 
+- `std` (root)
 - `std.fmt`
 - `std.fmt.math`
 - `std.io`
+- `std.term`
+- `std.time`
+- `std.strn`
 
 Current shipped public routines:
 
+- `std::env(str): str`
+- `std::shell(str): int`
+- `std::dir_list(str): str`
+- `std::read_file(str): str`
 - `fmt::answer(): int`
 - `fmt::double(int): int`
 - `fmt::triple(int): int`
 - `fmt::sum2(int, int): int`
+- `fmt::int_to_str(int): str`
 - `fmt::math::answer(): int`
 - `io::echo_int(int): int`
 - `io::echo_str(str): str`
 - `io::echo_bool(bol): bol`
 - `io::echo_chr(chr): chr`
+- `io::write(str): str`
+- `io::read_key(): int`
+- `io::read_key_ms(int): int`
+- `term::raw_mode(bol): bol`
+- `term::cols(): int`
+- `term::rows(): int`
+- `time::sleep_ms(int): int`
+- `time::now_ms(): int`
+- `strn::sub(str, int, int): str`
+- `strn::byte_at(str, int): int`
+- `strn::from_byte(int): str`
 
 Canonical bootstrap examples:
 

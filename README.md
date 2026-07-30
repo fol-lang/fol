@@ -6,8 +6,8 @@
 <a href="https://fol-lang.github.io/fol/" style="color: rgb(179, 128, 255)"></a><h2><p align="center" style="color: rgb(179, 128, 255)">https://fol-lang.github.io/fol/</p></h2></a>
 
 <p align="center">
-  <a href="https://github.com/fol-lang/fol/blob/develop/LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://github.com/fol-lang/fol/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/fol-lang/fol/actions/workflows/tests.yml/badge.svg?branch=develop"></a>
+  <a href="https://github.com/fol-lang/fol/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://github.com/fol-lang/fol/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/fol-lang/fol/actions/workflows/tests.yml/badge.svg?branch=main"></a>
 </p>
 
 <p align="center">general-purpose and systems programming language</p>
@@ -28,8 +28,9 @@ always type `fol`; it forwards `code`/`work`/`pack`/`tool` commands to the
 right engine and handles `fol self …` itself.
 
 ```console
+$ VERSION=0.2.2   # newest tag at https://github.com/fol-lang/fol/releases
 $ curl -fL -o ~/.local/bin/fol \
-    https://github.com/fol-lang/fol/releases/download/v0.2.1/fol-v0.2.1-x86_64-linux
+    "https://github.com/fol-lang/fol/releases/download/v$VERSION/fol-v$VERSION-x86_64-linux"
 $ chmod +x ~/.local/bin/fol
 $ export FOL_HOME="$HOME/.fol"     # add to your shell profile
 ```
@@ -43,7 +44,7 @@ instructions.
 $FOL_HOME/
 ├── toolchains/v0.2.1/{folc, std/, runtime/}   ← immutable, self-contained units
 ├── toolchains/dev.toml                        ← a linked source checkout
-├── pkg/                                       ← packages, shared by all versions
+├── pkg/                                       ← shared package store (read-only to builds)
 └── config                                     ← default toolchain
 ```
 
@@ -57,7 +58,9 @@ Selection order is `+<toolchain>` argument → `FOL_TOOLCHAIN` env → the
 `//fol` pin → the configured default. A pinned version that is not installed
 is **fetched automatically** from the GitHub release
 (`fol-compiler-and-lib-v<version>-<target>.tar.gz`, containing exactly
-`folc` + `std/` + `runtime/`; Linux-only: `x86_64-linux`, `aarch64-linux`):
+`folc` + `std/` + `runtime/`; Linux-only: `x86_64-linux`, `aarch64-linux`).
+Downloads are checksum-verified against the release's `SHA256SUMS-<target>`
+before they are unpacked, and installs are atomic:
 
 ```console
 $ fol code run

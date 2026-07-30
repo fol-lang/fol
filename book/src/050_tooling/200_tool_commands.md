@@ -160,6 +160,7 @@ Tooling commands:
 - `fol tool symbols <PATH>`
 - `fol tool references <PATH> --line <LINE> --character <CHARACTER>`
 - `fol tool rename <PATH> --line <LINE> --character <CHARACTER> <NEW_NAME>`
+- `fol tool complete <PATH> --line <LINE> --character <CHARACTER>`
 - `fol tool semantic-tokens <PATH>`
 - `fol tool tree generate <PATH>`
 - `fol tool clean`
