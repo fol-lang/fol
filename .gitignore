@@ -15,5 +15,4 @@ AGENTS.md
 /plan/*
 !/plan/V4_PLAN.md
 !/plan/AUDIT.md
-!/plan/CLEANUP.md
 !/plan/TOOLCHAIN.md
