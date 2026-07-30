@@ -43,17 +43,31 @@ against this exact snapshot:
 | Stage | Package | Contract | Locked revision |
 |---|---|---|---|
 | PARC | `follang-parc 0.16.0` | source package schema 2 | `0f52aeeeeec47a082c0d8a515130ee853aa1101d` |
-| LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `c874d5b0332249524422d9d08c35b3d4edd7e3fa` |
-| GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `000c1f6c12fba99f1a157267ee7db39d42bda8e3` |
+| LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `fdb50ae9743ee09c6592bc40e87b6f57a892fc51` |
+| GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `fdf139209e824dd7fdc274da20b6be3ba0183a10` |
 
 The lock also freezes the GERC H5 compatibility driver, fixtures, and support
 code under digest
 `13644fd1f6ad3f1de06338e5bd415604dbedc9b6baaaaed8a63f44515db004e7`.
-`Cargo.lock` alone cannot record Git identities for path dependencies.
-The production H7 route therefore observes each compiled sibling path's
-canonical Git root, `HEAD`, worktree status, and normalized origin before any
-sibling API runs. Revision values enter the evidence report only after those
-runtime checks match the compiled lock identities.
+The three components are **git dependencies pinned by revision**, not sibling
+path dependencies, so a fresh clone of this repository builds and tests without
+any of them checked out. A pinned revision is content-binding, which makes
+provenance a build-time property rather than something to re-observe at run
+time:
+
+- `fol-interop/build.rs` proves that every revision and remote in
+  `interop.lock.toml` equals what cargo resolved in `Cargo.lock`, and hands the
+  verified revisions to the crate. A stale lockfile is a compile error.
+- compile-time assertions in `fol-interop/src/lib.rs` prove the resolved crates
+  still expose the contract versions the lock claims.
+- each component pins the components below it at the same revisions this lock
+  records (`parc_revision`, `linc_revision`), because two different `follang-parc`
+  revisions in one graph would produce two incompatible sets of contract types.
+
+The earlier design shelled out to `git` at run time to check each sibling
+checkout's root, `HEAD`, worktree cleanliness, and origin. That could only pass
+inside a source tree — a released binary carried the build machine's paths — so
+it verified nothing for users.
 
 ## Certified platform
 
@@ -109,20 +123,30 @@ sibling checkouts:
 make interop-check interop-locked test-interop
 ```
 
-- `make interop-check` checks lock shape, package/schema/feature compatibility,
-  the H5 corpus identity, and compilation of the typed integration. It is the
-  development check and does not require sibling `HEAD`s to equal the lock.
-- `make interop-locked` additionally requires each sibling to have the exact
-  locked `HEAD`, canonical GitHub origin, and a clean worktree.
+- `make interop-check` runs the offline tier: lock self-consistency, the
+  cross-pins between components, agreement with `fol-interop/Cargo.toml` and
+  `Cargo.lock`, the absence of any source override, and compilation of the typed
+  integration. It needs no network and no resolved checkouts.
+- `make interop-locked` adds the resolved tier: it fetches with `--locked`,
+  finds each component's checkout in the cargo git cache, and verifies its
+  revision, manifest identity, schema constants, features, and the H5 corpus
+  digest.
 - `make test-interop` depends on the locked check, requires Linux and GCC, and
   runs the positive and fail-closed native H7 tests without an optional-skip
   path.
 
-CI checks out FOL plus all three repositories in that sibling layout, installs
-Rust 1.89.0, and invokes the same Make-owned locked smoke gate. Changing a
-sibling revision requires changing `interop.lock.toml`, compiled lock
-constants, CI checkout refs, compatibility evidence, and this snapshot
-together.
+CI checks out only FOL and invokes the same Make-owned locked smoke gate; cargo
+fetches the pinned components. Moving a component means updating
+`interop.lock.toml`, `fol-interop/Cargo.toml`, `Cargo.lock`, and this snapshot
+together — the offline tier fails the moment any one of them disagrees.
+
+Working on a component locally without editing the pins:
+
+```toml
+# ~/.cargo/config.toml
+[patch."https://github.com/fol-lang/parc"]
+follang-parc = { path = "/absolute/path/to/parc" }
+```
 
 With repository-wide hardening complete, this boundary unblocks the first
 broader V4 work. It does not itself expose general foreign declaration

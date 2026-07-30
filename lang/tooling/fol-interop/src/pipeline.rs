@@ -28,7 +28,7 @@ use crate::{
         H7_ANCHOR_FUNCTION_NAME, H7_RAW_CRATE_NAME,
     },
     generation::generate_raw_bindings,
-    identity::{verify_locked_siblings, InteropIdentityError},
+    identity::compiled_component_revisions,
     materialization::{
         attach_generated_bindings, attach_h7_anchor, InteropMaterializationPlanError,
     },
@@ -244,7 +244,8 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     let generated_output_root = preflight_generated_output_root(request.generated_output_root)?;
     let temporary_parent = preflight_temporary_parent(request.temporary_parent)?;
     let compiler = canonical_regular_file(request.compiler, "compiler")?;
-    let revisions = verify_locked_siblings()?;
+    // Provenance is a build-time invariant now; see identity.rs.
+    let revisions = compiled_component_revisions();
 
     let policy = strict_compile_only_policy(temporary_parent)?;
     let toolchain = CertifiedGnuToolchain::observe(&artifact.target, compiler)?;
@@ -557,7 +558,6 @@ pub enum H7InteropError {
     FingerprintMismatch(&'static str),
     UnexpectedLinkPlan,
     MissingAnchor,
-    Identity(InteropIdentityError),
     Toolchain(InteropToolchainError),
     Source(InteropSourceError),
     Policy(InteropAnalysisPolicyError),
@@ -630,7 +630,6 @@ impl std::fmt::Display for H7InteropError {
             Self::MissingAnchor => {
                 formatter.write_str("H7 interop materialization omitted its mandatory anchor")
             }
-            Self::Identity(error) => write!(formatter, "{error}"),
             Self::Toolchain(error) => write!(formatter, "{error}"),
             Self::Source(error) => write!(formatter, "{error}"),
             Self::Policy(error) => write!(formatter, "{error}"),
@@ -658,7 +657,6 @@ impl std::error::Error for H7InteropError {
         match self {
             Self::Io { source, .. } => Some(source),
             Self::OutputIo { source, .. } => Some(source),
-            Self::Identity(error) => Some(error),
             Self::Toolchain(error) => Some(error),
             Self::Source(error) => Some(error),
             Self::Policy(error) => Some(error),
@@ -685,7 +683,6 @@ macro_rules! from_error {
 }
 
 from_error!(InteropToolchainError, Toolchain);
-from_error!(InteropIdentityError, Identity);
 from_error!(InteropSourceError, Source);
 from_error!(InteropAnalysisPolicyError, Policy);
 from_error!(ContractError, Contract);

@@ -167,18 +167,22 @@ fn build_fol_c_import_runs_the_locked_typed_pipeline() {
         .iter()
         .find(|artifact| artifact.kind == FrontendArtifactKind::InteropEvidence)
         .expect("build result must report exact sibling evidence");
+    // Revisions come from interop.lock.toml rather than being duplicated here:
+    // the lock is the single source of truth, and hard-coded hashes rot on every
+    // component bump.
+    let locked = locked_component_revisions();
     for required_identity in [
-        "target=x86_64-unknown-linux-gnu",
-        "parc=0f52aeeeeec47a082c0d8a515130ee853aa1101d",
-        "linc=c874d5b0332249524422d9d08c35b3d4edd7e3fa",
-        "gerc=000c1f6c12fba99f1a157267ee7db39d42bda8e3",
-        "source=psource2_",
-        "evidence=lanalysis2_",
-        "generation=gprojection1_",
-        "provider=lartifact1_",
+        "target=x86_64-unknown-linux-gnu".to_string(),
+        format!("parc={}", locked.parc),
+        format!("linc={}", locked.linc),
+        format!("gerc={}", locked.gerc),
+        "source=psource2_".to_string(),
+        "evidence=lanalysis2_".to_string(),
+        "generation=gprojection1_".to_string(),
+        "provider=lartifact1_".to_string(),
     ] {
         assert!(
-            evidence.label.contains(required_identity),
+            evidence.label.contains(required_identity.as_str()),
             "interop evidence omitted {required_identity}: {}",
             evidence.label
         );
@@ -379,4 +383,43 @@ fn copy_fixture(fixture: &Path, package: &Path, relative: &str) {
     }
     fs::copy(fixture.join(relative), &destination)
         .unwrap_or_else(|error| panic!("copy H7 fixture '{relative}': {error}"));
+}
+
+struct LockedRevisions {
+    parc: String,
+    linc: String,
+    gerc: String,
+}
+
+/// The component revisions the checked `interop.lock.toml` pins.
+fn locked_component_revisions() -> LockedRevisions {
+    let lock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .join("interop.lock.toml");
+    let lock = fs::read_to_string(&lock_path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", lock_path.display()));
+    let revision = |section: &str| {
+        let mut active = false;
+        for line in lock.lines() {
+            let line = line.trim();
+            if line.starts_with('[') && line.ends_with(']') {
+                active = line == format!("[{section}]");
+                continue;
+            }
+            if !active {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                if key.trim() == "revision" {
+                    return value.trim().trim_matches('"').to_string();
+                }
+            }
+        }
+        panic!("interop.lock.toml has no [{section}] revision");
+    };
+    LockedRevisions {
+        parc: revision("parc"),
+        linc: revision("linc"),
+        gerc: revision("gerc"),
+    }
 }
