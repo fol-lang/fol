@@ -92,6 +92,8 @@ Positive:
 - `examples/proc_mutex_guard_end_m3`
 - `examples/proc_mutex_m3`
 - `examples/proc_select_m3`
+- `examples/proc_receiver_select_m3`
+- `examples/proc_receiver_loop_m3`
 
 Negative:
 

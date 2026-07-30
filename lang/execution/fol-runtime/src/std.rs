@@ -266,31 +266,55 @@ impl<T> FolSender<T> {
 /// A first-class `chn[rx, T]` receiver endpoint value (V3_MEM §8.2). Receivers
 /// are unique: unlike `FolSender`, this handle is move-only and never `Clone`.
 #[derive(Debug)]
-pub struct FolReceiver<T>(mpsc::Receiver<T>);
+pub struct FolReceiver<T> {
+    receiver: mpsc::Receiver<T>,
+    /// Latched once every sender is gone, mirroring `FolChannel`, so a `select`
+    /// without a default arm can tell that a receiver will never yield again.
+    closed: AtomicBool,
+}
 
 impl<T> Default for FolReceiver<T> {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel();
         drop(sender);
-        Self(receiver)
+        Self {
+            receiver,
+            closed: AtomicBool::new(true),
+        }
     }
 }
 
 impl<T> FolReceiver<T> {
     fn new(receiver: mpsc::Receiver<T>) -> Self {
-        Self(receiver)
+        Self {
+            receiver,
+            closed: AtomicBool::new(false),
+        }
     }
 
     pub fn receive_optional(&self) -> FolOption<T> {
-        self.0.recv().ok().into()
+        match self.receiver.recv() {
+            Ok(value) => Some(value).into(),
+            Err(_) => {
+                self.closed.store(true, Ordering::Release);
+                None.into()
+            }
+        }
     }
 
     pub fn try_receive(&self) -> FolOption<T> {
-        match self.0.try_recv() {
+        match self.receiver.try_recv() {
             Ok(value) => Some(value).into(),
             Err(mpsc::TryRecvError::Empty) => None.into(),
-            Err(mpsc::TryRecvError::Disconnected) => None.into(),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.closed.store(true, Ordering::Release);
+                None.into()
+            }
         }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
     }
 }
 

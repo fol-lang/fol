@@ -95,6 +95,21 @@ pub(crate) fn channel_binding_local(
     Ok((local, type_id))
 }
 
+/// The element type a receive reads out of a channel binding. Full channels and
+/// first-class `chn[rx, T]` receiver values both receive; a `chn[tx, T]` sender
+/// endpoint has no receive side, so it yields `None` and the caller reports it
+/// as a diagnostic rather than assuming the binding was a channel.
+pub(crate) fn receivable_element_type(
+    type_table: &crate::LoweredTypeTable,
+    type_id: LoweredTypeId,
+) -> Option<LoweredTypeId> {
+    match type_table.get(type_id) {
+        Some(LoweredType::Channel { element_type })
+        | Some(LoweredType::ChannelReceiver { element_type }) => Some(*element_type),
+        _ => None,
+    }
+}
+
 pub(crate) fn lower_channel_access(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -111,7 +126,12 @@ pub(crate) fn lower_channel_access(
         Some(LoweredType::Channel { element_type }) => (*element_type, false, false),
         Some(LoweredType::ChannelSender { element_type }) => (*element_type, true, false),
         Some(LoweredType::ChannelReceiver { element_type }) => (*element_type, false, true),
-        _ => unreachable!("channel_binding_local verifies the lowered type"),
+        _ => {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "channel endpoint access needs a chn[T], chn[tx, T], or chn[rx, T] binding",
+            ))
+        }
     };
     if endpoint == ChannelEndpoint::Rx && sender_only {
         return Err(LoweringError::with_kind(
@@ -201,10 +221,17 @@ pub(crate) fn lower_channel_send(
 ) -> Result<LoweredValue, LoweringError> {
     let (channel_local, channel_type) =
         channel_binding_local(typed_package, type_table, cursor, channel)?;
+    // A `chn[rx, T]` receiver has no send side, so it lands in the error arm
+    // rather than being assumed to be a channel.
     let element_type = match type_table.get(channel_type) {
         Some(LoweredType::Channel { element_type })
         | Some(LoweredType::ChannelSender { element_type }) => *element_type,
-        _ => unreachable!("channel_binding_local verifies the lowered type"),
+        _ => {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "a send needs a chn[T] channel or a chn[tx, T] sender; a chn[rx, T] receiver cannot send",
+            ))
+        }
     };
     let lowered_value = lower_expression_expected(
         typed_package,

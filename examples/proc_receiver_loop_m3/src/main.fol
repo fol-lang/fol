@@ -1,0 +1,20 @@
+use std: pkg = {"std"};
+
+// Iterating a first-class `chn[rx, T]` endpoint value lowers the same blocking
+// receive as iterating a full channel; the endpoint carries the receive side
+// after the move (V3_MEM §8.2).
+//
+// This example is build-only: draining an endpoint blocks until every sender is
+// gone, and the surrounding channel binding still holds one, so running it
+// would wait forever by design.
+fun[] main(): int = {
+    var channel: chn[int];
+    var sent_first: err[int] = 19 | channel[tx];
+    var sent_second: err[int] = 23 | channel[tx];
+    var inbox: chn[rx, int] = channel[rx];
+    var[mut] total: int = 0;
+    for (value in inbox[rx]) {
+        total = total + value;
+    };
+    return std::io::echo_int(total);
+};

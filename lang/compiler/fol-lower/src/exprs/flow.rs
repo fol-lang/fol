@@ -705,10 +705,13 @@ fn lower_channel_iteration(
 ) -> Result<(), LoweringError> {
     let (channel_local, channel_type) =
         super::expressions::channel_binding_local(typed_package, type_table, cursor, channel)?;
-    let Some(crate::LoweredType::Channel { element_type }) = type_table.get(channel_type) else {
-        unreachable!("channel_binding_local verifies the lowered type")
-    };
-    let binder_type_id = *element_type;
+    let binder_type_id =
+        super::expressions::receivable_element_type(type_table, channel_type).ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "channel iteration needs a chn[T] channel or a chn[rx, T] receiver to receive from",
+            )
+        })?;
     let optional_type = type_table
         .find(&crate::LoweredType::Optional {
             inner: binder_type_id,
@@ -898,11 +901,13 @@ pub(crate) fn lower_select_statement(
             cursor,
             channel_node,
         )?;
-        let Some(crate::LoweredType::Channel { element_type }) = type_table.get(channel_type)
-        else {
-            unreachable!("channel_binding_local verifies the lowered type")
-        };
-        let element_type = *element_type;
+        let element_type = super::expressions::receivable_element_type(type_table, channel_type)
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    "a select arm needs a chn[T] channel or a chn[rx, T] receiver to receive from",
+                )
+            })?;
         channels.push(channel_local);
         let optional_type = type_table
             .find(&crate::LoweredType::Optional {

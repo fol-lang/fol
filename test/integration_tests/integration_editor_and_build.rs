@@ -1845,18 +1845,21 @@ fn test_v3_processor_m2_channel_negative_examples_reject() {
 #[test]
 fn test_v3_processor_m3_select_and_mutex_examples_build_and_run() {
     for &(example, expected_output) in V3_PROC_M3_POSITIVES {
-        let expected_output = expected_output.expect("processor examples should declare stdout");
         let root = temp_example_root(example);
         let build = run_example_compile(&root, true);
         assert!(build.status.success(), "{example} should build");
-        let run = std::process::Command::new(built_binary_path(&build))
-            .output()
-            .expect("V3 select/mutex example binary should run");
-        assert!(run.status.success(), "{example} should run successfully");
-        assert_eq!(
-            strip_ansi(&String::from_utf8_lossy(&run.stdout)),
-            expected_output
-        );
+        // An example without declared stdout is build-only: draining a receiver
+        // blocks until every sender is gone, so running it would never return.
+        if let Some(expected_output) = expected_output {
+            let run = std::process::Command::new(built_binary_path(&build))
+                .output()
+                .expect("V3 select/mutex example binary should run");
+            assert!(run.status.success(), "{example} should run successfully");
+            assert_eq!(
+                strip_ansi(&String::from_utf8_lossy(&run.stdout)),
+                expected_output
+            );
+        }
         let emitted = collect_rust_source_files(&emitted_crate_root(&build))
             .into_iter()
             .filter_map(|path| std::fs::read_to_string(path).ok())
@@ -1866,11 +1869,28 @@ fn test_v3_processor_m3_select_and_mutex_examples_build_and_run() {
         assert!(emitted.contains("rt::task_join_guard()"));
         if example.contains("select") {
             assert!(emitted.contains(".try_receive()"));
-        } else {
+        } else if example.contains("mutex") {
             assert!(emitted.contains("rt::FolMutex<"));
             assert!(emitted.contains("std::sync::MutexGuard<'_"));
             assert!(emitted.contains("__fol_mutex_guard_l"));
             assert!(emitted.contains("drop(__fol_mutex_guard_l"));
+        } else {
+            // Iterating a first-class receiver lowers the same blocking receive
+            // a full channel does, on `rt::FolReceiver` instead of `FolChannel`.
+            assert!(
+                emitted.contains("rt::FolReceiver<"),
+                "{example} should type the receiver as a first-class chn[rx, T] value"
+            );
+            assert!(
+                emitted.contains(".receive_optional()"),
+                "{example} should lower a blocking receive"
+            );
+        }
+        if example.contains("receiver") {
+            assert!(
+                emitted.contains("rt::FolReceiver<"),
+                "{example} should carry the receive side as a chn[rx, T] value"
+            );
         }
     }
 }
