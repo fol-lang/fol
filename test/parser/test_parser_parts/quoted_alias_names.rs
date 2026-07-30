@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_alias_quoted_names_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_alias_quoted_names_{label}"))
 }
 
 #[test]
@@ -53,9 +43,12 @@ fn test_alias_declaration_preserves_inner_opposite_quote_chars() {
     )
     .expect("Should write temp alias fixture");
 
-    let mut file_stream =
-        FileStream::from_file(fixture.to_str().expect("Alias fixture path should be UTF-8"))
-            .expect("Should read temp alias fixture");
+    let mut file_stream = FileStream::from_file(
+        fixture
+            .to_str()
+            .expect("Alias fixture path should be UTF-8"),
+    )
+    .expect("Should read temp alias fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

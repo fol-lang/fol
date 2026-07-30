@@ -116,8 +116,7 @@ mod tests {
 
     #[test]
     fn upward_discovery_prefers_workspace_then_package_roots() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_discovery_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_discovery");
         let package_root = root.join("pkg");
         let nested = package_root.join("src").join("nested");
         fs::create_dir_all(&nested).unwrap();
@@ -140,10 +139,7 @@ mod tests {
 
     #[test]
     fn explicit_path_selection_reuses_root_discovery() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_explicit_discovery_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_explicit_discovery");
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("fol.work.yaml"), "members: []\n").unwrap();
 
@@ -151,7 +147,7 @@ mod tests {
 
         assert_eq!(
             discovered,
-            DiscoveredRoot::Workspace(WorkspaceRoot::new(root.clone()))
+            DiscoveredRoot::Workspace(WorkspaceRoot::new(root.to_path_buf()))
         );
 
         fs::remove_dir_all(root).ok();
@@ -159,8 +155,7 @@ mod tests {
 
     #[test]
     fn missing_roots_lower_into_frontend_workspace_not_found_errors() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_missing_root_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_missing_root");
         fs::create_dir_all(&root).unwrap();
 
         let error = require_discovered_root(&root).unwrap_err();
@@ -177,10 +172,7 @@ mod tests {
 
     #[test]
     fn workspace_discovery_handles_starting_from_files() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_file_discovery_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_file_discovery");
         let nested = root.join("pkg").join("src");
         let main_file = nested.join("main.fol");
         fs::create_dir_all(&nested).unwrap();
@@ -204,10 +196,7 @@ mod tests {
 
     #[test]
     fn workspace_file_takes_priority_over_outer_package_file() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_workspace_priority_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_workspace_priority");
         let workspace = root.join("ws");
         let nested = workspace.join("member");
         fs::create_dir_all(&nested).unwrap();

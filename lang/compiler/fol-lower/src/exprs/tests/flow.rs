@@ -48,13 +48,8 @@ fn collect_echoed_ints(routine: &crate::LoweredRoutine) -> Vec<i64> {
 #[test]
 fn expression_lowering_keeps_local_and_imported_value_call_parity() {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be monotonic enough for tmp path")
-        .as_nanos();
-    let root = super::safe_temp_dir().join(format!("fol_lower_expr_parity_{stamp}"));
+    let root = fol_testkit::TempFixture::new("fol_lower_expr_parity");
     let app_dir = root.join("app");
     let shared_dir = root.join("shared");
     fs::create_dir_all(&app_dir).expect("should create app dir");
@@ -117,13 +112,8 @@ fn expression_lowering_keeps_local_and_imported_value_call_parity() {
 
 #[test]
 fn return_lowering_emits_explicit_return_terminators_and_skips_trailing_body_nodes() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_return_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_return_exprs")
+        .with_file("fol_lower_return_exprs.fol");
     std::fs::write(&fixture, "fun[] main(): int = {\n    return 1;\n    2;\n};")
         .expect("should write lowering return fixture");
 
@@ -360,13 +350,8 @@ fn dfr_lowering_runs_cleanup_before_panic_terminators() {
 
 #[test]
 fn report_lowering_emits_explicit_report_terminators_and_skips_trailing_body_nodes() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_report_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_report_exprs")
+        .with_file("fol_lower_report_exprs.fol");
     std::fs::write(
         &fixture,
         "fun[] main(flag: bol): int / bol = {\n    report flag;\n    return 1;\n};",
@@ -423,13 +408,8 @@ fn report_lowering_emits_explicit_report_terminators_and_skips_trailing_body_nod
 
 #[test]
 fn when_statement_lowering_emits_branch_blocks_and_falls_through_afterward() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_when_stmt_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_when_stmt").with_file("fol_lower_when_stmt.fol");
     std::fs::write(
         &fixture,
         "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n        * { 2 }\n    }\n    return 2;\n};",
@@ -555,13 +535,8 @@ fn sibling_case_less_when_bodies_lower_same_named_locals_by_syntax() {
 
 #[test]
 fn when_expression_lowering_stores_branch_values_into_one_join_local() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_when_expr_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_when_expr").with_file("fol_lower_when_expr.fol");
     std::fs::write(
         &fixture,
         "var yes: int = 1;\nvar no: int = 2;\nfun[] main(flag: bol): non = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n};",
@@ -623,13 +598,8 @@ fn when_expression_lowering_stores_branch_values_into_one_join_local() {
 
 #[test]
 fn when_statement_lowering_keeps_a_four_block_shape_for_case_default_fallthrough() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_when_stmt_shape_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_when_stmt_shape")
+        .with_file("fol_lower_when_stmt_shape.fol");
     std::fs::write(
         &fixture,
         "fun[] main(flag: bol): int = {\n    when(flag) {\n        case(true) { 1 }\n        * { 2 }\n    }\n    return 2;\n};",
@@ -701,13 +671,8 @@ fn when_statement_lowering_keeps_a_four_block_shape_for_case_default_fallthrough
 
 #[test]
 fn when_expression_lowering_keeps_branch_default_and_join_block_shape() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_when_expr_shape_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_when_expr_shape")
+        .with_file("fol_lower_when_expr_shape.fol");
     std::fs::write(
         &fixture,
         "var yes: int = 1;\nvar no: int = 2;\nfun[] main(flag: bol): non = {\n    when(flag) {\n        case(true) { yes }\n        * { no }\n    }\n};",
@@ -778,13 +743,8 @@ fn when_expression_lowering_keeps_branch_default_and_join_block_shape() {
 
 #[test]
 fn loop_condition_lowering_keeps_header_body_and_exit_blocks() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_loop_shape_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_loop_shape").with_file("fol_lower_loop_shape.fol");
     std::fs::write(
         &fixture,
         "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        var current: int = limit;\n    }\n    return limit;\n};",
@@ -854,13 +814,8 @@ fn loop_condition_lowering_keeps_header_body_and_exit_blocks() {
 
 #[test]
 fn break_lowering_jumps_directly_to_the_loop_exit_block() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_break_shape_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_break_shape")
+        .with_file("fol_lower_break_shape.fol");
     std::fs::write(
         &fixture,
         "fun[] main(flag: bol, limit: int): int = {\n    loop(flag) {\n        break;\n    }\n    return limit;\n};",
@@ -930,13 +885,8 @@ fn break_lowering_jumps_directly_to_the_loop_exit_block() {
 
 #[test]
 fn iteration_loop_lowering_produces_index_driven_control_flow() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_iter_loop_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_iter_loop").with_file("fol_lower_iter_loop.fol");
     std::fs::write(
         &fixture,
         "fun[] sum(items: seq[int]): int = {\n    var total: int = 0;\n    loop(item in items) {\n        total = total + item;\n    }\n    return total;\n};",

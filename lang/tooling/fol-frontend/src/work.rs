@@ -265,10 +265,7 @@ mod tests {
 
     #[test]
     fn work_info_surfaces_artifact_model_distribution_for_valid_members() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_work_info_models_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_work_info_models");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(
@@ -288,7 +285,7 @@ mod tests {
         )
         .unwrap();
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: None,
@@ -335,8 +332,7 @@ mod tests {
 
     #[test]
     fn work_deps_reports_member_dependency_graphs() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_work_deps_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_work_deps");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(
@@ -353,7 +349,7 @@ mod tests {
         )
         .unwrap();
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: None,
@@ -377,8 +373,7 @@ mod tests {
 
     #[test]
     fn work_status_reports_lockfile_and_roots() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_work_status_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_work_status");
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("fol.lock"),
@@ -386,7 +381,7 @@ mod tests {
         )
         .unwrap();
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(root.join("app"))],
             std_root_override: None,
             package_store_root_override: Some(root.join(".fol/pkg")),

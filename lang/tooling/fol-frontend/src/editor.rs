@@ -139,18 +139,10 @@ mod tests {
         editor_symbols_command, editor_tree_generate_command,
     };
     use crate::{FrontendConfig, FrontendErrorKind};
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
-    fn temp_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "fol_frontend_editor_{}_{}_{}",
-            label,
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ))
+    fn temp_root(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_frontend_editor_{label}"))
     }
 
     fn editor_fixture_path() -> String {
@@ -163,15 +155,8 @@ mod tests {
             .to_string()
     }
 
-    fn editor_config_with_root() -> (PathBuf, FrontendConfig) {
-        let temp_root = std::env::temp_dir().join(format!(
-            "fol_frontend_editor_roundtrip_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+    fn editor_config_with_root() -> (fol_testkit::TempFixture, FrontendConfig) {
+        let temp_root = fol_testkit::TempFixture::new("fol_frontend_editor_roundtrip");
         let src = temp_root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
@@ -184,10 +169,11 @@ mod tests {
             "fun[] main(): int = {\n    return 0\n};\n",
         )
         .unwrap();
+        let working_directory = temp_root.to_path_buf();
         (
-            temp_root.clone(),
+            temp_root,
             FrontendConfig {
-                working_directory: temp_root,
+                working_directory,
                 ..FrontendConfig::default()
             },
         )
@@ -352,15 +338,9 @@ mod tests {
 
     #[test]
     fn editor_lsp_command_adds_editor_specific_workspace_guidance() {
+        let root = fol_testkit::TempFixture::new("fol_frontend_editor_missing_root");
         let config = FrontendConfig {
-            working_directory: std::env::temp_dir().join(format!(
-                "fol_frontend_editor_missing_root_{}_{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("system time should be after epoch")
-                    .as_nanos()
-            )),
+            working_directory: root.to_path_buf(),
             ..FrontendConfig::default()
         };
         std::fs::create_dir_all(&config.working_directory).unwrap();

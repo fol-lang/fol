@@ -6,13 +6,8 @@ use fol_typecheck::Typechecker;
 
 #[test]
 fn record_initializer_lowering_constructs_records_in_binding_and_call_contexts() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_record_init_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_record_init")
+        .with_file("fol_lower_record_init.fol");
     std::fs::write(
         &fixture,
         "typ User: rec = { name: str, count: int };\nfun[] echo(user: User): User = { return user; };\nfun[] main(): User = {\n    var current: User = { name = \"ok\", count = 1 };\n    return echo({ name = \"next\", count = 2 });\n};",
@@ -56,13 +51,8 @@ fn record_initializer_lowering_constructs_records_in_binding_and_call_contexts()
 
 #[test]
 fn linear_container_lowering_constructs_array_vector_and_sequence_values() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_linear_container_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_linear_container")
+        .with_file("fol_lower_linear_container.fol");
     std::fs::write(
         &fixture,
         "fun[] make_arr(): arr[int, 3] = { return {1, 2, 3}; };\nfun[] make_vec(): vec[int] = { return {1, 2, 3}; };\nfun[] make_seq(): seq[int] = { return {1, 2, 3} };\n",
@@ -121,13 +111,8 @@ fn linear_container_lowering_constructs_array_vector_and_sequence_values() {
 
 #[test]
 fn set_and_map_lowering_construct_explicit_aggregate_instructions() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_set_map_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_set_map").with_file("fol_lower_set_map.fol");
     std::fs::write(
         &fixture,
         "fun[] take_set(items: set[int, str]): str = { return items[1]; };\nfun[] take_map(items: map[str, int]): int = { return items[\"US\"]; };\nfun[] main(): int = {\n    var parts: set[int, str] = {1, \"two\"};\n    var counts: map[str, int] = {{\"US\", 45}, {\"DE\", 82}};\n    var current: str = take_set(parts);\n    return take_map(counts);\n};\n",
@@ -176,13 +161,8 @@ fn set_and_map_lowering_construct_explicit_aggregate_instructions() {
 
 #[test]
 fn entry_variant_lowering_supports_payload_access_and_entry_construction() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_entry_variant_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_entry_variant")
+        .with_file("fol_lower_entry_variant.fol");
     std::fs::write(
         &fixture,
         "typ Color: ent = {\n    var BLUE: str = \"#0037cd\";\n    var RED: str = \"#ff0000\";\n};\nfun[] payload(): str = {\n    return Color.BLUE;\n};\nfun[] typed(): Color = {\n    return Color.RED;\n};\n",
@@ -239,13 +219,8 @@ fn entry_variant_lowering_supports_payload_access_and_entry_construction() {
 
 #[test]
 fn nil_lowering_constructs_optional_and_error_shell_values() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_nil_shells_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_nil_shells").with_file("fol_lower_nil_shells.fol");
     std::fs::write(
         &fixture,
         "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] make(): MaybeText = { return nil; };\nfun[] fail(): int / Failure = {\n    report nil;\n    return 1;\n};\n",
@@ -298,13 +273,8 @@ fn nil_lowering_constructs_optional_and_error_shell_values() {
 
 #[test]
 fn unwrap_lowering_uses_explicit_shell_unwrap_instructions() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_unwrap_shells_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_unwrap_shells")
+        .with_file("fol_lower_unwrap_shells.fol");
     std::fs::write(
         &fixture,
         "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] from_optional(value: MaybeText): str = { return [uwp]value; };\nfun[] from_error(value: Failure): str = { return [uwp]value };\n",
@@ -347,13 +317,8 @@ fn unwrap_lowering_uses_explicit_shell_unwrap_instructions() {
 #[test]
 fn alias_shell_contexts_lower_to_concrete_runtime_shell_operations() {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be monotonic enough for tmp path")
-        .as_nanos();
-    let root = super::safe_temp_dir().join(format!("fol_lower_shell_alias_{stamp}"));
+    let root = fol_testkit::TempFixture::new("fol_lower_shell_alias");
     let app_dir = root.join("app");
     let shared_dir = root.join("shared");
     fs::create_dir_all(&app_dir).expect("should create app dir");
@@ -420,13 +385,8 @@ fn alias_shell_contexts_lower_to_concrete_runtime_shell_operations() {
 
 #[test]
 fn shell_payload_lifting_lowers_to_explicit_runtime_wrappers() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_shell_lifts_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_shell_lifts")
+        .with_file("fol_lower_shell_lifts.fol");
     std::fs::write(
         &fixture,
         "ali MaybeText: opt[str];\nali Failure: err[str];\nfun[] echo(value: MaybeText): MaybeText = { return value; };\nfun[] direct(): MaybeText = { return \"return\"; };\nfun[] main(): MaybeText = {\n    var local: MaybeText = \"bind\";\n    return echo(\"call\");\n};\nfun[] fail(): int / Failure = {\n    report \"broken\";\n    return 1;\n};\n",
@@ -497,13 +457,8 @@ fn shell_payload_lifting_lowers_to_explicit_runtime_wrappers() {
 #[test]
 fn aggregate_container_and_shell_lowering_stays_aligned_across_local_and_imported_surfaces() {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be monotonic enough for tmp path")
-        .as_nanos();
-    let root = super::safe_temp_dir().join(format!("fol_lower_parity_mix_{stamp}"));
+    let root = fol_testkit::TempFixture::new("fol_lower_parity_mix");
     let app_dir = root.join("app");
     let shared_dir = root.join("shared");
     fs::create_dir_all(&app_dir).expect("should create app dir");

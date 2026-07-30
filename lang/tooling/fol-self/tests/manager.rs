@@ -9,21 +9,11 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // ------------------------------------------------------------------ harness
 
-fn temp_root(label: &str) -> PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time should be after the unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "fol_self_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ));
+fn temp_root(label: &str) -> fol_testkit::TempFixture {
+    let root = fol_testkit::TempFixture::new(&format!("fol_self_{label}"));
     fs::create_dir_all(&root).expect("temp root should be creatable");
     root
 }
@@ -709,7 +699,7 @@ fn unsafe_archive_members_are_rejected() {
         .arg(&payload)
         .arg(".")
         .arg("-C")
-        .arg(&root)
+        .arg(root.path())
         .arg("../outside.txt")
         .status()
         .expect("tar should run");

@@ -1,23 +1,14 @@
 use super::super::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
 use crate::executor::BuildBodyExecutor;
 use crate::option::BuildOptimizeMode;
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fs, path::PathBuf};
 
-fn temp_build_package(source: &str) -> (PathBuf, PathBuf) {
-    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
-    let package_root = std::env::temp_dir().join(format!(
-        "fol_build_eval_grph_{}_{}",
-        std::process::id(),
-        NEXT_ID.fetch_add(1, Ordering::Relaxed)
-    ));
+fn temp_build_package(source: &str) -> (fol_testkit::TempFixture, PathBuf) {
+    let package_root = fol_testkit::TempFixture::new("fol_build_eval_grph");
     fs::create_dir_all(&package_root).expect("temp package root should be created");
     fs::write(package_root.join("build.fol"), source).expect("build source should be written");
-    (package_root.clone(), package_root.join("build.fol"))
+    let build_path = package_root.join("build.fol");
+    (package_root, build_path)
 }
 
 #[test]

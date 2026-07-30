@@ -188,7 +188,7 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) {
     }
 }
 
-fn write_temp_app(root_name: &str, main_source: &str) -> std::path::PathBuf {
+fn write_temp_app(root_name: &str, main_source: &str) -> crate::fixture::TempFixture {
     let root = unique_temp_root(root_name);
     std::fs::create_dir_all(root.join("src")).expect("temp app src should exist");
     std::fs::write(
@@ -203,10 +203,10 @@ fn write_temp_app(root_name: &str, main_source: &str) -> std::path::PathBuf {
     root
 }
 
-fn temp_example_root(example_path: &str) -> std::path::PathBuf {
+fn temp_example_root(example_path: &str) -> crate::fixture::TempFixture {
     let source = repo_root().join(example_path);
     let temp_root = unique_temp_root(&format!("example_copy_{}", example_path.replace('/', "_")));
-    let target = temp_root.join("workspace");
+    let target = temp_root.child("workspace");
     copy_dir_all(&source, &target);
     std::fs::create_dir_all(target.join(".git"))
         .expect("copied example workspace marker should be creatable");
@@ -6784,7 +6784,9 @@ fn test_negative_runtime_contract_examples_fail_with_expected_boundary_class() {
 
     for (path, subdir, expected_message) in cases {
         let root = temp_example_root(path);
-        let working_root = subdir.map(|value| root.join(value)).unwrap_or(root.clone());
+        let working_root = subdir
+            .map(|value| root.join(value))
+            .unwrap_or_else(|| root.to_path_buf());
         let store_root = if path == "examples/fail_core_std_import" {
             let root = unique_temp_root("fail_core_std_import_matrix_store");
             std::fs::create_dir_all(root.join("std/fmt")).expect("should create std source root");
@@ -6847,10 +6849,12 @@ fn test_runtime_contract_regression_matrix_stays_coherent_across_layers() {
     ];
 
     for (path, should_succeed, expected) in direct_cases {
-        let root = if path.starts_with("examples/") {
-            temp_example_root(path)
-        } else {
-            repo_root().join(path)
+        let fixture = path
+            .starts_with("examples/")
+            .then(|| temp_example_root(path));
+        let root = match fixture.as_ref() {
+            Some(fixture) => fixture.to_path_buf(),
+            None => repo_root().join(path),
         };
         let build = if path.starts_with("examples/") {
             run_example_compile(&root, true)

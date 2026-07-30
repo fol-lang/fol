@@ -49,7 +49,7 @@ fn non_host_machine_target() -> String {
 
 #[test]
 fn check_workspace_runs_the_real_pipeline_for_workspace_members() {
-    let root = std::env::temp_dir().join(format!("fol_frontend_check_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_check");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -62,7 +62,7 @@ fn check_workspace_runs_the_real_pipeline_for_workspace_members() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app.clone())],
         std_root_override: None,
         package_store_root_override: None,
@@ -83,7 +83,7 @@ fn check_workspace_runs_the_real_pipeline_for_workspace_members() {
 
 #[test]
 fn build_workspace_runs_the_backend_for_runnable_members() {
-    let root = std::env::temp_dir().join(format!("fol_frontend_build_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -96,7 +96,7 @@ fn build_workspace_runs_the_backend_for_runnable_members() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -258,10 +258,7 @@ fn frontend_maps_backend_fol_models_into_typecheck_models() {
 
 #[test]
 fn evaluated_runtime_contract_keeps_std_separate_from_the_public_model() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_capability_default_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_capability_default");
     let app = root.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
     fs::write(
@@ -298,8 +295,7 @@ fn evaluated_runtime_contract_keeps_std_separate_from_the_public_model() {
 
 #[test]
 fn build_workspace_uses_profile_specific_output_roots() {
-    let root =
-        std::env::temp_dir().join(format!("fol_frontend_build_profile_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_profile");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -312,7 +308,7 @@ fn build_workspace_uses_profile_specific_output_roots() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -340,7 +336,7 @@ fn build_workspace_uses_profile_specific_output_roots() {
 
 #[test]
 fn run_workspace_executes_a_single_runnable_member() {
-    let root = std::env::temp_dir().join(format!("fol_frontend_run_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_run");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -353,7 +349,7 @@ fn run_workspace_executes_a_single_runnable_member() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -379,7 +375,7 @@ fn run_workspace_executes_a_single_runnable_member() {
 
 #[test]
 fn run_workspace_passes_through_binary_arguments() {
-    let root = std::env::temp_dir().join(format!("fol_frontend_run_args_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_run_args");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -392,7 +388,7 @@ fn run_workspace_passes_through_binary_arguments() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -417,10 +413,7 @@ fn run_workspace_passes_through_binary_arguments() {
 
 #[test]
 fn public_run_and_test_allow_host_compatible_memo_packages_without_std() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_public_hosted_guard_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_public_hosted_guard");
     let app = root.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
     fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
@@ -430,7 +423,7 @@ fn public_run_and_test_allow_host_compatible_memo_packages_without_std() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -457,10 +450,7 @@ fn public_run_and_test_allow_host_compatible_memo_packages_without_std() {
 
 #[test]
 fn direct_model_uses_the_evaluated_std_dependency_set() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_conditional_std_contract_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_conditional_std_contract");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -500,7 +490,7 @@ fn direct_model_uses_the_evaluated_std_dependency_set() {
 
 #[test]
 fn run_workspace_rejects_non_host_machine_targets_before_execution() {
-    let root = std::env::temp_dir().join(format!("fol_frontend_run_cross_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_run_cross");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -513,7 +503,7 @@ fn run_workspace_rejects_non_host_machine_targets_before_execution() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -538,10 +528,7 @@ fn run_workspace_rejects_non_host_machine_targets_before_execution() {
 
 #[test]
 fn build_workspace_keeps_generated_crate_dirs_when_requested() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_keep_build_dir_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_keep_build_dir");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -554,7 +541,7 @@ fn build_workspace_keeps_generated_crate_dirs_when_requested() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -578,7 +565,7 @@ fn build_workspace_keeps_generated_crate_dirs_when_requested() {
 
 #[test]
 fn test_workspace_runs_single_workspace_members() {
-    let root = std::env::temp_dir().join(format!("fol_frontend_test_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_test");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -591,7 +578,7 @@ fn test_workspace_runs_single_workspace_members() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -615,8 +602,7 @@ fn test_workspace_runs_single_workspace_members() {
 
 #[test]
 fn test_package_selects_a_single_named_workspace_member() {
-    let root =
-        std::env::temp_dir().join(format!("fol_frontend_test_package_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_test_package");
     let app = root.join("app");
     let lib = root.join("lib");
     for package in [&app, &lib] {
@@ -632,7 +618,7 @@ fn test_package_selects_a_single_named_workspace_member() {
     }
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app), PackageRoot::new(lib)],
         std_root_override: None,
         package_store_root_override: None,
@@ -656,7 +642,7 @@ fn test_package_selects_a_single_named_workspace_member() {
 
 #[test]
 fn test_workspace_rejects_non_host_machine_targets_before_execution() {
-    let root = std::env::temp_dir().join(format!("fol_frontend_test_cross_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_test_cross");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -669,7 +655,7 @@ fn test_workspace_rejects_non_host_machine_targets_before_execution() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -694,7 +680,7 @@ fn test_workspace_rejects_non_host_machine_targets_before_execution() {
 
 #[test]
 fn emit_rust_materializes_generated_crates_for_workspace_members() {
-    let root = std::env::temp_dir().join(format!("fol_frontend_emit_rust_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_emit_rust");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -707,7 +693,7 @@ fn emit_rust_materializes_generated_crates_for_workspace_members() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -736,8 +722,7 @@ fn emit_rust_materializes_generated_crates_for_workspace_members() {
 
 #[test]
 fn emit_lowered_materializes_rendered_workspace_snapshots() {
-    let root =
-        std::env::temp_dir().join(format!("fol_frontend_emit_lowered_{}", std::process::id()));
+    let root = fol_testkit::TempFixture::new("fol_frontend_emit_lowered");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -750,7 +735,7 @@ fn emit_lowered_materializes_rendered_workspace_snapshots() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -782,10 +767,7 @@ fn emit_lowered_materializes_rendered_workspace_snapshots() {
 
 #[test]
 fn emit_commands_enforce_the_declared_processor_model() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_emit_processor_model_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_emit_processor_model");
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -803,7 +785,7 @@ fn emit_commands_enforce_the_declared_processor_model() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -831,10 +813,7 @@ fn emit_commands_enforce_the_declared_processor_model() {
 
 #[test]
 fn package_wide_commands_reject_mixed_artifact_models() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_mixed_package_model_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_mixed_package_model");
     let app = root.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
     fs::write(
@@ -860,7 +839,7 @@ fn package_wide_commands_reject_mixed_artifact_models() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -886,10 +865,7 @@ fn package_wide_commands_reject_mixed_artifact_models() {
 
 #[test]
 fn targeted_mixed_artifacts_compile_only_their_source_directory() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_targeted_mixed_model_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_targeted_mixed_model");
     let app = root.join("app");
     fs::create_dir_all(app.join("core")).unwrap();
     fs::create_dir_all(app.join("memo")).unwrap();
@@ -922,7 +898,7 @@ fn targeted_mixed_artifacts_compile_only_their_source_directory() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app.clone())],
         std_root_override: None,
         package_store_root_override: None,
@@ -966,10 +942,7 @@ fn targeted_mixed_artifacts_compile_only_their_source_directory() {
 
 #[test]
 fn targeted_mixed_artifacts_reject_overlapping_source_directories() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_overlapping_mixed_model_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_overlapping_mixed_model");
     let app = root.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
     fs::write(
@@ -995,7 +968,7 @@ fn targeted_mixed_artifacts_reject_overlapping_source_directories() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app.clone())],
         std_root_override: None,
         package_store_root_override: None,
@@ -1025,10 +998,7 @@ fn targeted_mixed_artifacts_reject_overlapping_source_directories() {
 
 #[test]
 fn targeted_entry_filter_uses_the_exact_canonical_root() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_exact_artifact_entry_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_exact_artifact_entry");
     let app = root.join("app");
     fs::create_dir_all(app.join("src/src")).unwrap();
     fs::write(
@@ -1052,7 +1022,7 @@ fn targeted_entry_filter_uses_the_exact_canonical_root() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app.clone())],
         std_root_override: None,
         package_store_root_override: None,
@@ -1085,10 +1055,7 @@ fn targeted_entry_filter_uses_the_exact_canonical_root() {
 
 #[test]
 fn artifact_roots_cannot_escape_their_package() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_artifact_root_escape_{}",
-        std::process::id()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_artifact_root_escape");
     let app = root.join("app");
     fs::create_dir_all(&app).unwrap();
     fs::write(
@@ -1108,7 +1075,7 @@ fn artifact_roots_cannot_escape_their_package() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,

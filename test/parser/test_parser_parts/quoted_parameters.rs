@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_quoted_params_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_quoted_params_{label}"))
 }
 
 #[test]
@@ -116,9 +106,8 @@ fn test_single_quoted_parameters_parse() {
 
 #[test]
 fn test_grouped_quoted_parameters_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_grouped_quoted_params.fol")
-            .expect("Should read grouped quoted-parameter fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_grouped_quoted_params.fol")
+        .expect("Should read grouped quoted-parameter fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -155,9 +144,12 @@ fn test_routine_parameters_preserve_inner_opposite_quote_chars() {
     )
     .expect("Should write temp parameter fixture");
 
-    let mut file_stream =
-        FileStream::from_file(fixture.to_str().expect("Parameter fixture path should be UTF-8"))
-            .expect("Should read temp parameter fixture");
+    let mut file_stream = FileStream::from_file(
+        fixture
+            .to_str()
+            .expect("Parameter fixture path should be UTF-8"),
+    )
+    .expect("Should read temp parameter fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

@@ -254,15 +254,8 @@ mod tests {
         }
     }
 
-    fn scratch(label: &str) -> PathBuf {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after the unix epoch")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "fol_store_chain_{label}_{}_{stamp}",
-            std::process::id()
-        ));
+    fn scratch(label: &str) -> fol_testkit::TempFixture {
+        let root = fol_testkit::TempFixture::new(&format!("fol_store_chain_{label}"));
         std::fs::create_dir_all(&root).expect("scratch root should be creatable");
         root
     }

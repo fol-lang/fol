@@ -1,9 +1,9 @@
 use super::*;
 
-fn copied_example_root(example_path: &str) -> std::path::PathBuf {
+fn copied_example_root(example_path: &str) -> crate::fixture::TempFixture {
     let source = repo_root().join(example_path);
     let temp_root = unique_temp_root(&format!("cli_example_{}", example_path.replace('/', "_")));
-    let target = temp_root.join("workspace");
+    let target = temp_root.child("workspace");
     copy_dir_all(&source, &target);
     std::fs::remove_dir_all(target.join(".fol")).ok();
     target

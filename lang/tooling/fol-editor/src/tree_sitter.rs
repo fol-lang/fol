@@ -397,25 +397,17 @@ mod tests {
             .expect("repo root should resolve")
     }
 
-    fn temp_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "fol_editor_tree_query_{}_{}_{}",
-            label,
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ))
+    fn temp_root(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_editor_tree_query_{label}"))
     }
 
-    fn build_bundle_root(label: &str) -> PathBuf {
+    fn build_bundle_root(label: &str) -> fol_testkit::TempFixture {
         let root = temp_root(label);
         crate::editor_tree_generate_bundle(&root).expect("tree bundle generation should succeed");
         root
     }
 
-    fn tree_sitter_cache_root(label: &str) -> PathBuf {
+    fn tree_sitter_cache_root(label: &str) -> fol_testkit::TempFixture {
         let root = temp_root(&format!("cache_{label}"));
         std::fs::create_dir_all(&root).expect("tree-sitter cache root should be created");
         root

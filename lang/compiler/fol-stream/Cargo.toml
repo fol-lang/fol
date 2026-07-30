@@ -5,3 +5,6 @@ authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+
+[dev-dependencies]
+fol-testkit = { path = "../../tooling/fol-testkit" }

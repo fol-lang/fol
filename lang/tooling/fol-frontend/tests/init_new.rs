@@ -1,17 +1,8 @@
 use fol_frontend::{init_root, new_project_with_mode, FrontendArtifactKind, PackageTargetKind};
 use std::fs;
-use std::path::PathBuf;
 
-fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "fol_frontend_integration_{}_{}_{}",
-        label,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after epoch")
-            .as_nanos()
-    ))
+fn temp_root(label: &str) -> fol_testkit::TempFixture {
+    fol_testkit::TempFixture::new(&format!("fol_frontend_integration_{label}"))
 }
 
 #[test]

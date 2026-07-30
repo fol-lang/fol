@@ -424,16 +424,9 @@ mod tests {
     use fol_parser::ast::AstParser;
     use fol_stream::FileStream;
     use std::fs;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
-    fn unique_temp_root(label: &str) -> std::path::PathBuf {
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-        std::env::temp_dir().join(format!(
-            "fol_pkg_dep_surface_{}_{}_{}",
-            label,
-            std::process::id(),
-            NEXT_ID.fetch_add(1, Ordering::Relaxed)
-        ))
+    fn unique_temp_root(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_pkg_dep_surface_{label}"))
     }
 
     #[test]

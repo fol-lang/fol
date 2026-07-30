@@ -43,17 +43,8 @@ fn test_stream_to_lexer_order_stays_stable_across_multiple_files() {
     use fol_lexer::token::KEYWORD;
     use fol_stream::FileStream;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    let temp_root = std::env::temp_dir().join(format!(
-        "fol_stream_lexer_order_{}_{}",
-        std::process::id(),
-        stamp
-    ));
+    let temp_root = fol_testkit::TempFixture::new("fol_stream_lexer_order");
 
     fs::create_dir_all(temp_root.join("alpha_10")).expect("Should create alpha fixture dir");
     fs::create_dir_all(temp_root.join("beta_20")).expect("Should create beta fixture dir");

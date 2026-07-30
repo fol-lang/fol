@@ -1474,14 +1474,7 @@ mod tests {
 
     #[test]
     fn typed_program_filters_build_and_ordinary_source_units() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_typecheck_build_units_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_typecheck_build_units");
         std::fs::create_dir_all(root.join("src")).expect("should create temp source dir");
         std::fs::write(root.join("build.fol"), "`build`\n").expect("should write build file");
         std::fs::write(root.join("src/main.fol"), "var value: int = 1;\n")

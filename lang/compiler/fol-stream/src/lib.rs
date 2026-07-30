@@ -537,14 +537,7 @@ mod unit_tests {
 
     #[test]
     fn from_sources_precomputes_char_buffers_for_every_source() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "fol_stream_char_buffers_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time should be after unix epoch")
-                .as_nanos()
-        ));
+        let temp_root = fol_testkit::TempFixture::new("fol_stream_char_buffers");
         fs::create_dir_all(temp_root.join("nested"))
             .expect("Should create temp folders for char-buffer test");
         fs::write(temp_root.join("alpha.fol"), "alpha\n").expect("Should write alpha temp source");
@@ -596,14 +589,7 @@ mod unit_tests {
 
     #[test]
     fn from_dir_skips_internal_fol_workspace_directory() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "fol_stream_skip_internal_fol_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time should be after unix epoch")
-                .as_nanos()
-        ));
+        let temp_root = fol_testkit::TempFixture::new("fol_stream_skip_internal_fol");
         fs::create_dir_all(temp_root.join(".fol/cache"))
             .expect("Should create internal .fol directory");
         fs::write(

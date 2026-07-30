@@ -802,27 +802,19 @@ mod tests {
     use fol_build::DependencyBuildEvaluationMode;
     use fol_diagnostics::ToDiagnostic;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn unique_temp_root(label: &str) -> std::path::PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System time should be after unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "fol_package_metadata_{}_{}_{}",
-            label,
-            std::process::id(),
-            stamp
-        ))
+    fn unique_temp_root(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_package_metadata_{label}"))
     }
 
-    fn write_build_fixture(label: &str, source: &str) -> std::path::PathBuf {
+    /// Returns the build file itself, still owning the directory around it so
+    /// the fixture outlives the call rather than vanishing at this brace.
+    fn write_build_fixture(label: &str, source: &str) -> fol_testkit::TempFixture {
         let temp_root = unique_temp_root(label);
         fs::create_dir_all(&temp_root).expect("Should create temporary build fixture root");
-        let build_path = temp_root.join("build.fol");
-        fs::write(&build_path, source).expect("Should write the build fixture");
-        build_path
+        let build_file = temp_root.child("build.fol");
+        fs::write(&build_file, source).expect("Should write the build fixture");
+        build_file
     }
 
     #[test]

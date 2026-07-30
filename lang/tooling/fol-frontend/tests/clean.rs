@@ -1,17 +1,8 @@
 use fol_frontend::{clean_workspace_with_config, FrontendConfig, FrontendWorkspace, WorkspaceRoot};
 use std::fs;
-use std::path::PathBuf;
 
-fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "fol_frontend_clean_{}_{}_{}",
-        label,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after epoch")
-            .as_nanos()
-    ))
+fn temp_root(label: &str) -> fol_testkit::TempFixture {
+    fol_testkit::TempFixture::new(&format!("fol_frontend_clean_{label}"))
 }
 
 #[test]
@@ -22,7 +13,7 @@ fn clean_command_removes_workspace_build_and_cache_roots_through_public_api() {
     fs::create_dir_all(&build_root).expect("should create build root");
     fs::create_dir_all(&cache_root).expect("should create cache root");
 
-    let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.clone()));
+    let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.to_path_buf()));
     workspace.build_root = build_root.clone();
     workspace.cache_root = cache_root.clone();
 
@@ -42,11 +33,11 @@ fn clean_command_skips_external_package_store_roots_through_public_api() {
     let external_store = temp_root("pkg_store");
     fs::create_dir_all(&external_store).expect("should create external package store");
 
-    let workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.clone()));
+    let workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.to_path_buf()));
     let result = clean_workspace_with_config(
         &workspace,
         &FrontendConfig {
-            package_store_root_override: Some(external_store.clone()),
+            package_store_root_override: Some(external_store.to_path_buf()),
             ..FrontendConfig::default()
         },
     )
@@ -67,7 +58,7 @@ fn clean_command_handles_git_cache_boundaries_through_public_api() {
     fs::create_dir_all(&local_git_cache).expect("should create local git cache");
     fs::create_dir_all(&external_git_cache).expect("should create external git cache");
 
-    let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.clone()));
+    let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.to_path_buf()));
     workspace.git_cache_root = local_git_cache.clone();
 
     let local = clean_workspace_with_config(&workspace, &FrontendConfig::default())
@@ -78,7 +69,7 @@ fn clean_command_handles_git_cache_boundaries_through_public_api() {
     let external = clean_workspace_with_config(
         &workspace,
         &FrontendConfig {
-            git_cache_root_override: Some(external_git_cache.clone()),
+            git_cache_root_override: Some(external_git_cache.to_path_buf()),
             ..FrontendConfig::default()
         },
     )

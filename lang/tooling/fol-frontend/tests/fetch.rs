@@ -34,16 +34,8 @@ fn semantic_lib_build(name: &str) -> String {
     )
 }
 
-fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "fol_frontend_fetch_{}_{}_{}",
-        label,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after epoch")
-            .as_nanos()
-    ))
+fn temp_root(label: &str) -> fol_testkit::TempFixture {
+    fol_testkit::TempFixture::new(&format!("fol_frontend_fetch_{label}"))
 }
 
 #[test]
@@ -57,7 +49,7 @@ fn fetch_round_trip_prepares_and_reports_local_workspace_packages() {
     fs::write(lib.join("build.fol"), semantic_lib_build("lib")).expect("should write lib build");
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app.clone()), PackageRoot::new(lib.clone())],
         std_root_override: Some(root.join("std")),
         package_store_root_override: Some(root.join(".fol/pkg")),
@@ -138,7 +130,7 @@ fn fetch_summary_surfaces_dependency_modes_for_mixed_sources() {
     .expect("should write store dep source");
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app.clone())],
         std_root_override: None,
         package_store_root_override: Some(store_root.clone()),
@@ -177,7 +169,7 @@ fn fetch_round_trip_prefers_frontend_config_store_root_in_artifacts() {
     fs::write(app.join("build.fol"), semantic_bin_build()).expect("should write app build");
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app.clone())],
         std_root_override: None,
         package_store_root_override: Some(root.join(".fol/ws-pkg")),
@@ -208,7 +200,7 @@ fn fetch_locked_requires_existing_lockfile() {
     fs::write(app.join("build.fol"), semantic_bin_build()).expect("should write app build");
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: Some(root.join(".fol/pkg")),

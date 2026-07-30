@@ -2676,14 +2676,7 @@ mod tests {
 
     #[test]
     fn fallback_local_named_type_items_are_marked_as_uncertain() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_semantic_types_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_semantic_types");
         fs::create_dir_all(root.join("src")).unwrap();
         let source_path = root.join("src/main.fol");
         let text = concat!(
@@ -2703,7 +2696,7 @@ mod tests {
             text.to_string(),
         )
         .unwrap();
-        let snapshot = fallback_snapshot(root.clone(), source_path);
+        let snapshot = fallback_snapshot(root.to_path_buf(), source_path);
 
         let items = snapshot.fallback_local_named_type_items(&document);
         assert_eq!(
@@ -2726,14 +2719,7 @@ mod tests {
 
     #[test]
     fn fallback_qualified_completion_items_are_marked_as_uncertain() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_semantic_qualified_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_semantic_qualified");
         fs::create_dir_all(root.join("shared")).unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(
@@ -2749,7 +2735,7 @@ mod tests {
             "};\n",
         );
         fs::write(&source_path, text).unwrap();
-        let snapshot = fallback_snapshot(root.clone(), source_path);
+        let snapshot = fallback_snapshot(root.to_path_buf(), source_path);
 
         let items = snapshot.fallback_qualified_completion_items("shared");
         assert_eq!(
@@ -2765,14 +2751,7 @@ mod tests {
 
     #[test]
     fn fallback_local_scope_items_remain_unmarked() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_semantic_plain_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_semantic_plain");
         fs::create_dir_all(root.join("src")).unwrap();
         let source_path = root.join("src/main.fol");
         let text = concat!(
@@ -2791,7 +2770,7 @@ mod tests {
             text.to_string(),
         )
         .unwrap();
-        let snapshot = fallback_snapshot(root.clone(), source_path);
+        let snapshot = fallback_snapshot(root.to_path_buf(), source_path);
 
         let items = snapshot.fallback_local_scope_items(
             &document,

@@ -337,15 +337,8 @@ mod tests {
     fn absorbed_build_dispatch_fixture_with_source(
         label: &str,
         build_source: &str,
-    ) -> FrontendWorkspace {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_dispatch_route_{label}_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time before epoch")
-                .as_nanos()
-        ));
+    ) -> (fol_testkit::TempFixture, FrontendWorkspace) {
+        let root = fol_testkit::TempFixture::new(&format!("fol_frontend_dispatch_route_{label}"));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), build_source).unwrap();
@@ -355,31 +348,27 @@ mod tests {
         )
         .unwrap();
 
-        FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
-            members: vec![PackageRoot::new(root.clone())],
+        let workspace = FrontendWorkspace {
+            root: WorkspaceRoot::new(root.to_path_buf()),
+            members: vec![PackageRoot::new(root.to_path_buf())],
             std_root_override: None,
             package_store_root_override: None,
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
             install_prefix: root.join(".fol/install"),
-        }
+        };
+        (root, workspace)
     }
 
-    fn absorbed_build_dispatch_fixture(label: &str) -> FrontendWorkspace {
+    fn absorbed_build_dispatch_fixture(
+        label: &str,
+    ) -> (fol_testkit::TempFixture, FrontendWorkspace) {
         absorbed_build_dispatch_fixture_with_source(label, &semantic_dispatch_build())
     }
 
-    fn modern_dispatch_fixture(label: &str) -> FrontendWorkspace {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_dispatch_modern_{label}_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time before epoch")
-                .as_nanos()
-        ));
+    fn modern_dispatch_fixture(label: &str) -> (fol_testkit::TempFixture, FrontendWorkspace) {
+        let root = fol_testkit::TempFixture::new(&format!("fol_frontend_dispatch_modern_{label}"));
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
@@ -390,16 +379,17 @@ mod tests {
         )
         .unwrap();
 
-        FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
-            members: vec![PackageRoot::new(root.clone())],
+        let workspace = FrontendWorkspace {
+            root: WorkspaceRoot::new(root.to_path_buf()),
+            members: vec![PackageRoot::new(root.to_path_buf())],
             std_root_override: None,
             package_store_root_override: None,
             build_root: root.join(".fol/build"),
             cache_root: root.join(".fol/cache"),
             git_cache_root: root.join(".fol/cache/git"),
             install_prefix: root.join(".fol/install"),
-        }
+        };
+        (root, workspace)
     }
 
     #[test]
@@ -416,7 +406,7 @@ mod tests {
 
     #[test]
     fn graph_driven_build_route_surface_is_reexported_at_crate_root() {
-        let workspace = absorbed_build_dispatch_fixture("public_build_route_surface");
+        let (_fixture, workspace) = absorbed_build_dispatch_fixture("public_build_route_surface");
         let requested_step =
             requested_workspace_step(&CodeSubcommand::Build(BuildCommand::default()), None);
         assert_eq!(requested_step, "build");
@@ -443,8 +433,7 @@ mod tests {
     #[test]
     fn run_command_from_args_dispatches_buildable_frontend_commands() {
         let _env = EnvironmentGuard::removed(FRONTEND_ENV_KEYS);
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_dispatch_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_dispatch");
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
@@ -629,7 +618,7 @@ mod tests {
 
     #[test]
     fn workspace_dispatch_routes_absorbed_build_steps_through_named_step_selection() {
-        let workspace = absorbed_build_dispatch_fixture("check_step");
+        let (_fixture, workspace) = absorbed_build_dispatch_fixture("check_step");
         let command = FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs::default(),
             profile: FrontendProfileArgs::default(),
@@ -650,7 +639,7 @@ mod tests {
 
     #[test]
     fn workspace_dispatch_keeps_build_artifacts_on_routed_absorbed_build_execution() {
-        let workspace = absorbed_build_dispatch_fixture("build_artifacts");
+        let (_fixture, workspace) = absorbed_build_dispatch_fixture("build_artifacts");
         let command = FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs::default(),
             profile: FrontendProfileArgs::default(),
@@ -686,7 +675,7 @@ mod tests {
 
     #[test]
     fn workspace_dispatch_keeps_run_summary_and_binary_artifact_on_routed_execution() {
-        let workspace = absorbed_build_dispatch_fixture("run_artifacts");
+        let (_fixture, workspace) = absorbed_build_dispatch_fixture("run_artifacts");
         let command = FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs::default(),
             profile: FrontendProfileArgs::default(),
@@ -707,7 +696,7 @@ mod tests {
 
     #[test]
     fn workspace_dispatch_executes_modern_semantic_build_packages_through_workspace_route() {
-        let workspace = modern_dispatch_fixture("modern_only");
+        let (_fixture, workspace) = modern_dispatch_fixture("modern_only");
         let command = FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs::default(),
             profile: FrontendProfileArgs::default(),
@@ -728,7 +717,7 @@ mod tests {
 
     #[test]
     fn workspace_dispatch_executes_hybrid_semantic_build_packages_through_workspace_route() {
-        let workspace = modern_dispatch_fixture("semantic");
+        let (_fixture, workspace) = modern_dispatch_fixture("semantic");
         let command = FrontendCommand::Code(CodeCommand {
             output: FrontendOutputArgs::default(),
             profile: FrontendProfileArgs::default(),

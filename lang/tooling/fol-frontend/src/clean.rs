@@ -116,13 +116,12 @@ mod tests {
 
     #[test]
     fn clean_workspace_exposes_a_stable_command_shell() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_clean_build_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_clean_build");
         let build_root = root.join(".fol/build");
         let cache_root = root.join(".fol/cache");
         fs::create_dir_all(&build_root).unwrap();
         fs::create_dir_all(&cache_root).unwrap();
-        let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.clone()));
+        let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.to_path_buf()));
         workspace.build_root = build_root.clone();
         workspace.cache_root = cache_root.clone();
 
@@ -139,17 +138,13 @@ mod tests {
 
     #[test]
     fn clean_workspace_only_removes_workspace_local_package_stores() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_clean_pkg_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_clean_pkg");
         let local_store = root.join(".fol/pkg");
-        let external_store = std::env::temp_dir().join(format!(
-            "fol_frontend_clean_external_pkg_{}",
-            std::process::id()
-        ));
+        let external_store = fol_testkit::TempFixture::new("fol_frontend_clean_external_pkg");
         fs::create_dir_all(&local_store).unwrap();
         fs::create_dir_all(&external_store).unwrap();
 
-        let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.clone()));
+        let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.to_path_buf()));
         workspace.build_root = root.join(".fol/build");
         workspace.cache_root = root.join(".fol/cache");
         workspace.package_store_root_override = Some(local_store.clone());
@@ -162,7 +157,7 @@ mod tests {
         let external = clean_workspace_with_config(
             &workspace,
             &FrontendConfig {
-                package_store_root_override: Some(external_store.clone()),
+                package_store_root_override: Some(external_store.to_path_buf()),
                 ..FrontendConfig::default()
             },
         )
@@ -176,12 +171,11 @@ mod tests {
 
     #[test]
     fn clean_workspace_removes_workspace_local_git_cache_overrides() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_clean_git_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_clean_git");
         let git_cache = root.join(".fol/custom-git-cache");
         fs::create_dir_all(&git_cache).unwrap();
 
-        let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.clone()));
+        let mut workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.to_path_buf()));
         workspace.build_root = root.join(".fol/build");
         workspace.cache_root = root.join(".fol/cache");
         workspace.git_cache_root = git_cache.clone();
@@ -196,21 +190,15 @@ mod tests {
 
     #[test]
     fn clean_workspace_skips_external_git_cache_overrides() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_clean_git_external_{}",
-            std::process::id()
-        ));
-        let external_git_cache = std::env::temp_dir().join(format!(
-            "fol_frontend_clean_git_shared_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_clean_git_external");
+        let external_git_cache = fol_testkit::TempFixture::new("fol_frontend_clean_git_shared");
         fs::create_dir_all(&external_git_cache).unwrap();
 
-        let workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.clone()));
+        let workspace = FrontendWorkspace::new(WorkspaceRoot::new(root.to_path_buf()));
         let result = clean_workspace_with_config(
             &workspace,
             &FrontendConfig {
-                git_cache_root_override: Some(external_git_cache.clone()),
+                git_cache_root_override: Some(external_git_cache.to_path_buf()),
                 ..FrontendConfig::default()
             },
         )

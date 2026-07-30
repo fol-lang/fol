@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_parser_source_origins_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_parser_source_origins_{label}"))
 }
 
 #[test]
@@ -20,8 +10,11 @@ fn test_parse_package_retains_successful_top_level_origins() {
     let temp_root = unique_temp_root("top_level");
     fs::create_dir_all(&temp_root).expect("Should create temporary source-origin fixture dir");
     let fixture = temp_root.join("origins.fol");
-    fs::write(&fixture, "`doc`\nvar alpha = 1;\nfun beta(): int = { return alpha };\n")
-        .expect("Should write temporary source-origin fixture");
+    fs::write(
+        &fixture,
+        "`doc`\nvar alpha = 1;\nfun beta(): int = { return alpha };\n",
+    )
+    .expect("Should write temporary source-origin fixture");
 
     let parsed = parse_package_from_file(
         fixture
@@ -85,8 +78,7 @@ fn test_parse_package_retains_item_origins_across_multiple_files() {
     let second_origin = parsed_top_level_origin(&parsed, &parsed.source_units[1].items[0]);
 
     assert_ne!(
-        first_origin.file,
-        second_origin.file,
+        first_origin.file, second_origin.file,
         "Parsed top-level origins should keep the physical file identity of each source unit"
     );
     assert_eq!(first_origin.line, 1);
@@ -204,7 +196,10 @@ fn test_parse_package_retains_qualified_reference_origins() {
     };
 
     let return_type_origin = qualified_path_origin(&parsed, inner.0);
-    assert_eq!(return_type_origin.file.as_deref(), Some(expected_path.as_str()));
+    assert_eq!(
+        return_type_origin.file.as_deref(),
+        Some(expected_path.as_str())
+    );
     assert_eq!(return_type_origin.line, 2);
     assert_eq!(return_type_origin.column, 18);
 
@@ -227,11 +222,8 @@ fn test_parse_package_retains_plain_identifier_origins() {
     let temp_root = unique_temp_root("plain_identifier");
     fs::create_dir_all(&temp_root).expect("Should create temporary identifier-origin fixture dir");
     let fixture = temp_root.join("identifier_refs.fol");
-    fs::write(
-        &fixture,
-        "fun outer(): int = {\n    return missing;\n};\n",
-    )
-    .expect("Should write temporary identifier-origin fixture");
+    fs::write(&fixture, "fun outer(): int = {\n    return missing;\n};\n")
+        .expect("Should write temporary identifier-origin fixture");
 
     let parsed = parse_package_from_file(
         fixture
@@ -260,7 +252,10 @@ fn test_parse_package_retains_plain_identifier_origins() {
     };
 
     let identifier_origin = ast_node_origin(&parsed, identifier);
-    assert_eq!(identifier_origin.file.as_deref(), Some(expected_path.as_str()));
+    assert_eq!(
+        identifier_origin.file.as_deref(),
+        Some(expected_path.as_str())
+    );
     assert_eq!(identifier_origin.line, 2);
     assert_eq!(identifier_origin.column, 12);
 }
@@ -313,8 +308,11 @@ fn test_parse_package_retains_plain_named_type_origins() {
     let temp_root = unique_temp_root("plain_named_type");
     fs::create_dir_all(&temp_root).expect("Should create temporary type-origin fixture dir");
     let fixture = temp_root.join("type_refs.fol");
-    fs::write(&fixture, "fun outer(value: Missing): Missing = {\n    return value;\n};\n")
-        .expect("Should write temporary type-origin fixture");
+    fs::write(
+        &fixture,
+        "fun outer(value: Missing): Missing = {\n    return value;\n};\n",
+    )
+    .expect("Should write temporary type-origin fixture");
 
     let parsed = parse_package_from_file(
         fixture
@@ -339,7 +337,10 @@ fn test_parse_package_retains_plain_named_type_origins() {
     };
 
     let parameter_origin = fol_type_origin(&parsed, parameter_type);
-    assert_eq!(parameter_origin.file.as_deref(), Some(expected_path.as_str()));
+    assert_eq!(
+        parameter_origin.file.as_deref(),
+        Some(expected_path.as_str())
+    );
     assert_eq!(parameter_origin.line, 1);
     assert_eq!(parameter_origin.column, 18);
 

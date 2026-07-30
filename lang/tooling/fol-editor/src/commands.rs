@@ -1525,15 +1525,8 @@ mod tests {
             .expect("repo root should resolve")
     }
 
-    fn tree_bundle_test_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "fol_editor_tree_bundle_{label}_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ))
+    fn tree_bundle_test_root(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_editor_tree_bundle_{label}"))
     }
 
     fn seed_staged_parser_assets(staging: &Path) -> EditorResult<()> {
@@ -1552,16 +1545,8 @@ mod tests {
     /// package-less repo fixtures used for the other file commands cannot back
     /// a rename smoke test. Returns the entry document path and a position on a
     /// renameable routine usage.
-    fn rename_probe_package(label: &str) -> (PathBuf, LspPosition) {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_rename_probe_{}_{}_{}",
-            label,
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+    fn rename_probe_package(label: &str) -> (fol_testkit::TempFixture, LspPosition) {
+        let root = fol_testkit::TempFixture::new(&format!("fol_editor_rename_probe_{label}"));
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join(".git")).unwrap();
         std::fs::write(
@@ -1574,8 +1559,10 @@ mod tests {
             "fun[] helper(): int = {\n    return 7;\n};\n\nfun[] main(): int = {\n    return helper();\n};\n",
         )
         .unwrap();
+        // The entry document, still owning the package directory around it, so
+        // the tree survives for as long as the caller holds the fixture.
         (
-            root.join("src/main.fol"),
+            root.child("src/main.fol"),
             LspPosition {
                 line: 5,
                 character: 11,
@@ -1627,14 +1614,7 @@ mod tests {
     #[test]
     fn file_backed_editor_commands_report_path_and_shape() {
         let path = repo_root().join("test/apps/fixtures/record_flow/main.fol");
-        let format_root = std::env::temp_dir().join(format!(
-            "fol_editor_format_command_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let format_root = fol_testkit::TempFixture::new("fol_editor_format_command");
         std::fs::create_dir_all(&format_root).unwrap();
         let format_path = format_root.join("sample.fol");
         std::fs::write(&format_path, "fun[] main(): int = {\nreturn 0;\n};\n").unwrap();
@@ -1770,14 +1750,7 @@ mod tests {
     fn real_fixtures_keep_editor_command_summaries_stable() {
         let showcase = repo_root().join("test/apps/showcases/full_v1_showcase/app/main.fol");
         let package = repo_root().join("test/fixtures/logtiny/src/log.fol");
-        let format_root = std::env::temp_dir().join(format!(
-            "fol_editor_format_stable_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let format_root = fol_testkit::TempFixture::new("fol_editor_format_stable");
         std::fs::create_dir_all(&format_root).unwrap();
         let format_path = format_root.join("sample.fol");
         std::fs::write(&format_path, "fun[] main(): int = {\nreturn 0;\n};\n").unwrap();
@@ -2022,14 +1995,7 @@ mod tests {
 
     #[test]
     fn public_tree_commands_accept_compiler_comment_and_raw_quote_boundaries() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_tree_lexical_boundaries_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_tree_lexical_boundaries");
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("lexical.fol");
         std::fs::write(
@@ -2110,14 +2076,7 @@ mod tests {
 
     #[test]
     fn tree_generate_bundle_writes_editor_consumable_assets() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_tree_bundle_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_tree_bundle");
         let summary = editor_tree_generate_bundle(&root).unwrap();
 
         assert_eq!(summary.command, "tree generate");
@@ -2149,14 +2108,7 @@ mod tests {
 
     #[test]
     fn tree_generate_bundle_exports_every_registered_query_snapshot() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_tree_bundle_queries_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_tree_bundle_queries");
         editor_tree_generate_bundle(&root).unwrap();
 
         for snapshot in fol_tree_sitter_query_snapshots() {
@@ -2175,14 +2127,7 @@ mod tests {
 
     #[test]
     fn tree_generate_bundle_keeps_exported_assets_exactly_in_sync() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_tree_bundle_exact_assets_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_tree_bundle_exact_assets");
         editor_tree_generate_bundle(&root).unwrap();
 
         assert_eq!(
@@ -2222,14 +2167,7 @@ mod tests {
 
     #[test]
     fn tree_generate_bundle_stays_neovim_consumable() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_tree_bundle_nvim_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_tree_bundle_nvim");
         let summary = editor_tree_generate_bundle(&root).unwrap();
 
         assert!(root.join("src/parser.c").is_file());
@@ -2260,14 +2198,7 @@ mod tests {
 
     #[test]
     fn tree_generate_bundle_cleans_only_manifest_owned_files() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_tree_bundle_stale_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_tree_bundle_stale");
         let unmanaged_file = root.join("editor-notes.txt");
         let unmanaged_query = root.join("queries/fol/custom.scm");
         let retired_query = root.join("queries/fol/retired.scm");
@@ -2315,14 +2246,7 @@ mod tests {
 
     #[test]
     fn tree_generate_bundle_rejects_unsafe_manifest_paths() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_tree_bundle_unsafe_manifest_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_tree_bundle_unsafe_manifest");
         let outside = root.with_extension("outside");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(&outside, "keep this").unwrap();

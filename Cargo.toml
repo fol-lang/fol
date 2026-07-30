@@ -21,6 +21,7 @@ default-members = [
     "lang/tooling/fol-editor",
     "lang/tooling/fol-interop",
     "lang/tooling/fol-self",
+    "lang/tooling/fol-testkit",
 ]
 members = [
     "lang/compiler/fol-types",
@@ -40,6 +41,7 @@ members = [
     "lang/tooling/fol-editor",
     "lang/tooling/fol-interop",
     "lang/tooling/fol-self",
+    "lang/tooling/fol-testkit",
 ]
 
 [package]
@@ -71,4 +73,5 @@ fol-typecheck = { path = "lang/compiler/fol-typecheck" }
 fol-intrinsics = { path = "lang/compiler/fol-intrinsics" }
 fol-editor = { path = "lang/tooling/fol-editor" }
 fol-runtime = { path = "lang/execution/fol-runtime" }
+fol-testkit = { path = "lang/tooling/fol-testkit" }
 serde_json = "1"

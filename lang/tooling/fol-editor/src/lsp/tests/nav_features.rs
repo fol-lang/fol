@@ -8,7 +8,7 @@ use super::helpers::{hosted_sample_package_root, open_document, sample_package_r
 use crate::EditorConfig;
 use std::fs;
 
-fn open(name: &str, source: &str) -> (std::path::PathBuf, String, EditorLspServer) {
+fn open(name: &str, source: &str) -> (fol_testkit::TempFixture, String, EditorLspServer) {
     let (root, uri) = sample_package_root(name);
     fs::write(root.join("src/main.fol"), source).unwrap();
     let text = fs::read_to_string(root.join("src/main.fol")).unwrap();

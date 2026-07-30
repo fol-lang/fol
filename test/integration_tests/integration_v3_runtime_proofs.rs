@@ -28,7 +28,7 @@ fn strip_ansi(value: &str) -> String {
     stripped
 }
 
-fn write_hosted_app(name: &str, source: &str) -> std::path::PathBuf {
+fn write_hosted_app(name: &str, source: &str) -> crate::fixture::TempFixture {
     let root = unique_temp_root(name);
     std::fs::create_dir_all(root.join("src")).expect("V3 runtime proof src should exist");
     std::fs::write(

@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_use_quoted_names_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_use_quoted_names_{label}"))
 }
 
 #[test]
@@ -53,9 +43,12 @@ fn test_use_declaration_preserves_inner_opposite_quote_chars_in_names() {
     )
     .expect("Should write temp use-name fixture");
 
-    let mut file_stream =
-        FileStream::from_file(fixture.to_str().expect("Use-name fixture path should be UTF-8"))
-            .expect("Should read temp use-name fixture");
+    let mut file_stream = FileStream::from_file(
+        fixture
+            .to_str()
+            .expect("Use-name fixture path should be UTF-8"),
+    )
+    .expect("Should read temp use-name fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -102,9 +95,11 @@ fn test_use_declaration_accepts_multiple_quoted_names() {
             assert!(declarations
                 .iter()
                 .any(|node| use_decl_matches_path(node, "warn", "std/warn")));
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "trace", "std/trace")));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "trace",
+                "std/trace"
+            )));
         }
         _ => panic!("Expected program node"),
     }
@@ -148,9 +143,11 @@ fn test_use_declaration_accepts_multiple_single_quoted_names() {
             assert!(declarations
                 .iter()
                 .any(|node| use_decl_matches_path(node, "warn", "std/warn")));
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "trace", "std/trace")));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "trace",
+                "std/trace"
+            )));
         }
         _ => panic!("Expected program node"),
     }

@@ -10,23 +10,8 @@ use fol_resolver::resolve_package_workspace;
 use fol_stream::FileStream;
 use fol_typecheck::Typechecker;
 
-/// Return a temp directory whose leaf name is a valid FOL identifier.
-/// NixOS nix-shell creates temp dirs like `nix-shell.vlxfu8` that contain
-/// dots/dashes — invalid for FOL package name inference.
-pub(super) fn safe_temp_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join("fol_test");
-    std::fs::create_dir_all(&dir).expect("should create test temp root");
-    dir
-}
-
 pub(super) fn lower_folder_fixture_workspace(files: &[(&str, &str)]) -> crate::LoweredWorkspace {
-    let root = safe_temp_dir().join(format!(
-        "fol_lower_success_folder_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_lower_success_folder");
     std::fs::create_dir_all(&root).expect("should create lowering folder fixture root");
     for (path, source) in files {
         let full_path = root.join(path);
@@ -56,13 +41,8 @@ pub(super) fn lower_folder_fixture_workspace(files: &[(&str, &str)]) -> crate::L
 }
 
 pub(super) fn lower_fixture_workspace(source: &str) -> crate::LoweredWorkspace {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_success_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_success").with_file("fol_lower_success.fol");
     std::fs::write(&fixture, source).expect("should write lowering success fixture");
 
     let mut stream = FileStream::from_file(fixture.to_str().expect("utf8 temp path"))

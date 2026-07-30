@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_v2_generics_m1_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_v2_generics_m1_{label}"))
 }
 
 fn parse_script_package_from_inline(label: &str, source: &str) -> fol_parser::ast::ParsedPackage {
@@ -41,9 +31,12 @@ fn parse_script_package_errors_from_inline(
     let source_path = temp_root.join("main.fol");
     fs::write(&source_path, source).expect("Should write the temporary parser fixture");
 
-    let mut file_stream =
-        FileStream::from_file(source_path.to_str().expect("Temporary parser path should be utf-8"))
-            .expect("Should open temporary parser fixture");
+    let mut file_stream = FileStream::from_file(
+        source_path
+            .to_str()
+            .expect("Temporary parser path should be utf-8"),
+    )
+    .expect("Should open temporary parser fixture");
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
     let errors = parser
@@ -119,15 +112,15 @@ fn test_v2_m1_parser_accepts_generic_routine_headers_for_fun_pro_and_log() {
         .flat_map(|unit| unit.items.iter().map(|item| &item.node))
         .collect::<Vec<_>>();
 
-    assert!(declarations.iter().any(|node| {
-        matches!(node, AstNode::FunDecl { generics, .. } if generics.len() == 1)
-    }));
-    assert!(declarations.iter().any(|node| {
-        matches!(node, AstNode::ProDecl { generics, .. } if generics.len() == 1)
-    }));
-    assert!(declarations.iter().any(|node| {
-        matches!(node, AstNode::LogDecl { generics, .. } if generics.len() == 1)
-    }));
+    assert!(declarations
+        .iter()
+        .any(|node| { matches!(node, AstNode::FunDecl { generics, .. } if generics.len() == 1) }));
+    assert!(declarations
+        .iter()
+        .any(|node| { matches!(node, AstNode::ProDecl { generics, .. } if generics.len() == 1) }));
+    assert!(declarations
+        .iter()
+        .any(|node| { matches!(node, AstNode::LogDecl { generics, .. } if generics.len() == 1) }));
 }
 
 #[test]
@@ -168,10 +161,7 @@ fn test_v2_m1_parser_accepts_generic_routines_with_defaults_variadics_and_captur
     assert_eq!(params[1].name, "label");
     assert!(params[1].default.is_some());
     assert_eq!(params[2].name, "tail");
-    assert!(matches!(
-        params[2].param_type,
-        FolType::Sequence { .. }
-    ));
+    assert!(matches!(params[2].param_type, FolType::Sequence { .. }));
 }
 
 #[test]
@@ -299,7 +289,9 @@ fn test_v2_m1_parser_rejects_broken_generic_header_punctuation() {
 
     let first = errors.first().expect("parser should report a first error");
     assert!(
-        first.message.contains("Expected ',', ';', or ')' after generic parameter")
+        first
+            .message
+            .contains("Expected ',', ';', or ')' after generic parameter")
             || first.message.contains("Expected ')'"),
         "broken generic punctuation should fail explicitly, got: {}",
         first.message

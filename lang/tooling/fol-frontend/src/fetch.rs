@@ -797,28 +797,19 @@ mod tests {
         )
     }
 
-    fn temp_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "fol_frontend_fetch_{}_{}_{}",
-            label,
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ))
+    fn temp_root(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_frontend_fetch_{label}"))
     }
 
     #[test]
     fn package_preparation_reads_formal_workspace_members() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_prepare_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_prepare");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: Some(root.join("std")),
             package_store_root_override: Some(root.join(".fol/pkg")),
@@ -843,15 +834,12 @@ mod tests {
 
     #[test]
     fn package_preparation_rejects_members_without_formal_build_files() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_prepare_missing_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_prepare_missing");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app)],
             std_root_override: None,
             package_store_root_override: None,
@@ -871,13 +859,13 @@ mod tests {
 
     #[test]
     fn fetch_workspace_returns_a_command_result_for_prepared_members() {
-        let root = std::env::temp_dir().join(format!("fol_frontend_fetch_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_fetch");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: None,
@@ -924,7 +912,7 @@ mod tests {
         .unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: Some(root.join(".fol/pkg")),
@@ -987,14 +975,13 @@ mod tests {
 
     #[test]
     fn fetch_summary_prefers_configured_store_root_in_reported_artifacts() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_fetch_summary_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_fetch_summary");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: Some(root.join(".fol/ws-pkg")),
@@ -1047,7 +1034,7 @@ mod tests {
             .expect("should write app source");
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: Some(root.join(".fol/pkg")),

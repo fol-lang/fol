@@ -113,14 +113,7 @@ mod stream_tests {
 
     #[test]
     fn test_carriage_return_only_advances_column_and_line_feed_advances_row() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "fol_stream_crlf_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time should be after unix epoch")
-                .as_nanos()
-        ));
+        let temp_root = fol_testkit::TempFixture::new("fol_stream_crlf");
         std::fs::create_dir_all(&temp_root).expect("Should create CRLF test fixture root");
         let temp_path = temp_root.join("fixture.fol");
         std::fs::write(&temp_path, "a\r\nb").expect("Should write CRLF test file");
@@ -137,7 +130,10 @@ mod stream_tests {
             seen.push((ch, loc.row, loc.col));
         }
 
-        assert_eq!(seen, vec![('a', 1, 1), ('\r', 1, 2), ('\n', 1, 3), ('b', 2, 1)]);
+        assert_eq!(
+            seen,
+            vec![('a', 1, 1), ('\r', 1, 2), ('\n', 1, 3), ('b', 2, 1)]
+        );
 
         std::fs::remove_file(&temp_path).ok();
         std::fs::remove_dir_all(&temp_root).ok();
@@ -231,7 +227,11 @@ mod stream_tests {
         .expect("sources helper should return sources for a valid file entry")
         .collect::<Vec<_>>();
 
-        assert_eq!(sources.len(), 1, "Single-file helper should yield one source");
+        assert_eq!(
+            sources.len(),
+            1,
+            "Single-file helper should yield one source"
+        );
         assert!(
             sources[0].path.ends_with("test/stream/basic.fol"),
             "Helper should preserve the requested source path"
@@ -258,16 +258,21 @@ mod stream_tests {
             fol_stream::SourceType::Folder,
         )
         .expect("File path used as folder source should resolve through its parent directory");
-        let from_folder = fol_stream::Source::init("test/stream/fixture/main", fol_stream::SourceType::Folder)
-            .expect("Folder source should resolve normally");
+        let from_folder =
+            fol_stream::Source::init("test/stream/fixture/main", fol_stream::SourceType::Folder)
+                .expect("Folder source should resolve normally");
 
-        let file_as_folder_paths: Vec<_> = from_file_as_folder.iter().map(|source| &source.path).collect();
+        let file_as_folder_paths: Vec<_> = from_file_as_folder
+            .iter()
+            .map(|source| &source.path)
+            .collect();
         let folder_paths: Vec<_> = from_folder.iter().map(|source| &source.path).collect();
         let file_as_folder_namespaces: Vec<_> = from_file_as_folder
             .iter()
             .map(|source| &source.namespace)
             .collect();
-        let folder_namespaces: Vec<_> = from_folder.iter().map(|source| &source.namespace).collect();
+        let folder_namespaces: Vec<_> =
+            from_folder.iter().map(|source| &source.namespace).collect();
 
         assert_eq!(
             file_as_folder_paths, folder_paths,

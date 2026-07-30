@@ -18,6 +18,7 @@ fol-runtime = { path = "../fol-runtime" }
 fol-types = { path = "../../compiler/fol-types" }
 
 [dev-dependencies]
+fol-testkit = { path = "../../tooling/fol-testkit" }
 fol-lexer = { path = "../../compiler/fol-lexer" }
 fol-package = { path = "../../compiler/fol-package" }
 fol-stream = { path = "../../compiler/fol-stream" }

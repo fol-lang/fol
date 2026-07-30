@@ -1,5 +1,7 @@
 // Main test runner for FOL compiler components
 
+pub mod fixture;
+
 #[path = "v3_example_inventory.rs"]
 mod v3_example_inventory;
 
@@ -42,19 +44,9 @@ mod integration_tests {
     use serde_json::Value;
     use std::path::{Path, PathBuf};
     use std::process::Command;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn unique_temp_root(label: &str) -> std::path::PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System time should be after unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "fol_integration_{}_{}_{}",
-            label,
-            std::process::id(),
-            stamp
-        ))
+    fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+        crate::fixture::TempFixture::new(&format!("fol_integration_{label}"))
     }
 
     fn run_fol(args: &[&str]) -> std::process::Output {
@@ -214,10 +206,10 @@ mod integration_tests {
         ]
     }
 
-    fn build_fixture_root(name: &str) -> PathBuf {
+    fn build_fixture_root(name: &str) -> crate::fixture::TempFixture {
         let source = repo_root().join("test/app/build").join(name);
         let temp_root = unique_temp_root(&format!("build_fixture_{name}"));
-        let target = temp_root.join("workspace");
+        let target = temp_root.child("workspace");
         copy_dir_all(&source, &target);
         std::fs::remove_dir_all(target.join(".fol")).ok();
         target

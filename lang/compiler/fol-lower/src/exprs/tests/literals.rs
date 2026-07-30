@@ -576,13 +576,8 @@ fn diagnostic_intrinsic_lowering_emits_runtime_hooks_and_forwards_values() {
 fn parser_typecheck_and_lower_keep_same_canonical_intrinsic_identity() {
     use fol_parser::ast::CallSurface;
 
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_intrinsic_identity_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_intrinsic_identity")
+        .with_file("fol_lower_intrinsic_identity.fol");
     std::fs::write(
         &fixture,
         concat!("fun[] main(): bol = {\n", "    return .eq(1, 1);\n", "};\n",),
@@ -682,13 +677,8 @@ fn nil_literal_lowering_stays_deferred_to_shell_lowering() {
 
 #[test]
 fn identifier_lowering_loads_parameter_locals_and_top_level_globals() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_identifier_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_identifier_exprs")
+        .with_file("fol_lower_identifier_exprs.fol");
     std::fs::write(
         &fixture,
         "var count: int = 1;\nfun[] main(value: int): non = { };",

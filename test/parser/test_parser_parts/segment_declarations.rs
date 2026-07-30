@@ -1,19 +1,9 @@
 use super::*;
 use fol_parser::ast::DeclOption;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_segment_decl_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_segment_decl_{label}"))
 }
 
 #[test]
@@ -81,7 +71,6 @@ fn test_segment_declaration_rejects_non_module_types() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -155,9 +144,12 @@ fn test_segment_declaration_preserves_inner_opposite_quote_chars() {
     )
     .expect("Should write temp segment fixture");
 
-    let mut file_stream =
-        FileStream::from_file(fixture.to_str().expect("Segment fixture path should be UTF-8"))
-            .expect("Should read temp segment fixture");
+    let mut file_stream = FileStream::from_file(
+        fixture
+            .to_str()
+            .expect("Segment fixture path should be UTF-8"),
+    )
+    .expect("Should read temp segment fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -274,7 +266,6 @@ fn test_segment_declaration_rejects_non_empty_option_brackets() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let message = parse_error.message.clone();

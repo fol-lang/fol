@@ -125,6 +125,7 @@ dependencies = [
  "fol-resolver",
  "fol-runtime",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "fol-types",
  "serde_json",
@@ -142,6 +143,7 @@ dependencies = [
  "fol-resolver",
  "fol-runtime",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "fol-types",
 ]
@@ -154,6 +156,7 @@ dependencies = [
  "fol-lexer",
  "fol-parser",
  "fol-stream",
+ "fol-testkit",
  "fol-types",
 ]
 
@@ -177,6 +180,7 @@ dependencies = [
  "fol-parser",
  "fol-resolver",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "fol-types",
  "serde",
@@ -199,6 +203,7 @@ dependencies = [
  "fol-parser",
  "fol-resolver",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "fol-types",
  "serde_json",
@@ -209,6 +214,7 @@ name = "fol-interop"
 version = "0.2.5"
 dependencies = [
  "fol-build",
+ "fol-testkit",
  "fol-types",
  "follang-gerc",
  "follang-linc",
@@ -238,6 +244,7 @@ dependencies = [
  "fol-parser",
  "fol-resolver",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "stacker",
 ]
@@ -251,6 +258,7 @@ dependencies = [
  "fol-lexer",
  "fol-parser",
  "fol-stream",
+ "fol-testkit",
 ]
 
 [[package]]
@@ -260,6 +268,7 @@ dependencies = [
  "fol-diagnostics",
  "fol-lexer",
  "fol-stream",
+ "fol-testkit",
  "fol-types",
  "stacker",
 ]
@@ -274,6 +283,7 @@ dependencies = [
  "fol-package",
  "fol-parser",
  "fol-stream",
+ "fol-testkit",
  "fol-types",
  "stacker",
 ]
@@ -285,9 +295,19 @@ version = "0.2.5"
 [[package]]
 name = "fol-self"
 version = "0.2.5"
+dependencies = [
+ "fol-testkit",
+]
 
 [[package]]
 name = "fol-stream"
+version = "0.2.5"
+dependencies = [
+ "fol-testkit",
+]
+
+[[package]]
+name = "fol-testkit"
 version = "0.2.5"
 
 [[package]]
@@ -300,6 +320,7 @@ dependencies = [
  "fol-parser",
  "fol-resolver",
  "fol-stream",
+ "fol-testkit",
  "stacker",
 ]
 

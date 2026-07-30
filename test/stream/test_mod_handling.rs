@@ -49,7 +49,8 @@ mod mod_handling_tests {
     fn test_folder_traversal_order_is_deterministic() {
         let sources = Source::init("test/stream/fixture/main", SourceType::Folder)
             .expect("Should process test/stream/fixture/main directory");
-        let root = std::fs::canonicalize("test/stream/fixture/main").expect("Should resolve test root");
+        let root =
+            std::fs::canonicalize("test/stream/fixture/main").expect("Should resolve test root");
 
         let relative_paths: Vec<String> = sources
             .iter()
@@ -81,24 +82,23 @@ mod mod_handling_tests {
 
     #[test]
     fn test_dot_mod_directories_are_skipped_without_hiding_normal_directories() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "fol_stream_mod_suffix_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time should be after unix epoch")
-                .as_nanos()
-        ));
+        let temp_root = fol_testkit::TempFixture::new("fol_stream_mod_suffix");
 
         fs::create_dir_all(temp_root.join("alpha.mod/hidden"))
             .expect("Should create skipped .mod directory");
         fs::create_dir_all(temp_root.join("alpha_mod/visible"))
             .expect("Should create retained normal directory");
         fs::write(temp_root.join("root.fol"), "var root = 1").expect("Should write root source");
-        fs::write(temp_root.join("alpha.mod/hidden/value.fol"), "var hidden = 2")
-            .expect("Should write skipped .mod source");
-        fs::write(temp_root.join("alpha_mod/visible/value.fol"), "var visible = 3")
-            .expect("Should write retained normal-directory source");
+        fs::write(
+            temp_root.join("alpha.mod/hidden/value.fol"),
+            "var hidden = 2",
+        )
+        .expect("Should write skipped .mod source");
+        fs::write(
+            temp_root.join("alpha_mod/visible/value.fol"),
+            "var visible = 3",
+        )
+        .expect("Should write retained normal-directory source");
 
         let sources = Source::init(
             temp_root
@@ -109,7 +109,9 @@ mod mod_handling_tests {
         .expect("Should discover sources while applying exact .mod suffix filtering");
 
         assert!(
-            sources.iter().all(|source| !source.path.contains("alpha.mod/")),
+            sources
+                .iter()
+                .all(|source| !source.path.contains("alpha.mod/")),
             "Directories ending with '.mod' should still be skipped"
         );
         assert!(
@@ -158,14 +160,7 @@ mod mod_handling_tests {
 
     #[test]
     fn test_multi_file_stream_keeps_draining_after_backing_files_are_removed() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "fol_stream_eager_loading_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time should be after unix epoch")
-                .as_nanos()
-        ));
+        let temp_root = fol_testkit::TempFixture::new("fol_stream_eager_loading");
         fs::create_dir_all(temp_root.join("nested/deeper"))
             .expect("Should create nested temp folders");
 
@@ -226,8 +221,8 @@ mod mod_handling_tests {
     #[test]
     fn test_multi_source_character_streaming() {
         // Test that character streaming works across multiple sources
-        let mut stream =
-            FileStream::from_folder("test/stream/fixture/main").expect("Should create multi-source stream");
+        let mut stream = FileStream::from_folder("test/stream/fixture/main")
+            .expect("Should create multi-source stream");
 
         let mut char_count = 0;
         let mut file_switches = 0;
@@ -250,7 +245,6 @@ mod mod_handling_tests {
             // Verify location tracking
             assert!(loc.row >= 1, "Row should be at least 1");
             assert!(loc.col >= 1, "Column should be at least 1");
-
         }
 
         assert!(char_count > 100, "Should stream substantial content");
@@ -267,14 +261,7 @@ mod mod_handling_tests {
     fn test_folder_traversal_propagates_recursive_directory_read_failures() {
         use std::os::unix::fs::PermissionsExt;
 
-        let temp_root = std::env::temp_dir().join(format!(
-            "fol_stream_recursive_read_error_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time should be after unix epoch")
-                .as_nanos()
-        ));
+        let temp_root = fol_testkit::TempFixture::new("fol_stream_recursive_read_error");
         let blocked_dir = temp_root.join("blocked");
         let root_file = temp_root.join("main.fol");
 
@@ -387,8 +374,8 @@ mod mod_handling_tests {
     #[test]
     fn test_sophisticated_stream_features() {
         // Test advanced features of the sophisticated stream implementation
-        let stream =
-            FileStream::from_folder("test/stream/fixture/main").expect("Should create sophisticated stream");
+        let stream = FileStream::from_folder("test/stream/fixture/main")
+            .expect("Should create sophisticated stream");
 
         // Test current_source method
         let current = stream.current_source();

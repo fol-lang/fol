@@ -287,13 +287,6 @@ mod tests {
     use fol_resolver::resolve_package_workspace;
     use fol_stream::FileStream;
     use fol_typecheck::Typechecker;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn safe_temp_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join("fol_test");
-        std::fs::create_dir_all(&dir).expect("should create test temp root");
-        dir
-    }
 
     #[test]
     fn lowered_workspace_snapshot_is_stable_and_human_readable() {
@@ -332,13 +325,8 @@ mod tests {
 
     #[test]
     fn rendered_workspace_makes_intrinsic_names_and_roles_explicit() {
-        let fixture = safe_temp_dir().join(format!(
-            "fol_lower_render_intrinsics_{}.fol",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock should advance for temp names")
-                .as_nanos()
-        ));
+        let fixture = fol_testkit::TempFixture::new("fol_lower_render_intrinsics")
+            .with_file("fol_lower_render_intrinsics.fol");
         std::fs::write(
             &fixture,
             concat!(

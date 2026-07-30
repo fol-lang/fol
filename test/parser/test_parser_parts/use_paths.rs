@@ -1,19 +1,9 @@
 use super::*;
 use fol_parser::ast::UsePathSeparator;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_use_paths_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_use_paths_{label}"))
 }
 
 fn use_decl_path_segments<'a>(
@@ -62,9 +52,8 @@ fn parse_use_path_fixture_error(source: &str) -> fol_diagnostics::Diagnostic {
 
 #[test]
 fn test_use_declaration_accepts_braced_quoted_paths() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_use_direct_quoted_path.fol")
-            .expect("Should read direct quoted use-path fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_use_direct_quoted_path.fol")
+        .expect("Should read direct quoted use-path fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -99,9 +88,11 @@ fn test_use_declaration_accepts_multiple_braced_quoted_paths() {
             assert!(declarations
                 .iter()
                 .any(|node| use_decl_matches_path(node, "warn", "std/warn")));
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "trace", "std/trace")));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "trace",
+                "std/trace"
+            )));
         }
         _ => panic!("Expected program node"),
     }
@@ -109,9 +100,8 @@ fn test_use_declaration_accepts_multiple_braced_quoted_paths() {
 
 #[test]
 fn test_use_declaration_accepts_braced_quoted_paths_for_non_provider_types() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_use_direct_bare_path.fol")
-            .expect("Should read quoted non-provider use-path fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_use_direct_bare_path.fol")
+        .expect("Should read quoted non-provider use-path fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -121,9 +111,11 @@ fn test_use_declaration_accepts_braced_quoted_paths_for_non_provider_types() {
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "file", "std::fs::File")));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "file",
+                "std::fs::File"
+            )));
             assert_eq!(
                 use_decl_path_segments(&declarations, "file"),
                 &[
@@ -161,9 +153,11 @@ fn test_use_declaration_accepts_multiple_braced_quoted_paths_for_non_provider_ty
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "file", "std::fs::File")));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "file",
+                "std::fs::File"
+            )));
             assert!(declarations
                 .iter()
                 .any(|node| use_decl_matches_path(node, "warn", "fmt::log")));
@@ -200,12 +194,16 @@ fn test_use_declaration_braced_quoted_paths_preserve_inner_opposite_quotes() {
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "warn", "std/'warn'")));
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "trace", "std/\"trace\"")));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "warn",
+                "std/'warn'"
+            )));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "trace",
+                "std/\"trace\""
+            )));
             assert_eq!(
                 use_decl_path_segments(&declarations, "warn"),
                 &[
@@ -267,12 +265,16 @@ fn test_use_declaration_braced_paths_preserve_inner_opposite_quotes() {
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "warn", "std/'warn'")));
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "trace", "std/\"trace\"")));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "warn",
+                "std/'warn'"
+            )));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "trace",
+                "std/\"trace\""
+            )));
         }
         _ => panic!("Expected program node"),
     }
@@ -303,9 +305,11 @@ fn test_use_declaration_preserves_mixed_separator_path_structure() {
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations
-                .iter()
-                .any(|node| use_decl_matches_path(node, "warn", "std::log/warn")));
+            assert!(declarations.iter().any(|node| use_decl_matches_path(
+                node,
+                "warn",
+                "std::log/warn"
+            )));
             assert_eq!(
                 use_decl_path_segments(&declarations, "warn"),
                 &[

@@ -283,14 +283,7 @@ mod tests {
     use fol_types::canonical_identifier_key;
 
     fn parse_string(input: &str) -> Result<crate::ParsedPackage, Vec<Diagnostic>> {
-        let dir = std::env::temp_dir().join(format!(
-            "fol_parser_recovery_test_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir = fol_testkit::TempFixture::new("fol_parser_recovery_test");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("test.fol"), input).unwrap();
         let mut stream =

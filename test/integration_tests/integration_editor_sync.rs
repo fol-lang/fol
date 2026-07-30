@@ -22,10 +22,10 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) {
     }
 }
 
-fn copied_example_root(example_path: &str) -> std::path::PathBuf {
+fn copied_example_root(example_path: &str) -> crate::fixture::TempFixture {
     let source = repo_root().join(example_path);
     let temp_root = unique_temp_root(&format!("editor_sync_{}", example_path.replace('/', "_")));
-    let target = temp_root.join("workspace");
+    let target = temp_root.child("workspace");
     copy_dir_all(&source, &target);
     std::fs::create_dir_all(target.join(".git"))
         .expect("copied editor example workspace marker should be creatable");
@@ -35,7 +35,7 @@ fn copied_example_root(example_path: &str) -> std::path::PathBuf {
 fn open_example_server(
     example_path: &str,
     source: &str,
-) -> (std::path::PathBuf, String, EditorLspServer) {
+) -> (crate::fixture::TempFixture, String, EditorLspServer) {
     let root = copied_example_root(example_path);
     let source_path = root.join("src/main.fol");
     std::fs::write(&source_path, source).expect("should write example source");
