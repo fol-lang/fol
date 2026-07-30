@@ -46,8 +46,24 @@ jobs:
         with:
           workspaces: fol
 
+      # Same build the nix dev shell pins in flake.nix, verified by checksum
+      # rather than rebuilt from source: fol-editor regenerates the grammar
+      # with this CLI and asserts against the bytes it emits, so the version
+      # is exact and the download must be the exact artifact it claims to be.
       - name: Install tree-sitter CLI
-        run: cargo install tree-sitter-cli --version 0.26.8 --locked
+        run: |
+          set -euo pipefail
+          version=0.26.8
+          digest=9754a32800f0b970152782df177b4a47c711e34e651a7aceb384d8bd29fa136e
+          curl -fL --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 300 --retry 2 \
+            -o tree-sitter.gz \
+            "https://github.com/tree-sitter/tree-sitter/releases/download/v$version/tree-sitter-linux-x64.gz"
+          echo "$digest  tree-sitter.gz" | sha256sum --check --strict -
+          mkdir -p "$HOME/.cargo/bin"
+          gzip -dc tree-sitter.gz > "$HOME/.cargo/bin/tree-sitter"
+          chmod +x "$HOME/.cargo/bin/tree-sitter"
+          rm tree-sitter.gz
+          tree-sitter --version
 
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install --yes binutils build-essential

@@ -147,6 +147,48 @@ fn test_release_workflow_ships_fetchable_toolchain_artifacts() {
 }
 
 #[test]
+fn test_tree_sitter_pin_is_the_same_in_ci_the_dev_shell_and_the_editor_guard() {
+    fn quoted_value_after<'a>(haystack: &'a str, marker: &str) -> &'a str {
+        let tail = haystack
+            .split(marker)
+            .nth(1)
+            .unwrap_or_else(|| panic!("'{marker}' should appear exactly once"));
+        let start = tail.find('"').expect("a quoted value should follow") + 1;
+        let rest = &tail[start..];
+        &rest[..rest.find('"').expect("the quote should close")]
+    }
+
+    let flake = std::fs::read_to_string(repo_root().join("flake.nix")).expect("flake.nix");
+    let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/tests.yml"))
+        .expect("tests workflow should exist");
+    let guard =
+        std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/commands.rs"))
+            .expect("editor commands should exist");
+
+    // The editor regenerates the grammar with this CLI and then asserts on the
+    // bytes it emits, so a shell that hands over a different series fails ~33
+    // tests for reasons that look nothing like a version mismatch. Keep the
+    // three places that install or demand it from drifting apart.
+    let required_series = quoted_value_after(&guard, "REQUIRED_TREE_SITTER_VERSION: &str =");
+    let pinned = quoted_value_after(&flake, "treeSitterVersion =");
+    assert!(
+        pinned.starts_with(&format!("{required_series}.")),
+        "the dev shell pins tree-sitter {pinned}, but the editor requires {required_series}.x"
+    );
+    assert!(
+        workflow.contains(&format!("version={pinned}")),
+        "CI should install the same tree-sitter {pinned} the dev shell pins"
+    );
+
+    // A pinned version that is fetched without verification is a pin in name
+    // only; the release chain runs this workflow.
+    assert!(
+        workflow.contains("sha256sum --check --strict"),
+        "the CI tree-sitter download should be checksum-verified"
+    );
+}
+
+#[test]
 fn test_ci_verifies_the_default_branch_and_keeps_network_tests_out_of_the_gate() {
     let tests_workflow = std::fs::read_to_string(repo_root().join(".github/workflows/tests.yml"))
         .expect("tests workflow should exist");
