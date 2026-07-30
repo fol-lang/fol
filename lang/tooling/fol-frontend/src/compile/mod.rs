@@ -141,12 +141,9 @@ fn evaluate_package_build(
     // inputs, so an edit or a different configuration can never be served a
     // stale result.
     let cache_key = format!("{}\u{1}{:?}\u{1}{source}", build_path.display(), inputs);
-    if let Some(cached) = BUILD_EVALUATION_CACHE.with(|cache| {
-        cache
-            .borrow()
-            .get(&cache_key)
-            .cloned()
-    }) {
+    if let Some(cached) =
+        BUILD_EVALUATION_CACHE.with(|cache| cache.borrow().get(&cache_key).cloned())
+    {
         return Ok(cached);
     }
 
