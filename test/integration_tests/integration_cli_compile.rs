@@ -2914,6 +2914,70 @@ fn test_code_run_forwards_program_output() {
 }
 
 #[test]
+fn test_direct_route_matches_the_workspace_route_on_output_and_std() {
+    use std::fs;
+
+    // The single-file route used to be a second-class citizen: it captured the
+    // program's stdout and threw it away, and it consulted only CLI flags for
+    // roots, so `use std: pkg` could not resolve at all.
+    let temp_root = unique_temp_root("direct_route_parity");
+    fs::create_dir_all(&temp_root).expect("Should create direct-route fixture dir");
+    fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"direct_route_parity\", version = \"0.1.0\" });\n",
+                "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"direct_route_parity\", root = \"main.fol\", fol_model = \"memo\" });\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write direct-route build file");
+    fs::write(
+        temp_root.join("main.fol"),
+        concat!(
+            "use std: pkg = {\"std\"};\n",
+            "\n",
+            "fun[] main(): int = {\n",
+            "    var shown: int = std::io::echo_int(424242);\n",
+            "    return 0;\n",
+            "};\n",
+        ),
+    )
+    .expect("Should write direct-route source");
+
+    // A `pkg` import must resolve on the direct route exactly as it does for
+    // the workspace route, with no explicit --package-store-root.
+    let direct_check = run_fol_in_dir(&temp_root, &["code", "check", "main.fol"]);
+    assert!(
+        direct_check.status.success(),
+        "direct check should resolve std like the workspace route: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&direct_check.stdout),
+        String::from_utf8_lossy(&direct_check.stderr)
+    );
+
+    let direct_run = run_fol_in_dir(&temp_root, &["code", "run", "main.fol"]);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&direct_run.stdout),
+        String::from_utf8_lossy(&direct_run.stderr)
+    );
+    assert!(
+        direct_run.status.success(),
+        "direct run should succeed: {combined}"
+    );
+    assert!(
+        combined.contains("424242"),
+        "the direct route must forward the program's own output, not swallow it: {combined}"
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
 fn test_check_validates_artifact_roots_and_workspace_members() {
     use std::fs;
 

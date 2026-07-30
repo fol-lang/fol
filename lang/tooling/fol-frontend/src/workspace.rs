@@ -127,31 +127,27 @@ pub fn load_frontend_workspace(
         DiscoveredRoot::Workspace(root) => {
             let workspace_config = load_workspace_config(root)?;
             let mut workspace = FrontendWorkspace::from_config(root.clone(), &workspace_config)?;
-            if workspace.std_root_override.is_none() {
-                workspace.std_root_override = config.std_root_override.clone();
+            // This is the one place explicit roots (a CLI flag or a FOL_* env
+            // var) are merged with what the workspace file declares, and the
+            // explicit value wins. Every other site reads the merged workspace,
+            // so one rule decides precedence everywhere.
+            if let Some(std_root) = &config.std_root_override {
+                workspace.std_root_override = Some(std_root.clone());
             }
-            if workspace.package_store_root_override.is_none() {
-                workspace.package_store_root_override = config.package_store_root_override.clone();
+            if let Some(package_store_root) = &config.package_store_root_override {
+                workspace.package_store_root_override = Some(package_store_root.clone());
             }
-            if workspace.build_root == default_build_root(&root.root) {
-                if let Some(build_root) = &config.build_root_override {
-                    workspace.build_root = build_root.clone();
-                }
+            if let Some(build_root) = &config.build_root_override {
+                workspace.build_root = build_root.clone();
             }
-            if workspace.cache_root == default_cache_root(&root.root) {
-                if let Some(cache_root) = &config.cache_root_override {
-                    workspace.cache_root = cache_root.clone();
-                }
+            if let Some(cache_root) = &config.cache_root_override {
+                workspace.cache_root = cache_root.clone();
             }
-            if workspace.git_cache_root == default_git_cache_root(&root.root) {
-                if let Some(git_cache_root) = &config.git_cache_root_override {
-                    workspace.git_cache_root = git_cache_root.clone();
-                }
+            if let Some(git_cache_root) = &config.git_cache_root_override {
+                workspace.git_cache_root = git_cache_root.clone();
             }
-            if workspace.install_prefix == default_install_prefix(&root.root) {
-                if let Some(install_prefix) = &config.install_prefix_override {
-                    workspace.install_prefix = install_prefix.clone();
-                }
+            if let Some(install_prefix) = &config.install_prefix_override {
+                workspace.install_prefix = install_prefix.clone();
             }
             Ok(workspace)
         }
@@ -642,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn loading_workspace_prefers_workspace_config_roots_over_frontend_env_roots() {
+    fn explicit_root_overrides_win_over_workspace_config_roots() {
         let root = std::env::temp_dir().join(format!(
             "fol_frontend_workspace_precedence_{}",
             std::process::id()
@@ -673,14 +669,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(workspace.std_root_override, Some(root.join("std")));
+        // A CLI flag or FOL_* env var is a deliberate, per-invocation choice,
+        // so it outranks what the workspace file declares. One rule, applied to
+        // every root, in one place.
+        assert_eq!(workspace.std_root_override, Some(root.join("env-std")));
         assert_eq!(
             workspace.package_store_root_override,
-            Some(root.join(".fol/pkg"))
+            Some(root.join("env-pkg"))
         );
-        assert_eq!(workspace.build_root, root.join(".ws/build"));
-        assert_eq!(workspace.cache_root, root.join(".ws/cache"));
-        assert_eq!(workspace.git_cache_root, root.join(".ws/git-cache"));
+        assert_eq!(workspace.build_root, root.join("env-build"));
+        assert_eq!(workspace.cache_root, root.join("env-cache"));
+        assert_eq!(workspace.git_cache_root, root.join("env-git-cache"));
 
         fs::remove_dir_all(root).ok();
     }

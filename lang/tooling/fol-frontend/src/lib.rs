@@ -20,7 +20,9 @@ mod fetch;
 mod interop;
 mod output;
 mod pretty;
+mod process;
 mod result;
+mod roots;
 mod scaffold;
 #[cfg(test)]
 mod test_env;

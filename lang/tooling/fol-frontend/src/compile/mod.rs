@@ -5,21 +5,7 @@ use crate::{
 use fol_build::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
 use std::{fs, path::Path};
 
-/// Write an executed program's captured stdout/stderr through to the
-/// frontend's own streams so `run` stays transparent to child output.
-fn forward_child_output(stdout: &[u8], stderr: &[u8]) {
-    use std::io::Write;
-    if !stdout.is_empty() {
-        let mut out = std::io::stdout();
-        let _ = out.write_all(stdout);
-        let _ = out.flush();
-    }
-    if !stderr.is_empty() {
-        let mut err = std::io::stderr();
-        let _ = err.write_all(stderr);
-        let _ = err.flush();
-    }
-}
+use crate::process::forward_child_output;
 
 #[cfg(test)]
 mod tests;
@@ -1343,18 +1329,8 @@ fn validate_build_dependency_queries(
 
     let metadata =
         fol_package::parse_package_metadata_from_build(&build_path).map_err(FrontendError::from)?;
-    let local_store = workspace.root.root.join(".fol").join("pkg");
-    let package_store_root = config
-        .package_store_root_override
-        .clone()
-        .or_else(|| workspace.package_store_root_override.clone())
-        .or_else(|| local_store.is_dir().then_some(local_store.clone()))
-        .or_else(fol_package::available_bundled_store_root)
-        .unwrap_or(local_store);
-    let std_root = workspace
-        .std_root_override
-        .clone()
-        .or_else(fol_package::available_bundled_std_root);
+    let package_store_root = crate::roots::store_read_root(config, workspace);
+    let std_root = crate::roots::std_root(config, workspace);
 
     for query in &evaluated.evaluated.dependency_queries {
         let metadata_dependency = metadata
@@ -1565,26 +1541,7 @@ fn resolver_config(
     workspace: &FrontendWorkspace,
     config: &FrontendConfig,
 ) -> fol_resolver::ResolverConfig {
-    // A fetched local store wins; otherwise fall back to the store bundled
-    // with the toolchain so `use std: pkg = {"std"}` works out of the box.
-    let local_store = workspace.root.root.join(".fol/pkg");
-    let package_store_root = config
-        .package_store_root_override
-        .clone()
-        .or_else(|| workspace.package_store_root_override.clone())
-        .or_else(|| local_store.is_dir().then_some(local_store.clone()))
-        .or_else(fol_package::available_bundled_store_root)
-        .unwrap_or(local_store);
-
-    fol_resolver::ResolverConfig {
-        std_root: config
-            .std_root_override
-            .clone()
-            .or_else(|| workspace.std_root_override.clone())
-            .or_else(fol_package::available_bundled_std_root)
-            .map(|path| path.to_string_lossy().to_string()),
-        package_store_root: Some(package_store_root.to_string_lossy().to_string()),
-    }
+    crate::roots::workspace_resolver_config(config, workspace)
 }
 
 pub(crate) fn typecheck_capability_model(

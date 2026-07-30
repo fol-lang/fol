@@ -309,7 +309,7 @@ fn plan_member_execution_from_build_source(
 
 fn validate_dependency_queries_for_member(
     workspace: &FrontendWorkspace,
-    config: &crate::FrontendConfig,
+    _config: &crate::FrontendConfig,
     member: &FrontendMemberBuildRoute,
     evaluated: &fol_package::build_eval::EvaluatedBuildSource,
 ) -> FrontendResult<()> {
@@ -320,15 +320,8 @@ fn validate_dependency_queries_for_member(
     let metadata =
         fol_package::parse_package_metadata_from_build(&member.member_root.join("build.fol"))
             .map_err(FrontendError::from)?;
-    let package_store_root = config
-        .package_store_root_override
-        .clone()
-        .or_else(|| workspace.package_store_root_override.clone())
-        .unwrap_or_else(|| workspace.root.root.join(".fol").join("pkg"));
-    let std_root = workspace
-        .std_root_override
-        .clone()
-        .or_else(fol_package::available_bundled_std_root);
+    let package_store_root = crate::roots::store_read_root(_config, workspace);
+    let std_root = crate::roots::std_root(_config, workspace);
 
     for query in &evaluated.evaluated.dependency_queries {
         let metadata_dependency = metadata

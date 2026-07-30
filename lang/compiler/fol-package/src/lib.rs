@@ -126,8 +126,11 @@ pub use build_step::{
     BuildStepReport,
 };
 pub use config::{
-    available_bundled_std_root, available_bundled_store_root, bundled_std_root, effective_std_root,
-    PackageConfig,
+    available_bundled_std_root, available_bundled_store_root, bundled_std_root,
+    effective_package_store_root, effective_std_root, effective_std_root_path, home_root,
+    home_store_root, package_store_root_chain, package_store_write_root, project_store_root,
+    toolchain_sibling_root, PackageConfig, StdRootLayers, StoreRootLayers, PROJECT_DOT_DIR,
+    STORE_DIR_NAME,
 };
 pub use errors::{PackageError, PackageErrorKind};
 pub use fol_parser::ast::ParsedSourceUnitKind;

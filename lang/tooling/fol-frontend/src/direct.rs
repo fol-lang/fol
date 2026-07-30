@@ -94,10 +94,7 @@ pub fn run_direct_compile(
     let mut diagnostics = DiagnosticReport::new();
     let lowered = match compile_file(
         &config.input,
-        &ResolverConfig {
-            std_root: config.std_root.clone(),
-            package_store_root: config.package_store_root.clone(),
-        },
+        &crate::roots::direct_resolver_config(frontend_config, Path::new(&config.input)),
         fol_model,
         &mut diagnostics,
     ) {
@@ -340,25 +337,7 @@ pub fn run_direct_compile(
                         binary_path,
                     },
                 ) => {
-                    let output = std::process::Command::new(&binary_path)
-                        .args(args)
-                        .output()
-                        .map_err(|error| {
-                            FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string())
-                        })?;
-                    if !output.status.success() {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        if !stderr.is_empty() {
-                            eprint!("{stderr}");
-                        }
-                        return Err(FrontendError::new(
-                            FrontendErrorKind::CommandFailed,
-                            format!(
-                                "run command failed for '{}': status {}",
-                                binary_path, output.status
-                            ),
-                        ));
-                    }
+                    crate::process::run_child_transparently(Path::new(&binary_path), args)?;
                     let mut result =
                         FrontendCommandResult::new("run", format!("ran {}", binary_path));
                     result.artifacts.push(FrontendArtifactSummary::new(
@@ -387,10 +366,7 @@ pub fn run_direct_compile_with_io(
     frontend_config: &FrontendConfig,
     stdout: &mut impl std::io::Write,
 ) -> i32 {
-    let resolver_config = ResolverConfig {
-        std_root: config.std_root.clone(),
-        package_store_root: config.package_store_root.clone(),
-    };
+    let resolver_config = crate::roots::direct_resolver_config(frontend_config, Path::new(&config.input));
     let mut diagnostics = DiagnosticReport::new();
     let machine_target = match resolved_backend_target(frontend_config).and_then(|target| {
         if matches!(config.mode, DirectCompileMode::Run { .. }) {

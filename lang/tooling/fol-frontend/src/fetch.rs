@@ -47,15 +47,14 @@ struct LockRevisionChange {
     next_revision: String,
 }
 
+/// Where fetched packages are materialized. This is the *write* root: it never
+/// resolves to the shared home store or to the toolchain's bundled store, so a
+/// fetch cannot mutate either.
 pub fn select_package_store_root(
     config: &FrontendConfig,
     workspace: &FrontendWorkspace,
 ) -> PathBuf {
-    config
-        .package_store_root_override
-        .clone()
-        .or_else(|| workspace.package_store_root_override.clone())
-        .unwrap_or_else(|| workspace.root.root.join(".fol").join("pkg"))
+    crate::roots::package_store_write_root(config, workspace)
 }
 
 fn select_git_store_root(config: &FrontendConfig, workspace: &FrontendWorkspace) -> PathBuf {
@@ -176,11 +175,7 @@ pub fn prepare_workspace_packages(
     workspace: &FrontendWorkspace,
 ) -> FrontendResult<FrontendPackagePreparation> {
     let package_config = fol_package::PackageConfig {
-        std_root: workspace
-            .std_root_override
-            .as_ref()
-            .cloned()
-            .or_else(fol_package::available_bundled_std_root)
+        std_root: crate::roots::std_root(&FrontendConfig::default(), workspace)
             .as_ref()
             .map(|path| path.to_string_lossy().to_string()),
         package_store_root: workspace
@@ -530,10 +525,7 @@ fn resolve_workspace_fetch(
                             ),
                         ));
                     }
-                    let std_root = workspace
-                        .std_root_override
-                        .clone()
-                        .or_else(fol_package::available_bundled_std_root)
+                    let std_root = crate::roots::std_root(&FrontendConfig::default(), workspace)
                         .ok_or_else(|| {
                             FrontendError::new(
                                 crate::FrontendErrorKind::InvalidInput,
