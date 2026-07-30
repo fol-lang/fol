@@ -366,7 +366,8 @@ pub fn run_direct_compile_with_io(
     frontend_config: &FrontendConfig,
     stdout: &mut impl std::io::Write,
 ) -> i32 {
-    let resolver_config = crate::roots::direct_resolver_config(frontend_config, Path::new(&config.input));
+    let resolver_config =
+        crate::roots::direct_resolver_config(frontend_config, Path::new(&config.input));
     let mut diagnostics = DiagnosticReport::new();
     let machine_target = match resolved_backend_target(frontend_config).and_then(|target| {
         if matches!(config.mode, DirectCompileMode::Run { .. }) {

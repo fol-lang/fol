@@ -529,9 +529,8 @@ fn lsp_server_surfaces_current_generic_m1_boundaries_only() {
         "editor path should not surface the removed generic-type boundary, got: {messages:?}"
     );
     assert!(
-        messages.iter().any(|message| message.contains(
-            "generic routine 'pick' cannot be used as a plain routine value"
-        )),
+        messages.iter().any(|message| message
+            .contains("generic routine 'pick' cannot be used as a plain routine value")),
         "editor path should surface the generic-routine value boundary, got: {messages:?}"
     );
     assert!(

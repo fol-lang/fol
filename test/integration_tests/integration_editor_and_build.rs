@@ -5563,7 +5563,10 @@ fn test_book_documents_the_toolchain_manager_up_front() {
         .find("./025_toolchain/_index.md")
         .expect("book summary should include the toolchain chapter");
     assert!(
-        position < summary.find("./000_overview/_index.md").unwrap_or(usize::MAX),
+        position
+            < summary
+                .find("./000_overview/_index.md")
+                .unwrap_or(usize::MAX),
         "the toolchain chapter should sit at the top of the book, before the overview"
     );
 
@@ -5583,9 +5586,14 @@ fn test_book_documents_the_toolchain_manager_up_front() {
         );
     }
 
-    let readme = std::fs::read_to_string(repo_root().join("README.md"))
-        .expect("README should exist");
-    for claim in ["FOL_HOME", "//fol 0.2.1", "fol self install", "fol-compiler-and-lib-v"] {
+    let readme =
+        std::fs::read_to_string(repo_root().join("README.md")).expect("README should exist");
+    for claim in [
+        "FOL_HOME",
+        "//fol 0.2.1",
+        "fol self install",
+        "fol-compiler-and-lib-v",
+    ] {
         assert!(
             readme.contains(claim),
             "README should document the toolchain flow, missing: {claim}"

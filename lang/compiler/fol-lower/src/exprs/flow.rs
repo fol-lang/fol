@@ -705,8 +705,8 @@ fn lower_channel_iteration(
 ) -> Result<(), LoweringError> {
     let (channel_local, channel_type) =
         super::expressions::channel_binding_local(typed_package, type_table, cursor, channel)?;
-    let binder_type_id =
-        super::expressions::receivable_element_type(type_table, channel_type).ok_or_else(|| {
+    let binder_type_id = super::expressions::receivable_element_type(type_table, channel_type)
+        .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,
                 "channel iteration needs a chn[T] channel or a chn[rx, T] receiver to receive from",

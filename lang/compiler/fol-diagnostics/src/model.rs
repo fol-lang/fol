@@ -218,7 +218,6 @@ impl Diagnostic {
     pub fn first_help(&self) -> Option<&str> {
         self.helps.first().map(|help| help.as_str())
     }
-
 }
 
 impl Serialize for Diagnostic {

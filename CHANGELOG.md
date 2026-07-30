@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.3] - 2026-07-30
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Stop leaking overlay trees on error
+- Read stdin on demand and honest hooks
+- Receive from first-class chn[rx] values
+- Validate specs and stage installs atomically
+- Make build produces fol and folc
+
+### <!-- 2 -->🚜 Refactor
+
+- One root chain for reads, writes, direct
+- Delete legacy shims and dead lexer token
+
+### <!-- 3 -->📚 Documentation
+
+- Match the shipped toolchain and std surface
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Gate main and releases, publish checksums
+
 ## [0.2.2] - 2026-07-21
 
 ### <!-- 3 -->📚 Documentation
