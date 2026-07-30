@@ -85,6 +85,29 @@ pub fn clean_workspace(workspace: &FrontendWorkspace) -> FrontendResult<Frontend
     clean_workspace_with_config(workspace, &FrontendConfig::default())
 }
 
+fn remove_dir_if_present(path: &std::path::Path) -> FrontendResult<()> {
+    if path.exists() {
+        fs::remove_dir_all(path)?;
+    }
+    Ok(())
+}
+
+fn clean_workspace_local_root(
+    workspace: &FrontendWorkspace,
+    root: Option<&std::path::Path>,
+) -> FrontendResult<bool> {
+    let Some(root) = root else {
+        return Ok(false);
+    };
+    let workspace_local_root = workspace.root.root.join(".fol");
+    if root.starts_with(&workspace_local_root) {
+        remove_dir_if_present(root)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::clean_workspace_with_config;
@@ -198,28 +221,5 @@ mod tests {
 
         fs::remove_dir_all(root).ok();
         fs::remove_dir_all(external_git_cache).ok();
-    }
-}
-
-fn remove_dir_if_present(path: &std::path::Path) -> FrontendResult<()> {
-    if path.exists() {
-        fs::remove_dir_all(path)?;
-    }
-    Ok(())
-}
-
-fn clean_workspace_local_root(
-    workspace: &FrontendWorkspace,
-    root: Option<&std::path::Path>,
-) -> FrontendResult<bool> {
-    let Some(root) = root else {
-        return Ok(false);
-    };
-    let workspace_local_root = workspace.root.root.join(".fol");
-    if root.starts_with(&workspace_local_root) {
-        remove_dir_if_present(root)?;
-        Ok(true)
-    } else {
-        Ok(false)
     }
 }

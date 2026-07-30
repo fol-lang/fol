@@ -1,0 +1,9 @@
+// Filesystem reads.
+
+fun[exp] dir_list(path: str): str = {
+    return .dir_list(path);
+};
+
+fun[exp] read_file(path: str): str = {
+    return .read_file(path);
+};

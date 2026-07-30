@@ -78,7 +78,7 @@ fn build_evaluation_result_keeps_boundary_and_allowed_operation_metadata() {
 
 #[test]
 fn forbidden_build_time_operations_cover_phase_four_runtime_gaps() {
-    let forbidden = vec![
+    let forbidden = [
         ForbiddenBuildTimeOperation::ArbitraryFilesystemRead,
         ForbiddenBuildTimeOperation::ArbitraryFilesystemWrite,
         ForbiddenBuildTimeOperation::ArbitraryNetworkAccess,

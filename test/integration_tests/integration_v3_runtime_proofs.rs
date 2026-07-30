@@ -685,20 +685,20 @@ fn string_primitives_slice_index_and_absorb_chars() {
 
 #[test]
 fn env_and_shell_hooks_read_the_host() {
-    // `std::env` yields the variable or an empty string; `std::shell` runs a
+    // `std::os::env` yields the variable or an empty string; `std::os::shell` runs a
     // command and forwards its exit code.
     let root = write_hosted_app(
         "v3_env_shell",
         "use std: pkg = {\"std\"};\n\
              fun[] main(): int = {\n\
-             \x20   var missing: str = std::env(\"FOL_DEFINITELY_UNSET_VAR\");\n\
+             \x20   var missing: str = std::os::env(\"FOL_DEFINITELY_UNSET_VAR\");\n\
              \x20   std::io::echo_int(.len(missing));\n\
-             \x20   var home: str = std::env(\"HOME\");\n\
+             \x20   var home: str = std::os::env(\"HOME\");\n\
              \x20   if (.len(home) > 0) {\n\
              \x20       std::io::echo_int(1);\n\
              \x20   }\n\
-             \x20   std::io::echo_int(std::shell(\"exit 3\"));\n\
-             \x20   std::io::echo_int(std::shell(\"true\"));\n\
+             \x20   std::io::echo_int(std::os::shell(\"exit 3\"));\n\
+             \x20   std::io::echo_int(std::os::shell(\"true\"));\n\
              \x20   return 0;\n\
              };\n",
     );
@@ -708,8 +708,8 @@ fn env_and_shell_hooks_read_the_host() {
 
 #[test]
 fn filesystem_hooks_list_and_read() {
-    // `std::dir_list` yields sorted entries (dirs slash-suffixed);
-    // `std::read_file` yields contents or an empty string.
+    // `std::fs::dir_list` yields sorted entries (dirs slash-suffixed);
+    // `std::fs::read_file` yields contents or an empty string.
     let staging = unique_temp_root("v3_fs_hooks_data");
     std::fs::create_dir_all(staging.join("inner")).expect("fs hook staging dir");
     std::fs::write(staging.join("note.txt"), "steep").expect("fs hook staging file");
@@ -718,13 +718,13 @@ fn filesystem_hooks_list_and_read() {
         &("use std: pkg = {\"std\"};\n".to_string()
             + &format!(
                 "fun[] main(): int = {{\n\
-             \x20   var entries: str = std::dir_list(\"{dir}\");\n\
+             \x20   var entries: str = std::fs::dir_list(\"{dir}\");\n\
              \x20   var shown: str = std::io::echo_str(entries);\n\
-             \x20   var source: str = std::read_file(\"{dir}/note.txt\");\n\
+             \x20   var source: str = std::fs::read_file(\"{dir}/note.txt\");\n\
              \x20   if (source == \"steep\") {{\n\
              \x20       std::io::echo_int(1);\n\
              \x20   }}\n\
-             \x20   std::io::echo_int(.len(std::read_file(\"no/such/file\")));\n\
+             \x20   std::io::echo_int(.len(std::fs::read_file(\"no/such/file\")));\n\
              \x20   return 0;\n\
              }};\n",
                 dir = staging.display()

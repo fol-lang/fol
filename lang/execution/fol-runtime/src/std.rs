@@ -627,6 +627,58 @@ pub fn capabilities() -> RuntimeTier {
     TIER
 }
 
+/// The value of an environment variable, or the empty string when unset.
+pub fn env_var(name: FolStr) -> FolStr {
+    std::env::var(name.as_str())
+        .map(FolStr::new)
+        .unwrap_or_else(|_| FolStr::new(""))
+}
+
+/// Run a shell command attached to the terminal and yield its exit code
+/// (-1 when it cannot start). The TUI suspend/exec primitive.
+pub fn shell(command: FolStr) -> crate::value::FolInt {
+    // The child inherits stdin. The shared key reader only touches stdin while
+    // a read is outstanding, so after a completed `read_key` the child gets the
+    // terminal to itself. A pending timed-out `read_key_ms` is the one case
+    // where a single byte can still be taken by the reader first.
+    debug_assert!(
+        stdin_is_idle(),
+        "shell() ran while a key read was still outstanding; the child may lose one byte of input"
+    );
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command.as_str())
+        .status()
+        .map(|status| status.code().unwrap_or(-1) as crate::value::FolInt)
+        .unwrap_or(-1)
+}
+
+/// Sorted directory entries joined by newlines, directories suffixed with a
+/// slash; empty when the path cannot be read.
+pub fn dir_list(path: FolStr) -> FolStr {
+    let mut entries: Vec<String> = std::fs::read_dir(path.as_str())
+        .map(|reader| {
+            reader
+                .filter_map(|entry| entry.ok())
+                .map(|entry| {
+                    let mut name = entry.file_name().to_string_lossy().to_string();
+                    if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                        name.push('/');
+                    }
+                    name
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    entries.sort();
+    FolStr::new(entries.join("\n"))
+}
+
+/// The text contents of a file, or the empty string when unreadable.
+pub fn read_file(path: FolStr) -> FolStr {
+    FolStr::new(std::fs::read_to_string(path.as_str()).unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,8 +701,7 @@ mod tests {
     fn std_tier_marks_heap_and_os() {
         assert_eq!(module_name(), "std");
         assert_eq!(tier_name(), "std");
-        assert!(HAS_HEAP);
-        assert!(HAS_OS);
+        assert_eq!(TIER, RuntimeTier::new("std", true, true));
         assert_eq!(capabilities(), TIER);
     }
 
@@ -885,56 +936,4 @@ mod tests {
             "map{left: set{1, 2, 3}, right: set{4, 5}}"
         );
     }
-}
-
-/// The value of an environment variable, or the empty string when unset.
-pub fn env_var(name: FolStr) -> FolStr {
-    std::env::var(name.as_str())
-        .map(FolStr::new)
-        .unwrap_or_else(|_| FolStr::new(""))
-}
-
-/// Run a shell command attached to the terminal and yield its exit code
-/// (-1 when it cannot start). The TUI suspend/exec primitive.
-pub fn shell(command: FolStr) -> crate::value::FolInt {
-    // The child inherits stdin. The shared key reader only touches stdin while
-    // a read is outstanding, so after a completed `read_key` the child gets the
-    // terminal to itself. A pending timed-out `read_key_ms` is the one case
-    // where a single byte can still be taken by the reader first.
-    debug_assert!(
-        stdin_is_idle(),
-        "shell() ran while a key read was still outstanding; the child may lose one byte of input"
-    );
-    std::process::Command::new("sh")
-        .arg("-c")
-        .arg(command.as_str())
-        .status()
-        .map(|status| status.code().unwrap_or(-1) as crate::value::FolInt)
-        .unwrap_or(-1)
-}
-
-/// Sorted directory entries joined by newlines, directories suffixed with a
-/// slash; empty when the path cannot be read.
-pub fn dir_list(path: FolStr) -> FolStr {
-    let mut entries: Vec<String> = std::fs::read_dir(path.as_str())
-        .map(|reader| {
-            reader
-                .filter_map(|entry| entry.ok())
-                .map(|entry| {
-                    let mut name = entry.file_name().to_string_lossy().to_string();
-                    if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                        name.push('/');
-                    }
-                    name
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    entries.sort();
-    FolStr::new(entries.join("\n"))
-}
-
-/// The text contents of a file, or the empty string when unreadable.
-pub fn read_file(path: FolStr) -> FolStr {
-    FolStr::new(std::fs::read_to_string(path.as_str()).unwrap_or_default())
 }

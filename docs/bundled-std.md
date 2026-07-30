@@ -138,7 +138,8 @@ The bundled shipped std is intentionally small right now.
 
 Current public modules:
 
-- `std` (root)
+- `std.os`
+- `std.fs`
 - `std.fmt`
 - `std.fmt.math`
 - `std.io`
@@ -148,10 +149,10 @@ Current public modules:
 
 Current shipped routines:
 
-- `std::env(str): str`
-- `std::shell(str): int`
-- `std::dir_list(str): str`
-- `std::read_file(str): str`
+- `os::env(str): str`
+- `os::shell(str): int`
+- `fs::dir_list(str): str`
+- `fs::read_file(str): str`
 - `fmt::answer(): int`
 - `fmt::double(int): int`
 - `fmt::triple(int): int`

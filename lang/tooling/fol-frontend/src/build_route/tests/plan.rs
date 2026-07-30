@@ -37,11 +37,11 @@ pub(super) fn absorbed_build_workspace_fixture(
     ));
     let app = root.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
-    let bundled_std_dependency = with_bundled_std
-        .then_some(
-            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n",
-        )
-        .unwrap_or("");
+    let bundled_std_dependency = if with_bundled_std {
+        "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n"
+    } else {
+        ""
+    };
     fs::write(
         app.join("build.fol"),
         [

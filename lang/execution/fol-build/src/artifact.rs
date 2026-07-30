@@ -257,6 +257,9 @@ impl BuildArtifactSet {
     }
 }
 
+use crate::graph::{BuildArtifactKind, BuildGraph};
+use crate::option::ResolvedBuildOptionSet;
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -620,5 +623,3 @@ mod tests {
         );
     }
 }
-use crate::graph::{BuildArtifactKind, BuildGraph};
-use crate::option::ResolvedBuildOptionSet;

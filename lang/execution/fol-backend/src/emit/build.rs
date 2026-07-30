@@ -791,18 +791,6 @@ pub fn emit_backend_artifact(
             ),
         )
     })?);
-    #[cfg(windows)]
-    if final_binary.exists() {
-        fs::remove_file(&final_binary).map_err(|error| {
-            BackendError::new(
-                BackendErrorKind::BuildFailure,
-                format!(
-                    "failed to replace existing binary '{}': {error}",
-                    final_binary.display()
-                ),
-            )
-        })?;
-    }
     // rustc has exited and closed the built executable. Move that inode into
     // its public output path instead of copying it in this multi-threaded
     // parent process: a concurrent fork can briefly inherit a copy writer and

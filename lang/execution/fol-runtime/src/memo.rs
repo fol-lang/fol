@@ -337,8 +337,7 @@ mod tests {
     fn memo_tier_marks_heap_without_os() {
         assert_eq!(module_name(), "memo");
         assert_eq!(tier_name(), "memo");
-        assert!(HAS_HEAP);
-        assert!(!HAS_OS);
+        assert_eq!(TIER, RuntimeTier::new("memo", true, false));
         assert_eq!(capabilities(), TIER);
     }
 

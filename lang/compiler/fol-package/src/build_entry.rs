@@ -426,7 +426,7 @@ mod tests {
             parameter_type_names: Vec::new(),
             return_type_name: Some("non".to_string()),
         };
-        let validated = validate_build_entry_cardinality(&syntax, &[candidate.clone()])
+        let validated = validate_build_entry_cardinality(&syntax, std::slice::from_ref(&candidate))
             .expect("one semantic build entry should pass cardinality validation");
         assert_eq!(validated.candidate, candidate);
     }

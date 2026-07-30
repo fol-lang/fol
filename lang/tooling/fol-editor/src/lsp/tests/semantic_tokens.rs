@@ -107,12 +107,12 @@ fn lsp_server_returns_semantic_tokens_for_source_files() {
     // declarations still anchor at the `typ` keyword until TypeDecl carries
     // a name syntax id. Explicit parameters and locals retain their precise
     // declaration spans, and their resolved uses are tokenized too.
-    assert!(decoded.iter().any(|token| *token == (0, 0, 3, 1, 0)));
-    assert!(decoded.iter().any(|token| *token == (4, 6, 6, 2, 0)));
-    assert!(decoded.iter().any(|token| *token == (4, 13, 5, 3, 0)));
-    assert!(decoded.iter().any(|token| *token == (5, 15, 5, 1, 0)));
-    assert!(decoded.iter().any(|token| *token == (5, 23, 5, 3, 0)));
-    assert!(decoded.iter().any(|token| *token == (6, 11, 5, 4, 0)));
+    assert!(decoded.contains(&(0, 0, 3, 1, 0)));
+    assert!(decoded.contains(&(4, 6, 6, 2, 0)));
+    assert!(decoded.contains(&(4, 13, 5, 3, 0)));
+    assert!(decoded.contains(&(5, 15, 5, 1, 0)));
+    assert!(decoded.contains(&(5, 23, 5, 3, 0)));
+    assert!(decoded.contains(&(6, 11, 5, 4, 0)));
 }
 
 #[test]
@@ -262,8 +262,8 @@ fn lsp_server_returns_semantic_tokens_for_build_files() {
 
     // The `build` routine anchors at its name; the untyped `build`/`graph`
     // locals tokenize at their resolved reference sites.
-    assert!(decoded.iter().any(|token| *token == (0, 6, 5, 2, 0)));
-    assert!(decoded.iter().any(|token| *token == (2, 4, 5, 4, 0)));
+    assert!(decoded.contains(&(0, 6, 5, 2, 0)));
+    assert!(decoded.contains(&(2, 4, 5, 4, 0)));
     assert!(decoded.iter().any(|token| token.3 == 4));
 }
 
@@ -369,7 +369,7 @@ fn lsp_server_keeps_more_specific_semantic_tokens_for_v2_examples() {
 
         for expected in expected_tokens {
             assert!(
-                decoded.iter().any(|token| *token == expected),
+                decoded.contains(&expected),
                 "semantic tokens for '{label}' should include {expected:?}, got: {decoded:?}"
             );
         }

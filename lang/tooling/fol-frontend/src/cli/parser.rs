@@ -537,13 +537,18 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
         None => {
             // Treat as direct file/folder input
             cli.input = Some(cursor.advance().unwrap().to_string());
-            // Consume any remaining root flags after input
+            // Consume any remaining root flags after input. A second positional
+            // is an error rather than something to drop on the floor: silently
+            // ignoring it compiles a different file than the one asked for.
             while let Some(token) = cursor.peek() {
                 if token.starts_with("--") {
                     let token = cursor.advance().unwrap().to_string();
                     parse_root_flag(&mut cli, &token, &mut cursor)?;
                 } else {
-                    break;
+                    return Err(ParseError::invalid(format!(
+                        "unexpected argument '{token}' after input '{}'",
+                        cli.input.unwrap_or_default()
+                    )));
                 }
             }
         }

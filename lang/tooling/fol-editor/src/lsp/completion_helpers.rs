@@ -563,6 +563,123 @@ fn completion_item_detail_priority(item: &EditorCompletionItem) -> u8 {
     }
 }
 
+pub(super) fn completion_intrinsic_item(label: &str) -> EditorCompletionItem {
+    EditorCompletionItem {
+        label: label.to_string(),
+        kind: 2,
+        detail: Some("intrinsic".to_string()),
+        insert_text: Some(label.to_string()),
+    }
+}
+
+pub(super) fn completion_item_from_symbol(
+    symbol: &fol_resolver::ResolvedSymbol,
+) -> EditorCompletionItem {
+    EditorCompletionItem {
+        label: symbol.name.clone(),
+        kind: completion_symbol_kind(symbol.kind),
+        detail: Some(completion_symbol_detail(symbol.kind).to_string()),
+        insert_text: None,
+    }
+}
+
+pub(super) fn completion_symbol_detail(kind: fol_resolver::SymbolKind) -> &'static str {
+    match kind {
+        fol_resolver::SymbolKind::Type => "type",
+        fol_resolver::SymbolKind::Alias => "type alias",
+        fol_resolver::SymbolKind::Routine => "routine",
+        fol_resolver::SymbolKind::Definition => "definition",
+        fol_resolver::SymbolKind::ValueBinding
+        | fol_resolver::SymbolKind::LabelBinding
+        | fol_resolver::SymbolKind::DestructureBinding
+        | fol_resolver::SymbolKind::LoopBinder
+        | fol_resolver::SymbolKind::RollingBinder => "binding",
+        fol_resolver::SymbolKind::Parameter | fol_resolver::SymbolKind::GenericParameter => {
+            "parameter"
+        }
+        fol_resolver::SymbolKind::Capture => "capture",
+        fol_resolver::SymbolKind::ImportAlias => "namespace",
+        fol_resolver::SymbolKind::Segment => "namespace segment",
+        fol_resolver::SymbolKind::Standard => "standard",
+    }
+}
+
+pub(super) fn completion_symbol_kind(kind: fol_resolver::SymbolKind) -> u8 {
+    match kind {
+        fol_resolver::SymbolKind::Routine => 3,
+        fol_resolver::SymbolKind::Definition => 12,
+        fol_resolver::SymbolKind::Type | fol_resolver::SymbolKind::Alias => 22,
+        fol_resolver::SymbolKind::ImportAlias | fol_resolver::SymbolKind::Segment => 9,
+        fol_resolver::SymbolKind::Standard => 12,
+        fol_resolver::SymbolKind::ValueBinding
+        | fol_resolver::SymbolKind::LabelBinding
+        | fol_resolver::SymbolKind::DestructureBinding
+        | fol_resolver::SymbolKind::Parameter
+        | fol_resolver::SymbolKind::Capture
+        | fol_resolver::SymbolKind::GenericParameter
+        | fol_resolver::SymbolKind::LoopBinder
+        | fol_resolver::SymbolKind::RollingBinder => 6,
+    }
+}
+
+pub(super) fn completion_symbol_is_root_visible(
+    program: &fol_resolver::ResolvedProgram,
+    symbol: &fol_resolver::ResolvedSymbol,
+) -> bool {
+    matches!(
+        program.scope(symbol.scope).map(|scope| &scope.kind),
+        Some(
+            fol_resolver::ScopeKind::ProgramRoot { .. }
+                | fol_resolver::ScopeKind::NamespaceRoot { .. }
+                | fol_resolver::ScopeKind::SourceUnitRoot { .. }
+        )
+    )
+}
+
+pub(super) fn completion_symbol_is_plain_top_level_candidate(
+    program: &fol_resolver::ResolvedProgram,
+    symbol: &fol_resolver::ResolvedSymbol,
+) -> bool {
+    completion_symbol_is_root_visible(program, symbol)
+        && matches!(
+            symbol.kind,
+            fol_resolver::SymbolKind::Routine
+                | fol_resolver::SymbolKind::Type
+                | fol_resolver::SymbolKind::Alias
+                | fol_resolver::SymbolKind::Definition
+                | fol_resolver::SymbolKind::ValueBinding
+        )
+}
+
+pub(super) fn symbol_visibility_matches_namespace_root(
+    symbol: &fol_resolver::ResolvedSymbol,
+    imported_root: bool,
+) -> bool {
+    if imported_root {
+        symbol.mounted_from.is_some()
+    } else {
+        symbol.mounted_from.is_none()
+    }
+}
+
+pub(super) fn completion_builtin_type_item(label: &str) -> EditorCompletionItem {
+    EditorCompletionItem {
+        label: label.to_string(),
+        kind: 22,
+        detail: Some("builtin type".to_string()),
+        insert_text: None,
+    }
+}
+
+pub(super) fn completion_namespace_item(label: String) -> EditorCompletionItem {
+    EditorCompletionItem {
+        label,
+        kind: 9,
+        detail: Some("namespace".to_string()),
+        insert_text: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -850,122 +967,5 @@ mod tests {
         assert_eq!(items[0].label, "helper");
         assert_eq!(items[0].detail.as_deref(), Some("routine (fallback)"));
         assert_eq!(items[1].detail.as_deref(), Some("fallback"));
-    }
-}
-
-pub(super) fn completion_builtin_type_item(label: &str) -> EditorCompletionItem {
-    EditorCompletionItem {
-        label: label.to_string(),
-        kind: 22,
-        detail: Some("builtin type".to_string()),
-        insert_text: None,
-    }
-}
-
-pub(super) fn completion_namespace_item(label: String) -> EditorCompletionItem {
-    EditorCompletionItem {
-        label,
-        kind: 9,
-        detail: Some("namespace".to_string()),
-        insert_text: None,
-    }
-}
-
-pub(super) fn completion_intrinsic_item(label: &str) -> EditorCompletionItem {
-    EditorCompletionItem {
-        label: label.to_string(),
-        kind: 2,
-        detail: Some("intrinsic".to_string()),
-        insert_text: Some(label.to_string()),
-    }
-}
-
-pub(super) fn completion_item_from_symbol(
-    symbol: &fol_resolver::ResolvedSymbol,
-) -> EditorCompletionItem {
-    EditorCompletionItem {
-        label: symbol.name.clone(),
-        kind: completion_symbol_kind(symbol.kind),
-        detail: Some(completion_symbol_detail(symbol.kind).to_string()),
-        insert_text: None,
-    }
-}
-
-pub(super) fn completion_symbol_detail(kind: fol_resolver::SymbolKind) -> &'static str {
-    match kind {
-        fol_resolver::SymbolKind::Type => "type",
-        fol_resolver::SymbolKind::Alias => "type alias",
-        fol_resolver::SymbolKind::Routine => "routine",
-        fol_resolver::SymbolKind::Definition => "definition",
-        fol_resolver::SymbolKind::ValueBinding
-        | fol_resolver::SymbolKind::LabelBinding
-        | fol_resolver::SymbolKind::DestructureBinding
-        | fol_resolver::SymbolKind::LoopBinder
-        | fol_resolver::SymbolKind::RollingBinder => "binding",
-        fol_resolver::SymbolKind::Parameter | fol_resolver::SymbolKind::GenericParameter => {
-            "parameter"
-        }
-        fol_resolver::SymbolKind::Capture => "capture",
-        fol_resolver::SymbolKind::ImportAlias => "namespace",
-        fol_resolver::SymbolKind::Segment => "namespace segment",
-        fol_resolver::SymbolKind::Standard => "standard",
-    }
-}
-
-pub(super) fn completion_symbol_kind(kind: fol_resolver::SymbolKind) -> u8 {
-    match kind {
-        fol_resolver::SymbolKind::Routine => 3,
-        fol_resolver::SymbolKind::Definition => 12,
-        fol_resolver::SymbolKind::Type | fol_resolver::SymbolKind::Alias => 22,
-        fol_resolver::SymbolKind::ImportAlias | fol_resolver::SymbolKind::Segment => 9,
-        fol_resolver::SymbolKind::Standard => 12,
-        fol_resolver::SymbolKind::ValueBinding
-        | fol_resolver::SymbolKind::LabelBinding
-        | fol_resolver::SymbolKind::DestructureBinding
-        | fol_resolver::SymbolKind::Parameter
-        | fol_resolver::SymbolKind::Capture
-        | fol_resolver::SymbolKind::GenericParameter
-        | fol_resolver::SymbolKind::LoopBinder
-        | fol_resolver::SymbolKind::RollingBinder => 6,
-    }
-}
-
-pub(super) fn completion_symbol_is_root_visible(
-    program: &fol_resolver::ResolvedProgram,
-    symbol: &fol_resolver::ResolvedSymbol,
-) -> bool {
-    matches!(
-        program.scope(symbol.scope).map(|scope| &scope.kind),
-        Some(
-            fol_resolver::ScopeKind::ProgramRoot { .. }
-                | fol_resolver::ScopeKind::NamespaceRoot { .. }
-                | fol_resolver::ScopeKind::SourceUnitRoot { .. }
-        )
-    )
-}
-
-pub(super) fn completion_symbol_is_plain_top_level_candidate(
-    program: &fol_resolver::ResolvedProgram,
-    symbol: &fol_resolver::ResolvedSymbol,
-) -> bool {
-    completion_symbol_is_root_visible(program, symbol)
-        && matches!(
-            symbol.kind,
-            fol_resolver::SymbolKind::Routine
-                | fol_resolver::SymbolKind::Type
-                | fol_resolver::SymbolKind::Alias
-                | fol_resolver::SymbolKind::Definition
-                | fol_resolver::SymbolKind::ValueBinding
-        )
-}
-
-pub(super) fn symbol_visibility_matches_namespace_root(
-    symbol: &fol_resolver::ResolvedSymbol,
-    imported_root: bool,
-) -> bool {
-    if imported_root {
-        symbol.mounted_from.is_some()
-    } else {
-        symbol.mounted_from.is_none()
     }
 }

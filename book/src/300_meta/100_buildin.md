@@ -204,8 +204,8 @@ The bundled `std` package wraps them as `std::io::write`, `std::io::read_key`,
 `std::io::read_key_ms`, `std::term::raw_mode`, `std::term::cols`,
 `std::term::rows`, `std::time::sleep_ms`, `std::time::now_ms`,
 `std::fmt::int_to_str`, `std::strn::sub`, `std::strn::byte_at`,
-`std::strn::from_byte`, `std::env`, `std::shell`, `std::dir_list`, and
-`std::read_file`.
+`std::strn::from_byte`, `std::os::env`, `std::os::shell`, `std::fs::dir_list`,
+and `std::fs::read_file`.
 
 With that build contract, this is valid:
 

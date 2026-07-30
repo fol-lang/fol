@@ -1,15 +1,5 @@
-fun[exp] env(name: str): str = {
-    return .env_var(name);
-};
-
-fun[exp] shell(command: str): int = {
-    return .shell(command);
-};
-
-fun[exp] dir_list(path: str): str = {
-    return .dir_list(path);
-};
-
-fun[exp] read_file(path: str): str = {
-    return .read_file(path);
-};
+// The std package root mounts the modules; the routines themselves live in
+// their own modules (`std::os`, `std::fs`, `std::io`, …) rather than being
+// dumped here.
+use os: loc = {"os"};
+use fs: loc = {"fs"};

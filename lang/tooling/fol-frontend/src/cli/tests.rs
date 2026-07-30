@@ -361,13 +361,25 @@ fn explain_command_requires_a_code() {
 
 #[test]
 fn top_level_explain_command_is_removed() {
-    // `fol explain` no longer exists; the token is treated as a direct input
-    // target, not an explain command.
-    let cli = parse_clean(&["fol", "explain", "T1003"]);
-    assert!(
-        cli.command.is_none(),
-        "top-level explain must not resolve to a command"
-    );
+    // `fol explain` no longer exists (it lives under `fol code explain`). The
+    // first token becomes a direct input target and the diagnostic code is a
+    // stray second positional, which is now rejected rather than dropped: the
+    // old behavior quietly tried to compile a file named "explain".
+    let error = FrontendCli::try_parse_from(["fol", "explain", "T1003"])
+        .expect_err("top-level explain must not resolve to a command");
+    match error.kind {
+        ParseErrorKind::InvalidInput(message) => {
+            assert!(
+                message.contains("T1003"),
+                "the error should name the stray argument: {message}"
+            );
+        }
+        other => panic!("expected an invalid-input error, got {other:?}"),
+    }
+
+    // A lone `fol explain` is still just a direct input target.
+    let cli = parse_clean(&["fol", "explain"]);
+    assert!(cli.command.is_none());
     assert_eq!(cli.input.as_deref(), Some("explain"));
 }
 
@@ -1090,4 +1102,29 @@ fn emit_subcommands_own_their_specific_flags() {
             }),
         }))
     );
+}
+
+#[test]
+fn a_second_positional_after_direct_input_is_rejected() {
+    // Dropping it silently meant compiling a different file than the one the
+    // user named on the command line.
+    let error = FrontendCli::try_parse_from(["fol", "first.fol", "second.fol"])
+        .expect_err("a second positional should be rejected");
+    match error.kind {
+        ParseErrorKind::InvalidInput(message) => {
+            assert!(
+                message.contains("second.fol") && message.contains("first.fol"),
+                "the error should name both arguments: {message}"
+            );
+        }
+        other => panic!("expected an invalid-input error, got {other:?}"),
+    }
+}
+
+#[test]
+fn root_flags_may_still_follow_a_direct_input() {
+    let cli = FrontendCli::try_parse_from(["fol", "main.fol", "--release"])
+        .expect("flags after the input should still parse");
+    assert_eq!(cli.input.as_deref(), Some("main.fol"));
+    assert!(cli.release);
 }

@@ -1,0 +1,9 @@
+// Process and environment access.
+
+fun[exp] env(name: str): str = {
+    return .env_var(name);
+};
+
+fun[exp] shell(command: str): int = {
+    return .shell(command);
+};

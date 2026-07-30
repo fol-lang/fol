@@ -381,7 +381,7 @@ fn fetch_supports_git_dependency_version_and_hash_fields() {
     let revision = git_output(&remote, &["rev-parse", "HEAD"]);
     let short_hash = &revision[..12];
 
-    let cases = vec![
+    let cases = [
         (Some("branch:main".to_string()), None),
         (Some("tag:v0.1.0".to_string()), None),
         (Some(format!("commit:{revision}")), None),

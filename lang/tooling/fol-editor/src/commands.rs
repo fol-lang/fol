@@ -329,13 +329,24 @@ pub fn editor_semantic_tokens_file(path: &Path) -> EditorResult<EditorCommandSum
                 .expect("semantic token params should serialize"),
             ),
         })?
-        .expect("semantic token request should return a response");
-    let tokens: LspSemanticTokens = serde_json::from_value(
-        response
-            .result
-            .expect("semantic tokens result should exist"),
-    )
-    .expect("semantic tokens should deserialize");
+        .ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::Internal,
+                "semantic token request produced no response",
+            )
+        })?;
+    let tokens: LspSemanticTokens = serde_json::from_value(response.result.ok_or_else(|| {
+        EditorError::new(
+            EditorErrorKind::Internal,
+            "semantic token response carried no result",
+        )
+    })?)
+    .map_err(|error| {
+        EditorError::new(
+            EditorErrorKind::Internal,
+            format!("semantic token response was not decodable: {error}"),
+        )
+    })?;
     let encoded_entries = tokens.data.len();
     let token_count = encoded_entries / 5;
 
@@ -388,7 +399,12 @@ pub fn editor_references_file(
                 .expect("reference params should serialize"),
             ),
         })?
-        .expect("references request should return a response");
+        .ok_or_else(|| {
+            EditorError::new(
+                EditorErrorKind::Internal,
+                "reference request produced no response",
+            )
+        })?;
     let references: Vec<LspLocation> =
         serde_json::from_value(response.result.expect("references result should exist"))
             .expect("references should deserialize");

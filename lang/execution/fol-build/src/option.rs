@@ -180,6 +180,10 @@ impl ResolvedBuildOptionSet {
     }
 }
 
+use crate::api::BuildOptionValue;
+use crate::graph::BuildOptionKind;
+use std::collections::BTreeMap;
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -392,6 +396,3 @@ mod tests {
         assert_eq!(user.coerce_raw_value("fast"), None);
     }
 }
-use crate::api::BuildOptionValue;
-use crate::graph::BuildOptionKind;
-use std::collections::BTreeMap;

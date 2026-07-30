@@ -39,7 +39,19 @@ pub fn editor_lsp_command(config: &FrontendConfig) -> FrontendResult<FrontendCom
 }
 
 pub fn editor_lsp_stdio(config: &FrontendConfig) -> FrontendResult<()> {
-    let _ = config;
+    // The server speaks over stdio, so a failure to find a root here is the
+    // only chance to say so in a way the user can read; once the protocol
+    // starts, everything is JSON-RPC. `editor_lsp_command` performs the same
+    // check, and dropping the config meant this path skipped it entirely.
+    require_discovered_root(&config.working_directory).map_err(|error| {
+        if error.kind() == FrontendErrorKind::WorkspaceNotFound {
+            error
+                .with_note("start the editor inside a FOL package or workspace root")
+                .with_note("or open a package directory before launching `fol tool lsp`")
+        } else {
+            error
+        }
+    })?;
     fol_editor::run_lsp_stdio(fol_editor::EditorConfig::default()).map_err(lower_editor_error)
 }
 

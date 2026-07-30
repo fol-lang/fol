@@ -52,13 +52,12 @@ fn lsp_server_handles_initialize_shutdown_and_exit() {
         vec!["(".to_string(), ",".to_string()]
     );
     assert_eq!(result.capabilities.references_provider, Some(true));
-    assert_eq!(
+    assert!(
         result
             .capabilities
             .rename_provider
             .expect("rename should be advertised")
-            .prepare_provider,
-        true
+            .prepare_provider
     );
     // Tier 1/2 providers are all advertised.
     assert_eq!(result.capabilities.type_definition_provider, Some(true));

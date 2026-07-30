@@ -51,8 +51,8 @@ External dependencies stay separate from bundled std.
 
 The current bundled bootstrap surface is intentionally tiny:
 
-- `std.env(str): str`, `std.shell(str): int`, `std.dir_list(str): str`,
-  `std.read_file(str): str`
+- `std.os.env(str): str`, `std.os.shell(str): int`
+- `std.fs.dir_list(str): str`, `std.fs.read_file(str): str`
 - `std.fmt.answer(): int`, `std.fmt.double(int): int`,
   `std.fmt.triple(int): int`, `std.fmt.sum2(int, int): int`,
   `std.fmt.int_to_str(int): str`
@@ -98,7 +98,8 @@ exists.
 
 Current shipped bundled modules:
 
-- `std` (root)
+- `std.os`
+- `std.fs`
 - `std.fmt`
 - `std.fmt.math`
 - `std.io`
@@ -108,10 +109,10 @@ Current shipped bundled modules:
 
 Current shipped public routines:
 
-- `std::env(str): str`
-- `std::shell(str): int`
-- `std::dir_list(str): str`
-- `std::read_file(str): str`
+- `os::env(str): str`
+- `os::shell(str): int`
+- `fs::dir_list(str): str`
+- `fs::read_file(str): str`
 - `fmt::answer(): int`
 - `fmt::double(int): int`
 - `fmt::triple(int): int`

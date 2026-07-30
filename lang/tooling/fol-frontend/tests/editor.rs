@@ -1,6 +1,6 @@
 use fol_frontend::run_command_from_args_in_dir;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
@@ -14,7 +14,7 @@ fn temp_root(label: &str) -> PathBuf {
     ))
 }
 
-fn write_rename_fixture_package(root: &PathBuf) {
+fn write_rename_fixture_package(root: &Path) {
     fs::create_dir_all(root.join("src")).expect("should create rename fixture src dir");
     fs::write(
         root.join("build.fol"),
@@ -45,7 +45,7 @@ fn write_rename_fixture_package(root: &PathBuf) {
     .expect("should write rename fixture entry");
 }
 
-fn write_cross_package_rename_fixture(root: &PathBuf) {
+fn write_cross_package_rename_fixture(root: &Path) {
     fs::create_dir_all(root.join("app/src")).expect("should create app root");
     fs::create_dir_all(root.join("shared")).expect("should create shared root");
     fs::write(root.join("fol.work.yaml"), "members:\n  - app\n")
@@ -182,7 +182,8 @@ fn editor_surface_stays_under_tool_not_a_parallel_editor_group() {
 fn editor_tool_surface_rejects_placeholder_future_commands() {
     let root = repo_root();
 
-    for command in [["fol", "tool", "semanticTokens"]] {
+    {
+        let command = ["fol", "tool", "semanticTokens"];
         let error = run_command_from_args_in_dir(command, root.join("test/fixtures/logtiny"))
             .expect_err("unsupported future tool command should stay off the public surface");
         let json = fol_frontend::FrontendOutput::new(fol_frontend::FrontendOutputConfig {

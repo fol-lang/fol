@@ -274,16 +274,13 @@ mod tests {
     #[test]
     fn internal_runtime_tier_modules_expose_expected_capabilities() {
         assert_eq!(core::tier_name(), "core");
-        assert!(!core::HAS_HEAP);
-        assert!(!core::HAS_OS);
+        assert_eq!(core::TIER, core::RuntimeTier::new("core", false, false));
 
         assert_eq!(memo::tier_name(), "memo");
-        assert!(memo::HAS_HEAP);
-        assert!(!memo::HAS_OS);
+        assert_eq!(memo::TIER, core::RuntimeTier::new("memo", true, false));
 
         assert_eq!(std::tier_name(), "std");
-        assert!(std::HAS_HEAP);
-        assert!(std::HAS_OS);
+        assert_eq!(std::TIER, core::RuntimeTier::new("std", true, true));
     }
 
     #[test]

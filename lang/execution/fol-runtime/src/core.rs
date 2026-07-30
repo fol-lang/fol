@@ -59,8 +59,7 @@ mod tests {
     fn core_tier_marks_no_heap_and_no_os() {
         assert_eq!(module_name(), "core");
         assert_eq!(tier_name(), "core");
-        assert!(!HAS_HEAP);
-        assert!(!HAS_OS);
+        assert_eq!(TIER, RuntimeTier::new("core", false, false));
         assert_eq!(capabilities(), TIER);
     }
 }

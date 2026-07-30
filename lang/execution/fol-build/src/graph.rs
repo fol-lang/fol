@@ -837,6 +837,8 @@ impl BuildGraph {
     }
 }
 
+use crate::native::{NativeLibraryPath, NativeLinkDirective, NativeSearchPathOrigin};
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1268,4 +1270,3 @@ mod tests {
         );
     }
 }
-use crate::native::{NativeLibraryPath, NativeLinkDirective, NativeSearchPathOrigin};

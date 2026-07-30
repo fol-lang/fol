@@ -375,6 +375,8 @@ pub fn project_graph_steps(graph: &BuildGraph) -> Vec<BuildStepDefinition> {
         .collect()
 }
 
+use crate::graph::{BuildGraph, BuildStepId};
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -622,4 +624,3 @@ mod tests {
             .contains("dep-args=[json[flavor=strict,target=wasm32-freestanding]]"));
     }
 }
-use crate::graph::{BuildGraph, BuildStepId};

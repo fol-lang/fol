@@ -758,53 +758,6 @@ impl ResolvedProgram {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::ResolvedProgram;
-    use fol_parser::ast::{ParsedPackage, ParsedSourceUnit, ParsedSourceUnitKind, SyntaxIndex};
-
-    #[test]
-    fn resolved_program_keeps_build_source_unit_kinds() {
-        let syntax = ParsedPackage {
-            package: "demo".to_string(),
-            source_units: vec![
-                ParsedSourceUnit {
-                    path: "build.fol".to_string(),
-                    package: "demo".to_string(),
-                    namespace: "demo".to_string(),
-                    kind: ParsedSourceUnitKind::Build,
-                    items: Vec::new(),
-                },
-                ParsedSourceUnit {
-                    path: "src/main.fol".to_string(),
-                    package: "demo".to_string(),
-                    namespace: "demo::src".to_string(),
-                    kind: ParsedSourceUnitKind::Ordinary,
-                    items: Vec::new(),
-                },
-            ],
-            syntax_index: SyntaxIndex::default(),
-        };
-
-        let resolved = ResolvedProgram::new(syntax);
-
-        assert_eq!(resolved.build_source_units().count(), 1);
-        assert_eq!(resolved.ordinary_source_units().count(), 1);
-        assert_eq!(
-            resolved
-                .source_unit(crate::SourceUnitId(0))
-                .map(|unit| unit.kind),
-            Some(ParsedSourceUnitKind::Build)
-        );
-        assert_eq!(
-            resolved
-                .source_unit(crate::SourceUnitId(1))
-                .map(|unit| unit.kind),
-            Some(ParsedSourceUnitKind::Ordinary)
-        );
-    }
-}
-
 fn remap_loaded_namespace(
     namespace: &str,
     foreign_package_name: &str,
@@ -881,4 +834,51 @@ fn ensure_namespace_scope(
     }
 
     parent_scope
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ResolvedProgram;
+    use fol_parser::ast::{ParsedPackage, ParsedSourceUnit, ParsedSourceUnitKind, SyntaxIndex};
+
+    #[test]
+    fn resolved_program_keeps_build_source_unit_kinds() {
+        let syntax = ParsedPackage {
+            package: "demo".to_string(),
+            source_units: vec![
+                ParsedSourceUnit {
+                    path: "build.fol".to_string(),
+                    package: "demo".to_string(),
+                    namespace: "demo".to_string(),
+                    kind: ParsedSourceUnitKind::Build,
+                    items: Vec::new(),
+                },
+                ParsedSourceUnit {
+                    path: "src/main.fol".to_string(),
+                    package: "demo".to_string(),
+                    namespace: "demo::src".to_string(),
+                    kind: ParsedSourceUnitKind::Ordinary,
+                    items: Vec::new(),
+                },
+            ],
+            syntax_index: SyntaxIndex::default(),
+        };
+
+        let resolved = ResolvedProgram::new(syntax);
+
+        assert_eq!(resolved.build_source_units().count(), 1);
+        assert_eq!(resolved.ordinary_source_units().count(), 1);
+        assert_eq!(
+            resolved
+                .source_unit(crate::SourceUnitId(0))
+                .map(|unit| unit.kind),
+            Some(ParsedSourceUnitKind::Build)
+        );
+        assert_eq!(
+            resolved
+                .source_unit(crate::SourceUnitId(1))
+                .map(|unit| unit.kind),
+            Some(ParsedSourceUnitKind::Ordinary)
+        );
+    }
 }

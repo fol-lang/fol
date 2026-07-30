@@ -28,7 +28,6 @@ fn plain_mode_command_summaries_stay_script_friendly() {
             .expect("build should succeed");
     let rendered = FrontendOutput::new(FrontendOutputConfig {
         mode: OutputMode::Plain,
-        ..FrontendOutputConfig::default()
     })
     .render_command_summary(&result)
     .expect("plain render should succeed");

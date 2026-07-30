@@ -1,6 +1,27 @@
 [workspace]
 package.version = "0.2.4"
-default-members = [".", "lang/tooling/fol-self"]
+# Every member, so a bare `cargo build`/`cargo test` at the root covers the
+# whole workspace instead of silently skipping 16 crates' suites.
+default-members = [
+    ".",
+    "lang/compiler/fol-types",
+    "lang/compiler/fol-stream",
+    "lang/compiler/fol-lexer",
+    "lang/compiler/fol-parser",
+    "lang/compiler/fol-package",
+    "lang/compiler/fol-diagnostics",
+    "lang/compiler/fol-resolver",
+    "lang/compiler/fol-typecheck",
+    "lang/compiler/fol-lower",
+    "lang/compiler/fol-intrinsics",
+    "lang/execution/fol-build",
+    "lang/execution/fol-runtime",
+    "lang/execution/fol-backend",
+    "lang/tooling/fol-frontend",
+    "lang/tooling/fol-editor",
+    "lang/tooling/fol-interop",
+    "lang/tooling/fol-self",
+]
 members = [
     "lang/compiler/fol-types",
     "lang/compiler/fol-stream",

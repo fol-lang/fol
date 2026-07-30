@@ -64,7 +64,7 @@ fn non_host_machine_target() -> String {
     }
 }
 
-fn sample_workspace(root: &PathBuf) -> FrontendWorkspace {
+fn sample_workspace(root: &Path) -> FrontendWorkspace {
     let app = root.join("app");
     let src = app.join("src");
     fs::create_dir_all(&src).expect("should create source tree");
@@ -76,7 +76,7 @@ fn sample_workspace(root: &PathBuf) -> FrontendWorkspace {
     .expect("should write main");
 
     FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -109,7 +109,7 @@ fn locked_check_build_run_and_test_use_existing_lockfile() {
     create_git_package_repo(&remote, "logtiny", "0.1.0");
     create_app_with_git_dep(&app, &remote);
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: Some(root.join(".fol/pkg")),

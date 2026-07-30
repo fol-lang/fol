@@ -44,13 +44,11 @@ fn frontend_workspace_discovery_failures_render_consistently_across_output_modes
         .expect("human render should succeed");
     let plain = FrontendOutput::new(FrontendOutputConfig {
         mode: OutputMode::Plain,
-        ..FrontendOutputConfig::default()
     })
     .render_error(&error)
     .expect("plain render should succeed");
     let json = FrontendOutput::new(FrontendOutputConfig {
         mode: OutputMode::Json,
-        ..FrontendOutputConfig::default()
     })
     .render_error(&error)
     .expect("json render should succeed");
@@ -70,7 +68,6 @@ fn frontend_parse_failures_keep_structured_help_notes() {
         .unwrap_err();
     let json = FrontendOutput::new(FrontendOutputConfig {
         mode: OutputMode::Json,
-        ..FrontendOutputConfig::default()
     })
     .render_error(&error)
     .expect("json render should succeed");
@@ -118,13 +115,11 @@ fn locked_fetch_mismatch_failures_render_consistently_across_output_modes() {
         .expect("human render should succeed");
     let plain = FrontendOutput::new(FrontendOutputConfig {
         mode: OutputMode::Plain,
-        ..FrontendOutputConfig::default()
     })
     .render_error(&error)
     .expect("plain render should succeed");
     let json = FrontendOutput::new(FrontendOutputConfig {
         mode: OutputMode::Json,
-        ..FrontendOutputConfig::default()
     })
     .render_error(&error)
     .expect("json render should succeed");

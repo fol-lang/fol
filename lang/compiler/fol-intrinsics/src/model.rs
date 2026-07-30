@@ -18,6 +18,8 @@ pub enum IntrinsicCategory {
     Conversion,
     Query,
     Diagnostic,
+    /// Terminal, clock, environment, process, and filesystem access.
+    Host,
     Recoverable,
     Memory,
     Pointer,
@@ -35,6 +37,7 @@ impl IntrinsicCategory {
             Self::Conversion => "conversion",
             Self::Query => "query",
             Self::Diagnostic => "diagnostic",
+            Self::Host => "host",
             Self::Recoverable => "recoverable",
             Self::Memory => "memory",
             Self::Pointer => "pointer",

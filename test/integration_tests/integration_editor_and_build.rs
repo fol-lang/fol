@@ -3962,8 +3962,12 @@ fn test_bundled_std_tree_stays_source_only_and_bootstrap_honest() {
         "bundled std bootstrap should ship std.io once it has honest public source"
     );
     assert!(
-        !root.join("os/lib.fol").exists(),
-        "bundled std should not ship a public std.os module before it has honest source"
+        root.join("os/lib.fol").exists(),
+        "bundled std should ship std.os once it has honest public source"
+    );
+    assert!(
+        root.join("fs/lib.fol").exists(),
+        "bundled std should ship std.fs once it has honest public source"
     );
     assert!(
         !root.join(".fol").exists(),
@@ -6391,10 +6395,13 @@ fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
             path
         );
     }
-    assert!(
-        !repo_root().join("lang/library/std/os").exists(),
-        "bundled std should not claim std.os before it ships honest source"
-    );
+    // std.os and std.fs now ship real source, so the claim must be backed by it.
+    for module in ["lang/library/std/os/lib.fol", "lang/library/std/fs/lib.fol"] {
+        assert!(
+            repo_root().join(module).is_file(),
+            "bundled std claims a module that ships no source: {module}"
+        );
+    }
 
     // Every shipped module and routine must appear in both documents, so a new
     // std wrapper cannot land undocumented.
@@ -6405,6 +6412,8 @@ fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
         "std.term",
         "std.time",
         "std.strn",
+        "std.os",
+        "std.fs",
         "fmt::answer(): int",
         "fmt::double(int): int",
         "fmt::triple(int): int",
@@ -6426,6 +6435,10 @@ fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
         "strn::sub(str, int, int): str",
         "strn::byte_at(str, int): int",
         "strn::from_byte(int): str",
+        "os::env(str): str",
+        "os::shell(str): int",
+        "fs::dir_list(str): str",
+        "fs::read_file(str): str",
         "examples/std_bundled_fmt",
         "examples/std_bundled_io",
         "examples/std_alias_pkg",
@@ -6441,7 +6454,8 @@ fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
         );
     }
 
-    for forbidden in ["std.os/lib.fol", "std.memo", "std.fs", "std.net"] {
+    // Modules that still ship no source may not be advertised.
+    for forbidden in ["std.memo", "std.net", "std.http"] {
         assert!(
             !bundled_std_docs.contains(forbidden),
             "bundled std docs should not claim unshipped surface '{forbidden}'"

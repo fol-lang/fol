@@ -205,15 +205,30 @@ impl ResolverSession {
             let program = self
                 .resolve_parsed_package(prepared.syntax.clone(), None)
                 .map_err(|errors| {
-                    errors.into_iter().next().unwrap_or_else(|| {
-                        ResolverError::new(
+                    // Only one error can be reported here, but say *where* it
+                    // came from and how much else went wrong. Without this a
+                    // broken dependency surfaces at the consumer as a bare
+                    // "unresolved name", pointing at the import instead of at
+                    // the real failure inside the imported package.
+                    let root = &prepared.identity.canonical_root;
+                    let suppressed = errors.len().saturating_sub(1);
+                    let Some(first) = errors.into_iter().next() else {
+                        return ResolverError::new(
                             ResolverErrorKind::Internal,
-                            format!(
-                                "resolver failed to load package root '{}'",
-                                prepared.identity.canonical_root
-                            ),
-                        )
-                    })
+                            format!("resolver failed to load package root '{root}'"),
+                        );
+                    };
+                    let mut message = format!(
+                        "imported package '{root}' failed to load: {}",
+                        first.message()
+                    );
+                    if suppressed > 0 {
+                        message.push_str(&format!(
+                            " (and {suppressed} further error{} in that package)",
+                            if suppressed == 1 { "" } else { "s" }
+                        ));
+                    }
+                    ResolverError::new(first.kind(), message)
                 })?;
             Ok(LoadedPackage {
                 identity,
