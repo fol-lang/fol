@@ -126,6 +126,13 @@ fn unified_pipeline_json_and_human_carry_same_diagnostic_code() {
     .expect("Should write fixture");
 
     let json_output = run_fol(&["--json", temp_root.to_str().expect("path should be utf-8")]);
+    // Both runs must actually fail: a clean exit would mean the fixture stopped
+    // being an error and the code comparison below proves nothing.
+    assert!(
+        !json_output.status.success(),
+        "the unresolved-name fixture should fail in JSON mode: {}",
+        String::from_utf8_lossy(&json_output.stdout)
+    );
     let json = parse_cli_json(&json_output);
     let json_code = json["diagnostics"][0]["code"]
         .as_str()
@@ -133,6 +140,10 @@ fn unified_pipeline_json_and_human_carry_same_diagnostic_code() {
         .to_string();
 
     let human_output = run_fol(&[temp_root.to_str().expect("path should be utf-8")]);
+    assert!(
+        !human_output.status.success(),
+        "the unresolved-name fixture should fail in human mode"
+    );
     let human_stdout = String::from_utf8_lossy(&human_output.stdout);
 
     // Pretty human mode shows the code as a chip suffix (`R1003`) rather
@@ -147,13 +158,37 @@ fn unified_pipeline_json_and_human_carry_same_diagnostic_code() {
 
 #[test]
 fn unified_pipeline_no_glitch_trait_exists() {
-    // The Glitch trait has been deleted from fol-types.
-    // This test is a compile-time guarantee: if Glitch existed,
-    // the trait would be importable. Since it's deleted, this
-    // test simply documents the invariant at the integration level.
-    //
-    // grep -r "trait Glitch" lang/ returns nothing — verified
-    // by the build system. The absence of Box<dyn Glitch> in
-    // any public API is enforced by the fact that the trait
-    // no longer compiles.
+    // The Glitch trait was deleted; diagnostics flow through fol-diagnostics
+    // instead. An empty body asserted nothing, so scan the sources: no crate
+    // may declare the trait or hand it out behind a trait object.
+    let mut offenders = Vec::new();
+    let mut pending = vec![repo_root().join("lang")];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "target") {
+                    continue;
+                }
+                pending.push(path);
+                continue;
+            }
+            if path.extension().is_some_and(|extension| extension == "rs") {
+                let Ok(source) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                if source.contains("trait Glitch") || source.contains("dyn Glitch") {
+                    offenders.push(path.display().to_string());
+                }
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "the Glitch trait must stay deleted, found in: {offenders:?}"
+    );
 }

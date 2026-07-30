@@ -76,6 +76,29 @@ impl Drop for EditorAnalysisOverlay {
     }
 }
 
+/// Owns the overlay directory while it is being populated. Materialization has
+/// several fallible steps after the directory exists; without this, any one of
+/// them returning early would leak a copy of the analysis tree into the
+/// temporary directory on every keystroke that failed to analyze.
+struct OverlayRootGuard(Option<PathBuf>);
+
+impl OverlayRootGuard {
+    /// Hand ownership to the finished overlay, which cleans up from then on.
+    fn release(&mut self) -> PathBuf {
+        self.0
+            .take()
+            .expect("overlay root should be released exactly once")
+    }
+}
+
+impl Drop for OverlayRootGuard {
+    fn drop(&mut self) {
+        if let Some(root) = &self.0 {
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+}
+
 pub fn map_document_workspace(
     path: &Path,
     config: &EditorConfig,
@@ -179,6 +202,8 @@ pub fn materialize_analysis_overlay(
         )
     })?;
 
+    let mut overlay_root = OverlayRootGuard(Some(temp_root.clone()));
+
     copy_directory_tree(overlay_source_root, &temp_root)?;
 
     let relative_document = relative_overlay_path(&mapping.document_path, overlay_source_root)
@@ -252,6 +277,7 @@ pub fn materialize_analysis_overlay(
         )?;
     }
 
+    let temp_root = overlay_root.release();
     Ok(EditorAnalysisOverlay {
         temp_root: temp_root.clone(),
         analysis_root: temp_root,
