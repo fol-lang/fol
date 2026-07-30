@@ -1,5 +1,5 @@
 [workspace]
-package.version = "0.2.4"
+package.version = "0.2.5"
 # Every member, so a bare `cargo build`/`cargo test` at the root covers the
 # whole workspace instead of silently skipping 16 crates' suites.
 default-members = [

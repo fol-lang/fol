@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.5] - 2026-07-30
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Brand shell faults and drop dead branch
+- Guard tree-sitter version and refresh stale docs
+- Distinguish shell launch failure from exit code
+- Lint the whole workspace and split std os/fs
+
+### <!-- 4 -->⚡ Performance
+
+- Evaluate each build.fol once per command
+
+### <!-- 5 -->🎨 Styling
+
+- Format the build evaluation memo
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Drop the completed cleanup plan
+
 ## [0.2.4] - 2026-07-30
 
 ### Build
@@ -67,6 +88,51 @@
 - Add dfr/edf capture lists
 - Land v3 surface and tooling parity
 - Complete H7 handoff
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Bundle runtime crate in the toolchain
+- Ship fol and fol-compiler-and-lib assets
+- Name assets folc tarball and fol binary
+- Checkout interop siblings for release
+- Transitive mounts and alias fallback
+- Eventuals cannot hide behind type names
+- Fence new capture and evt surfaces
+- Peel borrows in generic constraint paths
+- Import visibility and generic boundary
+- Branded faults for int div and mod
+- Honest cap error on long op chains
+- Else-less if guards lower as statements
+- Mux wrap transfer + capture calls + arity
+- Rename across closure capture links
+- Correct lint attribute placement
+- Global initializers, conformance receivers
+- Clean runtime fault messages
+- Restore partially moved bindings on reinit
+- Correct if branching and weak send guard
+- Anchor eventual lifetime diagnostics
+- Cover env lifetime in type identity tests
+- Pin fixture branch name
+- Harden clean-checkout verification
+
+### <!-- 3 -->📚 Documentation
+
+- Record implemented contract
+- Record hardening completion
+
+### <!-- 6 -->🧪 Testing
+
+- Sync fixtures with global init field
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Centralize workspace version to 0.2.1
+- Silence arg-count lint on global decl
+
+## [0.2.0] - 2026-07-16
+
+### <!-- 0 -->⛰️  Features
+
 - Merge V3 into develop
 - Sync editor tooling
 - Mirror all v3 contracts
@@ -1028,29 +1094,6 @@
 
 ### <!-- 1 -->🐛 Bug Fixes
 
-- Bundle runtime crate in the toolchain
-- Ship fol and fol-compiler-and-lib assets
-- Name assets folc tarball and fol binary
-- Checkout interop siblings for release
-- Transitive mounts and alias fallback
-- Eventuals cannot hide behind type names
-- Fence new capture and evt surfaces
-- Peel borrows in generic constraint paths
-- Import visibility and generic boundary
-- Branded faults for int div and mod
-- Honest cap error on long op chains
-- Else-less if guards lower as statements
-- Mux wrap transfer + capture calls + arity
-- Rename across closure capture links
-- Correct lint attribute placement
-- Global initializers, conformance receivers
-- Clean runtime fault messages
-- Restore partially moved bindings on reinit
-- Correct if branching and weak send guard
-- Anchor eventual lifetime diagnostics
-- Cover env lifetime in type identity tests
-- Pin fixture branch name
-- Harden clean-checkout verification
 - Count corpus cases
 - Narrow capture guidance
 - Align failure inventory
@@ -1394,8 +1437,6 @@
 
 ### <!-- 3 -->📚 Documentation
 
-- Record implemented contract
-- Record hardening completion
 - Finalize shipped contract
 - Align runtime capability tiers
 - Explain no-std execution
@@ -1737,7 +1778,6 @@
 
 ### <!-- 6 -->🧪 Testing
 
-- Sync fixtures with global init field
 - Sync diagnostic wording
 - Align capture boundaries
 - Clarify hosted tier names
@@ -2454,8 +2494,6 @@
 
 ### <!-- 7 -->⚙️ Miscellaneous Tasks
 
-- Centralize workspace version to 0.2.1
-- Silence arg-count lint on global decl
 - Cleanup
 - Generic fixes for v2
 - Run workspace tests in make test
