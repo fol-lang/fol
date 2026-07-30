@@ -133,16 +133,46 @@ fn evaluate_package_build(
             ));
         }
     };
-    evaluate_build_source(
+    let inputs = build_evaluation_inputs(root, config)?;
+
+    // A single command asks for the same package's build program several times
+    // (capability contract, dependency queries, artifact projection). Evaluating
+    // it once per ask is pure waste. The key carries the source text and the
+    // inputs, so an edit or a different configuration can never be served a
+    // stale result.
+    let cache_key = format!("{}\u{1}{:?}\u{1}{source}", build_path.display(), inputs);
+    if let Some(cached) = BUILD_EVALUATION_CACHE.with(|cache| {
+        cache
+            .borrow()
+            .get(&cache_key)
+            .cloned()
+    }) {
+        return Ok(cached);
+    }
+
+    let evaluated = evaluate_build_source(
         &BuildEvaluationRequest {
             package_root: root.display().to_string(),
-            inputs: build_evaluation_inputs(root, config)?,
+            inputs,
             operations: Vec::new(),
         },
         &build_path,
         &source,
     )
-    .map_err(|error| FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string()))
+    .map_err(|error| FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string()))?;
+
+    BUILD_EVALUATION_CACHE.with(|cache| {
+        cache.borrow_mut().insert(cache_key, evaluated.clone());
+    });
+    Ok(evaluated)
+}
+
+thread_local! {
+    /// Memo for [`evaluate_package_build`], keyed by build file, inputs, and
+    /// source text.
+    static BUILD_EVALUATION_CACHE: std::cell::RefCell<
+        std::collections::HashMap<String, Option<fol_build::EvaluatedBuildSource>>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
