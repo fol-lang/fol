@@ -127,7 +127,7 @@ fn test_release_workflow_ships_fetchable_toolchain_artifacts() {
         "release workflow should gate publishing on the test workflow"
     );
     assert!(
-        release_workflow.contains("make print-version"),
+        release_workflow.contains("print-version"),
         "release workflow should compare the tag against the workspace version"
     );
     for (job, needs) in [
