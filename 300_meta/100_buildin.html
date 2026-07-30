@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-c18b3349.js";
+            window.path_to_searchindex_js = "../searchindex-686ccb19.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -332,7 +332,8 @@ boundaries</li>
 single-byte construction</li>
 <li><code>.env_var(name)</code> — an environment variable’s value</li>
 <li><code>.shell(command)</code> — run a command through <code>sh -c</code> with inherited streams and
-yield its exit status</li>
+yield its exit status; <code>128 + signal</code> if a signal killed it, <code>127</code> if the
+shell could not be launched</li>
 <li><code>.dir_list(path)</code> — the sorted entries of a directory, directories suffixed
 with <code>/</code></li>
 <li><code>.read_file(path)</code> — a file’s contents</li>
@@ -341,8 +342,8 @@ with <code>/</code></li>
 <code>std::io::read_key_ms</code>, <code>std::term::raw_mode</code>, <code>std::term::cols</code>,
 <code>std::term::rows</code>, <code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>,
 <code>std::fmt::int_to_str</code>, <code>std::strn::sub</code>, <code>std::strn::byte_at</code>,
-<code>std::strn::from_byte</code>, <code>std::env</code>, <code>std::shell</code>, <code>std::dir_list</code>, and
-<code>std::read_file</code>.</p>
+<code>std::strn::from_byte</code>, <code>std::os::env</code>, <code>std::os::shell</code>, <code>std::fs::dir_list</code>,
+and <code>std::fs::read_file</code>.</p>
 <p>With that build contract, this is valid:</p>
 <pre><code class="language-fol">fun[] main(flag: bol): bol = {
     return .echo(flag)
