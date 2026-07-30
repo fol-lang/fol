@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-686ccb19.js";
+            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -227,17 +227,18 @@ nor require bundled <code>std</code>.</p>
 <h2 id="what-fol-build-owns"><a class="header" href="#what-fol-build-owns">What <code>fol-build</code> Owns</a></h2>
 <ul>
 <li><code>graph.rs</code> — build graph IR (steps, artifacts, modules, options, generated files)</li>
-<li><code>api.rs</code> — Rust-level graph mutation interface</li>
+<li><code>api/</code> — Rust-level graph mutation interface</li>
 <li><code>semantic.rs</code> — method signatures and type info for the resolver and typechecker</li>
 <li><code>stdlib.rs</code> — <code>BuildStdlibScope</code>: the ambient scope injected into <code>build.fol</code></li>
-<li><code>executor.rs</code> — executes the lowered FOL IR against the build graph</li>
-<li><code>eval.rs</code> — evaluate a <code>build.fol</code> from source; entry point for <code>fol-package</code></li>
+<li><code>executor/</code> — executes the lowered FOL IR against the build graph</li>
+<li><code>eval/</code> — evaluate a <code>build.fol</code> from source; entry point for <code>fol-package</code></li>
 <li><code>option.rs</code> — build option kinds, target triples, optimize modes</li>
 <li><code>runtime.rs</code> — runtime representation of artifacts, generated files, step bindings</li>
 <li><code>step.rs</code> — step planning, ordering, cache keys, execution reports</li>
 <li><code>codegen.rs</code> — system tool and codegen request types</li>
 <li><code>artifact.rs</code> — artifact pipeline definitions and output types</li>
 <li><code>dependency.rs</code> — inter-package dependency surfaces</li>
+<li><code>native.rs</code> — native (C interop) build inputs</li>
 </ul>
 <p>Use this section for:</p>
 <ul>

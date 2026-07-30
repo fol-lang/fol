@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-686ccb19.js";
+            window.path_to_searchindex_js = "searchindex-f859bb09.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-7a86c1dd.js"></script>
@@ -2085,17 +2085,18 @@ nor require bundled <code>std</code>.</p>
 <h2 id="what-fol-build-owns"><a class="header" href="#what-fol-build-owns">What <code>fol-build</code> Owns</a></h2>
 <ul>
 <li><code>graph.rs</code> — build graph IR (steps, artifacts, modules, options, generated files)</li>
-<li><code>api.rs</code> — Rust-level graph mutation interface</li>
+<li><code>api/</code> — Rust-level graph mutation interface</li>
 <li><code>semantic.rs</code> — method signatures and type info for the resolver and typechecker</li>
 <li><code>stdlib.rs</code> — <code>BuildStdlibScope</code>: the ambient scope injected into <code>build.fol</code></li>
-<li><code>executor.rs</code> — executes the lowered FOL IR against the build graph</li>
-<li><code>eval.rs</code> — evaluate a <code>build.fol</code> from source; entry point for <code>fol-package</code></li>
+<li><code>executor/</code> — executes the lowered FOL IR against the build graph</li>
+<li><code>eval/</code> — evaluate a <code>build.fol</code> from source; entry point for <code>fol-package</code></li>
 <li><code>option.rs</code> — build option kinds, target triples, optimize modes</li>
 <li><code>runtime.rs</code> — runtime representation of artifacts, generated files, step bindings</li>
 <li><code>step.rs</code> — step planning, ordering, cache keys, execution reports</li>
 <li><code>codegen.rs</code> — system tool and codegen request types</li>
 <li><code>artifact.rs</code> — artifact pipeline definitions and output types</li>
 <li><code>dependency.rs</code> — inter-package dependency surfaces</li>
+<li><code>native.rs</code> — native (C interop) build inputs</li>
 </ul>
 <p>Use this section for:</p>
 <ul>
@@ -5772,7 +5773,7 @@ See the memory chapters for their transfer and aliasing rules.</p>
 }
 </code></pre>
 <h3 id="piping--ternary"><a class="header" href="#piping--ternary">Piping / Ternary</a></h3>
-<p>Piping can be used as ternary operator. More about piping can be <a href="/docs/spec/pipes">found here</a>. Here is an example, the code below basically says: <strong>if the function internally had an error, don’t exit the program, but assign another value (or default value) to the variable</strong>:</p>
+<p>Piping can be used as ternary operator. More about piping can be <a href="#pipes">found here</a>. Here is an example, the code below basically says: <strong>if the function internally had an error, don’t exit the program, but assign another value (or default value) to the variable</strong>:</p>
 <pre><code>pro[] main: int = {
     fun addFunc(x, y: int): int = {
         return x + y;
@@ -5993,9 +5994,6 @@ must be declared</li>
 <li>a routine that declares a recoverable error type (<code>: T / E</code>) must have both a
 return path and a <code>report</code> path</li>
 </ul>
-<p>The sections further down that show <code>result = ...</code>, short-form omission,
-last-expression return, and same-name overloading describe earlier design, not
-the current compiler surface.</p>
 <h2 id="types-1"><a class="header" href="#types-1">Types</a></h2>
 <p>There are two main types of routines in fol:</p>
 <ul>
@@ -6013,37 +6011,25 @@ the current compiler surface.</p>
 <p>Routines typically describe computations. There are two ways that a routine can gain access to the data that it is to process: through direct access to nonlocal variables (declared elsewhere but visible in the routine) or through parameter passing. Data passed through parameters are accessed using names that are local to the routine. Routine create their own unnamed namespace. Every routine has its own Workspace. This means that every variable inside the routine is only usable during the execution of the routine (and then the variables go away).</p>
 <p>Parameter passing is more flexible than direct access to nonlocal variables. Prrameters are special variables that are part of a routine’s signature. When a routine has parameters, you can provide it with concrete values for those parameters. The parameters in the routine header are called formal parameters. They are sometimes thought of as dummy variables because they are not variables in the usual sense: In most cases, they are bound to storage only when the routine is called, and that binding is often through some other program variables.</p>
 <p>Parameters are declared as a list of identifiers separated by semicolon (or by a colon, but for code cleanness, the semicolon is preferred). A parameter is given a type by : typename. If after the parameter the <code>:</code> is not declared, but <code>,</code> colon to identfy another paremeter, of which both parameters are of the same type if after the second one the <code>:</code> and the type is placed. Then the same type parameters continue to grow with <code>,</code> until <code>:</code> is reached.</p>
-<pre><code>fun[] calc(el1, el2, el3: int[64]; changed: bol = true): int[64] = { result = el1 + el2 - el3 }
+<pre><code>fun[] calc(el1, el2, el3: int[64]; changed: bol = true): int[64] = { return el1 + el2 - el3; }
 </code></pre>
-<p>In routine signatures, you must declare the type of each parameter. Requiring type annotations in routine definitions is obligatory, which means the compiler almost never needs you to use them elsewhere in the code to figure out what you mean. Routine can parameter overloaded too. It makes possible to create multiple routine of the same name with different implementations. Calls to an overloaded routine will run a specific implementation of that routine appropriate to the context of the call, allowing one routine call to perform different tasks depending on context:</p>
-<pre><code>fun retBigger(el2, el2: int): int = { return el1 | this &gt; el2 | el2 }
-fun retBigger(el2, el2: flt): flt = { return el1 | this &gt; el2 | el2 }
+<p>In routine signatures, you must declare the type of each parameter. Requiring type annotations in routine definitions is obligatory, which means the compiler almost never needs you to use them elsewhere in the code to figure out what you mean.</p>
+<p>Routine names are unique: declaring two routines with the same name in one
+scope is rejected, so there is no overload-resolution step. Give the variants
+distinct names, or take a generic parameter when the bodies are the same shape:</p>
+<pre><code>fun[] lower_chr(c: chr): chr = {
+    return .to_lower(c);
+};
 
-pro main: int = {
-    retBigger(4, 5);                                        // calling a routine with intigers
-    retBigger(4.5, .3);                                     // calling another routine with same name but floats
-}
-</code></pre>
-<p>The overloading resolution algorithm determines which routine is the best match for the arguments. Example:</p>
-<pre><code>pro toLower(c: char): char = {                              // toLower for characters
-    if (c in {'A' ... 'Z'}){
-        result = chr(ord(c) + (ord('a') - ord('A')))
-    } else {
-        result = c
-    }
-}
-
-pro toLower(s: str): str = {                                // toLower for strings
-    result = newString(.len(s))
-    for i in {0 ... len(s) - 1}:
-        result[i] = toLower(s[i])                           // calls toLower for characters; no recursion!
-}
+fun[] lower_str(s: str): str = {
+    return .to_lower(s);
+};
 </code></pre>
 <h3 id="actual-parameters"><a class="header" href="#actual-parameters">Actual parameters</a></h3>
 <p>routine call statements must include the name of the routine and a list of parameters to be bound to the formal parameters of the routine. These parameters are called actual parameters. They must be distinguished from formal parameters, because the two usually have different restrictions on their forms.</p>
 <h4 id="positional-parameters"><a class="header" href="#positional-parameters">Positional parameters</a></h4>
 <p>The correspondence between actual and formal parameters, or the binding of actual parameters to formal parameters - is done by position: The first actual parameter is bound to the first formal parameter and so forth. Such parameters are called positional parameters. This is an effective and safe method of relating actual parameters to their corresponding formal parameters, as long as the parameter lists are relatively short.</p>
-<pre><code>fun[] calc(el1, el2, el3: int): int = { result = el1 + el2 - el3 }
+<pre><code>fun[] calc(el1, el2, el3: int): int = { return el1 + el2 - el3; }
 
 pro main: int = {
     calc(3,4,5);                                            // calling routine with positional arguments
@@ -6051,7 +6037,7 @@ pro main: int = {
 </code></pre>
 <h4 id="keyword-parameters"><a class="header" href="#keyword-parameters">Keyword parameters</a></h4>
 <p>When parameter lists are long, however, it is easy to make mistakes in the order of actual parameters in the list. One solution to this problem is with keyword parameters, in which the name of the formal parameter to which an actual parameter is to be bound is specified with the actual parameter in a call. The advantage of keyword parameters is that they can appear in any order in the actual parameter list.</p>
-<pre><code>fun[] calc(el1, el2, el3: int): int = { result = el1 + el2 - el3 }
+<pre><code>fun[] calc(el1, el2, el3: int): int = { return el1 + el2 - el3; }
 
 pro main: int = {
     calc(el3 = 5, el2 = 4, el1 = 3);                        // calling routine with keywords arguments
@@ -6148,14 +6134,17 @@ parameters, so call binding stays limited to:</p>
 <p>Nested procedures don’t have access to the outer scope, while nested function have but can’t change the state of it.</p>
 <p>{{% /notice %}}</p>
 <h2 id="return"><a class="header" href="#return">Return</a></h2>
-<p>The return type of the routine has to always be defined, just after the formal parameter definition. Following the general rule of <strong>FOL</strong>:</p>
-<pre><code>fun[] add(el1, el2: int[64]): int[64] = { result = el1 + el2 }
+<p>A routine always declares its return type after the formal parameters, and a
+value leaves the routine through an explicit <code>return</code>:</p>
+<pre><code>fun[] add(el1, el2: int[64]): int[64] = {
+    return el1 + el2;
+};
 </code></pre>
-<p>To make it shorter (so we don’t have to type <code>int[64]</code> two times), we can use a <em>short form</em> by omitting the return type. The compiler then will assign the returntype the same as the functions return value.</p>
-<pre><code>fun[] add(el1, el2: int[64]) = { result = el1 + el2 }
-</code></pre>
+<p>There is no short form that omits the return type, no implicitly declared
+<code>result</code> variable, and no last-expression return: a routine body that falls off
+the end without <code>return</code> does not produce a value.</p>
 <p>{{% notice info %}}</p>
-<p>Current <code>V1</code> routine summary:</p>
+<p>Routine summary:</p>
 <ul>
 <li>routines declare a success type after <code>:</code></li>
 <li>routines may also declare a recoverable error type after <code>/</code></li>
@@ -6164,28 +6153,21 @@ parameters, so call binding stays limited to:</p>
 values</li>
 <li>use <code>check(...)</code> or <code>expr || fallback</code> for those calls</li>
 <li>ordinary plain-value use of <code>/ ErrorType</code> calls is rejected</li>
-<li>keep postfix <code>!</code> for <code>opt[...]</code> and <code>err[...]</code> shell values</li>
+<li>keep postfix <code>[uwp]</code> for <code>opt[...]</code> and <code>err[...]</code> shell values</li>
 </ul>
 <p>{{% /notice %}}</p>
-<p>The implicitly declared variable <code>result</code> is of the same type of the return type. For it top be implicitly declared, the return type of the function shoud be always declared, and not use the short form. The variable is initialized with zero value, and if not changed during the body implementation, the same value will return (so zero).</p>
-<pre><code>pro main(): int = {
-    fun[] add(el1, el2: int[64]): int[64] = { result = el1 + el2 }          // using the implicitly declared $result variable
-    fun[] sub(el1, el2: int[64]) = { return el1 - el2 }                     // can't access the result variable, thus we use return
-}
-</code></pre>
 <p>Recoverable error-aware routines use the current signature form:</p>
 <pre><code>fun[] read(path: str): int / str = {
-    report "missing path"
-}
+    report "missing path";
+};
 </code></pre>
 <p>and are handled at the call site with <code>check(...)</code> or <code>||</code> rather than shell
 unwrap or plain propagation.</p>
-<p>Current intrinsic note:</p>
+<p>Intrinsic note:</p>
 <ul>
 <li><code>.echo(...)</code> is a dot-root diagnostic intrinsic</li>
 <li><code>check(...)</code> is a keyword intrinsic for recoverable-call inspection</li>
 <li><code>panic(...)</code> is a keyword intrinsic for immediate abort</li>
-<li><code>as</code> and <code>cast</code> are registry-owned but still deferred in current <code>V1</code></li>
 </ul>
 <p>Model reminder:</p>
 <ul>
@@ -6194,22 +6176,9 @@ bundled <code>std</code> support available</li>
 <li>routine examples without hosted behavior should stay valid in <code>core</code> or
 <code>memo</code> where the surrounding chapter claims they are model-neutral</li>
 </ul>
-<p>The final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (so the function cnat be in the short form)). ver this can be used only in one statement body.</p>
-<pre><code>pro main(): int = {
-    fun[] add(el1, el2: int[64]): int[64] = { el1 + el2 }                   // This is tha last statement, this will serve as return
-    fun[] someting(el1,el2: int): int = {
-        if (condition) {
-
-        } else {
-
-        }
-        el1 + el2                                                           // this will throw an error, cand be used in kulti statement body
-    }
-    fun[] add(el1, el2: int[64]) = { el1 + el2 }                            // this will throw an error, we can't use the short form of funciton in this way
-</code></pre>
-<p>Alternatively, <code>return</code> and <code>report</code> can exit a routine early from within
-control flow. See the recoverable-error chapter for the full current <code>V1</code>
-contract and the shell-vs-routine distinction.</p>
+<p><code>return</code> and <code>report</code> can also exit a routine early from within control flow.
+See the recoverable-error chapter for the full contract and the
+shell-vs-routine distinction.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="procedures"><a class="header" href="#procedures">Procedures</a></h1>
 <p>Procedures are most common type of routines in Fol. When a procedure is “called” the program “leaves” the current section of code and begins to execute the first line inside the procedure. Thus the procedure “flow of control” is:</p>
@@ -6796,7 +6765,7 @@ support therefore does not imply generator support.</p>
 <h2 id="definition"><a class="header" href="#definition">Definition</a></h2>
 <h3 id="records"><a class="header" href="#records">Records</a></h3>
 <p>A record is an aggregate of data elements in which the individual elements are identified by names and types and accessed through offsets from the beginning of the structure. There is frequently a need in programs to model a collection of data in which the individual elements are not of the same type or size. For example, information about a college student might include name, student number, grade point average, and so forth. A data type for such a collection might use a character string for the name, an integer for the student number, a  floating- point for the grade point average, and so forth. Records are designed for this kind of need.</p>
-<p>It may appear that records and heterogeneous <a href="/docs/spec/types#sets">set</a> are the same, but that is not the case. The elements of a heterogeneous <code>set[]</code> are all references to data values that may reside in scattered locations. The elements of a record are of potentially different sizes and reside in adjacent memory locations. Records are primarily data layouts.</p>
+<p>It may appear that records and heterogeneous <a href="400_types/_index.html">set</a> are the same, but that is not the case. The elements of a heterogeneous <code>set[]</code> are all references to data values that may reside in scattered locations. The elements of a record are of potentially different sizes and reside in adjacent memory locations. Records are primarily data layouts.</p>
 <pre><code>typ user: rec = {
     var username: str;
     var email: str;
@@ -6887,7 +6856,7 @@ nested targets such as <code>a.b.c = ...</code> are not part of the current surf
 the current compiler contract</li>
 </ul>
 <h2 id="returning"><a class="header" href="#returning">Returning</a></h2>
-<p>As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. As specified <a href="/docs/spec/functions#return">in function return</a>, the final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (here is defined as <code>user</code>) and this can be used only in one statement body. Here we have declared only one variable <code>user1</code> and that itslef spanc into multi rows:</p>
+<p>As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. A record instance is returned like any other value, with an explicit <code>return</code> (see <a href="#routines">Routines</a>). Here we declare one variable <code>user1</code> whose initializer spans several lines:</p>
 <pre><code>pro buildUser(email, username: str): user = { user1: user = {
     email = "someone@example.com",
     username = "someusername123",
@@ -7649,7 +7618,7 @@ merely share a line and code remain distinct</li>
 compiler contract is that locations, codes, and structured diagnostic shape are
 stable enough to build tests and tooling around them.</p>
 <p>For the detailed compiler-facing reporting model, see
-<a href="/docs/spec/errors/300_diagnostics">Compiler Diagnostics</a>.</p>
+<a href="#compiler-diagnostics">Compiler Diagnostics</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="breaking-errors"><a class="header" href="#breaking-errors">Breaking errors</a></h1>
 <p><code>panic</code> keyword allows a program to terminate immediately and provide feedback to the caller of the program. It should be used when a program reaches an unrecoverable state. This most commonly occurs when a bug of some kind has been detected and it’s not clear to the programmer how to handle the error.</p>

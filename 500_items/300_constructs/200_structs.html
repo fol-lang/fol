@@ -35,7 +35,7 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-686ccb19.js";
+            window.path_to_searchindex_js = "../../searchindex-f859bb09.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-7a86c1dd.js"></script>
@@ -184,7 +184,7 @@
 <h2 id="definition"><a class="header" href="#definition">Definition</a></h2>
 <h3 id="records"><a class="header" href="#records">Records</a></h3>
 <p>A record is an aggregate of data elements in which the individual elements are identified by names and types and accessed through offsets from the beginning of the structure. There is frequently a need in programs to model a collection of data in which the individual elements are not of the same type or size. For example, information about a college student might include name, student number, grade point average, and so forth. A data type for such a collection might use a character string for the name, an integer for the student number, a  floating- point for the grade point average, and so forth. Records are designed for this kind of need.</p>
-<p>It may appear that records and heterogeneous <a href="/docs/spec/types/#sets">set</a> are the same, but that is not the case. The elements of a heterogeneous <code>set[]</code> are all references to data values that may reside in scattered locations. The elements of a record are of potentially different sizes and reside in adjacent memory locations. Records are primarily data layouts.</p>
+<p>It may appear that records and heterogeneous <a href="../../400_types/_index.html">set</a> are the same, but that is not the case. The elements of a heterogeneous <code>set[]</code> are all references to data values that may reside in scattered locations. The elements of a record are of potentially different sizes and reside in adjacent memory locations. Records are primarily data layouts.</p>
 <pre><code>typ user: rec = {
     var username: str;
     var email: str;
@@ -275,7 +275,7 @@ nested targets such as <code>a.b.c = ...</code> are not part of the current surf
 the current compiler contract</li>
 </ul>
 <h2 id="returning"><a class="header" href="#returning">Returning</a></h2>
-<p>As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. As specified <a href="/docs/spec/functions/#return">in function return</a>, the final expression in the function will be used as return value. For this to be used, the return type of the function needs to be defined (here is defined as <code>user</code>) and this can be used only in one statement body. Here we have declared only one variable <code>user1</code> and that itslef spanc into multi rows:</p>
+<p>As with any expression, we can construct a new instance of the record as the last expression in the function body to implicitly return that new instance. A record instance is returned like any other value, with an explicit <code>return</code> (see <a href="../200_routines/_index.html">Routines</a>). Here we declare one variable <code>user1</code> whose initializer spans several lines:</p>
 <pre><code>pro buildUser(email, username: str): user = { user1: user = {
     email = "someone@example.com",
     username = "someusername123",
