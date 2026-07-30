@@ -173,9 +173,13 @@ fn editor_surface_stays_under_tool_not_a_parallel_editor_group() {
     })
     .render_error(&error)
     .expect("json render should succeed");
-    assert!(json.contains("\"code\": \"F1004\""));
-    assert!(json.contains("File not found"));
+    // `editor` is taken as a direct input target and `lsp` is a stray second
+    // positional, which is rejected rather than silently dropped — the old
+    // behavior quietly tried to compile a file named "editor".
+    assert!(json.contains("\"code\": \"F1001\""));
+    assert!(json.contains("unexpected argument"));
     assert!(json.contains("editor"));
+    assert!(json.contains("lsp"));
 }
 
 #[test]
