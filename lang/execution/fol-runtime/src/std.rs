@@ -645,12 +645,26 @@ pub fn shell(command: FolStr) -> crate::value::FolInt {
         stdin_is_idle(),
         "shell() ran while a key read was still outstanding; the child may lose one byte of input"
     );
-    std::process::Command::new("sh")
+    match std::process::Command::new("sh")
         .arg("-c")
         .arg(command.as_str())
         .status()
-        .map(|status| status.code().unwrap_or(-1) as crate::value::FolInt)
-        .unwrap_or(-1)
+    {
+        // Shell conventions, so the three outcomes stay distinguishable instead
+        // of all collapsing onto -1: the command's own status, 128+N when a
+        // signal killed it, and 127 when the shell could not be launched.
+        Ok(status) => match status.code() {
+            Some(code) => code as crate::value::FolInt,
+            None => {
+                use std::os::unix::process::ExitStatusExt as _;
+                status
+                    .signal()
+                    .map(|signal| 128 + signal as crate::value::FolInt)
+                    .unwrap_or(-1)
+            }
+        },
+        Err(_) => 127,
+    }
 }
 
 /// Sorted directory entries joined by newlines, directories suffixed with a

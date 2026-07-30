@@ -195,7 +195,8 @@ dependency):
   single-byte construction
 - `.env_var(name)` — an environment variable's value
 - `.shell(command)` — run a command through `sh -c` with inherited streams and
-  yield its exit status
+  yield its exit status; `128 + signal` if a signal killed it, `127` if the
+  shell could not be launched
 - `.dir_list(path)` — the sorted entries of a directory, directories suffixed
   with `/`
 - `.read_file(path)` — a file's contents
