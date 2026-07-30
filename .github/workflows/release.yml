@@ -5,12 +5,64 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
+  # A tag must agree with the tree it points at before anything is published.
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check the tag against the workspace version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          case "$tag" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "tag $GITHUB_REF_NAME is not vX.Y.Z" >&2; exit 1 ;;
+          esac
+          version="$(make print-version)"
+          if [ "$tag" != "$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match workspace version $version" >&2
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches workspace version $version"
+
+  # Publishing an unverified tree is what let broken releases ship before.
+  verify:
+    needs: guard
+    uses: ./.github/workflows/tests.yml
+
+  create_release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "fol $GITHUB_REF_NAME" \
+            --notes "FOL toolchain $GITHUB_REF_NAME — install with: fol self install $version"
+
   toolchain:
+    needs: create_release
     name: toolchain ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -21,41 +73,47 @@ jobs:
             target: aarch64-linux
     steps:
       - name: Checkout FOL
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           path: fol
 
       # fol-interop consumes these as ../../../../{parc,linc,gerc} path
-      # dependencies, so they must sit next to the fol checkout.
+      # dependencies, so they must sit beside the fol checkout.
       - name: Checkout PARC
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: fol-lang/parc
           ref: 0f52aeeeeec47a082c0d8a515130ee853aa1101d
           path: parc
 
       - name: Checkout LINC
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: fol-lang/linc
           ref: c874d5b0332249524422d9d08c35b3d4edd7e3fa
           path: linc
 
       - name: Checkout GERC
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: fol-lang/gerc
           ref: 000c1f6c12fba99f1a157267ee7db39d42bda8e3
           path: gerc
 
-      - name: Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Show Rust toolchain
+        working-directory: fol
+        run: rustup show
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
+        with:
+          workspaces: fol
 
       - name: Build folc and fol
         working-directory: fol
         run: |
-          cargo build --release --bin folc
-          cargo build --release -p fol-self
+          cargo build --release --locked --bin folc
+          cargo build --release --locked -p fol-self
 
       - name: Stage and pack toolchain
         working-directory: fol
@@ -75,19 +133,27 @@ jobs:
           # fol itself, ready to drop on PATH.
           cp target/release/fol "fol-v${VERSION}-${{ matrix.target }}"
 
+      - name: Publish checksums
+        working-directory: fol
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Per-target files: the matrix jobs upload concurrently, so a single
+          # shared SHA256SUMS would lose one target's lines.
+          sha256sum \
+            "fol-compiler-and-lib-v${VERSION}-${{ matrix.target }}.tar.gz" \
+            "fol-v${VERSION}-${{ matrix.target }}" \
+            > "SHA256SUMS-${{ matrix.target }}"
+          cat "SHA256SUMS-${{ matrix.target }}"
+
       - name: Upload release assets
         working-directory: fol
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "fol $GITHUB_REF_NAME" \
-            --notes "FOL toolchain $GITHUB_REF_NAME — install with: fol self install $VERSION" \
-            2>/dev/null || true
           gh release upload "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             "fol-compiler-and-lib-v${VERSION}-${{ matrix.target }}.tar.gz" \
             "fol-v${VERSION}-${{ matrix.target }}" \
+            "SHA256SUMS-${{ matrix.target }}" \
             --clobber

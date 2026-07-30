@@ -1,6 +1,6 @@
 PROJECT_NAME := $(shell awk -F'"' '/^\[package\]/{package=1; next} package && /^name = /{print $$2; exit}' Cargo.toml)
 PROJECT_CAP  := $(shell echo $(PROJECT_NAME) | tr '[:lower:]' '[:upper:]')
-CURRENT_VERSION := $(shell awk -F'"' '/^\[package\]/{package=1; next} package && /^version = /{print $$2; exit}' Cargo.toml)
+CURRENT_VERSION := $(shell awk -F'"' '/^\[workspace\]/{w=1} w && /^package\.version[[:space:]]*=/{print $$2; exit}' Cargo.toml)
 LATEST_TAG   ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 TOP_DIR      := $(CURDIR)
 BUILD_DIR    := $(TOP_DIR)/target
@@ -19,7 +19,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t tree tree-test interop-check interop-locked test-interop verify help h clean docs release
+.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop verify verify-all help h clean docs release
 
 SHELL := /bin/bash
 
@@ -107,11 +107,20 @@ TEST_ARGS ?=
 
 test:
 	@cargo test --workspace $(TEST_ARGS)
-	@cargo test -- $(TEST_ARGS) --ignored
+
+# The only #[ignore]d tests in the tree fetch real repositories over the
+# network, so they stay out of `verify` and run on demand (and nightly in CI).
+test-network:
+	@cargo test -p fol --test integration -- $(TEST_ARGS) --ignored
+
+print-version:
+	@echo $(CURRENT_VERSION)
 
 t: test
 
 verify: fmt-check lint test interop-check test-interop
+
+verify-all: verify test-network
 
 help:
 	@echo
@@ -131,8 +140,10 @@ help:
 	@echo "  interop-locked Require exact clean sibling revisions and remotes"
 	@echo "  test-interop Run the required Linux/GCC H7 link-and-run smoke"
 	@echo "  test         Run tests"
+	@echo "  test-network Run the network-dependent ignored tests"
 	@echo "  verify       Run the complete non-mutating repository gate"
-	@echo "  docs         Build documentation in target/book (TYPE=mdbook|doxygen)"
+	@echo "  verify-all   Run verify plus the network-dependent tests"
+	@echo "  docs         Build documentation in target/book (TYPE=mdbook|rustdoc)"
 	@echo "  release      Create a new release (TYPE=patch|minor|major)"
 	@echo
 
@@ -148,10 +159,11 @@ ifeq ($(TYPE),mdbook)
 	@command -v mdbook >/dev/null 2>&1 || { echo "mdbook is not installed. Please install it first."; exit 1; }
 	@mdbook build $(TOP_DIR)/book --dest-dir $(DOCS_BUILD_DIR)
 	@echo "Documentation written to $(DOCS_BUILD_DIR)"
-else ifeq ($(TYPE),doxygen)
-	@command -v doxygen >/dev/null 2>&1 || { echo "doxygen is not installed. Please install it first."; exit 1; }
+else ifeq ($(TYPE),rustdoc)
+	@cargo doc --workspace --no-deps
+	@echo "API documentation written to target/doc"
 else
-	$(error Invalid documentation type. Use 'make docs TYPE=mdbook' or 'make docs TYPE=doxygen')
+	$(error Invalid documentation type. Use 'make docs TYPE=mdbook' or 'make docs TYPE=rustdoc')
 endif
 
 TYPE ?= patch

@@ -84,13 +84,9 @@ fn test_release_workflow_ships_fetchable_toolchain_artifacts() {
         std::fs::read_to_string(repo_root().join(".github/workflows/release.yml"))
             .expect("release workflow should exist");
 
-    assert!(
-        release_workflow.contains("dtolnay/rust-toolchain@stable"),
-        "release workflow should track the current stable Rust toolchain"
-    );
     for step in [
-        "cargo build --release --bin folc",
-        "cargo build --release -p fol-self",
+        "cargo build --release --locked --bin folc",
+        "cargo build --release --locked -p fol-self",
     ] {
         assert!(
             release_workflow.contains(step),
@@ -110,6 +106,86 @@ fn test_release_workflow_ships_fetchable_toolchain_artifacts() {
     assert!(
         !release_workflow.contains("macos"),
         "fol is linux-only; the release workflow must not build macos targets"
+    );
+
+    // `fol self install` refuses to unpack anything it cannot verify, so every
+    // release must publish per-target checksums. A single shared SHA256SUMS
+    // would race between the concurrent matrix uploads.
+    assert!(
+        release_workflow.contains("SHA256SUMS-${{ matrix.target }}"),
+        "release workflow should publish per-target checksums"
+    );
+    assert!(
+        release_workflow.contains("sha256sum"),
+        "release workflow should compute the published digests"
+    );
+
+    // A tag must not publish a tree that was never verified, and must not
+    // disagree with the workspace version.
+    assert!(
+        release_workflow.contains("uses: ./.github/workflows/tests.yml"),
+        "release workflow should gate publishing on the test workflow"
+    );
+    assert!(
+        release_workflow.contains("make print-version"),
+        "release workflow should compare the tag against the workspace version"
+    );
+    for (job, needs) in [
+        ("verify:", "needs: guard"),
+        ("create_release:", "needs: verify"),
+        ("toolchain:", "needs: create_release"),
+    ] {
+        let job_at = release_workflow
+            .find(job)
+            .unwrap_or_else(|| panic!("release workflow should define the {job} job"));
+        let tail = &release_workflow[job_at..];
+        assert!(
+            tail.starts_with(job) && tail.contains(needs),
+            "the {job} job should declare '{needs}'"
+        );
+    }
+}
+
+#[test]
+fn test_ci_verifies_the_default_branch_and_keeps_network_tests_out_of_the_gate() {
+    let tests_workflow = std::fs::read_to_string(repo_root().join(".github/workflows/tests.yml"))
+        .expect("tests workflow should exist");
+    let makefile = std::fs::read_to_string(repo_root().join("Makefile")).expect("Makefile");
+
+    // Releases are cut from main, so main must be gated.
+    assert!(
+        tests_workflow.contains("branches: [\"main\", \"develop\"]"),
+        "tests should run on main as well as develop"
+    );
+    assert!(
+        tests_workflow.contains("workflow_call"),
+        "tests should be callable from the release workflow"
+    );
+
+    // `make verify` must not depend on GitHub being reachable.
+    assert!(
+        makefile.contains("test-network:"),
+        "the Makefile should expose the network tests as their own target"
+    );
+    let verify_line = makefile
+        .lines()
+        .find(|line| line.starts_with("verify:"))
+        .expect("the Makefile should define verify");
+    assert!(
+        !verify_line.contains("test-network"),
+        "verify must stay free of the network-dependent tests: {verify_line}"
+    );
+    let test_target = makefile
+        .split("\ntest:")
+        .nth(1)
+        .expect("the Makefile should define the test target");
+    let test_body = test_target
+        .split("\n\n")
+        .next()
+        .expect("the test target should have a body");
+    assert!(
+        !test_body.contains("--ignored"),
+        "the default test target must not un-ignore the network tests: {test_body}"
     );
 }
 
