@@ -151,19 +151,24 @@ Current shipped routines:
 
 - `os::env(str): str`
 - `os::shell(str): int`
+- `os::arg_count(): int`
+- `os::arg(int): str`
 - `fs::dir_list(str): str`
 - `fs::read_file(str): str`
+- `fs::write_file(str, str): int`
 - `fmt::answer(): int`
 - `fmt::double(int): int`
 - `fmt::triple(int): int`
 - `fmt::sum2(int, int): int`
 - `fmt::int_to_str(int): str`
+- `fmt::float_to_str(flt, int): str`
 - `fmt::math::answer(): int`
 - `io::echo_int(int): int`
 - `io::echo_str(str): str`
 - `io::echo_bool(bol): bol`
 - `io::echo_chr(chr): chr`
 - `io::write(str): str`
+- `io::write_err(str): str`
 - `io::read_key(): int`
 - `io::read_key_ms(int): int`
 - `term::raw_mode(bol): bol`
@@ -174,6 +179,9 @@ Current shipped routines:
 - `strn::sub(str, int, int): str`
 - `strn::byte_at(str, int): int`
 - `strn::from_byte(int): str`
+- `strn::find(str, str): int`
+- `strn::replace(str, str, str): str`
+- `strn::to_int(str, int): int`
 
 `std.io` is intentionally narrow right now. It wraps the hosted `.echo(...)`
 primitive instead of replacing it.

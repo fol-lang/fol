@@ -185,6 +185,14 @@ pub fn editor_intrinsic_available_in_model(
             | "shell"
             | "dir_list"
             | "read_file"
+            | "arg_count"
+            | "arg_at"
+            | "write_err"
+            | "write_file"
+            | "str_find"
+            | "str_replace"
+            | "parse_int"
+            | "float_to_str"
     ) {
         return editor_model_capability(model).hosted_runtime;
     }

@@ -19,3 +19,7 @@ fun[exp] sum2(left: int, right: int): int = {
 fun[exp] int_to_str(value: int): str = {
     return .int_to_str(value);
 };
+
+fun[exp] float_to_str(value: flt, decimals: int): str = {
+    return .float_to_str(value, decimals);
+};

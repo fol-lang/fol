@@ -424,10 +424,28 @@ pub fn render_core_instruction_in_workspace(
                 | ("env_var", [value])
                 | ("shell", [value])
                 | ("dir_list", [value])
-                | ("read_file", [value]) => {
+                | ("read_file", [value])
+                | ("arg_at", [value])
+                | ("write_err", [value]) => {
                     let value =
                         render_transfer_expr(type_table, package_identity, routine, *value)?;
                     format!("rt::{}({value})", entry.name)
+                }
+                ("arg_count", []) => "rt::arg_count()".to_string(),
+                ("write_file", [path, contents])
+                | ("str_find", [path, contents])
+                | ("parse_int", [path, contents])
+                | ("float_to_str", [path, contents]) => {
+                    let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
+                    let second =
+                        render_transfer_expr(type_table, package_identity, routine, *contents)?;
+                    format!("rt::{}({first}, {second})", entry.name)
+                }
+                ("str_replace", [text, from, to]) => {
+                    let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
+                    let from = render_transfer_expr(type_table, package_identity, routine, *from)?;
+                    let to = render_transfer_expr(type_table, package_identity, routine, *to)?;
+                    format!("rt::str_replace({text}, {from}, {to})")
                 }
                 ("str_sub", [text, start, count]) => {
                     let text = render_transfer_expr(type_table, package_identity, routine, *text)?;

@@ -785,3 +785,95 @@ fn cli_run_hands_the_terminal_to_the_program_it_launches() {
         "the program should have received the byte typed into `fol code run`, got:\n{stdout}"
     );
 }
+
+#[test]
+fn string_number_and_write_hooks_back_real_cli_work() {
+    // The primitives a command-line program cannot be written without:
+    // searching and rewriting text, turning an argument into a number,
+    // formatting a float, and writing a file back out.
+    let staging = unique_temp_root("v3_cli_hooks_data");
+    std::fs::create_dir_all(&staging).expect("cli hook staging dir");
+    let target = staging.join("written.txt");
+    let root = write_hosted_app(
+        "v3_cli_hooks",
+        &("use std: pkg = {\"std\"};\n".to_string()
+            + &format!(
+                "fun[] main(): int = {{\n\
+             \x20   std::io::echo_int(std::strn::find(\"hello world\", \"world\"));\n\
+             \x20   std::io::echo_int(std::strn::find(\"hello\", \"absent\"));\n\
+             \x20   std::io::echo_str(std::strn::replace(\"a-b-c\", \"-\", \"+\"));\n\
+             \x20   std::io::echo_int(std::strn::to_int(\"42\", 0));\n\
+             \x20   std::io::echo_int(std::strn::to_int(\"not a number\", -7));\n\
+             \x20   std::io::echo_str(std::fmt::float_to_str(3.14159, 2));\n\
+             \x20   std::io::echo_int(std::fs::write_file(\"{path}\", \"written\"));\n\
+             \x20   std::io::echo_str(std::fs::read_file(\"{path}\"));\n\
+             \x20   std::io::echo_int(std::fs::write_file(\"/no/such/dir/x\", \"nope\"));\n\
+             \x20   return 0;\n\
+             }};\n",
+                path = target.display()
+            )),
+    );
+    assert_successful_stdout(&root, "6\n-1\na+b+c\n42\n-7\n3.14\n0\nwritten\n-1\n");
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("the program should have written the file"),
+        "written"
+    );
+}
+
+#[test]
+fn command_line_arguments_reach_the_program() {
+    let root = write_hosted_app(
+        "v3_argv_hooks",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_int(std::os::arg_count());\n\
+         \x20   std::io::echo_str(std::os::arg(0));\n\
+         \x20   std::io::echo_str(std::os::arg(1));\n\
+         \x20   std::io::echo_str(std::os::arg(9));\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    let build = assert_build_succeeds(&root);
+    let output = Command::new(built_binary_path(&build))
+        .args(["first", "second"])
+        .output()
+        .expect("argv proof binary should run");
+
+    assert!(output.status.success(), "argv proof should exit cleanly");
+    // Index 0 is the first real argument, not the program name, and an index
+    // past the end reads as empty rather than crashing.
+    assert_eq!(
+        strip_ansi(&String::from_utf8_lossy(&output.stdout)),
+        "2\nfirst\nsecond\n\n"
+    );
+}
+
+#[test]
+fn standard_error_stays_separate_from_standard_output() {
+    let root = write_hosted_app(
+        "v3_stderr_hook",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_str(\"out\");\n\
+         \x20   std::io::write_err(\"err\");\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    let build = assert_build_succeeds(&root);
+    let run = run_with_timeout(&built_binary_path(&build), Duration::from_secs(5));
+
+    assert!(
+        run.output.status.success(),
+        "stderr proof should exit cleanly"
+    );
+    assert_eq!(
+        strip_ansi(&String::from_utf8_lossy(&run.output.stdout)),
+        "out\n"
+    );
+    assert_eq!(
+        strip_ansi(&String::from_utf8_lossy(&run.output.stderr)),
+        "err"
+    );
+}

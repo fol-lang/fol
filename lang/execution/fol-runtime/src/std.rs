@@ -716,6 +716,80 @@ pub fn read_file(path: FolStr) -> FolStr {
     FolStr::new(std::fs::read_to_string(path.as_str()).unwrap_or_default())
 }
 
+/// Writes text to a path: 0 on success, -1 when the write fails.
+pub fn write_file(path: FolStr, contents: FolStr) -> crate::value::FolInt {
+    match std::fs::write(path.as_str(), contents.as_str()) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// How many command-line arguments the program received, excluding the name it
+/// was invoked as.
+pub fn arg_count() -> crate::value::FolInt {
+    (std::env::args_os().count().saturating_sub(1)) as crate::value::FolInt
+}
+
+/// The command-line argument at an index, or the empty string when the index is
+/// out of range. Index 0 is the first argument after the program name.
+pub fn arg_at(index: crate::value::FolInt) -> FolStr {
+    if index < 0 {
+        return FolStr::new(String::new());
+    }
+    let argument = std::env::args_os()
+        .nth(index as usize + 1)
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    FolStr::new(argument)
+}
+
+/// Text written to standard error without a trailing newline, forwarded
+/// unchanged so it can be chained.
+pub fn write_err(value: FolStr) -> FolStr {
+    use std::io::Write as _;
+    let mut stream = std::io::stderr();
+    let _ = stream.write_all(value.as_str().as_bytes());
+    let _ = stream.flush();
+    value
+}
+
+/// The byte index where a needle first occurs, or -1 when it does not. An empty
+/// needle matches at the start, which is what `find` means everywhere else.
+pub fn str_find(haystack: FolStr, needle: FolStr) -> crate::value::FolInt {
+    match haystack.as_str().find(needle.as_str()) {
+        Some(index) => index as crate::value::FolInt,
+        None => -1,
+    }
+}
+
+/// Every occurrence of one substring replaced by another. An empty needle is
+/// returned unchanged rather than splicing the replacement between every byte.
+pub fn str_replace(text: FolStr, from: FolStr, to: FolStr) -> FolStr {
+    if from.as_str().is_empty() {
+        return text;
+    }
+    FolStr::new(text.as_str().replace(from.as_str(), to.as_str()))
+}
+
+/// A string parsed as an integer, or the caller's fallback.
+///
+/// The fallback is an argument rather than a fixed sentinel because every
+/// sentinel is also a legitimate parse result: -1 cannot mean both "the text
+/// said -1" and "the text was not a number".
+pub fn parse_int(text: FolStr, fallback: crate::value::FolInt) -> crate::value::FolInt {
+    text.as_str()
+        .trim()
+        .parse::<crate::value::FolInt>()
+        .unwrap_or(fallback)
+}
+
+/// A float rendered with a fixed number of decimal places, clamped to what
+/// f64 can actually distinguish.
+pub fn float_to_str(value: crate::value::FolFloat, decimals: crate::value::FolInt) -> FolStr {
+    let places = decimals.clamp(0, 17) as usize;
+    FolStr::new(format!("{value:.places$}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,3 +7,11 @@ fun[exp] env(name: str): str = {
 fun[exp] shell(command: str): int = {
     return .shell(command);
 };
+
+fun[exp] arg_count(): int = {
+    return .arg_count();
+};
+
+fun[exp] arg(index: int): str = {
+    return .arg_at(index);
+};

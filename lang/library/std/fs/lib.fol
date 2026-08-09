@@ -7,3 +7,7 @@ fun[exp] dir_list(path: str): str = {
 fun[exp] read_file(path: str): str = {
     return .read_file(path);
 };
+
+fun[exp] write_file(path: str, contents: str): int = {
+    return .write_file(path, contents);
+};

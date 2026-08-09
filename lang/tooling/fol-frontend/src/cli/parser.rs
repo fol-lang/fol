@@ -1019,17 +1019,14 @@ fn parse_run_command(
             cmd.args.push(cursor.advance().unwrap().to_string());
         }
     }
-    // Everything after -- goes to args
+    // Everything after `--` belongs to the program, including the first token.
+    // Claiming that one for the target instead left a package program unable to
+    // receive its first argument at all: `fol code run -- 42` tried to compile
+    // a file named `42`. Name a direct target before the separator
+    // (`fol code run main.fol -- arg`), which the loop above already accepts.
     if hit_separator {
         while let Some(token) = cursor.advance() {
-            // After `--`, the first token still fills the target when none was
-            // given, so `fol code run -- main.fol arg` names the target and
-            // passes `arg` through; everything after it is the program's.
-            if cmd.target.input.is_none() {
-                cmd.target.input = Some(token.to_string());
-            } else {
-                cmd.args.push(token.to_string());
-            }
+            cmd.args.push(token.to_string());
         }
     }
     Ok(cmd)

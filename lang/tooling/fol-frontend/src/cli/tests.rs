@@ -55,6 +55,8 @@ fn root_command_families_parse_through_derive_tree() {
 
 #[test]
 fn run_command_preserves_passthrough_args() {
+    // Everything after `--` is the program's, first token included; a direct
+    // target is named before the separator instead.
     let cli = parse_clean(&["fol", "code", "run", "--", "--flag", "value"]);
 
     assert_eq!(
@@ -65,15 +67,13 @@ fn run_command_preserves_passthrough_args() {
             command: CodeSubcommand::Run(RunCommand {
                 output: default_output_args(),
                 profile: default_profile_args(),
-                target: DirectTargetArg {
-                    input: Some("--flag".to_string()),
-                },
+                target: DirectTargetArg::default(),
                 roots: CompileRootArgs::default(),
                 options: BuildOptionArgs::default(),
                 step: BuildStepArgs::default(),
                 locked: false,
                 keep_build_dir: false,
-                args: vec!["value".to_string()],
+                args: vec!["--flag".to_string(), "value".to_string()],
             }),
         }))
     );

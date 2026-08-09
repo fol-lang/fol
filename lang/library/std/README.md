@@ -52,7 +52,9 @@ External dependencies stay separate from bundled std.
 The current bundled bootstrap surface is intentionally tiny:
 
 - `std.os.env(str): str`, `std.os.shell(str): int`
-- `std.fs.dir_list(str): str`, `std.fs.read_file(str): str`
+- `std.fs.dir_list(str): str`, `std.fs.read_file(str): str`,
+  `std.fs.write_file(str, str): int`
+- `std.os.arg_count(): int`, `std.os.arg(int): str`
 - `std.fmt.answer(): int`, `std.fmt.double(int): int`,
   `std.fmt.triple(int): int`, `std.fmt.sum2(int, int): int`,
   `std.fmt.int_to_str(int): str`
@@ -111,19 +113,24 @@ Current shipped public routines:
 
 - `os::env(str): str`
 - `os::shell(str): int`
+- `os::arg_count(): int`
+- `os::arg(int): str`
 - `fs::dir_list(str): str`
 - `fs::read_file(str): str`
+- `fs::write_file(str, str): int`
 - `fmt::answer(): int`
 - `fmt::double(int): int`
 - `fmt::triple(int): int`
 - `fmt::sum2(int, int): int`
 - `fmt::int_to_str(int): str`
+- `fmt::float_to_str(flt, int): str`
 - `fmt::math::answer(): int`
 - `io::echo_int(int): int`
 - `io::echo_str(str): str`
 - `io::echo_bool(bol): bol`
 - `io::echo_chr(chr): chr`
 - `io::write(str): str`
+- `io::write_err(str): str`
 - `io::read_key(): int`
 - `io::read_key_ms(int): int`
 - `term::raw_mode(bol): bol`
@@ -134,6 +141,9 @@ Current shipped public routines:
 - `strn::sub(str, int, int): str`
 - `strn::byte_at(str, int): int`
 - `strn::from_byte(int): str`
+- `strn::find(str, str): int`
+- `strn::replace(str, str, str): str`
+- `strn::to_int(str, int): int`
 
 Canonical bootstrap examples:
 

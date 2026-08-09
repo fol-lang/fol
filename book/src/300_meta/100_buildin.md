@@ -200,13 +200,25 @@ dependency):
 - `.dir_list(path)` — the sorted entries of a directory, directories suffixed
   with `/`
 - `.read_file(path)` — a file's contents
+- `.write_file(path, contents)` — write text to a path, yielding `0` on success
+  and `-1` when the write fails
+- `.arg_count()` / `.arg_at(index)` — the command-line arguments, excluding the
+  program name; an index past the end reads as the empty string
+- `.write_err(text)` — write to standard error without a trailing newline
+- `.str_find(text, needle)` — the byte index of the first occurrence, or `-1`
+- `.str_replace(text, from, to)` — replace every occurrence
+- `.parse_int(text, fallback)` — parse an integer, or the caller's fallback; the
+  fallback is an argument because every sentinel is also a valid parse result
+- `.float_to_str(value, decimals)` — a float at a fixed number of decimals
 
 The bundled `std` package wraps them as `std::io::write`, `std::io::read_key`,
 `std::io::read_key_ms`, `std::term::raw_mode`, `std::term::cols`,
 `std::term::rows`, `std::time::sleep_ms`, `std::time::now_ms`,
 `std::fmt::int_to_str`, `std::strn::sub`, `std::strn::byte_at`,
-`std::strn::from_byte`, `std::os::env`, `std::os::shell`, `std::fs::dir_list`,
-and `std::fs::read_file`.
+`std::strn::from_byte`, `std::strn::find`, `std::strn::replace`,
+`std::strn::to_int`, `std::fmt::float_to_str`, `std::os::env`,
+`std::os::shell`, `std::os::arg_count`, `std::os::arg`, `std::io::write_err`,
+`std::fs::dir_list`, `std::fs::read_file`, and `std::fs::write_file`.
 
 With that build contract, this is valid:
 

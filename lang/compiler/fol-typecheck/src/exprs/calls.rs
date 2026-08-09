@@ -526,6 +526,17 @@ fn terminal_intrinsic_signature(
         "shell" => Some((vec![builtins.str_], builtins.int)),
         "dir_list" => Some((vec![builtins.str_], builtins.str_)),
         "read_file" => Some((vec![builtins.str_], builtins.str_)),
+        "arg_count" => Some((Vec::new(), builtins.int)),
+        "arg_at" => Some((vec![builtins.int], builtins.str_)),
+        "write_err" => Some((vec![builtins.str_], builtins.str_)),
+        "write_file" => Some((vec![builtins.str_, builtins.str_], builtins.int)),
+        "str_find" => Some((vec![builtins.str_, builtins.str_], builtins.int)),
+        "str_replace" => Some((
+            vec![builtins.str_, builtins.str_, builtins.str_],
+            builtins.str_,
+        )),
+        "parse_int" => Some((vec![builtins.str_, builtins.int], builtins.int)),
+        "float_to_str" => Some((vec![builtins.float, builtins.int], builtins.str_)),
         _ => None,
     }
 }
