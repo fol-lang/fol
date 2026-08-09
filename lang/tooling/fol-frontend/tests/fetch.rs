@@ -543,3 +543,66 @@ fn git_output(root: &Path, args: &[&str]) -> String {
     assert!(output.status.success(), "git {:?} should succeed", args);
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
+
+#[test]
+fn fetch_does_not_delete_the_std_tree_it_materializes_from() {
+    // Clearing the alias slot before copying into it destroys the source when
+    // the store root is the directory that already holds std -- which is the
+    // shipped toolchain's own layout, where those sources are the only copy.
+    let root = temp_root("std_in_store_root");
+    let store = root.join("lib");
+    let std_root = store.join("std");
+    fs::create_dir_all(std_root.join("io")).expect("should create std tree");
+    fs::write(
+        std_root.join("build.fol"),
+        semantic_lib_build("std").replace("src/lib.fol", "lib.fol"),
+    )
+    .expect("should write std build");
+    fs::write(
+        std_root.join("lib.fol"),
+        "fun[exp] marker(): int = {\n    return 1;\n};\n",
+    )
+    .expect("should write std source");
+    fs::write(
+        std_root.join("io/lib.fol"),
+        "fun[exp] io_marker(): int = {\n    return 2;\n};\n",
+    )
+    .expect("should write std io source");
+
+    let app = root.join("app");
+    fs::create_dir_all(&app).expect("should create app package");
+    fs::write(
+        app.join("build.fol"),
+        semantic_bin_build().replace(
+            "    var graph = build.graph();\n",
+            "    build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });\n    var graph = build.graph();\n",
+        ),
+    )
+    .expect("should write app build");
+
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(app)],
+        std_root_override: Some(std_root.clone()),
+        package_store_root_override: Some(store.clone()),
+        build_root: root.join(".fol/build"),
+        cache_root: root.join(".fol/cache"),
+        git_cache_root: root.join(".fol/cache/git"),
+        install_prefix: root.join(".fol/install"),
+    };
+
+    let _ = fetch_workspace(&workspace);
+
+    assert!(
+        std_root.join("build.fol").is_file(),
+        "fetch must not delete the std build file it copies from"
+    );
+    assert!(
+        std_root.join("lib.fol").is_file(),
+        "fetch must not delete the std sources it copies from"
+    );
+    assert!(
+        std_root.join("io/lib.fol").is_file(),
+        "fetch must not delete nested std sources it copies from"
+    );
+}

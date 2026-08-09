@@ -193,14 +193,32 @@ fn build_workspace_source_map(
 
 fn translate_checked_type(
     lowered_types: &mut LoweredTypeTable,
-    cache: &mut BTreeMap<(PackageIdentity, CheckedTypeId), LoweredTypeId>,
+    cache: &mut BTreeMap<(PackageIdentity, CheckedTypeId), Option<LoweredTypeId>>,
     package_identity: &PackageIdentity,
     program: &fol_typecheck::TypedProgram,
     checked_type_id: CheckedTypeId,
 ) -> Result<LoweredTypeId, Vec<LoweringError>> {
-    if let Some(existing) = cache.get(&(package_identity.clone(), checked_type_id)) {
-        return Ok(*existing);
+    let cache_key = (package_identity.clone(), checked_type_id);
+    match cache.get(&cache_key) {
+        Some(Some(existing)) => return Ok(*existing),
+        // Already on the stack: the type expands to itself. Recursing again is
+        // what overflowed the stack and killed the process with no diagnostic,
+        // so report it as the type error it is.
+        Some(None) => {
+            let name = match program.type_table().get(checked_type_id) {
+                Some(CheckedType::Declared { name, .. }) => format!("'{name}'"),
+                _ => format!("checked type {}", checked_type_id.0),
+            };
+            return Err(vec![LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "type {name} is defined in terms of itself; a type name cannot expand to itself, directly or through a cycle"
+                ),
+            )]);
+        }
+        None => {}
     }
+    cache.insert(cache_key.clone(), None);
 
     let checked_type = program
         .type_table()
@@ -220,7 +238,7 @@ fn translate_checked_type(
         } => {
             if kind == DeclaredTypeKind::GenericParameter {
                 let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
-                cache.insert((package_identity.clone(), checked_type_id), lowered);
+                cache.insert(cache_key.clone(), Some(lowered));
                 return Ok(lowered);
             }
             // Apparent overrides are authoritative structural shapes. They
@@ -237,7 +255,7 @@ fn translate_checked_type(
                     program,
                     apparent,
                 )?;
-                cache.insert((package_identity.clone(), checked_type_id), lowered);
+                cache.insert(cache_key.clone(), Some(lowered));
                 return Ok(lowered);
             }
             let typed_symbol = program.typed_symbol(symbol);
@@ -548,7 +566,7 @@ fn translate_checked_type(
         }
     };
 
-    cache.insert((package_identity.clone(), checked_type_id), lowered_type_id);
+    cache.insert(cache_key, Some(lowered_type_id));
     Ok(lowered_type_id)
 }
 

@@ -102,18 +102,65 @@ fn render_dependency_mode_summary(dependencies: &[ResolvedDependencyPackage]) ->
     ))
 }
 
+/// Resolve a path for comparison even when it does not exist yet.
+fn comparable_path(path: &Path) -> PathBuf {
+    if let Ok(resolved) = path.canonicalize() {
+        return resolved;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => match parent.canonicalize() {
+            Ok(parent) => parent.join(name),
+            Err(_) => path.to_path_buf(),
+        },
+        _ => path.to_path_buf(),
+    }
+}
+
+/// Materialize a dependency into its alias slot in the package store.
+///
+/// The slot is cleared before the copy, so the source has to be somewhere else
+/// entirely. When the store root is the directory that already holds the
+/// source -- `--package-store-root <dir>` where the std lives at `<dir>/std`,
+/// which is also the shipped toolchain's own layout -- clearing the slot
+/// deletes the very tree being copied, and the command then fails complaining
+/// that the source has no `build.fol`. Refusing here keeps a wrong flag a wrong
+/// flag instead of a destroyed standard library.
+fn project_dependency_into_store(alias_root: &Path, source_root: &Path) -> FrontendResult<()> {
+    let target = comparable_path(alias_root);
+    let source = comparable_path(source_root);
+
+    if target == source {
+        // Already materialized exactly where it belongs; copying it onto
+        // itself has nothing to add and clearing it would lose it.
+        return Ok(());
+    }
+    if source.starts_with(&target) || target.starts_with(&source) {
+        return Err(FrontendError::new(
+            crate::FrontendErrorKind::InvalidInput,
+            format!(
+                "refusing to materialize '{}' into '{}': one path contains the other, \
+                 so preparing the destination would delete the source",
+                source_root.display(),
+                alias_root.display()
+            ),
+        ));
+    }
+
+    if alias_root.is_dir() {
+        std::fs::remove_dir_all(alias_root).map_err(FrontendError::from)?;
+    } else if alias_root.exists() {
+        std::fs::remove_file(alias_root).map_err(FrontendError::from)?;
+    }
+    copy_package_projection(source_root, alias_root)
+}
+
 fn project_git_dependency_alias(
     package_store_root: &Path,
     alias: &str,
     materialized_root: &Path,
 ) -> FrontendResult<PathBuf> {
     let alias_root = package_store_root.join(alias);
-    if alias_root.is_dir() {
-        std::fs::remove_dir_all(&alias_root).map_err(FrontendError::from)?;
-    } else if alias_root.exists() {
-        std::fs::remove_file(&alias_root).map_err(FrontendError::from)?;
-    }
-    copy_package_projection(materialized_root, &alias_root)?;
+    project_dependency_into_store(&alias_root, materialized_root)?;
     Ok(alias_root)
 }
 
@@ -536,12 +583,7 @@ fn resolve_workspace_fetch(
                             )
                         })?;
                     let alias_root = package_store_root.join(&dependency.alias);
-                    if alias_root.is_dir() {
-                        std::fs::remove_dir_all(&alias_root).map_err(FrontendError::from)?;
-                    } else if alias_root.exists() {
-                        std::fs::remove_file(&alias_root).map_err(FrontendError::from)?;
-                    }
-                    copy_package_projection(&std_root, &alias_root)?;
+                    project_dependency_into_store(&alias_root, &std_root)?;
                     let loaded = package_session
                         .load_materialized_package(&alias_root)
                         .map_err(FrontendError::from)?;
