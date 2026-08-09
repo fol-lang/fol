@@ -5,8 +5,6 @@ use crate::{
 use fol_build::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
 use std::{fs, path::Path};
 
-use crate::process::forward_child_output;
-
 #[cfg(test)]
 mod tests;
 
@@ -902,25 +900,7 @@ pub fn run_workspace_with_args_and_config(
             "build result is missing a binary path",
         )
     })?;
-    let output = std::process::Command::new(&binary)
-        .args(args)
-        .output()
-        .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
-
-    // Forward the executed program's own output; `run` should be
-    // transparent to the child's stdout/stderr, not swallow it.
-    forward_child_output(&output.stdout, &output.stderr);
-
-    if !output.status.success() {
-        return Err(FrontendError::new(
-            FrontendErrorKind::CommandFailed,
-            format!(
-                "run command failed for '{}': status {}",
-                binary.display(),
-                output.status
-            ),
-        ));
-    }
+    crate::process::run_child_transparently(&binary, args)?;
 
     let mut result = FrontendCommandResult::new(
         "run",
@@ -989,25 +969,7 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
             "build result is missing a binary path",
         )
     })?;
-    let output = std::process::Command::new(&binary)
-        .args(args)
-        .output()
-        .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
-
-    // Forward the executed program's own output; `run` should be
-    // transparent to the child's stdout/stderr, not swallow it.
-    forward_child_output(&output.stdout, &output.stderr);
-
-    if !output.status.success() {
-        return Err(FrontendError::new(
-            FrontendErrorKind::CommandFailed,
-            format!(
-                "run command failed for '{}': status {}",
-                binary.display(),
-                output.status
-            ),
-        ));
-    }
+    crate::process::run_child_transparently(&binary, args)?;
 
     let mut result = FrontendCommandResult::new(
         "run",

@@ -5,37 +5,37 @@
 use crate::{FrontendError, FrontendErrorKind, FrontendResult};
 use std::path::Path;
 
-/// Write an executed program's captured stdout/stderr through to the
-/// frontend's own streams so `run` stays transparent to child output.
-pub(crate) fn forward_child_output(stdout: &[u8], stderr: &[u8]) {
+/// Push the frontend's own buffered output out before handing the terminal to
+/// someone else.
+pub(crate) fn flush_frontend_streams() {
     use std::io::Write;
-    if !stdout.is_empty() {
-        let mut out = std::io::stdout();
-        let _ = out.write_all(stdout);
-        let _ = out.flush();
-    }
-    if !stderr.is_empty() {
-        let mut err = std::io::stderr();
-        let _ = err.write_all(stderr);
-        let _ = err.flush();
-    }
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
 }
 
-/// Run a built binary, forwarding whatever it printed **before** deciding
-/// whether it failed: a program's output belongs to the user either way.
+/// Run a built binary on the frontend's own streams.
+///
+/// `status()` leaves stdin, stdout, and stderr inherited, which is the whole
+/// point: capturing them instead would mean the program never receives typed
+/// input, its output arrives in one lump at exit rather than as it is
+/// produced, and a terminal query answers about a pipe. Interactive and
+/// full-screen programs need all three to be true.
 pub(crate) fn run_child_transparently(binary: &Path, args: &[String]) -> FrontendResult<()> {
-    let output = std::process::Command::new(binary)
+    // Whatever the frontend has already printed has to reach the terminal
+    // before the child starts writing to the same one.
+    flush_frontend_streams();
+
+    let status = std::process::Command::new(binary)
         .args(args)
-        .output()
+        .status()
         .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
-    forward_child_output(&output.stdout, &output.stderr);
-    if !output.status.success() {
+    if !status.success() {
         return Err(FrontendError::new(
             FrontendErrorKind::CommandFailed,
             format!(
                 "run command failed for '{}': status {}",
                 binary.display(),
-                output.status
+                status
             ),
         ));
     }

@@ -734,3 +734,54 @@ fn filesystem_hooks_list_and_read() {
     std::fs::remove_dir_all(root).ok();
     std::fs::remove_dir_all(staging).ok();
 }
+
+#[test]
+fn cli_run_hands_the_terminal_to_the_program_it_launches() {
+    // `fol code run` must not capture the child's streams. Capturing gives the
+    // program a null stdin, so anything interactive -- a prompt, a key reader,
+    // a full-screen TUI -- sees end of input immediately and can never work
+    // through the tool that is supposed to launch it.
+    let root = write_hosted_app(
+        "v3_run_stdin_forwarding",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   var key: int = std::io::read_key();\n\
+         \x20   std::io::echo_int(key);\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["--package-store-root"])
+        .arg(repo_root().join("lang/library"))
+        .args(["code", "run"])
+        .current_dir(&root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run should start the FOL CLI");
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .expect("run should expose a stdin pipe")
+            .write_all(b"A")
+            .expect("run should accept piped input");
+    }
+    let output = child.wait_with_output().expect("run should finish");
+
+    let stdout = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    assert!(
+        output.status.success(),
+        "run should succeed: stdout=\n{stdout}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // 65 is 'A'; -1 is the end-of-input a captured stdin would produce.
+    assert!(
+        stdout.contains("65"),
+        "the program should have received the byte typed into `fol code run`, got:\n{stdout}"
+    );
+}
