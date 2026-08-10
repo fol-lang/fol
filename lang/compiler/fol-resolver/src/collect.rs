@@ -243,6 +243,23 @@ fn insert_symbol(
     origin: Option<fol_parser::ast::SyntaxOrigin>,
 ) -> Result<SymbolId, ResolverError> {
     let canonical_name = fol_types::canonical_identifier_key(name);
+    // A declaration named for a keyword is accepted here and then unusable:
+    // every call site parses the keyword instead, so `fun report(...)` reports
+    // a routine-error-type complaint at the CALLER and never mentions the name.
+    // Refuse it where the name is introduced, which is where it can be fixed.
+    if let Some(keyword) = reserved_declaration_name(name, semantic_node(&item.node)) {
+        return Err(match origin {
+            Some(origin) => ResolverError::with_origin(
+                ResolverErrorKind::InvalidInput,
+                reserved_name_message(name, keyword),
+                origin,
+            ),
+            None => ResolverError::new(
+                ResolverErrorKind::InvalidInput,
+                reserved_name_message(name, keyword),
+            ),
+        });
+    }
     let duplicate_key = top_level_duplicate_key(semantic_node(&item.node), &canonical_name);
     if let Some(existing) = program
         .scope(scope_id)
@@ -356,6 +373,32 @@ fn collect_binding_names(pattern: &BindingPattern, output: &mut Vec<String>) {
             }
         }
     }
+}
+
+/// The keyword a declaration name collides with, if any.
+///
+/// Only a ROUTINE is affected: the keyword is what a call site parses, so a
+/// type or a binding named `Report` is untouched. The comparison is on the raw
+/// spelling rather than the case-folded key for the same reason -- `Report` is
+/// a different identifier from the lowercase keyword, and folding it in
+/// rejected every type in the tree that happened to be named for one.
+fn reserved_declaration_name(name: &str, node: &AstNode) -> Option<&'static str> {
+    if !matches!(
+        node,
+        AstNode::FunDecl { .. } | AstNode::ProDecl { .. } | AstNode::LogDecl { .. }
+    ) {
+        return None;
+    }
+    fol_lexer::token::buildin::DIAGNOSTIC_KEYWORDS
+        .iter()
+        .find(|keyword| **keyword == name)
+        .copied()
+}
+
+fn reserved_name_message(name: &str, keyword: &str) -> String {
+    format!(
+        "'{name}' cannot be declared: '{keyword}' is a diagnostic keyword, so every call site would parse the keyword instead of this declaration; rename it"
+    )
 }
 
 pub(crate) fn top_level_duplicate_key(node: &AstNode, canonical_name: &str) -> String {

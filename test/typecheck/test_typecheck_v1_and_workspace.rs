@@ -347,7 +347,7 @@ fn v1_boundary_rejects_generic_routine_constraints_in_all_supported_header_kinds
          pro apply(T: Bound)(value: T): T = {\n\
              return value;\n\
          };\n\
-         log check(T: Bound)(value: T): bol = {\n\
+         log verify(T: Bound)(value: T): bol = {\n\
              return true;\n\
          };\n",
     )]);
